@@ -1,21 +1,22 @@
 import '../../lib/components/Cards/InsightCard/InsightCard.scss'
 
+import posthog from 'posthog-js'
+
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import {
     ActivityChange,
     ActivityLogItem,
     ChangeMapping,
-    defaultDescriber,
     Description,
-    detectBoolean,
     HumanizedChange,
+    defaultDescriber,
+    detectBoolean,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
-import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { Link } from 'lib/lemon-ui/Link'
 import { areObjectValuesEmpty, pluralize } from 'lib/utils'
-import posthog from 'posthog-js'
 import { urls } from 'scenes/urls'
 
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
@@ -210,6 +211,7 @@ const insightActionsMapping: Record<
 
         return { description: [addedSentence, removedSentence], suffix: <></> }
     },
+    alerts: () => null,
     // fields that are excluded on the backend
     id: () => null,
     created_at: () => null,

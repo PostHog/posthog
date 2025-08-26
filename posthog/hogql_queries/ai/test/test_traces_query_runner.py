@@ -4,10 +4,8 @@ from typing import Any, Literal, TypedDict
 from uuid import UUID
 
 from freezegun import freeze_time
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, snapshot_clickhouse_queries
 
-from posthog.hogql_queries.ai.traces_query_runner import TracesQueryRunner
-from posthog.models import PropertyDefinition, Team
-from posthog.models.property_definition import PropertyType
 from posthog.schema import (
     DateRange,
     EventPropertyFilter,
@@ -17,13 +15,10 @@ from posthog.schema import (
     PropertyOperator,
     TracesQuery,
 )
-from posthog.test.base import (
-    BaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    snapshot_clickhouse_queries,
-)
+
+from posthog.hogql_queries.ai.traces_query_runner import TracesQueryRunner
+from posthog.models import PropertyDefinition, Team
+from posthog.models.property_definition import PropertyType
 
 
 class InputMessage(TypedDict):

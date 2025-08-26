@@ -1,8 +1,10 @@
-from django.db import models
-from django.core.signing import TimestampSigner, SignatureExpired, BadSignature
-from typing import Optional
-from posthog.models.utils import UUIDModel
 import uuid
+from typing import Optional
+
+from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
+from django.db import models
+
+from posthog.models.utils import UUIDTModel
 
 ALL_MESSAGE_PREFERENCE_CATEGORY_ID = "$all"
 
@@ -13,7 +15,7 @@ class PreferenceStatus(models.TextChoices):
     NO_PREFERENCE = "NO_PREFERENCE"
 
 
-class MessageRecipientPreference(UUIDModel):
+class MessageRecipientPreference(UUIDTModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

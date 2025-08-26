@@ -1,16 +1,17 @@
+import dataclasses
 from typing import Optional, TypeVar
 
-import dataclasses
 from dateutil.parser import isoparse
+
+from posthog.schema import HogQLFilters, SessionPropertyFilter
 
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.visitor import CloningVisitor
-from posthog.models import Team
-from posthog.schema import HogQLFilters, SessionPropertyFilter
-from posthog.utils import relative_date_parse
 
+from posthog.models import Team
+from posthog.utils import relative_date_parse
 
 T = TypeVar("T", bound=ast.Expr)
 

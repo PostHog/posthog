@@ -1,11 +1,10 @@
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+
 from django.test import override_settings
+
 from langchain_core.agents import AgentAction
 from langchain_core.prompts import AIMessagePromptTemplate, HumanMessagePromptTemplate
 
-from ee.hogai.graph.query_planner.nodes import QueryPlannerNode, QueryPlannerToolsNode
-from ee.hogai.graph.query_planner.toolkit import TaxonomyAgentToolkit
-from ee.hogai.utils.types import AssistantState
-from posthog.models import GroupTypeMapping
 from posthog.schema import (
     AssistantMessage,
     AssistantToolCallMessage,
@@ -14,7 +13,12 @@ from posthog.schema import (
     HumanMessage,
     VisualizationMessage,
 )
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+from ee.hogai.graph.query_planner.nodes import QueryPlannerNode, QueryPlannerToolsNode
+from ee.hogai.graph.query_planner.toolkit import TaxonomyAgentToolkit
+from ee.hogai.utils.types import AssistantState
 
 
 class DummyToolkit(TaxonomyAgentToolkit):
@@ -116,8 +120,12 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
     # The current implementation uses a different approach for prompt formatting
 
     def test_property_filters_prompt(self):
-        GroupTypeMapping.objects.create(team=self.team, project=self.project, group_type="org", group_type_index=0)
-        GroupTypeMapping.objects.create(team=self.team, project=self.project, group_type="account", group_type_index=1)
+        create_group_type_mapping_without_created_at(
+            team=self.team, project=self.project, group_type="org", group_type_index=0
+        )
+        create_group_type_mapping_without_created_at(
+            team=self.team, project=self.project, group_type="account", group_type_index=1
+        )
         node = self._get_node()
         prompt = node._get_react_property_filters_prompt()
         self.assertIn("org, account.", prompt)

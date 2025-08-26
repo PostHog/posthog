@@ -1,15 +1,17 @@
-import { IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { isTextSelection } from '@tiptap/core'
 import { BubbleMenu } from '@tiptap/react/menus'
 import { useValues } from 'kea'
-import { IconBold, IconItalic, IconLink, IconOpenInNew } from 'lib/lemon-ui/icons'
-import { isURL } from 'lib/utils'
 import { useRef } from 'react'
 
-import NotebookIconHeading from './NotebookIconHeading'
+import { IconTrash } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
+
 import { richContentEditorLogic } from 'lib/components/RichContentEditor/richContentEditorLogic'
 import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
+import { IconBold, IconItalic, IconLink, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { isURL } from 'lib/utils'
+
+import NotebookIconHeading from './NotebookIconHeading'
 
 export const InlineMenu = ({
     extra = () => null,

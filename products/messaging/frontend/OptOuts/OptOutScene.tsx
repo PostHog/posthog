@@ -1,10 +1,13 @@
-import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { IconExternal } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { userLogic } from 'scenes/userLogic'
+
 import { OptOutCategories } from './OptOutCategories'
 import { OptOutList } from './OptOutList'
 import { optOutSceneLogic } from './optOutSceneLogic'
-import { IconExternal } from '@posthog/icons'
 
 export function OptOutScene(): JSX.Element {
     const { user } = useValues(userLogic)

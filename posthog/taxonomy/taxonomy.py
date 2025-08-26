@@ -2148,6 +2148,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Visited page",
             "description": "URL a user visited during their session",
         },
+        "comment_text": {
+            "label": "Comment text",
+            "description": "Search for text within comments on the recording",
+        },
         "click_count": {
             "label": "Clicks",
             "description": "Number of clicks during the session",

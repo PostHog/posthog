@@ -1,21 +1,22 @@
 from decimal import Decimal
 from functools import cached_property
 
+from posthog.schema import (
+    CachedRevenueAnalyticsMetricsQueryResponse,
+    HogQLQueryResponse,
+    RevenueAnalyticsMetricsQuery,
+    RevenueAnalyticsMetricsQueryResponse,
+)
+
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
-from posthog.schema import (
-    HogQLQueryResponse,
-    CachedRevenueAnalyticsMetricsQueryResponse,
-    RevenueAnalyticsMetricsQueryResponse,
-    RevenueAnalyticsMetricsQuery,
-)
+
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date
+from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
 
 from products.revenue_analytics.backend.views import RevenueAnalyticsRevenueItemView, RevenueAnalyticsSubscriptionView
 
-from .revenue_analytics_query_runner import (
-    RevenueAnalyticsQueryRunner,
-)
+from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
 
 KINDS = [
     "Subscription Count",
@@ -29,9 +30,8 @@ KINDS = [
 ]
 
 
-class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner):
+class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalyticsMetricsQueryResponse]):
     query: RevenueAnalyticsMetricsQuery
-    response: RevenueAnalyticsMetricsQueryResponse
     cached_response: CachedRevenueAnalyticsMetricsQueryResponse
 
     def to_query(self) -> ast.SelectQuery:
@@ -151,22 +151,31 @@ class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner):
                                 left=ast.Field(chain=["customer_count"]),
                                 right=ast.Constant(value=0),
                             ),
-                            ast.Constant(value=0),
+                            ast.Call(
+                                name="toDecimal",
+                                args=[ast.Constant(value=0), ast.Constant(value=EXCHANGE_RATE_DECIMAL_PRECISION)],
+                            ),
                             ast.CompareOperation(
                                 op=ast.CompareOperationOp.Eq,
                                 left=ast.Field(chain=["churned_customer_count"]),
                                 right=ast.Constant(value=0),
                             ),
-                            ast.Constant(value=float("nan")),
+                            ast.Constant(value=None),
                             ast.Call(
-                                name="divide",
+                                name="divideDecimal",
                                 args=[
                                     ast.Field(chain=["arpu"]),
                                     ast.Call(
-                                        name="divide",
+                                        name="toDecimal",
                                         args=[
-                                            ast.Field(chain=["churned_customer_count"]),
-                                            ast.Field(chain=["customer_count"]),
+                                            ast.Call(
+                                                name="divide",
+                                                args=[
+                                                    ast.Field(chain=["churned_customer_count"]),
+                                                    ast.Field(chain=["customer_count"]),
+                                                ],
+                                            ),
+                                            ast.Constant(value=EXCHANGE_RATE_DECIMAL_PRECISION),
                                         ],
                                     ),
                                 ],

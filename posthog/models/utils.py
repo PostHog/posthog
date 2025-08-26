@@ -1,24 +1,24 @@
-import datetime
 import re
-import secrets
-import string
 import uuid
+import string
+import secrets
+import datetime
 from collections import defaultdict, namedtuple
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from time import time, time_ns
 from typing import TYPE_CHECKING, Any, Optional, TypeVar, Union
-from collections.abc import Iterable
-from collections.abc import Callable, Iterator
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connections, models, transaction
-from django.db.backends.utils import CursorWrapper
 from django.db.backends.ddl_references import Statement
+from django.db.backends.utils import CursorWrapper
 from django.db.models import Q, UniqueConstraint
 from django.db.models.constraints import BaseConstraint
 from django.utils.text import slugify
 
 from posthog.constants import MAX_SLUG_LENGTH
+from posthog.hogql import ast
 
 if TYPE_CHECKING:
     from random import Random
@@ -167,7 +167,24 @@ class DeletedMetaFields(models.Model):
 
 
 class UUIDModel(models.Model):
-    """Base Django Model with default autoincremented ID field replaced with UUIDT."""
+    """
+    Base Django Model with default autoincremented ID field replaced with UUID7.
+    """
+
+    id: models.UUIDField = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+
+    class Meta:
+        abstract = True
+
+
+class UUIDTModel(models.Model):
+    """
+    Deprecated, you probably want to use UUIDModel instead. As of May 2024 the latest RFC with the UUIv7 spec is at
+    Proposed Standard (see RFC9562 https://www.rfc-editor.org/rfc/rfc9562#name-uuid-version-7). This class was written
+    well before that, is still in use in PostHog, but should not be used for new models.
+
+    Base Django Model with default autoincremented ID field replaced with UUIDT.
+    """
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
@@ -175,13 +192,45 @@ class UUIDModel(models.Model):
         abstract = True
 
 
-class UUIDClassicModel(models.Model):
+class UUIDTClassicModel(models.Model):
     """Base Django Model with default autoincremented ID field kept and a UUIDT field added."""
 
     uuid = models.UUIDField(unique=True, default=UUIDT, editable=False)
 
     class Meta:
         abstract = True
+
+
+class BytecodeModelMixin(models.Model):
+    bytecode = models.JSONField(blank=True, null=True)
+    bytecode_error = models.TextField(blank=True, null=True)
+
+    class Meta:
+        abstract = True
+
+    def save(self, *args, **kwargs):
+        self._refresh_bytecode()
+        super().save(*args, **kwargs)
+
+    def _refresh_bytecode(self):
+        from posthog.hogql.compiler.bytecode import create_bytecode
+        from posthog.hogql.errors import BaseHogQLError
+
+        try:
+            expr = self.get_expr()
+            new_bytecode = create_bytecode(expr).bytecode
+            if new_bytecode != self.bytecode or self.bytecode_error is None:
+                self.bytecode = new_bytecode
+                self.bytecode_error = None
+        except BaseHogQLError as e:
+            # There are several known cases when bytecode generation can fail.
+            # Instead of spamming with errors, ignore those cases for now.
+            if self.bytecode or self.bytecode_error != str(e):
+                self.bytecode = None
+                self.bytecode_error = str(e)
+
+    def get_expr(self) -> ast.Expr:
+        raise NotImplementedError()
 
 
 def sane_repr(*attrs: str, include_id=True) -> Callable[[object], str]:
@@ -376,8 +425,9 @@ def validate_rate_limit(value):
 
 class RootTeamQuerySet(models.QuerySet):
     def filter(self, *args, **kwargs):
-        from posthog.models.team import Team
         from django.db.models import Q, Subquery
+
+        from posthog.models.team import Team
 
         # TODO: Handle team as a an object as well
 

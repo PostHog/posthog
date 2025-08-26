@@ -1,11 +1,14 @@
 from datetime import datetime, timedelta
+
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, override_settings
 from unittest.mock import patch
 
-from django.urls import reverse
-from freezegun import freeze_time
-from rest_framework import status
 from django.conf import settings
 from django.core.cache import cache
+from django.urls import reverse
+
+from rest_framework import status
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
@@ -14,7 +17,6 @@ from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import SITE_URL
-from posthog.test.base import APIBaseTest, override_settings
 
 
 class TestAccessMiddleware(APIBaseTest):

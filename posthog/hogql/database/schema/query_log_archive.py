@@ -2,18 +2,21 @@ from typing import Any
 
 from posthog.hogql import ast
 from posthog.hogql.database.models import (
-    IntegerDatabaseField,
-    StringDatabaseField,
-    DateTimeDatabaseField,
-    LazyTable,
-    FieldOrTable,
-    LazyTableToAdd,
     BooleanDatabaseField,
     DatabaseField,
+    DateDatabaseField,
+    DateTimeDatabaseField,
+    FieldOrTable,
+    IntegerDatabaseField,
+    LazyTable,
+    LazyTableToAdd,
+    StringDatabaseField,
     Table,
 )
 
 QUERY_LOG_ARCHIVE_FIELDS: dict[str, FieldOrTable] = {
+    "event_date": DateDatabaseField(name="event_date", nullable=False),
+    "event_time": DateTimeDatabaseField(name="event_time", nullable=False),
     "query_id": StringDatabaseField(name="query_id", nullable=False),
     "endpoint": StringDatabaseField(name="lc_id", nullable=False),
     "query": StringDatabaseField(name="lc_query__query", nullable=False),
@@ -109,6 +112,8 @@ class QueryLogArchiveTable(LazyTable):
 
 class RawQueryLogArchiveTable(Table):
     fields: dict[str, FieldOrTable] = {
+        "event_date": DateDatabaseField(name="event_date", nullable=False),
+        "event_time": DateTimeDatabaseField(name="event_time", nullable=False),
         "team_id": IntegerDatabaseField(name="team_id", nullable=False),
         "query_id": StringDatabaseField(name="query_id", nullable=False),
         "lc_id": StringDatabaseField(name="lc_id", nullable=False),

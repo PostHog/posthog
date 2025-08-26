@@ -1,7 +1,14 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { dayjs } from 'lib/dayjs'
-import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { useState } from 'react'
+
+import { IconGraph } from '@posthog/icons'
+import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { IconSwapHoriz } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { InsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -16,15 +23,14 @@ import { QueryContext } from '~/queries/types'
 import { GraphDataset } from '~/types'
 
 import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
-import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
-import { IconSwapHoriz } from 'lib/lemon-ui/icons'
+import { MRRBreakdownModal, mrrBreakdownModalLogic } from './modals'
 import {
     AlphaTag,
     DISPLAY_MODE_OPTIONS,
-    extractLabelAndDatasets,
     RevenueAnalyticsLineGraph,
     TileProps,
     TileWrapper,
+    extractLabelAndDatasets,
 } from './shared'
 
 let uniqueNode = 0
@@ -49,18 +55,21 @@ export function RevenueAnalyticsRevenueNode(props: {
     return (
         <BindLogic logic={insightLogic} props={props.context.insightProps ?? {}}>
             <BindLogic logic={insightVizDataLogic} props={props.context.insightProps ?? {}}>
-                <MRRTile
-                    response={response as RevenueAnalyticsRevenueQueryResponse}
-                    responseLoading={responseLoading}
-                    queryId={queryId ?? ''}
-                    context={props.context}
-                />
-                <GrossRevenueTile
-                    response={response as RevenueAnalyticsRevenueQueryResponse}
-                    responseLoading={responseLoading}
-                    queryId={queryId ?? ''}
-                    context={props.context}
-                />
+                <BindLogic logic={mrrBreakdownModalLogic} props={{}}>
+                    <MRRTile
+                        response={response as RevenueAnalyticsRevenueQueryResponse}
+                        responseLoading={responseLoading}
+                        queryId={queryId ?? ''}
+                        context={props.context}
+                    />
+                    <GrossRevenueTile
+                        response={response as RevenueAnalyticsRevenueQueryResponse}
+                        responseLoading={responseLoading}
+                        queryId={queryId ?? ''}
+                        context={props.context}
+                    />
+                    <MRRBreakdownModal />
+                </BindLogic>
             </BindLogic>
         </BindLogic>
     )
@@ -154,12 +163,19 @@ const MRRTile = ({
 }: TileProps<RevenueAnalyticsRevenueQueryResponse>): JSX.Element => {
     const { baseCurrency, groupBy, mrrMode } = useValues(revenueAnalyticsLogic)
     const { setMRRMode } = useActions(revenueAnalyticsLogic)
+    const { openModal } = useActions(mrrBreakdownModalLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { isPrefix, symbol: currencySymbol } = getCurrencySymbol(baseCurrency)
 
-    const results = (response?.results?.mrr as GraphDataset[]) ?? []
-
+    const results = (response?.results?.mrr.map((mrr) => mrr.total) as GraphDataset[]) ?? []
     const { labels, datasets } = extractLabelAndDatasets(results)
+
+    const handleBreakdownClick = (): void => {
+        if (response) {
+            openModal(response.results.mrr)
+        }
+    }
 
     const mappedDatasets: GraphDataset[] = datasets.map((dataset) => ({
         ...dataset,
@@ -189,8 +205,26 @@ const MRRTile = ({
             }
             tooltip="MRR is the total amount of recurring revenue generated from all sources, including all products and services in the last 30 days. ARR is that value multiplied by 12."
             extra={
-                <span className="flex items-center">
+                <span className="flex items-center gap-2">
                     <AlphaTag />
+                    {featureFlags[FEATURE_FLAGS.MRR_BREAKDOWN_REVENUE_ANALYTICS] && (
+                        <LemonButton
+                            icon={<IconGraph />}
+                            onClick={handleBreakdownClick}
+                            tooltip="View MRR breakdown"
+                            type="secondary"
+                            size="small"
+                            disabledReason={
+                                responseLoading
+                                    ? 'Waiting for data...'
+                                    : datasets.length === 0
+                                      ? 'No data available'
+                                      : undefined
+                            }
+                        >
+                            MRR Breakdown
+                        </LemonButton>
+                    )}
                 </span>
             }
         >

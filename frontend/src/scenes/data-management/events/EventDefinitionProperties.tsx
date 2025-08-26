@@ -1,8 +1,11 @@
-import { LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonTag } from '@posthog/lemon-ui'
+
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PROPERTY_DEFINITIONS_PER_EVENT } from 'lib/constants'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -11,7 +14,6 @@ import { urls } from 'scenes/urls'
 import { EventDefinition, PropertyDefinition } from '~/types'
 
 import { DefinitionHeader } from './DefinitionHeader'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 export function EventDefinitionProperties({ definition }: { definition: EventDefinition }): JSX.Element {
     const { loadPropertiesForEvent } = useActions(eventDefinitionsTableLogic)

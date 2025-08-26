@@ -1,19 +1,21 @@
+import { useActions, useValues } from 'kea'
+
 import { IconMegaphone, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonTable, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { SidePanelTab } from '~/types'
-import { AvailableFeature, HogFunctionTypeType, PipelineStage } from '~/types'
+import { AvailableFeature, HogFunctionTypeType, PipelineStage, SidePanelTab } from '~/types'
 
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
+import { DestinationTag } from './DestinationTag'
 import { DestinationsFilters } from './DestinationsFilters'
 import { destinationsFiltersLogic } from './destinationsFiltersLogic'
-import { DestinationTag } from './DestinationTag'
 import { getDestinationDocPath, newDestinationsLogic } from './newDestinationsLogic'
 
 export interface NewDestinationsProps {
@@ -21,9 +23,12 @@ export interface NewDestinationsProps {
 }
 
 export function NewDestinations({ types }: NewDestinationsProps): JSX.Element {
+    const hasNewPricing = !!useFeatureFlag('CDP_NEW_PRICING')
     return (
         <div className="deprecated-space-y-2">
-            {types.includes('destination') ? <PayGateMini feature={AvailableFeature.DATA_PIPELINES} /> : null}
+            {types.includes('destination') && !hasNewPricing ? (
+                <PayGateMini feature={AvailableFeature.DATA_PIPELINES} />
+            ) : null}
             <DestinationsFilters types={types} hideShowPaused />
             <DestinationOptionsTable types={types} />
         </div>

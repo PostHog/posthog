@@ -1,3 +1,5 @@
+import React, { CSSProperties } from 'react'
+
 import {
     IconAI,
     IconApp,
@@ -5,6 +7,7 @@ import {
     IconBook,
     IconCalendar,
     IconChevronRight,
+    IconCode,
     IconCursor,
     IconDatabase,
     IconFunnels,
@@ -24,9 +27,9 @@ import {
     IconUserPaths,
     IconWarning,
 } from '@posthog/icons'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCohort } from 'lib/lemon-ui/icons'
-import React, { CSSProperties } from 'react'
 import { urls } from 'scenes/urls'
 
 import {
@@ -43,6 +46,10 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     ai: {
         icon: <IconAI />,
         iconColor: ['var(--color-product-max-ai-light)'],
+    },
+    code: {
+        icon: <IconCode />,
+        iconColor: ['var(--color-product-mcp-server-light)', 'var(--color-product-mcp-server-dark)'],
     },
     cursor: {
         icon: <IconCursor />,
@@ -320,6 +327,12 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             type: 'notebook',
             href: urls.notebooks(),
         },
+        {
+            path: 'MCP Server',
+            category: 'Tools',
+            iconType: 'code',
+            href: 'https://posthog.com/docs/model-context-protocol',
+        } as FileSystemImport,
         {
             path: `Data pipelines`,
             category: 'Tools',

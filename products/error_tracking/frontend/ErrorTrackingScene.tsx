@@ -1,32 +1,35 @@
+import { BindLogic, useValues } from 'kea'
+import { posthog } from 'posthog-js'
+
 import { IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, Link, Tooltip } from '@posthog/lemon-ui'
-import { BindLogic, useValues } from 'kea'
+
 import { PageHeader } from 'lib/components/PageHeader'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyLargeNumber } from 'lib/utils'
-import { posthog } from 'posthog-js'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { Query } from '~/queries/Query/Query'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 
-import { ErrorFilters } from './components/ErrorFilters'
-import { errorIngestionLogic } from './components/ErrorTrackingSetupPrompt/errorIngestionLogic'
-import { ErrorTrackingSetupPrompt } from './components/ErrorTrackingSetupPrompt/ErrorTrackingSetupPrompt'
-import { errorTrackingDataNodeLogic } from './errorTrackingDataNodeLogic'
 import { ErrorTrackingListOptions } from './ErrorTrackingListOptions'
+import { OccurrenceSparkline } from './OccurrenceSparkline'
+import { ErrorFilters } from './components/ErrorFilters'
+import { ErrorTrackingSetupPrompt } from './components/ErrorTrackingSetupPrompt/ErrorTrackingSetupPrompt'
+import { errorIngestionLogic } from './components/ErrorTrackingSetupPrompt/errorIngestionLogic'
+import { ErrorTrackingIssueFilteringTool } from './components/IssueFilteringTool'
+import { ErrorTrackingIssueImpactTool } from './components/IssueImpactTool'
+import { IssueListTitleColumn, IssueListTitleHeader } from './components/TableColumns'
+import { errorTrackingDataNodeLogic } from './errorTrackingDataNodeLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 import { useSparklineData } from './hooks/use-sparkline-data'
-import { OccurrenceSparkline } from './OccurrenceSparkline'
 import { ERROR_TRACKING_LISTING_RESOLUTION } from './utils'
-import { ErrorTrackingSceneTool } from './components/SceneTool'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { IssueListTitleHeader, IssueListTitleColumn } from './components/TableColumns'
 
 export const scene: SceneExport = {
     component: ErrorTrackingScene,
@@ -62,7 +65,8 @@ export function ErrorTrackingScene(): JSX.Element {
     // TODO - fix feature flag check once the feature flag is created etc
     return (
         <ErrorTrackingSetupPrompt>
-            {featureFlags[FEATURE_FLAGS.ERROR_TRACKING_SCENE_TOOL] && <ErrorTrackingSceneTool />}
+            <ErrorTrackingIssueFilteringTool />
+            {featureFlags[FEATURE_FLAGS.ERROR_TRACKING_IMPACT_MAX_TOOL] && <ErrorTrackingIssueImpactTool />}
             <div className="ErrorTracking">
                 <BindLogic logic={errorTrackingDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
                     <Header />
@@ -102,9 +106,9 @@ const VolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName }) =>
     )
 }
 
-const TitleHeader: QueryContextColumnTitleComponent = (props): JSX.Element => {
+const TitleHeader: QueryContextColumnTitleComponent = (): JSX.Element => {
     const { results } = useValues(errorTrackingDataNodeLogic)
-    return <IssueListTitleHeader results={results} {...props} />
+    return <IssueListTitleHeader results={results} />
 }
 
 const TitleColumn: QueryContextColumnComponent = (props): JSX.Element => {

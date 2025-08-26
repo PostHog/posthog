@@ -1,27 +1,31 @@
 from typing import cast
-from unittest.mock import AsyncMock, patch, Mock
 from uuid import uuid4
+
+from posthog.test.base import BaseTest
+from unittest.mock import AsyncMock, Mock, patch
+
+from temporalio.client import WorkflowExecutionStatus
+
+from posthog.schema import AssistantEventType, AssistantMessage, HumanMessage
+
+from posthog.constants import MAX_AI_TASK_QUEUE
+from posthog.temporal.ai.conversation import (
+    AssistantConversationRunnerWorkflow,
+    AssistantConversationRunnerWorkflowInputs,
+)
 
 from ee.hogai.stream.conversation_stream import ConversationStreamManager
 from ee.hogai.stream.redis_stream import (
+    ConversationEvent,
     ConversationRedisStream,
+    MessageEvent,
+    StatusEvent,
+    StatusPayload,
     StreamError,
     StreamEvent,
-    MessageEvent,
-    StatusPayload,
-    StatusEvent,
-    ConversationEvent,
 )
 from ee.hogai.utils.types import AssistantMode
 from ee.models.assistant import Conversation
-from posthog.constants import MAX_AI_TASK_QUEUE
-from posthog.schema import AssistantEventType, AssistantMessage, HumanMessage
-from posthog.temporal.ai.conversation import (
-    AssistantConversationRunnerWorkflowInputs,
-    AssistantConversationRunnerWorkflow,
-)
-from posthog.test.base import BaseTest
-from temporalio.client import WorkflowExecutionStatus
 
 
 class TestConversationStreamManager(BaseTest):

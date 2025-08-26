@@ -1,22 +1,22 @@
 from typing import cast
 
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
 from posthog.schema import (
     CachedRevenueAnalyticsTopCustomersQueryResponse,
-    RevenueAnalyticsTopCustomersQueryResponse,
-    RevenueAnalyticsTopCustomersQuery,
     ResolvedDateRangeResponse,
+    RevenueAnalyticsTopCustomersQuery,
+    RevenueAnalyticsTopCustomersQueryResponse,
 )
 
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
+
+from products.revenue_analytics.backend.views import RevenueAnalyticsCustomerView, RevenueAnalyticsRevenueItemView
+
 from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
-from products.revenue_analytics.backend.views.revenue_analytics_customer_view import RevenueAnalyticsCustomerView
-from products.revenue_analytics.backend.views.revenue_analytics_revenue_item_view import RevenueAnalyticsRevenueItemView
 
 
-class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner):
+class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalyticsTopCustomersQueryResponse]):
     query: RevenueAnalyticsTopCustomersQuery
-    response: RevenueAnalyticsTopCustomersQueryResponse
     cached_response: CachedRevenueAnalyticsTopCustomersQueryResponse
 
     def to_query(self) -> ast.SelectQuery:

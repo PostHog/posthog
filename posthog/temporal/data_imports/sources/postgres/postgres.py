@@ -1,21 +1,21 @@
 from __future__ import annotations
 
-import collections
-from contextlib import _GeneratorContextManager
 import math
-from collections.abc import Iterator
+import collections
+from collections.abc import Callable, Iterator
+from contextlib import _GeneratorContextManager
 from typing import Any, LiteralString, Optional, cast
-from collections.abc import Callable
 
 import psycopg
 import pyarrow as pa
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from psycopg import sql
 from psycopg.adapt import Loader
+from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
+from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_NUMERIC_PRECISION,
@@ -27,7 +27,6 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     table_from_iterator,
 )
 from posthog.temporal.data_imports.sources.common.sql import Column, Table
-from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
 from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
 
 
@@ -273,7 +272,7 @@ def _has_duplicate_primary_keys(
 def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, logger: FilteringBoundLogger) -> int:
     try:
         query = sql.SQL("""
-            SELECT SUM(pg_column_size(t.*)) / COUNT(t.*) FROM ({}) as t
+            SELECT SUM(pg_column_size(t)) / COUNT(*) FROM ({}) as t
         """).format(inner_query)
 
         cursor.execute(query)
@@ -305,7 +304,7 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
 def _get_rows_to_sync(cursor: psycopg.Cursor, inner_query: sql.Composed, logger: FilteringBoundLogger) -> int:
     try:
         query = sql.SQL("""
-            SELECT COUNT(t.*) FROM ({}) as t
+            SELECT COUNT(*) FROM ({}) as t
         """).format(inner_query)
 
         cursor.execute(query)

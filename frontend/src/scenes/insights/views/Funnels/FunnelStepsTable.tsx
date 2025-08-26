@@ -1,17 +1,19 @@
+import { useActions, useValues } from 'kea'
+import { compare as compareFn } from 'natural-orderby'
+
 import { IconFlag } from '@posthog/icons'
 import { LemonColorButton } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonTable, LemonTableColumn, LemonTableColumnGroup } from 'lib/lemon-ui/LemonTable'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
-import { compare as compareFn } from 'natural-orderby'
+import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
 import { getVisibilityKey } from 'scenes/funnels/funnelUtils'
-import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
@@ -34,7 +36,6 @@ export function FunnelStepsTable(): JSX.Element | null {
     )
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
     const { openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
-    const { hasInsightColors } = useValues(resultCustomizationsModalLogic(insightProps))
     const { openModal } = useActions(resultCustomizationsModalLogic(insightProps))
 
     const isOnlySeries = flattenedBreakdowns.length <= 1
@@ -54,7 +55,7 @@ export function FunnelStepsTable(): JSX.Element | null {
     in by experiments as a measure of detecting wether we are in an experiment context.
     Likely this can be done in a better way once experiments are re-written to use their own
     queries. */
-    const showCustomizationIcon = hasInsightColors && !insightProps.cachedInsight?.disable_baseline
+    const showCustomizationIcon = !insightProps.cachedInsight?.disable_baseline
 
     const columnsGrouped = [
         {

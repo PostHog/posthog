@@ -1,6 +1,7 @@
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { PERCENT_STACK_VIEW_DISPLAY_TYPE } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { getAppContext } from 'lib/utils/getAppContext'
 
 import {
     ActionsNode,
@@ -8,10 +9,10 @@ import {
     BreakdownFilter,
     CalendarHeatmapQuery,
     CompareFilter,
-    DatabaseSchemaQuery,
     DataTableNode,
     DataVisualizationNode,
     DataWarehouseNode,
+    DatabaseSchemaQuery,
     DateRange,
     ErrorTrackingIssueCorrelationQuery,
     ErrorTrackingQuery,
@@ -40,6 +41,8 @@ import {
     QuerySchema,
     QueryStatusResponse,
     ResultCustomizationBy,
+    ResultCustomizationByPosition,
+    ResultCustomizationByValue,
     RetentionQuery,
     RevenueAnalyticsGrowthRateQuery,
     RevenueAnalyticsMetricsQuery,
@@ -63,7 +66,6 @@ import {
 import { BaseMathType, ChartDisplayType, IntervalType } from '~/types'
 
 import { LATEST_VERSIONS } from './latest-versions'
-import { getAppContext } from 'lib/utils/getAppContext'
 
 export function isDataNode(node?: Record<string, any> | null): node is EventsQuery | PersonsNode {
     return (
@@ -482,6 +484,28 @@ export const getShowMultipleYAxes = (query: InsightQueryNode): boolean | undefin
 export const getResultCustomizationBy = (query: InsightQueryNode): ResultCustomizationBy | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.resultCustomizationBy
+    } else if (isStickinessQuery(query)) {
+        return query.stickinessFilter?.resultCustomizationBy
+    }
+    return undefined
+}
+
+export function getResultCustomizations(query: FunnelsQuery): Record<string, ResultCustomizationByValue> | undefined
+export function getResultCustomizations(
+    query: TrendsQuery | StickinessQuery
+): Record<number, ResultCustomizationByPosition> | undefined
+export function getResultCustomizations(
+    query: InsightQueryNode
+): Record<string, ResultCustomizationByValue> | Record<number, ResultCustomizationByPosition> | undefined
+export function getResultCustomizations(
+    query: InsightQueryNode
+): Record<string, ResultCustomizationByValue> | Record<number, ResultCustomizationByPosition> | undefined {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.resultCustomizations
+    } else if (isStickinessQuery(query)) {
+        return query.stickinessFilter?.resultCustomizations
+    } else if (isFunnelsQuery(query)) {
+        return query.funnelsFilter?.resultCustomizations
     }
     return undefined
 }
@@ -489,7 +513,10 @@ export const getResultCustomizationBy = (query: InsightQueryNode): ResultCustomi
 export const getGoalLines = (query: InsightQueryNode): GoalLine[] | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.goalLines
+    } else if (isFunnelsQuery(query)) {
+        return query.funnelsFilter?.goalLines
     }
+
     return undefined
 }
 

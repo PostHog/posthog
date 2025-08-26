@@ -1,3 +1,9 @@
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
+import React, { useEffect, useMemo, useState } from 'react'
+import { twMerge } from 'tailwind-merge'
+
 import {
     IconCheck,
     IconCollapse,
@@ -20,28 +26,27 @@ import {
     ProfilePicture,
     Tooltip,
 } from '@posthog/lemon-ui'
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+
 import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import posthog from 'posthog-js'
-import React, { useEffect, useMemo, useState } from 'react'
-import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { NotebookTarget } from 'scenes/notebooks/types'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
-import { twMerge } from 'tailwind-merge'
 
+import { openNotebook } from '~/models/notebooksModel'
 import { Query } from '~/queries/Query/Query'
 import {
     AssistantForm,
     AssistantMessage,
     AssistantToolCallMessage,
     FailureMessage,
-    VisualizationMessage,
     NotebookUpdateMessage,
+    VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
@@ -50,22 +55,19 @@ import { ProductKey } from '~/types'
 import { ContextSummary } from './Context'
 import { MarkdownMessage } from './MarkdownMessage'
 import { maxGlobalLogic } from './maxGlobalLogic'
-import { maxLogic, MessageStatus, ThreadMessage } from './maxLogic'
+import { MessageStatus, ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
+import { MAX_SLASH_COMMANDS } from './slash-commands'
 import {
     castAssistantQuery,
     isAssistantMessage,
     isAssistantToolCallMessage,
     isFailureMessage,
     isHumanMessage,
+    isNotebookUpdateMessage,
     isReasoningMessage,
     isVisualizationMessage,
-    isNotebookUpdateMessage,
 } from './utils'
-import { supportLogic } from 'lib/components/Support/supportLogic'
-import { MAX_SLASH_COMMANDS } from './slash-commands'
-import { openNotebook } from '~/models/notebooksModel'
-import { NotebookTarget } from 'scenes/notebooks/types'
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
@@ -145,10 +147,9 @@ interface MessageGroupProps {
 
 function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): JSX.Element {
     const { user } = useValues(userLogic)
-    const { tools } = useValues(maxGlobalLogic)
+    const { editInsightToolRegistered } = useValues(maxGlobalLogic)
 
     const groupType = messages[0].type === 'human' ? 'human' : 'ai'
-    const isEditingInsight = tools?.some((tool) => tool.identifier === 'create_and_query_insight')
 
     return (
         <MessageGroupContainer groupType={groupType}>
@@ -233,7 +234,7 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                                 key={messageIndex}
                                 message={message}
                                 status={message.status}
-                                isEditingInsight={isEditingInsight}
+                                isEditingInsight={editInsightToolRegistered}
                             />
                         )
                     } else if (isReasoningMessage(message)) {
@@ -337,7 +338,7 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
     const retriable = !!(interactable && isFinalGroup)
 
     const action = (() => {
-        if (message.status !== 'completed') {
+        if (message.status !== 'completed' && !isFailureMessage(message)) {
             return null
         }
 
@@ -589,7 +590,7 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
             message: [
                 feedback,
                 '\nℹ️ This ticket was created automatically when a user gave thumbs down feedback to Max AI.',
-                `Trace: https://us.posthog.com/project/2/llm-observability/traces/${traceId}`,
+                `Trace: https://us.posthog.com/project/2/llm-analytics/traces/${traceId}`,
             ].join('\n'),
         })
     }
@@ -627,12 +628,14 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
                 {(user?.is_staff || location.hostname === 'localhost') && traceId && (
                     <LemonButton
                         to={`${
-                            location.hostname !== 'localhost' ? 'https://us.posthog.com/project/2' : ''
-                        }${urls.llmObservabilityTrace(traceId)}`}
+                            location.hostname !== 'localhost'
+                                ? 'https://us.posthog.com/project/2'
+                                : `${window.location.origin}/project/2`
+                        }${urls.llmAnalyticsTrace(traceId)}`}
                         icon={<IconEye />}
                         type="tertiary"
                         size="xsmall"
-                        tooltip="View trace in LLM observability"
+                        tooltip="View trace in LLM analytics"
                         targetBlank
                     />
                 )}
