@@ -483,6 +483,7 @@ def login_from_new_device_notification(
 
     login_time_str = login_time.strftime("%B %-d, %Y at %H:%M UTC")
     country = get_geoip_properties(ip_address).get("$geoip_country_name", "Unknown")
+    city = get_geoip_properties(ip_address).get("$geoip_city_name", "Unknown")
 
     is_new_device = check_and_cache_login_device(user_id, country, short_user_agent)
     if not is_new_device:
@@ -510,7 +511,8 @@ def login_from_new_device_notification(
         event="login notification sent",
         properties={
             "ip_address": ip_address,
-            "location": country,
+            "geoip_country": country,
+            "geoip_city": city,
             "short_user_agent": short_user_agent,
         },
         groups=groups(user.current_organization, user.current_team),
