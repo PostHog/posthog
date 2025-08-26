@@ -410,7 +410,6 @@ impl DeduplicationStore {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1109,17 +1108,17 @@ mod tests {
     #[test]
     fn test_flush_method() {
         let (store, _temp_dir) = create_test_store(None);
-        
+
         // Add some events
         let event1 = create_test_raw_event("user1", "token1", "event1");
         let event2 = create_test_raw_event("user2", "token2", "event2");
-        
+
         store.handle_event_with_raw(&event1).unwrap();
         store.handle_event_with_raw(&event2).unwrap();
-        
+
         // Flush should succeed
         assert!(store.flush().is_ok());
-        
+
         // Flush again should also succeed (idempotent)
         assert!(store.flush().is_ok());
     }
@@ -1127,11 +1126,11 @@ mod tests {
     #[test]
     fn test_update_metrics_succeeds() {
         let (store, _temp_dir) = create_test_store(None);
-        
+
         // Add some events first
         let event = create_test_raw_event("user1", "token1", "event1");
         store.handle_event_with_raw(&event).unwrap();
-        
+
         // Update metrics should succeed
         assert!(store.update_metrics().is_ok());
     }
@@ -1139,18 +1138,20 @@ mod tests {
     #[test]
     fn test_flush_before_checkpoint() {
         let (store, temp_dir) = create_test_store(None);
-        
+
         // Add some events
         let event = create_test_raw_event("user1", "token1", "checkpoint_test");
         store.handle_event_with_raw(&event).unwrap();
-        
+
         // Create a checkpoint (which internally calls flush)
         let checkpoint_path = temp_dir.path().join("checkpoint");
-        let sst_files = store.create_checkpoint_with_metadata(&checkpoint_path).unwrap();
-        
+        let sst_files = store
+            .create_checkpoint_with_metadata(&checkpoint_path)
+            .unwrap();
+
         // Checkpoint should exist
         assert!(checkpoint_path.exists());
-        
+
         // Should have SST files
         assert!(!sst_files.is_empty());
     }

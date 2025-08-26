@@ -427,9 +427,17 @@ mod tests {
         );
 
         // Need to acquire permits first for the new API
-        let permit1 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
-        let permit2 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
-        
+        let permit1 = tracker
+            .in_flight_semaphore_clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+        let permit2 = tracker
+            .in_flight_semaphore_clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+
         let ackable1 = tracker.track_message(msg1, 100, permit1).await;
         let ackable2 = tracker.track_message(msg2, 100, permit2).await;
 

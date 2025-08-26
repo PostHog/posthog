@@ -68,7 +68,7 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
         loop {
             // Process completions at the start of each loop iteration to keep counts accurate
             self.tracker.process_completions().await;
-            
+
             tokio::select! {
                 // Check for shutdown signal
                 _ = &mut self.shutdown_rx => {
@@ -99,15 +99,15 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
                 _ = metrics_interval.tick() => {
                     // Process any pending completions first to get accurate stats
                     self.tracker.process_completions().await;
-                    
+
                     let stats = self.tracker.get_stats().await;
                     stats.publish_metrics();
-                    
+
                     // Also publish semaphore permit metrics from the tracker
                     metrics::gauge!("kafka_consumer_available_permits")
                         .set(self.tracker.available_permits() as f64);
-                    
-                    debug!("Published metrics: {}, available_permits={}", 
+
+                    debug!("Published metrics: {}, available_permits={}",
                         stats, self.tracker.available_permits());
                 }
 
@@ -162,7 +162,7 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
             );
             // Process completions to potentially free up permits
             self.tracker.process_completions().await;
-            
+
             // Check again after processing completions
             if self.tracker.available_permits() == 0 {
                 // Still no permits - apply backpressure by not consuming this message
@@ -179,8 +179,10 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
         // This way we never lose a message
         let permit = match tokio::time::timeout(
             Duration::from_secs(1),
-            self.tracker.in_flight_semaphore_clone().acquire_owned()
-        ).await {
+            self.tracker.in_flight_semaphore_clone().acquire_owned(),
+        )
+        .await
+        {
             Ok(Ok(permit)) => permit,
             Ok(Err(_)) => {
                 error!("Semaphore was closed - this is a fatal error");
@@ -200,13 +202,17 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
         let owned_msg = msg.detach();
 
         // Track the message and get back an AckableMessage that owns everything
-        let ackable_msg = self.tracker
+        let ackable_msg = self
+            .tracker
             .track_message(owned_msg, estimated_size, permit)
             .await;
 
         debug!(
             "Tracking message from topic {} partition {} offset {} (available permits: {})",
-            topic, partition, offset, self.tracker.available_permits()
+            topic,
+            partition,
+            offset,
+            self.tracker.available_permits()
         );
 
         // Process message through user's processor
@@ -236,7 +242,7 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
         // Get tracker statistics and publish metrics
         let stats = self.tracker.get_stats().await;
         stats.publish_metrics();
-        
+
         info!(
             "Tracker stats before commit: in_flight={}, completed={}, failed={}, available_permits={}",
             stats.in_flight, stats.completed, stats.failed, self.tracker.available_permits()

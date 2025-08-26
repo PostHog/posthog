@@ -289,11 +289,11 @@ impl InFlightTracker {
                 .map(|(topic, partition)| (topic.clone(), *partition))
                 .collect::<Vec<_>>()
         };
-        
+
         if partitions.is_empty() {
             return Vec::new();
         }
-        
+
         self.wait_for_partition_completion(&partitions).await
     }
 
@@ -316,7 +316,7 @@ impl InFlightTracker {
     pub fn available_permits(&self) -> usize {
         self.in_flight_semaphore.available_permits()
     }
-    
+
     /// Get a clone of the semaphore for acquiring permits
     pub fn in_flight_semaphore_clone(&self) -> Arc<Semaphore> {
         self.in_flight_semaphore.clone()
@@ -497,9 +497,13 @@ mod tests {
         let tracker = InFlightTracker::new();
         let message = create_test_message("test-topic", 0, 100, "test-payload");
         let message2 = create_test_message("test-topic", 0, 101, "test-payload2");
-        
+
         // Acquire permit for test
-        let permit = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
+        let permit = tracker
+            .in_flight_semaphore_clone()
+            .acquire_owned()
+            .await
+            .unwrap();
         let _ackable = tracker.track_message(message, 1024, permit).await;
 
         assert_eq!(tracker.in_flight_count().await, 1);
@@ -512,9 +516,13 @@ mod tests {
         assert_eq!(stats.failed, 0);
 
         // Track another message - should succeed since we have capacity
-        let permit2 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
+        let permit2 = tracker
+            .in_flight_semaphore_clone()
+            .acquire_owned()
+            .await
+            .unwrap();
         let _ackable2 = tracker.track_message(message2, 512, permit2).await;
-        
+
         // Both messages should be tracked
         assert_eq!(tracker.in_flight_count().await, 2);
     }
@@ -524,7 +532,11 @@ mod tests {
         let tracker = InFlightTracker::new();
         let message = create_test_message("test-topic", 0, 0, "payload");
 
-        let permit = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
+        let permit = tracker
+            .in_flight_semaphore_clone()
+            .acquire_owned()
+            .await
+            .unwrap();
         let ackable = tracker.track_message(message, 256, permit).await;
 
         // Complete the message
@@ -550,10 +562,22 @@ mod tests {
         let msg2 = create_test_message("topic", 1, 0, "payload2");
         let msg3 = create_test_message("topic", 0, 1, "payload3");
 
-        let permit1 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
-        let permit2 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
-        let permit3 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
-        
+        let permit1 = tracker
+            .in_flight_semaphore_clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+        let permit2 = tracker
+            .in_flight_semaphore_clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+        let permit3 = tracker
+            .in_flight_semaphore_clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+
         // Use the new API that returns AckableMessage
         let ackable1 = tracker.track_message(msg1, 100, permit1).await;
         let ackable2 = tracker.track_message(msg2, 200, permit2).await;
@@ -586,10 +610,22 @@ mod tests {
         let msg2 = create_test_message("topic", 0, 1, "payload2");
         let msg3 = create_test_message("topic", 0, 2, "payload3");
 
-        let permit1 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
-        let permit2 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
-        let permit3 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
-        
+        let permit1 = tracker
+            .in_flight_semaphore_clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+        let permit2 = tracker
+            .in_flight_semaphore_clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+        let permit3 = tracker
+            .in_flight_semaphore_clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+
         let ackable1 = tracker.track_message(msg1, 100, permit1).await;
         let ackable2 = tracker.track_message(msg2, 100, permit2).await;
         let ackable3 = tracker.track_message(msg3, 100, permit3).await;
@@ -614,9 +650,17 @@ mod tests {
         let msg1 = create_test_message("topic", 0, 0, "payload1");
         let msg2 = create_test_message("topic", 0, 2, "payload2"); // Gap at 1
 
-        let permit1 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
-        let permit2 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
-        
+        let permit1 = tracker
+            .in_flight_semaphore_clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+        let permit2 = tracker
+            .in_flight_semaphore_clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+
         let ackable1 = tracker.track_message(msg1, 100, permit1).await;
         let ackable2 = tracker.track_message(msg2, 100, permit2).await;
 
@@ -636,8 +680,12 @@ mod tests {
         let tracker = Arc::new(InFlightTracker::new());
         let message = create_test_message("test-topic", 0, 0, "payload");
 
-        let permit = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
-        
+        let permit = tracker
+            .in_flight_semaphore_clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+
         let ackable = tracker.track_message(message, 64, permit).await;
 
         // Start a task that will complete the message after a delay
@@ -697,11 +745,27 @@ mod tests {
         let msg3 = create_test_message("topic", 1, 0, "payload3");
         let msg4 = create_test_message("other", 0, 0, "payload4");
 
-        let permit1 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
-        let permit2 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
-        let permit3 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
-        let permit4 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
-        
+        let permit1 = tracker
+            .in_flight_semaphore_clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+        let permit2 = tracker
+            .in_flight_semaphore_clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+        let permit3 = tracker
+            .in_flight_semaphore_clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+        let permit4 = tracker
+            .in_flight_semaphore_clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+
         let ackable1 = tracker.track_message(msg1, 100, permit1).await;
         let ackable2 = tracker.track_message(msg2, 100, permit2).await;
         let ackable3 = tracker.track_message(msg3, 100, permit3).await;
@@ -763,10 +827,22 @@ mod tests {
         let msg2 = create_test_message("topic", 1, 0, "payload2");
         let msg3 = create_test_message("topic", 2, 0, "payload3");
 
-        let permit1 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
-        let permit2 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
-        let permit3 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
-        
+        let permit1 = tracker
+            .in_flight_semaphore_clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+        let permit2 = tracker
+            .in_flight_semaphore_clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+        let permit3 = tracker
+            .in_flight_semaphore_clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+
         // Use the new API that returns AckableMessage
         let ackable1 = tracker.track_message(msg1, 100, permit1).await;
         let ackable2 = tracker.track_message(msg2, 100, permit2).await;
@@ -812,10 +888,22 @@ mod tests {
         let msg2 = create_test_message("topic", 0, 1, "payload2");
         let msg3 = create_test_message("topic", 1, 0, "payload3");
 
-        let permit1 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
-        let permit2 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
-        let permit3 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
-        
+        let permit1 = tracker
+            .in_flight_semaphore_clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+        let permit2 = tracker
+            .in_flight_semaphore_clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+        let permit3 = tracker
+            .in_flight_semaphore_clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+
         // Use the new API that returns AckableMessage
         let ackable1 = tracker.track_message(msg1, 100, permit1).await;
         let ackable2 = tracker.track_message(msg2, 100, permit2).await;

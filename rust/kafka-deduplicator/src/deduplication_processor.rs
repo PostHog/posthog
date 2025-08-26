@@ -12,9 +12,9 @@ use std::time::Duration;
 use tracing::{debug, error, info, warn};
 
 use crate::checkpoint_manager::CheckpointManager;
-use tokio::sync::Mutex as TokioMutex;
 use crate::kafka::message::{AckableMessage, MessageProcessor};
 use crate::rocksdb::deduplication_store::{DeduplicationStore, DeduplicationStoreConfig};
+use tokio::sync::Mutex as TokioMutex;
 
 /// Context for a Kafka message being processed
 struct MessageContext<'a> {
@@ -46,7 +46,7 @@ pub struct DeduplicationProcessor {
     /// Per-partition deduplication stores using DashMap for better concurrent performance
     /// Key: (topic, partition)
     stores: Arc<DashMap<(String, i32), DeduplicationStore>>,
-    
+
     /// Checkpoint manager for periodic flushing and checkpointing
     checkpoint_manager: Arc<TokioMutex<CheckpointManager>>,
 }
@@ -62,16 +62,16 @@ impl DeduplicationProcessor {
         };
 
         let stores = Arc::new(DashMap::new());
-        
+
         // Create checkpoint manager with the stores
-        let mut checkpoint_manager = CheckpointManager::new(
-            stores.clone(),
-            config.flush_interval,
-        );
-        
+        let mut checkpoint_manager = CheckpointManager::new(stores.clone(), config.flush_interval);
+
         // Start the periodic flush task
         checkpoint_manager.start();
-        info!("Started checkpoint manager with flush interval: {:?}", config.flush_interval);
+        info!(
+            "Started checkpoint manager with flush interval: {:?}",
+            config.flush_interval
+        );
 
         Ok(Arc::new(Self {
             config,
@@ -82,11 +82,7 @@ impl DeduplicationProcessor {
     }
 
     /// Get or create a deduplication store for a specific partition
-    async fn get_or_create_store(
-        &self,
-        topic: &str,
-        partition: i32,
-    ) -> Result<DeduplicationStore> {
+    async fn get_or_create_store(&self, topic: &str, partition: i32) -> Result<DeduplicationStore> {
         let partition_key = (topic.to_string(), partition);
 
         // Use DashMap's entry API for atomic get-or-create operation
@@ -374,14 +370,14 @@ impl DeduplicationProcessor {
             }
         }
     }
-    
+
     /// Stop the checkpoint manager (called during shutdown)
     pub async fn shutdown(&self) {
         info!("Shutting down deduplication processor");
-        
+
         let mut manager = self.checkpoint_manager.lock().await;
         manager.stop().await;
-        
+
         info!("Deduplication processor shut down");
     }
 }
