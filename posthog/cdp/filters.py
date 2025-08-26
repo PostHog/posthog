@@ -54,8 +54,9 @@ def _build_single_filter_expr(filter: dict, actions: dict[int, Action], team: Te
         filter_exprs.append(_build_action_filter_expr(filter, actions, team))
 
     # Add per-filter properties
-    if filter.get("properties"):
-        filter_exprs.append(property_to_expr(filter.get("properties"), team))
+    filter_properties = filter.get("properties")
+    if filter_properties:
+        filter_exprs.append(property_to_expr(filter_properties, team))
 
     # Return single expression or AND combination
     if not filter_exprs:
