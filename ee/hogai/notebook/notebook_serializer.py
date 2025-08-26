@@ -691,15 +691,7 @@ class NotebookSerializer:
     def _convert_assistant_query_to_insight_viz_node(self, query) -> dict:
         """
         Convert AssistantQuery types to InsightVizNode format for frontend compatibility.
-
-        The frontend expects ph-query nodes to have an InsightVizNode structure for insight queries
-        or DataTableNode structure for HogQL queries:
-        {
-            "kind": "InsightVizNode" | "DataTableNode",
-            "source": <actual query>
-        }
         """
-        # Cache key
         query_id = id(query)
         if query_id in self._converted_query_cache:
             return self._converted_query_cache[query_id]
@@ -707,23 +699,15 @@ class NotebookSerializer:
         if isinstance(
             query, AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
         ):
-            # Convert AssistantQuery to regular Query type
             regular_query = cast_assistant_query(query)
 
-            # HogQLQuery needs to be wrapped in DataTableNode, not InsightVizNode
             if isinstance(query, AssistantHogQLQuery):
-                logger.info("Converting AssistantHogQLQuery to DataTableNode")
                 converted = {"kind": "DataTableNode", "source": regular_query}
             else:
-                # Other queries (Trends, Funnels, Retention) are wrapped in InsightVizNode
                 converted = {"kind": "InsightVizNode", "source": regular_query}
 
             self._converted_query_cache[query_id] = converted
             return converted
-        else:
-            # If it's already in the right format or unknown type, return as-is
-            self._converted_query_cache[query_id] = query
-            return query
 
     def _create_ph_query_node(self, insight_id: str) -> Optional[ProsemirrorJSONContent]:
         """

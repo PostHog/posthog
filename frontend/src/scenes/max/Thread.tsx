@@ -802,15 +802,18 @@ export function MultiVisualizationAnswer({ message, className }: MultiVisualizat
                         <h2 className="text-sm font-semibold text-secondary">
                             {pluralize(visualizations.length, 'insight')} analyzed
                         </h2>
-                        <LemonButton
-                            icon={<IconExpand />}
-                            size="xsmall"
-                            type="tertiary"
-                            onClick={openModal}
-                            tooltip="View all insights in detail"
-                        >
-                            Expand
-                        </LemonButton>
+
+                        {visualizations.length > 1 && (
+                            <LemonButton
+                                icon={<IconExpand />}
+                                size="xsmall"
+                                type="tertiary"
+                                onClick={openModal}
+                                tooltip="View all insights in detail"
+                            >
+                                Expand
+                            </LemonButton>
+                        )}
                     </div>
 
                     {renderMosaic()}
