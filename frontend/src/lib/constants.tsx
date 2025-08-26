@@ -156,6 +156,8 @@ export const FEATURE_FLAGS = {
     SESSIONS_BATCH_EXPORTS: 'sessions-batch-exports', // owner: @tomasfarias
     FF_DASHBOARD_TEMPLATES: 'ff-dashboard-templates', // owner: @EDsCODE
     ARTIFICIAL_HOG: 'artificial-hog', // owner: #team-max-ai
+    ARTIFICIAL_FLOATING_HOG: 'artificial-floating-hog', // owner: #team-max-ai - deprecated, to be removed
+    ARTIFICIAL_FLOATING_HOG_ACKED: 'artificial-floating-hog-acked', // owner: #team-max-ai - to be removed too
     MAX_AI_INSIGHT_SEARCH: 'max-ai-insight-search', // owner: #team-max-ai
     PRODUCT_SPECIFIC_ONBOARDING: 'product-specific-onboarding', // owner: @raquelmsmith
     REDIRECT_SIGNUPS_TO_INSTANCE: 'redirect-signups-to-instance', // owner: @raquelmsmith

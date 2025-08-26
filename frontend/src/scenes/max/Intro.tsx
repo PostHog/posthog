@@ -1,16 +1,48 @@
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
+
+import { IconX } from '@posthog/icons'
+import { LemonBanner } from '@posthog/lemon-ui'
 
 import { HedgehogBuddy } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
 import { hedgehogBuddyLogic } from 'lib/components/HedgehogBuddy/hedgehogBuddyLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { maxLogic } from './maxLogic'
 
 export function Intro(): JSX.Element {
     const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
     const { headline, description } = useValues(maxLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    // Check if user previously had floating Max and hasn't yet closed the rollback banner
+    const shouldShowRollbackBanner =
+        featureFlags[FEATURE_FLAGS.ARTIFICIAL_FLOATING_HOG] &&
+        !featureFlags[FEATURE_FLAGS.ARTIFICIAL_FLOATING_HOG_ACKED]
 
     return (
         <>
+            {shouldShowRollbackBanner && (
+                <div className="mb-4 w-full max-w-160 px-3">
+                    <LemonBanner
+                        type="info"
+                        dismissKey={FEATURE_FLAGS.ARTIFICIAL_FLOATING_HOG_ACKED}
+                        onClose={() =>
+                            // Person properties-based flag allows for cross-device dismiss
+                            posthog.setPersonPropertiesForFlags(
+                                { [FEATURE_FLAGS.ARTIFICIAL_FLOATING_HOG_ACKED]: true },
+                                true
+                            )
+                        }
+                    >
+                        <div className="text-sm text-pretty">
+                            <strong>Thanks for trying out Floating Max!</strong> Based on data and your feedback, we're
+                            moving Max back to the sidebar. Click <IconX /> to forget Max was ever able to float.
+                        </div>
+                    </LemonBanner>
+                </div>
+            )}
             <div className="flex">
                 <HedgehogBuddy
                     static
