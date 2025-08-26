@@ -308,7 +308,7 @@ function shouldBePreFilteredBasedOnEventName(
     if (filters?.events?.length) {
         const eventMatches = filters.events.some((eventFilter) => {
             // We need to test if the id is null (all events) or if it is in the list of event matchers
-            return eventFilter.id === null  || eventFilter.id === filterGlobals.event
+            return eventFilter.id === null || eventFilter.id === filterGlobals.event
         })
 
         // If none of the event filters match, we can early exit
@@ -358,7 +358,6 @@ export async function filterFunctionInstrumented(options: {
         if (filters && Object.keys(filters).length === 1 && 'bytecode' in filters) {
             //result.match = true
             //return result
-            wouldHavePreFiltered = false
         }
 
         // Check if pre-filter would skip this event
