@@ -31,6 +31,12 @@ max_partitions_per_run = int(os.getenv(MAX_PARTITIONS_PER_RUN_ENV_VAR, 1))
 backfill_policy_def = BackfillPolicy.multi_run(max_partitions_per_run=max_partitions_per_run)
 partition_def = DailyPartitionsDefinition(start_date="2024-01-01", end_offset=1)
 
+# Backfill configuration constants
+BACKFILL_LOOKBACK_DAYS = int(os.getenv("WEB_ANALYTICS_BACKFILL_LOOKBACK_DAYS", "7"))
+BACKFILL_HISTORICAL_DAYS = int(os.getenv("WEB_ANALYTICS_BACKFILL_HISTORICAL_DAYS", "30"))
+BACKFILL_MAX_PARTITIONS_PER_RUN = int(os.getenv("WEB_ANALYTICS_BACKFILL_MAX_PARTITIONS_PER_RUN", "5"))
+BACKFILL_MAX_CONCURRENT = int(os.getenv("WEB_ANALYTICS_BACKFILL_MAX_CONCURRENT", "2"))
+
 
 def pre_aggregate_web_analytics_data(
     context: dagster.AssetExecutionContext,
@@ -206,8 +212,8 @@ def web_pre_aggregate_current_day_schedule(context: dagster.ScheduleEvaluationCo
 
 
 # Backfill Assets and Schedules
-backfill_partition_def = DailyPartitionsDefinition(start_date="2024-01-01", end_offset=-30)
-backfill_policy_def_extended = BackfillPolicy.multi_run(max_partitions_per_run=5)
+backfill_partition_def = DailyPartitionsDefinition(start_date="2024-01-01", end_offset=-BACKFILL_HISTORICAL_DAYS)
+backfill_policy_def_extended = BackfillPolicy.multi_run(max_partitions_per_run=BACKFILL_MAX_PARTITIONS_PER_RUN)
 
 
 @dagster.asset(
@@ -266,7 +272,7 @@ web_pre_aggregate_backfill_job = dagster.define_asset_job(
         "dagster/max_runtime": str(DAGSTER_WEB_JOB_TIMEOUT),
         "backfill": "true",
     },
-    executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 2}),
+    executor_def=dagster.multiprocess_executor.configured({"max_concurrent": BACKFILL_MAX_CONCURRENT}),
 )
 
 
@@ -315,13 +321,17 @@ def web_pre_aggregate_backfill_schedule(context: dagster.ScheduleEvaluationConte
 
     # Check if there are teams that actually need backfill (have missing data)
     try:
-        # Create a mock context for the missing data check
-        mock_context = type('MockContext', (), {
-            'log': context.log,
-            'op_config': {}
-        })()
+        # Create a proper mock context for the missing data check
+        class MockExecutionContext:
+            def __init__(self, log):
+                self.log = log
+                self.op_config = {}
 
-        teams_needing_backfill = get_teams_with_missing_data(mock_context)
+            def get_tag(self, key: str) -> str | None:
+                return None
+
+        mock_context = MockExecutionContext(context.log)
+        teams_needing_backfill = get_teams_with_missing_data(mock_context, lookback_days=BACKFILL_LOOKBACK_DAYS)
 
         if not teams_needing_backfill:
             context.log.info("No teams found with missing pre-aggregated data, skipping backfill")
@@ -331,10 +341,12 @@ def web_pre_aggregate_backfill_schedule(context: dagster.ScheduleEvaluationConte
 
     except Exception as e:
         context.log.warning(f"Failed to check for teams needing backfill, running anyway: {e}")
+        import traceback
+        context.log.debug(f"Full traceback: {traceback.format_exc()}")
         teams_needing_backfill = None
 
-    # Run backfill for teams with missing data (30 days ago)
-    backfill_date = (datetime.now(UTC) - timedelta(days=30)).strftime("%Y-%m-%d")
+    # Run backfill for teams with missing data
+    backfill_date = (datetime.now(UTC) - timedelta(days=BACKFILL_HISTORICAL_DAYS)).strftime("%Y-%m-%d")
 
     run_config = {
         "ops": {
