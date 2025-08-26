@@ -148,6 +148,7 @@ class HogQLGeneratorTool(HogQLGeneratorMixin, MaxTool):
                     assert final_result is not None
                     # If quality check raises, we will still iterate if we've got any attempts left,
                     # however if we don't have any more attempts, we're okay to use `resulting_query` (instead of throwing)
+                    final_result = self._parse_output(final_result).query
                     await self._quality_check_output(
                         SQLSchemaGeneratorOutput(query=AssistantHogQLQuery(query=final_result.query))
                     )

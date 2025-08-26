@@ -1,11 +1,12 @@
 from posthog.test.base import NonAtomicBaseTest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
-from posthog.schema import AssistantToolCall
+from posthog.schema import AssistantHogQLQuery, AssistantToolCall
 
 from products.data_warehouse.backend.max_tools import FinalAnswerArgs, HogQLGeneratorTool
 
 from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
+from ee.hogai.graph.sql.mixins import SQLSchemaGeneratorOutput
 from ee.hogai.utils.types import AssistantState
 
 
@@ -29,8 +30,9 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
             patch.object(
                 HogQLGeneratorTool,
                 "_parse_output",
-                new_callable=AsyncMock,
-                return_value="SELECT AVG(properties.$session_length) FROM events",
+                return_value=SQLSchemaGeneratorOutput(
+                    query=AssistantHogQLQuery(query="SELECT AVG(properties.$session_length) FROM events")
+                ),
             ),
         ):
             mock_graph = AsyncMock()
@@ -66,8 +68,9 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
             patch.object(
                 HogQLGeneratorTool,
                 "_parse_output",
-                new_callable=AsyncMock,
-                return_value="SELECT properties FROM events WHERE {filters} AND {custom_filter}",
+                return_value=SQLSchemaGeneratorOutput(
+                    query=AssistantHogQLQuery(query="SELECT properties FROM events WHERE {filters} AND {custom_filter}")
+                ),
             ),
         ):
             mock_graph = AsyncMock()
@@ -219,3 +222,111 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
             # Should raise an exception when no valid result is produced
             with self.assertRaises(Exception):
                 await tool.ainvoke(tool_call.model_dump(), config)
+
+    async def test_hogql_tool_removes_semicolon_from_query(self):
+        """Test that HogQLGeneratorTool properly removes semicolons from the end of queries."""
+        config = {
+            "configurable": {
+                "team": self.team,
+                "user": self.user,
+                "contextual_tools": {"generate_hogql_query": {"current_query": ""}},
+            },
+        }
+
+        graph_result = {
+            "output": FinalAnswerArgs(query="SELECT count() FROM events;"),
+            "intermediate_steps": None,
+        }
+
+        with (
+            patch("products.data_warehouse.backend.max_tools.HogQLGeneratorGraph.compile_full_graph") as mock_compile,
+            patch("ee.hogai.graph.sql.mixins.parse_pydantic_structured_output") as mock_parse,
+        ):
+            mock_parse_result = Mock()
+            mock_parse_result.query = "SELECT count() FROM events;"
+            mock_parse.return_value = lambda x: mock_parse_result
+            mock_graph = AsyncMock()
+            mock_graph.ainvoke.return_value = graph_result
+            mock_compile.return_value = mock_graph
+
+            tool = HogQLGeneratorTool(team=self.team, user=self.user, state=AssistantState(messages=[]))
+            tool_call = AssistantToolCall(
+                id="1",
+                name="generate_hogql_query",
+                type="tool_call",
+                args={"instructions": "Count events"},
+            )
+            result = await tool.ainvoke(tool_call.model_dump(), config)
+            self.assertEqual(result.content, "```sql\nSELECT count() FROM events\n```")
+
+    async def test_hogql_tool_removes_multiple_semicolons_from_query(self):
+        """Test that HogQLGeneratorTool properly removes multiple semicolons from the end of queries."""
+        config = {
+            "configurable": {
+                "team": self.team,
+                "user": self.user,
+                "contextual_tools": {"generate_hogql_query": {"current_query": ""}},
+            },
+        }
+
+        graph_result = {
+            "output": FinalAnswerArgs(query="SELECT count() FROM events;;;"),
+            "intermediate_steps": None,
+        }
+
+        with (
+            patch("products.data_warehouse.backend.max_tools.HogQLGeneratorGraph.compile_full_graph") as mock_compile,
+            patch("ee.hogai.graph.sql.mixins.parse_pydantic_structured_output") as mock_parse,
+        ):
+            mock_parse_result = Mock()
+            mock_parse_result.query = "SELECT count() FROM events;;;"
+            mock_parse.return_value = lambda x: mock_parse_result
+            mock_graph = AsyncMock()
+            mock_graph.ainvoke.return_value = graph_result
+            mock_compile.return_value = mock_graph
+
+            tool = HogQLGeneratorTool(team=self.team, user=self.user, state=AssistantState(messages=[]))
+            tool_call = AssistantToolCall(
+                id="1",
+                name="generate_hogql_query",
+                type="tool_call",
+                args={"instructions": "Count events"},
+            )
+            result = await tool.ainvoke(tool_call.model_dump(), config)
+            self.assertEqual(result.content, "```sql\nSELECT count() FROM events\n```")
+
+    async def test_hogql_tool_preserves_semicolons_in_middle_of_query(self):
+        """Test that HogQLGeneratorTool preserves semicolons in the middle of queries."""
+        config = {
+            "configurable": {
+                "team": self.team,
+                "user": self.user,
+                "contextual_tools": {"generate_hogql_query": {"current_query": ""}},
+            },
+        }
+
+        graph_result = {
+            "output": FinalAnswerArgs(query="SELECT 'hello;world' FROM events;"),
+            "intermediate_steps": None,
+        }
+
+        with (
+            patch("products.data_warehouse.backend.max_tools.HogQLGeneratorGraph.compile_full_graph") as mock_compile,
+            patch("ee.hogai.graph.sql.mixins.parse_pydantic_structured_output") as mock_parse,
+        ):
+            mock_parse_result = Mock()
+            mock_parse_result.query = "SELECT 'hello;world' FROM events;"
+            mock_parse.return_value = lambda x: mock_parse_result
+            mock_graph = AsyncMock()
+            mock_graph.ainvoke.return_value = graph_result
+            mock_compile.return_value = mock_graph
+
+            tool = HogQLGeneratorTool(team=self.team, user=self.user, state=AssistantState(messages=[]))
+            tool_call = AssistantToolCall(
+                id="1",
+                name="generate_hogql_query",
+                type="tool_call",
+                args={"instructions": "Get hello world"},
+            )
+            result = await tool.ainvoke(tool_call.model_dump(), config)
+            self.assertEqual(result.content, "```sql\nSELECT 'hello;world' FROM events\n```")
