@@ -11,7 +11,6 @@ from openai.types.chat import (
     ChatCompletionUserMessageParam,
 )
 
-
 from products.llm_analytics.backend.providers.formatters.anthropic_typeguards import (
     is_base64_image_param,
     is_image_block_param,

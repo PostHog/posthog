@@ -13,7 +13,6 @@ from posthoganalytics.ai.gemini import genai
 
 from products.llm_analytics.backend.providers.formatters.gemini_formatter import convert_anthropic_messages_to_gemini
 
-
 logger = logging.getLogger(__name__)
 
 

@@ -4,11 +4,6 @@
 
 from ..batch_exports.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun
 
-# Products Imports
-from products.early_access_features.backend.models import EarlyAccessFeature
-from products.llm_analytics.models.datasets import Dataset, DatasetItem
-from products.tasks.backend.models import Task
-
 from ..session_recordings.models.session_recording import SessionRecording
 from ..session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from ..session_recordings.models.session_recording_playlist_item import SessionRecordingPlaylistItem
@@ -97,6 +92,11 @@ from .user_scene_personalisation import UserScenePersonalisation
 from .web_experiment import WebExperiment
 
 # Keeping products imports at the bottom to avoid circular imports errors
+# Products Imports
+from products.early_access_features.backend.models import EarlyAccessFeature
+from products.llm_analytics.models.datasets import Dataset, DatasetItem
+from products.tasks.backend.models import Task
+
 from .oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
 
 __all__ = [
