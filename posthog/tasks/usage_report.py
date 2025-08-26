@@ -22,6 +22,8 @@ from posthoganalytics.client import Client as PostHogClient
 from psycopg import sql
 from retry import retry
 
+from posthog.schema import AIEventType
+
 from posthog import version_requirement
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
@@ -50,14 +52,9 @@ from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseTable
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
 
-AI_EVENTS = [
-    "$ai_generation",
-    "$ai_embedding",
-    "$ai_span",
-    "$ai_trace",
-    "$ai_metric",
-    "$ai_feedback",
-]
+# AI events dynamically generated from AIEventType TS enum
+# Changes to the AIEventType enum will impact usage reporting
+AI_EVENTS = [event.value for event in AIEventType]
 
 
 class Period(TypedDict):
