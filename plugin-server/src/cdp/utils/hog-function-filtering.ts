@@ -350,15 +350,25 @@ export async function filterFunctionInstrumented(options: {
         metrics,
     }
 
+    // Track whether pre-filtering would have filtered this event
+    let wouldHavePreFiltered = false
+
     try {
         // If there are no filters (only bytecode exists then on the filter object)
         // everything matches no need to execute bytecode (lets save those cpu cycles)
         if (filters && Object.keys(filters).length === 1 && 'bytecode' in filters) {
-            result.match = true
-            return result
+            //result.match = true
+            //return result
+            wouldHavePreFiltered = false
         }
-        // Quick pre-filter check to avoid running bytecode for obvious non-matches
-        if (shouldBePreFilteredBasedOnEventName(filters, filterGlobals)) {
+
+        // Check if pre-filter would skip this event
+        wouldHavePreFiltered = shouldBePreFilteredBasedOnEventName(filters, filterGlobals)
+
+        // For now, we'll always execute bytecode to validate our logic
+        // Once we're confident, we can uncomment the early return below
+        /*
+        if (wouldHavePreFiltered) {
             // Event definitely doesn't match, skip bytecode execution
             hogFunctionPreFilterCounter.inc({ result: 'skipped' })
             metrics.push({
@@ -371,9 +381,7 @@ export async function filterFunctionInstrumented(options: {
             result.match = false
             return result
         }
-
-        // Pre-filter passed, need to execute bytecode
-        hogFunctionPreFilterCounter.inc({ result: 'executed' })
+        */
 
         if (!filters?.bytecode) {
             throw new Error('Filters were not compiled correctly and so could not be executed')
@@ -405,6 +413,19 @@ export async function filterFunctionInstrumented(options: {
         }
 
         result.match = typeof execHogOutcome.execResult.result === 'boolean' && execHogOutcome.execResult.result
+
+        // Pre-filter was wrong - either filtered an event that matched, or didn't filter one that didn't match
+        if (wouldHavePreFiltered === result.match) {
+            logger.error('🚨 Pre-filter mismatch detected!', {
+                functionId: fn.id,
+                teamId: fn.team_id,
+                eventId: eventUuid,
+                wouldHavePreFiltered,
+                actualMatch: result.match,
+                filters: JSON.stringify(filters),
+            })
+            hogFunctionPreFilterCounter.inc({ result: 'mismatch' })
+        }
 
         if (!result.match) {
             metrics.push({
