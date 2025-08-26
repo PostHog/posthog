@@ -1,5 +1,5 @@
-from datetime import date, datetime
 import sys
+from datetime import date, datetime
 from enum import StrEnum
 from typing import Literal, Optional, TypeAlias
 from uuid import UUID
@@ -131,3 +131,4 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     optimize_min_equality_disjunction_chain_length: Optional[int] = 4294967295
     # experimental support for nonequal joins
     allow_experimental_join_condition: Optional[bool] = True
+    preferred_block_size_bytes: Optional[int] = None

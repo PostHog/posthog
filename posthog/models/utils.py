@@ -1,19 +1,18 @@
-import datetime
 import re
-import secrets
-import string
 import uuid
+import string
+import secrets
+import datetime
 from collections import defaultdict, namedtuple
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from time import time, time_ns
 from typing import TYPE_CHECKING, Any, Optional, TypeVar, Union
-from collections.abc import Iterable
-from collections.abc import Callable, Iterator
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connections, models, transaction
-from django.db.backends.utils import CursorWrapper
 from django.db.backends.ddl_references import Statement
+from django.db.backends.utils import CursorWrapper
 from django.db.models import Q, UniqueConstraint
 from django.db.models.constraints import BaseConstraint
 from django.utils.text import slugify
@@ -167,7 +166,24 @@ class DeletedMetaFields(models.Model):
 
 
 class UUIDModel(models.Model):
-    """Base Django Model with default autoincremented ID field replaced with UUIDT."""
+    """
+    Base Django Model with default autoincremented ID field replaced with UUID7.
+    """
+
+    id: models.UUIDField = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+
+    class Meta:
+        abstract = True
+
+
+class UUIDTModel(models.Model):
+    """
+    Deprecated, you probably want to use UUIDModel instead. As of May 2024 the latest RFC with the UUIv7 spec is at
+    Proposed Standard (see RFC9562 https://www.rfc-editor.org/rfc/rfc9562#name-uuid-version-7). This class was written
+    well before that, is still in use in PostHog, but should not be used for new models.
+
+    Base Django Model with default autoincremented ID field replaced with UUIDT.
+    """
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
@@ -175,7 +191,7 @@ class UUIDModel(models.Model):
         abstract = True
 
 
-class UUIDClassicModel(models.Model):
+class UUIDTClassicModel(models.Model):
     """Base Django Model with default autoincremented ID field kept and a UUIDT field added."""
 
     uuid = models.UUIDField(unique=True, default=UUIDT, editable=False)
@@ -376,8 +392,9 @@ def validate_rate_limit(value):
 
 class RootTeamQuerySet(models.QuerySet):
     def filter(self, *args, **kwargs):
-        from posthog.models.team import Team
         from django.db.models import Q, Subquery
+
+        from posthog.models.team import Team
 
         # TODO: Handle team as a an object as well
 

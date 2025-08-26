@@ -1,6 +1,7 @@
 # Marketing Analytics Constants and Configuration
 
 from posthog.schema import MarketingAnalyticsBaseColumns, MarketingAnalyticsColumnsSchemaNames
+
 from posthog.hogql import ast
 
 # Magic values

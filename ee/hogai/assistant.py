@@ -1,10 +1,10 @@
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, Literal, Optional, cast
+from typing import Any, Literal, Optional, cast, get_args
 from uuid import UUID, uuid4
 
-import posthoganalytics
 import structlog
+import posthoganalytics
 from asgiref.sync import async_to_sync
 from langchain_core.callbacks.base import BaseCallbackHandler
 from langchain_core.messages import AIMessageChunk
@@ -14,6 +14,25 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StreamMode
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel
+
+from posthog.schema import (
+    AssistantEventType,
+    AssistantGenerationStatusEvent,
+    AssistantGenerationStatusType,
+    AssistantMessage,
+    AssistantMessageType,
+    FailureMessage,
+    HumanMessage,
+    MaxBillingContext,
+    NotebookUpdateMessage,
+    ReasoningMessage,
+    VisualizationMessage,
+)
+
+from posthog.event_usage import report_user_action
+from posthog.exceptions_capture import capture_exception
+from posthog.models import Action, Team, User
+from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph import (
     AssistantGraph,
@@ -58,23 +77,6 @@ from ee.hogai.utils.types import (
 )
 from ee.hogai.utils.types.composed import MaxNodeName
 from ee.models import Conversation
-from posthog.event_usage import report_user_action
-from posthog.exceptions_capture import capture_exception
-from posthog.models import Action, Team, User
-from posthog.schema import (
-    AssistantEventType,
-    AssistantGenerationStatusEvent,
-    AssistantGenerationStatusType,
-    AssistantMessage,
-    AssistantMessageType,
-    FailureMessage,
-    HumanMessage,
-    MaxBillingContext,
-    NotebookUpdateMessage,
-    ReasoningMessage,
-    VisualizationMessage,
-)
-from posthog.sync import database_sync_to_async
 
 VISUALIZATION_NODES: dict[MaxNodeName, type[SchemaGeneratorNode]] = {
     AssistantNodeName.TRENDS_GENERATOR: TrendsGeneratorNode,
@@ -97,6 +99,7 @@ STREAMING_NODES: set[MaxNodeName] = {
     AssistantNodeName.MEMORY_ONBOARDING_FINALIZE,
     TaxonomyNodeName.LOOP_NODE,
     AssistantNodeName.SESSION_SUMMARIZATION,
+    AssistantNodeName.INSIGHTS_SEARCH,
 }
 """Nodes that can stream messages to the client."""
 
@@ -372,6 +375,8 @@ class Assistant:
                         for action, _ in intermediate_steps:
                             assert isinstance(action.tool_input, dict)
                             match action.tool:
+                                case "lookup_feature_flag":
+                                    substeps.append(f"Exploring feature flag `{action.tool_input['flag_key']}`")
                                 case "retrieve_event_properties":
                                     substeps.append(f"Exploring `{action.tool_input['event_name']}` event's properties")
                                 case "retrieve_entity_properties":
@@ -400,8 +405,13 @@ class Assistant:
 
                 # We don't want to reset back to just "Picking relevant events" after running QueryPlannerTools,
                 # so we reuse the last reasoning headline when going back to QueryPlanner
+                if node_name == AssistantNodeName.QUERY_PLANNER:
+                    content = self._last_reasoning_headline or "Picking relevant events and properties"
+                else:
+                    content = self._last_reasoning_headline or "Picking the relevant information"
                 return ReasoningMessage(
-                    content=self._last_reasoning_headline or "Picking relevant events and properties", substeps=substeps
+                    content=content,
+                    substeps=substeps,
                 )
             case AssistantNodeName.TRENDS_GENERATOR:
                 return ReasoningMessage(content="Creating trends query")
@@ -499,32 +509,34 @@ class Assistant:
 
     def _process_message_update(self, update: GraphMessageUpdateTuple) -> BaseModel | None:
         langchain_message, langgraph_state = update[1]
-        if not isinstance(langchain_message, AIMessageChunk):
-            return None
+        # Process message chunks
+        if isinstance(langchain_message, AIMessageChunk):
+            node_name: MaxNodeName = langgraph_state["langgraph_node"]
+            # Check for reasoning content first (for all nodes that support it)
+            if reasoning := langchain_message.additional_kwargs.get("reasoning"):
+                if reasoning_headline := self._chunk_reasoning_headline(reasoning):
+                    return ReasoningMessage(content=reasoning_headline)
 
-        node_name: MaxNodeName = langgraph_state["langgraph_node"]
+            # Only process streaming nodes
+            if node_name not in STREAMING_NODES:
+                return None
 
-        # Check for reasoning content first (for all nodes that support it)
-        if reasoning := langchain_message.additional_kwargs.get("reasoning"):
-            if reasoning_headline := self._chunk_reasoning_headline(reasoning):
-                return ReasoningMessage(content=reasoning_headline)
+            # Merge message chunks
+            self._merge_message_chunk(langchain_message)
 
-        # Only process streaming nodes
-        if node_name not in STREAMING_NODES:
-            return None
+            if node_name == AssistantNodeName.MEMORY_INITIALIZER:
+                return self._process_memory_initializer_chunk(langchain_message)
 
-        # Merge message chunks
-        self._merge_message_chunk(langchain_message)
+            # Extract and process content
+            message_content = extract_content_from_ai_message(self._chunks)
+            if not message_content:
+                return None
 
-        if node_name == AssistantNodeName.MEMORY_INITIALIZER:
-            return self._process_memory_initializer_chunk(langchain_message)
-
-        # Extract and process content
-        message_content = extract_content_from_ai_message(self._chunks)
-        if not message_content:
-            return None
-
-        return AssistantMessage(content=message_content)
+            return AssistantMessage(content=message_content)
+        # Return ready messages as is
+        elif isinstance(langchain_message, get_args(AssistantMessageUnion)):
+            return langchain_message
+        return None
 
     def _merge_message_chunk(self, langchain_message: AIMessageChunk) -> None:
         """Merge a new message chunk with existing chunks, handling content format compatibility.

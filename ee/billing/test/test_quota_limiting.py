@@ -1,14 +1,22 @@
 import time
-from unittest.mock import patch
 from uuid import uuid4
 
-from dateutil.relativedelta import relativedelta
+from freezegun import freeze_time
+from posthog.test.base import BaseTest, _create_event
+from unittest.mock import patch
+
 from django.utils import timezone
 from django.utils.timezone import now
-from freezegun import freeze_time
+
+from dateutil.relativedelta import relativedelta
+
+from posthog.api.test.test_team import create_team
+from posthog.models.team.team import Team
+from posthog.redis import get_client
 
 from ee.billing.quota_limiting import (
     QUOTA_LIMIT_DATA_RETENTION_FLAG,
+    TRUST_SCORE_KEYS,
     QuotaLimitingCaches,
     QuotaResource,
     add_limited_team_tokens,
@@ -17,14 +25,9 @@ from ee.billing.quota_limiting import (
     org_quota_limited_until,
     replace_limited_team_tokens,
     set_org_usage_summary,
-    update_org_billing_quotas,
     update_all_orgs_billing_quotas,
-    TRUST_SCORE_KEYS,
+    update_org_billing_quotas,
 )
-from posthog.api.test.test_team import create_team
-from posthog.models.team.team import Team
-from posthog.redis import get_client
-from posthog.test.base import BaseTest, _create_event
 
 
 def zero_trust_scores():

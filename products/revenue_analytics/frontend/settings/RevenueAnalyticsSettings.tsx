@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { useRef, useState } from 'react'
 
-import { IconPlus } from '@posthog/icons'
+import { IconHandMoney, IconPlus } from '@posthog/icons'
 import { LemonTabs, Link } from '@posthog/lemon-ui'
 
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
@@ -10,6 +10,10 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
+
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { EventConfiguration } from './EventConfiguration'
 import { ExternalDataSourceConfiguration } from './ExternalDataSourceConfiguration'
@@ -45,7 +49,17 @@ export function RevenueAnalyticsSettings(): JSX.Element {
         !dataWarehouseSources?.results.filter((source) => source.source_type === 'Stripe').length
 
     return (
-        <div className="flex flex-col gap-8">
+        <SceneContent forceNewSpacing>
+            <SceneTitleSection
+                name="Revenue"
+                description={introductionDescription}
+                resourceType={{
+                    type: 'revenue',
+                    typePlural: 'revenue events',
+                    forceIcon: <IconHandMoney />,
+                }}
+            />
+            <SceneDivider />
             <ProductIntroduction
                 productName="Revenue tracking"
                 thingName="revenue source"
@@ -93,15 +107,20 @@ export function RevenueAnalyticsSettings(): JSX.Element {
             />
 
             <BaseCurrency />
+            <SceneDivider />
             <FilterTestAccountsConfiguration />
+            <SceneDivider />
 
             {featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS] && <GoalsConfiguration />}
-
+            <SceneDivider />
             {featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS] && (
-                <ExternalDataSourceConfiguration buttonRef={dataWarehouseTablesButtonRef} />
+                <>
+                    <ExternalDataSourceConfiguration buttonRef={dataWarehouseTablesButtonRef} />
+                    <SceneDivider />
+                </>
             )}
             <EventConfiguration buttonRef={eventsButtonRef} />
-
+            <SceneDivider />
             {featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS] ? (
                 <LemonTabs
                     activeKey={activeTab}
@@ -122,6 +141,6 @@ export function RevenueAnalyticsSettings(): JSX.Element {
             ) : (
                 <RevenueExampleEventsTable />
             )}
-        </div>
+        </SceneContent>
     )
 }

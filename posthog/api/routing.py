@@ -1,9 +1,9 @@
 from functools import cached_property, lru_cache
-from posthog.clickhouse.query_tagging import tag_queries
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from uuid import UUID
 
 from django.db.models.query import QuerySet
+
 from rest_framework.exceptions import AuthenticationFailed, NotFound, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import GenericViewSet
@@ -17,19 +17,20 @@ from posthog.auth import (
     SessionAuthentication,
     SharingAccessTokenAuthentication,
 )
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.models.organization import Organization
-from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.models.project import Project
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import (
-    APIScopePermission,
     AccessControlPermission,
+    APIScopePermission,
     OrganizationMemberPermissions,
     SharingTokenPermission,
     TeamMemberAccessPermission,
 )
 from posthog.rbac.user_access_control import UserAccessControl
+from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.user_permissions import UserPermissions
 
 if TYPE_CHECKING:

@@ -207,7 +207,7 @@ export class SessionRecordingIngester {
         this.teamsRefresher = new BackgroundRefresher(async () => {
             try {
                 logger.info('🔁', 'blob_ingester_consumer - refreshing teams in the background')
-                return await fetchTeamTokensWithRecordings(this.postgres)
+                return (await fetchTeamTokensWithRecordings(this.postgres))[0]
             } catch (e) {
                 logger.error('🔥', 'blob_ingester_consumer - failed to refresh teams in the background', e)
                 captureException(e)

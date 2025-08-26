@@ -80,6 +80,7 @@ describe('PostgresGroupRepository Integration', () => {
             event_properties: [],
             event_properties_with_usage: [],
             event_properties_numerical: [],
+            session_recording_retention_period: '30d',
         })
     }
 
@@ -236,6 +237,7 @@ describe('PostgresGroupRepository Integration', () => {
                 event_properties: [],
                 event_properties_with_usage: [],
                 event_properties_numerical: [],
+                session_recording_retention_period: '30d',
             })
             await insertRow(postgres, 'posthog_group', {
                 team_id: group1TeamId,
@@ -283,6 +285,7 @@ describe('PostgresGroupRepository Integration', () => {
                 event_properties: [],
                 event_properties_with_usage: [],
                 event_properties_numerical: [],
+                session_recording_retention_period: '30d',
             })
             await insertRow(postgres, 'posthog_group', {
                 team_id: group2TeamId,

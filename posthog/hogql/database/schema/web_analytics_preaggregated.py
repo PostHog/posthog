@@ -1,11 +1,11 @@
 from posthog.hogql.database.models import (
+    BooleanDatabaseField,
     DatabaseField,
+    DateTimeDatabaseField,
+    FieldOrTable,
     IntegerDatabaseField,
     StringDatabaseField,
-    DateTimeDatabaseField,
     Table,
-    FieldOrTable,
-    BooleanDatabaseField,
 )
 
 DEVICE_BROWSER_FIELDS = {
