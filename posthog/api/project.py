@@ -2,6 +2,7 @@ from datetime import timedelta
 from functools import cached_property
 from typing import Any, Optional, cast
 
+from django.conf import settings
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 
@@ -519,6 +520,13 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         return project.teams.get(id=project.id)
 
     def perform_destroy(self, project: Project):
+        # Check if bulk deletion operations are disabled via environment variable
+        # Projects contain teams, so we need to block project deletion too
+        if settings.DISABLE_BULK_DELETES:
+            raise exceptions.ValidationError(
+                "Project deletion is temporarily disabled during database migration. Please try again later."
+            )
+
         project_id = project.pk
         organization_id = project.organization_id
         project_name = project.name

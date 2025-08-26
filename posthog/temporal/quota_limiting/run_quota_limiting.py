@@ -35,7 +35,7 @@ async def run_quota_limiting_all_orgs(
 
             @database_sync_to_async(thread_sensitive=False)
             def async_update_all_orgs_billing_quotas():
-                return update_all_orgs_billing_quotas()
+                update_all_orgs_billing_quotas()
 
             await async_update_all_orgs_billing_quotas()
         except ImportError:

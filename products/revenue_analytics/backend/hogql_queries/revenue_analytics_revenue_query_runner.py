@@ -318,12 +318,13 @@ class RevenueAnalyticsRevenueQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
         days = [date.strftime("%Y-%m-%d") for date in all_dates]
         labels = [format_label_date(item, self.query_date_range, self.team.week_start_day) for item in all_dates]
 
-        def _build_result(breakdown: str, data: list[Decimal]) -> dict:
+        def _build_result(breakdown: str, kind: str | None, data: list[Decimal]) -> dict:
+            label = f"{kind} | {breakdown}" if kind else breakdown
             return {
-                "action": {"days": all_dates, "id": breakdown, "name": breakdown},
+                "action": {"days": all_dates, "id": label, "name": label},
                 "data": data,
                 "days": days,
-                "label": breakdown,
+                "label": label,
                 "labels": labels,
             }
 
@@ -350,7 +351,7 @@ class RevenueAnalyticsRevenueQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
             grouped_results[(breakdown_by, period_start.strftime("%Y-%m-%d"))] += total_value
 
         gross_results = [
-            _build_result(breakdown, [grouped_results.get((breakdown, day), Decimal(0)) for day in days])
+            _build_result(breakdown, None, [grouped_results.get((breakdown, day), Decimal(0)) for day in days])
             for breakdown in breakdowns
         ]
 
@@ -435,11 +436,11 @@ class RevenueAnalyticsRevenueQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
 
             mrr_results.append(
                 RevenueAnalyticsRevenueQueryResultItem(
-                    total=_build_result(breakdown, total_mrr_data),
-                    new=_build_result(breakdown, new_mrr_data),
-                    expansion=_build_result(breakdown, expansion_mrr_data),
-                    contraction=_build_result(breakdown, contraction_mrr_data),
-                    churn=_build_result(breakdown, churn_mrr_data),
+                    total=_build_result(breakdown, None, total_mrr_data),
+                    new=_build_result(breakdown, "New", new_mrr_data),
+                    expansion=_build_result(breakdown, "Expansion", expansion_mrr_data),
+                    contraction=_build_result(breakdown, "Contraction", contraction_mrr_data),
+                    churn=_build_result(breakdown, "Churn", churn_mrr_data),
                 )
             )
 

@@ -950,6 +950,37 @@ def stripe_credit_note():
 
 
 @pytest.fixture
+def stripe_customer_balance_transaction():
+    return json.loads(
+        """
+        {
+            "object": "list",
+            "url": "/v1/credit_notes",
+            "has_more": false,
+            "data": [
+                {
+                    "amount": 123,
+                    "checkout_session": null,
+                    "created": 1744275509,
+                    "credit_note": null,
+                    "currency": "usd",
+                    "customer": "cus_OyUnzb0sjasdsd",
+                    "description": "Credit expired",
+                    "ending_balance": 0,
+                    "id": "cbtxn_1RCGwLEuIatRXSdz53OwYsdfsd",
+                    "invoice_id": null,
+                    "livemode": true,
+                    "metadata": {},
+                    "object": "customer_balance_transaction",
+                    "type": "adjustment"
+                }
+            ]
+        }
+        """
+    )
+
+
+@pytest.fixture
 def zendesk_brands():
     return json.loads(
         """
