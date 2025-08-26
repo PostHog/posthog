@@ -1,5 +1,3 @@
-// otel.ts
-import { trace } from '@opentelemetry/api'
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node'
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-grpc'
 import { resourceFromAttributes } from '@opentelemetry/resources'
@@ -27,11 +25,5 @@ export const initTracing = (): void => {
     if (defaultConfig.OTEL_EXPORTER_OTLP_ENDPOINT) {
         logger.info('Starting tracing with endpoint', { endpoint: defaultConfig.OTEL_EXPORTER_OTLP_ENDPOINT })
         sdk.start()
-
-        // smoke span
-        const tracer = trace.getTracer('smoke')
-        const span = tracer.startSpan('startup.smoke')
-        span.addEvent('hello-otel')
-        span.end()
     }
 }
