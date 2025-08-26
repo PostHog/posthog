@@ -448,7 +448,10 @@ async def test_clickhouse_sync_multiple_batches(summarized_actions, summarized_a
 async def test_batch_embed_and_sync_actions(azure_mock, summarized_actions, ateam):
     start_dt = timezone.now()
     embeddings = [[0.12, 0.054], [0.1, 0.7], [0.8, 0.6663]]
-    with patch("azure.ai.inference.aio.EmbeddingsClient.embed") as embeddings_mock:
+    with (
+        patch("azure.ai.inference.aio.EmbeddingsClient.embed") as embeddings_mock,
+        patch("temporalio.activity.heartbeat"),
+    ):
         embeddings_mock.return_value = _wrap_embeddings_response(embeddings)
         result = await batch_embed_and_sync_actions(
             BatchEmbedAndSyncActionsInputs(
@@ -477,14 +480,15 @@ async def test_batch_embed_and_sync_actions(azure_mock, summarized_actions, atea
         ]
         assert expected_result == parse_records(rows)
 
-        result = await batch_embed_and_sync_actions(
-            BatchEmbedAndSyncActionsInputs(
-                start_dt=start_dt.isoformat(),
-                insert_batch_size=10,
-                embeddings_batch_size=10,
-                max_parallel_requests=4,
+        with patch("temporalio.activity.heartbeat"):
+            result = await batch_embed_and_sync_actions(
+                BatchEmbedAndSyncActionsInputs(
+                    start_dt=start_dt.isoformat(),
+                    insert_batch_size=10,
+                    embeddings_batch_size=10,
+                    max_parallel_requests=4,
+                )
             )
-        )
         assert result.has_more is False
         rows = _query_pg_embeddings()
         assert len(rows) == 3
@@ -496,7 +500,10 @@ async def test_batch_embed_and_sync_actions_in_batches(azure_mock, summarized_ac
     start_dt = timezone.now()
     embeddings = [[0.12, 0.054]]
 
-    with patch("azure.ai.inference.aio.EmbeddingsClient.embed") as embeddings_mock:
+    with (
+        patch("azure.ai.inference.aio.EmbeddingsClient.embed") as embeddings_mock,
+        patch("temporalio.activity.heartbeat"),
+    ):
         embeddings_mock.return_value = _wrap_embeddings_response(embeddings)
         result = await batch_embed_and_sync_actions(
             BatchEmbedAndSyncActionsInputs(
@@ -577,7 +584,10 @@ async def test_batch_embed_and_sync_actions_filters_out_actions(azure_mock, atea
     ]
     await Action.objects.abulk_create(actions)
 
-    with patch("azure.ai.inference.aio.EmbeddingsClient.embed") as embeddings_mock:
+    with (
+        patch("azure.ai.inference.aio.EmbeddingsClient.embed") as embeddings_mock,
+        patch("temporalio.activity.heartbeat"),
+    ):
         embeddings_mock.return_value = _wrap_embeddings_response(embeddings)
         for expected_has_more in (True, False):
             result = await batch_embed_and_sync_actions(
@@ -611,14 +621,15 @@ async def test_batch_embed_and_sync_actions_filters_out_actions_with_no_summary(
     ]
     await Action.objects.abulk_create(actions)
 
-    result = await batch_embed_and_sync_actions(
-        BatchEmbedAndSyncActionsInputs(
-            start_dt=start_dt.isoformat(),
-            insert_batch_size=1000,
-            embeddings_batch_size=96,
-            max_parallel_requests=4,
+    with patch("temporalio.activity.heartbeat"):
+        result = await batch_embed_and_sync_actions(
+            BatchEmbedAndSyncActionsInputs(
+                start_dt=start_dt.isoformat(),
+                insert_batch_size=1000,
+                embeddings_batch_size=96,
+                max_parallel_requests=4,
+            )
         )
-    )
     assert result.has_more is False
     rows = _query_pg_embeddings()
     assert len(rows) == 0
@@ -664,7 +675,10 @@ async def test_batch_embed_and_sync_actions_embedding_version(azure_mock, ateam)
 
     actions = await _create_actions_with_embedding_version(ateam, start_dt)
 
-    with patch("azure.ai.inference.aio.EmbeddingsClient.embed") as embeddings_mock:
+    with (
+        patch("azure.ai.inference.aio.EmbeddingsClient.embed") as embeddings_mock,
+        patch("temporalio.activity.heartbeat"),
+    ):
         embeddings_mock.return_value = _wrap_embeddings_response(embeddings)
 
         for expected_has_more in (True, False):
@@ -980,3 +994,126 @@ async def test_workflow_retried_on_rate_limit_error():
 
             # Should be retried 3 times (due to retry policy with maximum_attempts=3)
             assert call_count == [1, 0, 3]
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_heartbeat_called_during_embedding_process(azure_mock, summarized_actions, ateam):
+    """Test that heartbeat is called during the batch_embed_and_sync_actions activity."""
+    start_dt = timezone.now()
+    embeddings = [[0.12, 0.054], [0.1, 0.7], [0.8, 0.6663]]
+
+    with (
+        patch("azure.ai.inference.aio.EmbeddingsClient.embed") as embeddings_mock,
+        patch("temporalio.activity.heartbeat") as heartbeat_mock,
+    ):
+        embeddings_mock.return_value = _wrap_embeddings_response(embeddings)
+
+        await batch_embed_and_sync_actions(
+            BatchEmbedAndSyncActionsInputs(
+                start_dt=start_dt.isoformat(),
+                insert_batch_size=10,
+                embeddings_batch_size=10,
+                max_parallel_requests=4,
+            )
+        )
+
+        # Heartbeat should be called at least twice:
+        # 1. At the start of the embedding loop
+        # 2. Before syncing vectors
+        assert heartbeat_mock.call_count >= 2
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_heartbeat_called_multiple_times_with_large_batch(azure_mock, ateam):
+    """Test that heartbeat is called multiple times when processing larger batches."""
+    start_dt = timezone.now()
+
+    # Create more actions to process multiple iterations
+    actions = []
+    for i in range(10):
+        actions.append(
+            Action(
+                team=ateam,
+                name=f"Action {i}",
+                description=f"Description {i}",
+                last_summarized_at=start_dt - timedelta(days=1),
+                summary=f"Summary {i}",
+                steps_json=[{"event": f"event_{i}"}],
+            )
+        )
+    await Action.objects.abulk_create(actions)
+
+    embeddings = [[0.1, 0.1] for _ in range(10)]
+
+    with (
+        patch("azure.ai.inference.aio.EmbeddingsClient.embed") as embeddings_mock,
+        patch("temporalio.activity.heartbeat") as heartbeat_mock,
+    ):
+        embeddings_mock.return_value = _wrap_embeddings_response(embeddings)
+
+        await batch_embed_and_sync_actions(
+            BatchEmbedAndSyncActionsInputs(
+                start_dt=start_dt.isoformat(),
+                insert_batch_size=5,  # Small batch size to trigger multiple iterations
+                embeddings_batch_size=2,
+                max_parallel_requests=2,
+            )
+        )
+
+        # With a small insert_batch_size and multiple actions, we should see more heartbeat calls
+        # as the loop iterates multiple times (at least 3: one per iteration + one before sync)
+        assert heartbeat_mock.call_count >= 3
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_heartbeat_called_even_when_no_actions(ateam):
+    """Test that heartbeat is called once even when there are no actions to process."""
+    start_dt = timezone.now()
+
+    with patch("temporalio.activity.heartbeat") as heartbeat_mock:
+        result = await batch_embed_and_sync_actions(
+            BatchEmbedAndSyncActionsInputs(
+                start_dt=start_dt.isoformat(),
+                insert_batch_size=10,
+                embeddings_batch_size=10,
+                max_parallel_requests=4,
+            )
+        )
+
+        # Heartbeat is called once at the start of the loop even when no actions exist
+        assert heartbeat_mock.call_count == 1
+        assert result.has_more is False
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_heartbeat_called_before_sync_when_actions_exist(azure_mock, summarized_actions, ateam):
+    """Test that heartbeat is specifically called before the sync_action_vectors call."""
+    start_dt = timezone.now()
+    embeddings = [[0.12, 0.054]]
+
+    with (
+        patch("azure.ai.inference.aio.EmbeddingsClient.embed") as embeddings_mock,
+        patch("temporalio.activity.heartbeat") as heartbeat_mock,
+        patch("posthog.temporal.ai.sync_vectors.sync_action_vectors") as sync_mock,
+    ):
+        embeddings_mock.return_value = _wrap_embeddings_response(embeddings)
+        sync_mock.return_value = None
+
+        await batch_embed_and_sync_actions(
+            BatchEmbedAndSyncActionsInputs(
+                start_dt=start_dt.isoformat(),
+                insert_batch_size=10,
+                embeddings_batch_size=10,
+                max_parallel_requests=4,
+            )
+        )
+
+        # Verify sync was called
+        assert sync_mock.call_count == 1
+
+        # Verify heartbeat was called at least once before sync
+        assert heartbeat_mock.call_count >= 1
