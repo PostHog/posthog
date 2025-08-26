@@ -113,19 +113,19 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         }
     }
 
-    const isStaticNavItemActive = (itemId: string): boolean => {
+    const isStaticNavItemActive = (itemIdentifier: string): boolean => {
         const currentPath = removeProjectIdIfPresent(location.pathname)
 
-        if (itemId === 'Home' && currentPath === '/') {
+        if (itemIdentifier === 'Home' && currentPath === '/') {
             return true
         }
-        if (itemId === 'Activity' && currentPath.startsWith('/activity/')) {
+        if (itemIdentifier === 'Activity' && currentPath.startsWith('/activity/')) {
             return true
         }
-        if (itemId === 'Settings' && currentPath.startsWith('/settings/')) {
+        if (itemIdentifier === 'Settings' && currentPath.startsWith('/settings/')) {
             return true
         }
-        if (itemId === 'Toolbar' && currentPath === '/toolbar') {
+        if (itemIdentifier === 'Toolbar' && currentPath === '/toolbar') {
             return true
         }
 
@@ -382,7 +382,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                             menuItem: !isLayoutNavCollapsed,
                                                             className: 'group',
                                                             iconOnly: isLayoutNavCollapsed,
-                                                            active: isStaticNavItemActive(item.id),
+                                                            active: isStaticNavItemActive(item.identifier),
                                                         }}
                                                         to={item.to}
                                                         tooltip={isLayoutNavCollapsed ? item.tooltip : undefined}
