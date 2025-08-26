@@ -104,6 +104,7 @@ class SingleSessionSummaryManager(models.Manager):
             queryset = queryset.filter(extra_summary_context__isnull=True)
         # Get the latest summary per session_id with limit+1 to check for more records
         queryset = queryset.order_by("session_id", "-created_at").distinct("session_id")
+        # Use Django slicing to SQL LIMIT/OFFSET at the database level
         db_results = list(queryset[offset : offset + limit + 1])
         # Check if there are more records in the database
         has_next = len(db_results) > limit
