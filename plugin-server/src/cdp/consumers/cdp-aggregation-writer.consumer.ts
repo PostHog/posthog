@@ -1,8 +1,9 @@
 import { Message } from 'node-rdkafka'
 
+import { instrumentFn } from '~/common/tracing/tracing-utils'
+
 import { KAFKA_CDP_AGGREGATION_WRITER_EVENTS } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
-import { runInstrumentedFunction } from '../../main/utils'
 import { Hub } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
 import { sanitizeString } from '../../utils/db/utils'
@@ -35,33 +36,30 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
     // Parse messages from Kafka and separate them into two arrays
     public async _parseKafkaBatch(messages: Message[]): Promise<ParsedBatch> {
         return await this.runWithHeartbeat(() =>
-            runInstrumentedFunction({
-                statsKey: `cdpAggregationWriterConsumer.handleEachBatch.parseKafkaMessages`,
-                func: () => {
-                    const personPerformedEvents: PersonEventPayload[] = []
-                    const behaviouralFilterMatchedEvents: CohortFilterPayload[] = []
+            instrumentFn(`cdpAggregationWriterConsumer.handleEachBatch.parseKafkaMessages`, () => {
+                const personPerformedEvents: PersonEventPayload[] = []
+                const behaviouralFilterMatchedEvents: CohortFilterPayload[] = []
 
-                    messages.forEach((message) => {
-                        try {
-                            const event = parseJSON(message.value!.toString()) as ProducedEvent
+                messages.forEach((message) => {
+                    try {
+                        const event = parseJSON(message.value!.toString()) as ProducedEvent
 
-                            if (event.payload.type === 'person-performed-event') {
-                                personPerformedEvents.push(event.payload as PersonEventPayload)
-                            } else if (event.payload.type === 'behavioural-filter-match-event') {
-                                behaviouralFilterMatchedEvents.push(event.payload as CohortFilterPayload)
-                            } else {
-                                logger.warn('Unknown event type', { type: (event.payload as any).type })
-                            }
-                        } catch (e) {
-                            logger.error('Error parsing message', e)
+                        if (event.payload.type === 'person-performed-event') {
+                            personPerformedEvents.push(event.payload as PersonEventPayload)
+                        } else if (event.payload.type === 'behavioural-filter-match-event') {
+                            behaviouralFilterMatchedEvents.push(event.payload as CohortFilterPayload)
+                        } else {
+                            logger.warn('Unknown event type', { type: (event.payload as any).type })
                         }
-                    })
+                    } catch (e) {
+                        logger.error('Error parsing message', e)
+                    }
+                })
 
-                    return Promise.resolve({
-                        personPerformedEvents,
-                        behaviouralFilterMatchedEvents,
-                    })
-                },
+                return Promise.resolve({
+                    personPerformedEvents,
+                    behaviouralFilterMatchedEvents,
+                })
             })
         )
     }
