@@ -15,18 +15,13 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.constants import VIDEO_EXPORT_TASK_QUEUE
 from posthog.event_usage import report_user_action
 from posthog.models import Insight, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.exported_asset import ExportedAsset, get_content_response
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
-from posthog.settings.temporal import (
-    TEMPORAL_HOST,
-    TEMPORAL_NAMESPACE,
-    TEMPORAL_PORT,
-    TEMPORAL_TASK_QUEUE,
-    TEMPORAL_WORKFLOW_MAX_ATTEMPTS,
-)
+from posthog.settings.temporal import TEMPORAL_HOST, TEMPORAL_NAMESPACE, TEMPORAL_PORT, TEMPORAL_WORKFLOW_MAX_ATTEMPTS
 from posthog.tasks import exporter
 from posthog.temporal.common.client import connect as temporal_connect
 from posthog.temporal.exports_video.workflow import VideoExportInputs, VideoExportWorkflow
@@ -152,7 +147,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                         VideoExportWorkflow.run,
                         VideoExportInputs(exported_asset_id=instance.id),
                         id=f"export-video-{instance.id}",
-                        task_queue=TEMPORAL_TASK_QUEUE,
+                        task_queue=VIDEO_EXPORT_TASK_QUEUE,
                         retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
                     )
