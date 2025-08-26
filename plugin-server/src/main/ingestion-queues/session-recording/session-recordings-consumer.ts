@@ -467,13 +467,10 @@ export class SessionRecordingIngester {
         }
 
         await this.kafkaConsumer.connect(async (messages) => {
-            return await runInstrumentedFunction({
-                statsKey: `recordingingester.handleEachBatch`,
-                sendException: false,
-                func: async () => {
-                    return await this.scheduleWork(this.handleEachBatch(messages))
-                },
-            })
+            return await instrumentFn(
+                `recordingingester.handleEachBatch`,
+                async () => await this.scheduleWork(this.handleEachBatch(messages))
+            )
         })
 
         this.totalNumPartitions = (await this.kafkaConsumer.getPartitionsForTopic(this.topic)).length
@@ -625,10 +622,12 @@ export class SessionRecordingIngester {
         gaugeSessionsHandled.remove()
 
         const startTime = Date.now()
-        await runInstrumentedFunction({
-            statsKey: `recordingingester.onRevokePartitions.revokeSessions`,
-            timeout: SHUTDOWN_FLUSH_TIMEOUT_MS, // same as the partition lock
-            func: async () => {
+        await instrumentFn(
+            {
+                key: `recordingingester.onRevokePartitions.revokeSessions`,
+                timeoutMs: SHUTDOWN_FLUSH_TIMEOUT_MS, // same as the partition lock
+            },
+            async () => {
                 if (this.config.SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION) {
                     // Extend our claim on these partitions to give us time to flush
                     logger.info(
@@ -655,8 +654,8 @@ export class SessionRecordingIngester {
                 }
 
                 await Promise.allSettled(sessionsToDrop.map((x) => x.destroy()))
-            },
-        })
+            }
+        )
     }
 
     async flushAllReadySessions(): Promise<void> {

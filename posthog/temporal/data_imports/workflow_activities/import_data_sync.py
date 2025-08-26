@@ -165,4 +165,5 @@ def _run(
 ):
     pipeline = PipelineNonDLT(source, logger, job_inputs.run_id, reset_pipeline, shutdown_monitor)
     pipeline.run()
+    logger.debug("Finished running pipeline")
     del pipeline
