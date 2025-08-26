@@ -37,10 +37,10 @@ class SingleSessionSummaryManager(models.Manager):
     """Manager for SingleSessionSummary with utility methods."""
 
     def get_summary(
-        self, team: Team, session_id: str, extra_summary_context: ExtraSummaryContext | None = None
+        self, team_id: int, session_id: str, extra_summary_context: ExtraSummaryContext | None = None
     ) -> Optional["SingleSessionSummary"]:
         """Get a session summary if it exists"""
-        queryset = self.filter(team=team, session_id=session_id)
+        queryset = self.filter(team_id=team_id, session_id=session_id)
         # Filter by context presence
         if extra_summary_context is not None:
             # Should have context
@@ -62,7 +62,7 @@ class SingleSessionSummaryManager(models.Manager):
 
     def add_summary(
         self,
-        team: Team,
+        team_id: int,
         session_id: str,
         summary: dict[str, Any],
         exception_event_ids: list[str],
@@ -74,7 +74,7 @@ class SingleSessionSummaryManager(models.Manager):
         extra_summary_context_dict = asdict(extra_summary_context) if extra_summary_context else None
         run_metadata_dict = asdict(run_metadata) if run_metadata else {}
         return self.create(
-            team=team,
+            team_id=team_id,
             session_id=session_id,
             summary=summary,
             # Enforce max 100 limit, just in case

@@ -34,12 +34,7 @@ from posthog.temporal.ai.session_summary.activities.patterns import (
     get_patterns_from_redis_outside_workflow,
     split_session_summaries_into_chunks_for_patterns_extraction_activity,
 )
-from posthog.temporal.ai.session_summary.state import (
-    StateActivitiesEnum,
-    generate_state_key,
-    get_data_class_from_redis,
-    store_data_in_redis,
-)
+from posthog.temporal.ai.session_summary.state import StateActivitiesEnum, generate_state_key, store_data_in_redis
 from posthog.temporal.ai.session_summary.summarize_session import get_llm_single_session_summary_activity
 from posthog.temporal.ai.session_summary.types.group import (
     SessionGroupSummaryInputs,
@@ -62,11 +57,11 @@ from ee.hogai.session_summaries.session.input_data import add_context_and_filter
 from ee.hogai.session_summaries.session.summarize_session import (
     ExtraSummaryContext,
     SessionSummaryDBData,
-    SingleSessionSummaryLlmInputs,
     prepare_data_for_single_session_summary,
     prepare_single_session_summary_input,
 )
 from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
+from ee.hogai.session_summaries.session_group.summarize_session_group import get_ready_summaries_from_db
 from ee.hogai.session_summaries.session_group.summary_notebooks import (
     format_extracted_patterns_status,
     format_patterns_assignment_progress,
@@ -109,35 +104,23 @@ async def fetch_session_batch_events_activity(
     inputs: SessionGroupSummaryInputs,
 ) -> list[str]:
     """Fetch batch events for multiple sessions using query runner and store per-session data in Redis. Returns a list of successful sessions."""
-    redis_client = get_async_client()
-    # Find sessions that were fetched successfully, already cached session are successful by default
     fetched_session_ids = []
-    # Check which sessions already have cached data
-    session_ids_to_fetch = []
-    for session_id in inputs.session_ids:
-        session_data_key = generate_state_key(
-            key_base=inputs.redis_key_base,
-            label=StateActivitiesEnum.SESSION_DB_DATA,
-            state_id=session_id,
-        )
-        # Check if data for this session is already cached
-        success = await get_data_class_from_redis(
-            redis_client=redis_client,
-            redis_key=session_data_key,
-            label=StateActivitiesEnum.SESSION_DB_DATA,
-            target_class=SingleSessionSummaryLlmInputs,
-        )
-        if success is not None:
-            # Session data is cached, so we can skip fetching
-            fetched_session_ids.append(session_id)
-            continue
-        # Session data not cached, need to fetch
-        session_ids_to_fetch.append(session_id)
+    redis_client = get_async_client()
+    # Get the team
+    team = await database_sync_to_async(get_team)(team_id=inputs.team_id)
+    # Find sessions that have summaries already and stored in the DB
+    ready_summaries = await database_sync_to_async(get_ready_summaries_from_db)(
+        team=team,
+        session_ids=inputs.session_ids,
+        extra_summary_context=inputs.extra_summary_context,
+    )
+    fetched_session_ids.extend([s.session_id for s in ready_summaries])
+    # Keep session ids that don't have summaries yet
+    session_ids_to_fetch = [s for s in inputs.session_ids if s not in fetched_session_ids]
     # If all sessions already cached
     if not session_ids_to_fetch:
         return fetched_session_ids
     # Fetch metadata for all sessions at once
-    # TODO: Decide if we need a query runner for this (as a follow-up)
     metadata_dict = await database_sync_to_async(SessionReplayEvents().get_group_metadata)(
         session_ids=session_ids_to_fetch,
         team_id=inputs.team_id,
@@ -145,7 +128,6 @@ async def fetch_session_batch_events_activity(
         recordings_max_timestamp=datetime.fromisoformat(inputs.max_timestamp_str),
     )
     # Fetch events for all uncached sessions
-    team = await database_sync_to_async(get_team)(team_id=inputs.team_id)
     all_session_events: dict[str, list[tuple]] = {}  # session_id -> list of events
     columns, offset, page_size = None, 0, DEFAULT_TOTAL_EVENTS_PER_QUERY
     # Paginate
@@ -172,7 +154,7 @@ async def fetch_session_batch_events_activity(
         if response.hasMore is not True:
             break
         offset += page_size
-    # Store all per-session DB data in Redis
+    # Store all per-session DB data in Redis to summarize in the next activity
     for session_id in session_ids_to_fetch:
         session_events = all_session_events.get(session_id)
         if not session_events:

@@ -15,6 +15,28 @@ from ee.hogai.session_summaries.session.summarize_session import (
 )
 from ee.hogai.session_summaries.session_group.patterns import RawSessionGroupSummaryPatternsList
 from ee.hogai.session_summaries.utils import load_custom_template
+from ee.models.session_summaries import SingleSessionSummary
+
+
+def get_ready_summaries_from_db(
+    session_ids: list[str], team: Team, extra_summary_context: ExtraSummaryContext | None
+) -> list[SingleSessionSummary]:
+    has_next = True
+    offset = 0
+    ready_summaries = []
+    while has_next:
+        summaries = SingleSessionSummary.objects.get_bulk_summaries(
+            team=team,
+            session_ids=session_ids,
+            extra_summary_context=extra_summary_context,
+            limit=100,
+            offset=offset,
+        )
+        ready_summaries.extend(summaries.results)
+        if not summaries.has_next:
+            has_next = False
+        offset += 100
+    return ready_summaries
 
 
 def remove_excessive_content_from_session_summary_for_llm(

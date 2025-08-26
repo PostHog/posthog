@@ -113,7 +113,6 @@ async def get_llm_single_session_summary_activity(
 ) -> None:
     """Summarize a single session in one call and store/cache in Redis (to avoid hitting Temporal memory limits)"""
     # Base key includes session ids, so when summarizing this session again, but with different inputs (or order) - we don't use cache
-    # TODO: Should be solved by storing the summary in DB (long-term for using in UI)
     redis_client, redis_input_key, redis_output_key = get_redis_state_client(
         key_base=inputs.redis_key_base,
         input_label=StateActivitiesEnum.SESSION_DB_DATA,
