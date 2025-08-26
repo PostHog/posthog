@@ -1,7 +1,7 @@
 import asyncio
 from datetime import timedelta
 
-from posthog.test.base import NonAtomicBaseTest
+from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.utils import timezone
@@ -51,7 +51,6 @@ def create_mock_query_executor():
 
 @patch("ee.hogai.graph.insights.nodes.AssistantQueryExecutor", create_mock_query_executor)
 class TestInsightSearchNode(BaseTest):
-
     def setUp(self):
         super().setUp()
         self.node = InsightSearchNode(self.team, self.user)
