@@ -131,7 +131,7 @@ const { config: tsconfig } = ts.readConfigFile(path.resolve(process.cwd(), '..',
 export const commonConfig = {
     sourcemap: true,
     minify: !isDev,
-    target: tsconfig.compilerOptions.target,
+    target: tsconfig.compilerOptions.target, // We want the same target as tsconfig, should fail if tsconfig not found
     resolveExtensions: ['.ts', '.tsx', '.js', '.jsx', '.scss', '.css', '.less'],
     publicPath: '/static',
     assetNames: 'assets/[name]-[hash]',
