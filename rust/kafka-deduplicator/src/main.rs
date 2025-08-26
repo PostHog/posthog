@@ -3,7 +3,6 @@ use axum::{routing::get, Router};
 use futures::future::ready;
 use health::HealthRegistry;
 use serve_metrics::{serve, setup_metrics_recorder};
-use std::time::Duration;
 use tokio::task::JoinHandle;
 use tracing::info;
 use tracing_subscriber::layer::SubscriberExt;
@@ -47,11 +46,11 @@ fn start_server(config: &Config, liveness: HealthRegistry) -> JoinHandle<()> {
 async fn main() -> Result<()> {
     // Initialize tracing with EnvFilter for RUST_LOG support
     // Default to INFO level if RUST_LOG is not set
-    let log_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info"));
-    
+    let log_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+
     tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer().with_filter(log_filter))
+        .with(tracing_subscriber::fmt::layer())
+        .with(log_filter)
         .init();
 
     info!("Starting Kafka Deduplicator service");

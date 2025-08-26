@@ -183,8 +183,9 @@ impl InFlightTracker {
                 }
 
                 // Check if this offset can be committed (sequential from last committed OR first message)
-                if completion.offset == tracker.last_committed_offset + 1 
-                    || (tracker.last_committed_offset == -1 && completion.offset >= 0) {
+                if completion.offset == tracker.last_committed_offset + 1
+                    || (tracker.last_committed_offset == -1 && completion.offset >= 0)
+                {
                     tracker.last_committed_offset = completion.offset;
 
                     // Check if any pending completions can now be committed
@@ -201,8 +202,9 @@ impl InFlightTracker {
                         "Updated safe commit offset: topic={}, partition={}, offset={}",
                         topic, partition, tracker.last_committed_offset
                     );
-                } else if completion.offset > tracker.last_committed_offset + 1 
-                    || (tracker.last_committed_offset == -1 && completion.offset > 0) {
+                } else if completion.offset > tracker.last_committed_offset + 1
+                    || (tracker.last_committed_offset == -1 && completion.offset > 0)
+                {
                     // Out of order completion - store for later
                     tracker
                         .pending_completions
@@ -235,16 +237,19 @@ impl InFlightTracker {
         self.process_completions().await;
 
         let partitions = self.partitions.read().await;
-        
+
         // Log partition states for debugging
         for ((topic, partition), tracker) in partitions.iter() {
             info!(
                 "Partition {}:{} - last_committed_offset={}, in_flight={}, pending={}",
-                topic, partition, tracker.last_committed_offset, 
-                tracker.in_flight.len(), tracker.pending.len()
+                topic,
+                partition,
+                tracker.last_committed_offset,
+                tracker.in_flight_count,
+                tracker.pending_completions.len()
             );
         }
-        
+
         let safe_offsets: HashMap<(String, i32), i64> = partitions
             .iter()
             .filter(|(_, tracker)| tracker.last_committed_offset >= 0)
@@ -252,11 +257,11 @@ impl InFlightTracker {
                 ((topic.clone(), *partition), tracker.last_committed_offset)
             })
             .collect();
-            
+
         if safe_offsets.is_empty() {
             info!("No partitions have committable offsets (all have last_committed_offset < 0)");
         }
-        
+
         safe_offsets
     }
 

@@ -104,6 +104,9 @@ pub struct Config {
 
     #[envconfig(default = "300")] // 5 minutes in seconds
     pub s3_timeout_secs: u64,
+
+    #[envconfig(default = "true")]
+    pub export_prometheus: bool,
 }
 
 impl Config {

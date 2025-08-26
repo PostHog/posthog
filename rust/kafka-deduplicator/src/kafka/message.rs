@@ -1,6 +1,6 @@
 use anyhow::Result;
 use rdkafka::message::OwnedMessage;
-use tracing::{debug, warn};
+use tracing::{info, warn};
 
 use crate::kafka::tracker::{MessageCompletion, MessageHandle};
 
@@ -43,7 +43,10 @@ impl AckableMessage {
         self.handle.complete(MessageResult::Success).await;
         self.acked = true;
 
-        info!("Acked message: id={}, offset={}", self.handle.message_id, offset);
+        info!(
+            "Acked message: id={}, offset={}",
+            self.handle.message_id, offset
+        );
     }
 
     /// Acknowledge failed processing of this message
