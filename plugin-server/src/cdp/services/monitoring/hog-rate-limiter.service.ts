@@ -26,7 +26,7 @@ export class HogRateLimiterService {
             this.hub.CDP_RATE_LIMITER_BUCKET_SIZE,
             this.hub.CDP_RATE_LIMITER_REFILL_RATE,
             this.hub.CDP_RATE_LIMITER_TTL,
-        ] as const
+        ]
     }
 
     public async rateLimitMany(idCosts: [string, number][]): Promise<[string, HogRateLimit][]> {
