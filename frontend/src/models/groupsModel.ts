@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import { connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
@@ -6,7 +6,7 @@ import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { wordPluralize } from 'lib/utils'
-import { organizationLogic } from 'scenes/organizationLogic'
+import { afterMountAndOrganization } from 'lib/utils/kea-logic-builders'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { GroupType, GroupTypeIndex } from '~/types'
@@ -146,22 +146,15 @@ export const groupsModel = kea<groupsModelType>([
             }
         },
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions }) => ({
         deleteGroupTypeSuccess: () => {
             actions.loadAllGroupTypes()
         },
-        // Listen for organization changes to load group types when it becomes available
-        [organizationLogic.actionTypes.loadCurrentOrganizationSuccess]: ({ currentOrganization }) => {
-            if (currentOrganization && !values.groupTypesRaw?.length) {
-                actions.loadAllGroupTypes()
-            }
-        },
     })),
-    afterMount(({ actions }) => {
+    afterMountAndOrganization(({ actions }) => {
         if (window.POSTHOG_APP_CONTEXT?.current_team?.group_types) {
             actions.loadAllGroupTypesSuccess(window.POSTHOG_APP_CONTEXT.current_team.group_types)
-        } else if (organizationLogic.values.currentOrganization) {
-            // don't load group types if organization is unavailable
+        } else {
             actions.loadAllGroupTypes()
         }
     }),

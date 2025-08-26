@@ -5,7 +5,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { permanentlyMount } from 'lib/utils/kea-logic-builders'
+import { afterMountAndOrganization, permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { membershipLevelToName } from 'lib/utils/permissioning'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -40,12 +40,9 @@ export const membersLogic = kea<membersLogicType>([
         members: {
             __default: null as OrganizationMemberType[] | null,
             loadAllMembers: async () => {
-                // Don't make a request if organization is unavailable
-                if (organizationLogic.values.currentOrganization) {
-                    return await api.organizationMembers.listAll({
-                        limit: PAGINATION_LIMIT,
-                    })
-                }
+                return await api.organizationMembers.listAll({
+                    limit: PAGINATION_LIMIT,
+                })
             },
             loadMemberUpdates: async () => {
                 const newestMemberUpdate = values.members?.sort((a, b) => (a.updated_at > b.updated_at ? -1 : 1))?.[0]
@@ -189,14 +186,9 @@ export const membersLogic = kea<membersLogicType>([
                 activationLogic.findMounted()?.actions?.markTaskAsCompleted(ActivationTask.InviteTeamMember)
             }
         },
-
-        // Listen for organization changes to load members when it becomes available
-        [organizationLogic.actionTypes.loadCurrentOrganizationSuccess]: ({ currentOrganization }) => {
-            if (currentOrganization && !values.members) {
-                actions.loadAllMembers()
-            }
-        },
     })),
-
+    afterMountAndOrganization(({ actions }) => {
+        actions.loadAllMembers()
+    }),
     permanentlyMount(),
 ])

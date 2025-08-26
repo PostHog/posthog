@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, defaults, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, defaults, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, decodeParams, router, urlToAction } from 'kea-router'
 
@@ -10,6 +10,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { IconSurveys } from 'lib/lemon-ui/icons'
 import { objectsEqual, uuid } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
+import { afterMountAndOrganization } from 'lib/utils/kea-logic-builders'
 import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
 import { urls } from 'scenes/urls'
 
@@ -17,7 +18,6 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { actionsModel } from '~/models/actionsModel'
 import { productUrls } from '~/products'
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
-import { organizationLogic } from '~/scenes/organizationLogic'
 import { Conversation, ConversationDetail, ConversationStatus, SidePanelTab } from '~/types'
 
 import { maxContextLogic } from './maxContextLogic'
@@ -393,16 +393,9 @@ export const maxLogic = kea<maxLogicType>([
             actions.resetContext()
             actions.focusInput()
         },
-
-        // Listen for organization changes to load conversation history when it becomes available
-        [organizationLogic.actionTypes.loadCurrentOrganizationSuccess]: ({ currentOrganization }) => {
-            if (currentOrganization && !values.conversationHistory?.length) {
-                actions.loadConversationHistory()
-            }
-        },
     })),
 
-    afterMount(({ actions, values }) => {
+    afterMountAndOrganization(({ actions, values }) => {
         // If there is a prefill question from side panel state (from opening Max within the app), use it
         if (
             !values.question &&
@@ -417,10 +410,8 @@ export const maxLogic = kea<maxLogicType>([
             }
         }
 
-        // Load conversation history if current organization is available
-        if (organizationLogic.values.currentOrganization) {
-            actions.loadConversationHistory()
-        }
+        // Load conversation history on mount
+        actions.loadConversationHistory()
     }),
 
     urlToAction(({ actions, values }) => ({

@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -7,8 +7,7 @@ import { GENERATED_DASHBOARD_PREFIX } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { idToKey, isUserLoggedIn } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { permanentlyMount } from 'lib/utils/kea-logic-builders'
-import { organizationLogic } from 'scenes/organizationLogic'
+import { afterMountAndOrganization, permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -345,19 +344,9 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 </>
             )
         },
-
-        // Listen for organization changes to load dashboards when it becomes available
-        [organizationLogic.actionTypes.loadCurrentOrganizationSuccess]: ({ currentOrganization }) => {
-            if (currentOrganization && !values.pagedDashboards) {
-                actions.loadDashboards()
-            }
-        },
     })),
-    afterMount(({ actions }) => {
-        if (organizationLogic.values.currentOrganization) {
-            // don't load dashboards if organization is unavailable
-            actions.loadDashboards()
-        }
+    afterMountAndOrganization(({ actions }) => {
+        actions.loadDashboards()
     }),
     permanentlyMount(),
 ])
