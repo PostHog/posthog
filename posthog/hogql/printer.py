@@ -1871,8 +1871,12 @@ class _Printer(Visitor[str]):
     def _create_default_window_frame(self, node: ast.WindowFunction):
         # For lag/lead functions, we need to order by the first argument by default
         order_by: Optional[list[ast.OrderExpr]] = None
-        if node.exprs is not None and len(node.exprs) > 0:
-            order_by = [ast.OrderExpr(expr=clone_expr(node.exprs[0]), order="ASC")]
+        if node.over_expr.order_by is None:
+            # if no ORDER BY is provided, we order by the first argument by default
+            if node.exprs is not None and len(node.exprs) > 0:
+                order_by = [ast.OrderExpr(expr=clone_expr(node.exprs[0]), order="ASC")]
+        else:
+            order_by = [cast(ast.OrderExpr, clone_expr(expr)) for expr in node.over_expr.order_by]
 
         # Preserve existing PARTITION BY if provided via an existing OVER () clause
         partition_by: Optional[list[ast.Expr]] = None
