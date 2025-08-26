@@ -19,15 +19,39 @@ def run_sql_with_exceptions(
     sql: str, node_role: NodeRole = NodeRole.DATA, sharded: bool = False, is_alter_on_replicated_table: bool = False
 ):
     """
-    migrations.RunSQL does not raise exceptions, so we need to wrap it in a function that does.
-    node_role is set to DATA by default to keep compatibility with the old migrations.
+    Executes a SQL query on each node separately with specific options, handling distributed execution and node roles.
 
-    sql: str - the SQL to run
-    node_role: NodeRole - the role of the nodes to run the migration on. In general, run everything on NodeRole.ALL except changes to sharded tables / writable distributed tables.
-    sharded: bool - whether the migration is on a sharded table
-    is_alter_on_replicated_table: bool - whether the migration is an ALTER TABLE on a replicated table. This will run on just one host per shard or one host for the whole cluster if there is no sharding.
+    This function executes a given SQL statement with the ability to target specific
+    roles and node configurations. It supports distributed query execution for sharded
+    or non-sharded deployments and takes into account cluster configurations. Additionally,
+    it accommodates operations such as those on replicated tables.
+
+    Parameters:
+    sql: str
+        The SQL query to be executed.
+    node_role: NodeRole, optional (default is NodeRole.DATA)
+        Specifies which type of nodes the query should target during execution.
+        In general, run everything on NodeRole.ALL except changes to sharded tables / writable distributed tables.
+    sharded: bool, optional (default is False)
+        Indicates if the migration is on a sharded table
+    is_alter_on_replicated_table: bool, optional (default is False)
+        Specifies whether the query is an ALTER statement executed on replicated tables.
+        This will run on just one host per shard or one host for the whole cluster if there is no sharding.
+
+    Returns:
+    migrations.RunPython
+        A high-level representation capable of running the migration query in the specified
+        context, including its distribution across nodes based on input parameters.
+
+    Raises:
+    AssertionError
+        Raised in certain scenarios when the input arguments conflict with the expected
+        configuration, such as when the sharded flag is set for roles other than DATA.
     """
     cluster = get_migrations_cluster()
+
+    if "ON CLUSTER" in sql:
+        logger.warning("you are not suppose to use ON CLUSTER in migration")
 
     def run_migration():
         query = Query(sql)
