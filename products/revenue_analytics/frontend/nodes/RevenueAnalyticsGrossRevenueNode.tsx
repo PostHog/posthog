@@ -1,7 +1,5 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import { useState } from 'react'
-
-import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
@@ -19,13 +17,7 @@ import { QueryContext } from '~/queries/types'
 import { GraphDataset } from '~/types'
 
 import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
-import {
-    DISPLAY_MODE_OPTIONS,
-    RevenueAnalyticsLineGraph,
-    TileProps,
-    TileWrapper,
-    extractLabelAndDatasets,
-} from './shared'
+import { RevenueAnalyticsLineGraph, TileProps, TileWrapper, extractLabelAndDatasets } from './shared'
 
 let uniqueNode = 0
 export function RevenueAnalyticsGrossRevenueNode(props: {
@@ -66,9 +58,7 @@ const Tile = ({
     queryId,
     context,
 }: TileProps<RevenueAnalyticsGrossRevenueQueryResponse>): JSX.Element => {
-    const { baseCurrency, revenueGoals, groupBy, insightsDisplayMode } = useValues(revenueAnalyticsLogic)
-    const { setInsightsDisplayMode } = useActions(revenueAnalyticsLogic)
-
+    const { baseCurrency, revenueGoals, groupBy } = useValues(revenueAnalyticsLogic)
     const { isPrefix, symbol: currencySymbol } = getCurrencySymbol(baseCurrency)
 
     const results = (response?.results as GraphDataset[]) ?? []
@@ -87,16 +77,6 @@ const Tile = ({
                     revenue in the future if you've created an invoice item with a <code>period.start</code> and{' '}
                     <code>period.end</code> that spans several months.
                 </span>
-            }
-            extra={
-                <div className="flex items-center gap-1 text-muted-alt">
-                    <LemonSegmentedButton
-                        value={insightsDisplayMode}
-                        onChange={setInsightsDisplayMode}
-                        options={DISPLAY_MODE_OPTIONS}
-                        size="small"
-                    />
-                </div>
             }
         >
             {responseLoading ? (

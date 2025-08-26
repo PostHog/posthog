@@ -152,7 +152,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             {
                 setGrowthRateDisplayMode: (_, { displayMode }) => displayMode,
                 setDates: (state, { dateTo, dateFrom }) => {
-                    const interval = getDefaultInterval(dateFrom, dateTo)
+                    const interval = getDefaultRevenueAnalyticsInterval(dateFrom, dateTo)
                     if (interval !== 'month') {
                         return 'table'
                     }
@@ -167,7 +167,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             {
                 setTopCustomersDisplayMode: (_, { displayMode }) => displayMode,
                 setDates: (state, { dateTo, dateFrom }) => {
-                    const interval = getDefaultInterval(dateFrom, dateTo)
+                    const interval = getDefaultRevenueAnalyticsInterval(dateFrom, dateTo)
                     if (interval !== 'month') {
                         return 'table'
                     }

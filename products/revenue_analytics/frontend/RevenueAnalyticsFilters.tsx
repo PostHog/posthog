@@ -1,6 +1,13 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonInputSelect, LemonInputSelectOption, Tooltip } from '@posthog/lemon-ui'
+import { IconGraph, IconLineGraph } from '@posthog/icons'
+import {
+    LemonInputSelect,
+    LemonInputSelectOption,
+    LemonSegmentedButton,
+    LemonSegmentedButtonOption,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
@@ -8,6 +15,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isRevenueAnalyticsPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
+import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { DATE_FORMAT, formatDateRange } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 
@@ -17,7 +25,7 @@ import { RevenueAnalyticsGroupBy } from '~/queries/schema/schema-general'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import { DateMappingOption } from '~/types'
 
-import { revenueAnalyticsLogic } from './revenueAnalyticsLogic'
+import { DisplayMode, revenueAnalyticsLogic } from './revenueAnalyticsLogic'
 
 const DATE_FILTER_DATE_OPTIONS: DateMappingOption[] = [
     { key: CUSTOM_OPTION_KEY, values: [] },
@@ -66,14 +74,22 @@ const DATE_FILTER_DATE_OPTIONS: DateMappingOption[] = [
     },
 ]
 
+// Simple mapping for the display mode options and their icons
+const DISPLAY_MODE_OPTIONS: LemonSegmentedButtonOption<DisplayMode>[] = [
+    { value: 'line', icon: <IconLineGraph /> },
+    { value: 'area', icon: <IconAreaChart /> },
+    { value: 'bar', icon: <IconGraph /> },
+]
+
 export const RevenueAnalyticsFilters = (): JSX.Element => {
     const { mobileLayout } = useValues(navigationLogic)
     const {
         revenueAnalyticsFilter,
         dateFilter: { dateTo, dateFrom },
+        insightsDisplayMode,
     } = useValues(revenueAnalyticsLogic)
 
-    const { setDates, setRevenueAnalyticsFilters } = useActions(revenueAnalyticsLogic)
+    const { setDates, setRevenueAnalyticsFilters, setInsightsDisplayMode } = useActions(revenueAnalyticsLogic)
 
     return (
         <div
@@ -105,7 +121,15 @@ export const RevenueAnalyticsFilters = (): JSX.Element => {
                     />
                 </div>
 
-                <RevenueAnalyticsBreakdownBy />
+                <div className="flex flex-row gap-1">
+                    <RevenueAnalyticsBreakdownBy />
+
+                    <LemonSegmentedButton
+                        value={insightsDisplayMode}
+                        onChange={setInsightsDisplayMode}
+                        options={DISPLAY_MODE_OPTIONS}
+                    />
+                </div>
             </div>
         </div>
     )

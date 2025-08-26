@@ -1,9 +1,8 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonSegmentedButton, LemonSegmentedButtonOption } from '@posthog/lemon-ui'
 
-import { IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { InsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -20,6 +19,11 @@ import { GraphDataset } from '~/types'
 
 import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
 import { AlphaTag, RevenueAnalyticsLineGraph, TileProps, TileWrapper, extractLabelAndDatasets } from './shared'
+
+const MODE_OPTIONS: LemonSegmentedButtonOption<'mrr' | 'arr'>[] = [
+    { value: 'mrr', label: 'MRR' },
+    { value: 'arr', label: 'ARR' },
+]
 
 let uniqueNode = 0
 export function RevenueAnalyticsMRRNode(props: {
@@ -82,24 +86,16 @@ const Tile = ({
 
     return (
         <TileWrapper
-            title={
-                <>
-                    <LemonButton
-                        icon={<IconSwapHoriz />}
-                        onClick={() => setMRRMode(mrrMode === 'mrr' ? 'arr' : 'mrr')}
-                        tooltip={mrrMode === 'mrr' ? 'Switch to ARR' : 'Switch to MRR'}
-                        type="secondary"
-                        size="small"
-                    >
-                        <span className="font-semibold">{mrrMode === 'mrr' ? 'MRR' : 'ARR'}</span>
-                    </LemonButton>
-                </>
-            }
+            title={mrrMode === 'mrr' ? 'MRR' : 'ARR'}
             tooltip="MRR is the total amount of recurring revenue generated from all sources, including all products and services in the last 30 days. ARR is that value multiplied by 12."
             extra={
-                <span className="flex items-center">
-                    <AlphaTag />
-                </span>
+                <div className="flex items-center gap-1 text-muted-alt">
+                    <span className="flex items-center">
+                        <AlphaTag />
+                    </span>
+
+                    <LemonSegmentedButton value={mrrMode} onChange={setMRRMode} options={MODE_OPTIONS} size="small" />
+                </div>
             }
         >
             {responseLoading ? (

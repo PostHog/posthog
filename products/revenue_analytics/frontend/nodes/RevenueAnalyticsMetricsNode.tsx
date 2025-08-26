@@ -1,7 +1,5 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import { useState } from 'react'
-
-import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { InsightLoadingState } from 'scenes/insights/EmptyStates'
@@ -18,14 +16,7 @@ import { QueryContext } from '~/queries/types'
 import { GraphDataset } from '~/types'
 
 import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
-import {
-    AlphaTag,
-    DISPLAY_MODE_OPTIONS,
-    RevenueAnalyticsLineGraph,
-    TileProps,
-    TileWrapper,
-    extractLabelAndDatasets,
-} from './shared'
+import { AlphaTag, RevenueAnalyticsLineGraph, TileProps, TileWrapper, extractLabelAndDatasets } from './shared'
 
 let uniqueNode = 0
 export function RevenueAnalyticsMetricsNode(props: {
@@ -105,9 +96,7 @@ const makeTile = (
         queryId,
         context,
     }: TileProps<RevenueAnalyticsMetricsQueryResponse>): JSX.Element => {
-        const { baseCurrency, insightsDisplayMode } = useValues(revenueAnalyticsLogic)
-        const { setInsightsDisplayMode } = useActions(revenueAnalyticsLogic)
-
+        const { baseCurrency } = useValues(revenueAnalyticsLogic)
         const { isPrefix, symbol: currencySymbol } = getCurrencySymbol(baseCurrency)
 
         const results = ((response?.results as GraphDataset[]) ?? []).filter((result) =>
@@ -125,12 +114,6 @@ const makeTile = (
                         <span className="flex items-center">
                             <AlphaTag />
                         </span>
-                        <LemonSegmentedButton
-                            value={insightsDisplayMode}
-                            onChange={setInsightsDisplayMode}
-                            options={DISPLAY_MODE_OPTIONS}
-                            size="small"
-                        />
                     </div>
                 }
             >
