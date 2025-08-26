@@ -87,6 +87,7 @@ class UserSerializer(serializers.ModelSerializer):
     is_impersonated_until = serializers.SerializerMethodField()
     sensitive_session_expires_at = serializers.SerializerMethodField()
     is_2fa_enabled = serializers.SerializerMethodField()
+    has_sso_enforcement = serializers.SerializerMethodField()
     has_social_auth = serializers.SerializerMethodField()
     team = TeamBasicSerializer(read_only=True)
     organization = OrganizationSerializer(read_only=True)
@@ -127,6 +128,7 @@ class UserSerializer(serializers.ModelSerializer):
             "current_password",  # used when changing current password
             "events_column_config",
             "is_2fa_enabled",
+            "has_sso_enforcement",
             "has_social_auth",
             "has_seen_product_intro_for",
             "scene_personalisation",
@@ -148,6 +150,7 @@ class UserSerializer(serializers.ModelSerializer):
             "team",
             "organization",
             "organizations",
+            "has_sso_enforcement",
             "has_social_auth",
         ]
 
@@ -193,6 +196,11 @@ class UserSerializer(serializers.ModelSerializer):
 
     def get_is_2fa_enabled(self, instance: User) -> bool:
         return default_device(instance) is not None
+
+    def get_has_sso_enforcement(self, instance: User) -> bool:
+        from posthog.models.organization_domain import OrganizationDomain
+
+        return bool(OrganizationDomain.objects.get_sso_enforcement_for_email_address(instance.email))
 
     def validate_set_current_organization(self, value: str) -> Organization:
         try:

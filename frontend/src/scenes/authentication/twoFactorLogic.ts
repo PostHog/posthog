@@ -115,18 +115,9 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
             {
                 openTwoFactorSetupModal: async (_, breakpoint) => {
                     const { isOngoing } = values.setupCallState
-                    const { is2FAEnabled } = values
 
                     if (isOngoing) {
                         return values.startSetup
-                    }
-
-                    // Only make the setup API call if user doesn't have 2FA enabled
-                    // For verification, we don't need to generate new keys
-                    if (is2FAEnabled) {
-                        // User has 2FA, this is verification mode - return empty result
-                        // Component will show only TOTP input since secret will be null
-                        return { success: true, secret: null }
                     }
 
                     actions.setSetupCallOngoing(true)
@@ -210,7 +201,8 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
             values.user &&
             values.user.organization?.enforce_2fa &&
             !values.user.is_2fa_enabled &&
-            !values.user.is_impersonated
+            !values.user.is_impersonated &&
+            !values.user.has_sso_enforcement
         ) {
             actions.openTwoFactorSetupModal(true)
         }

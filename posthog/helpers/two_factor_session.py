@@ -115,4 +115,4 @@ def is_two_factor_enforcement_in_effect(request: HttpRequest):
 def is_domain_sso_enforced(request: HttpRequest):
     from posthog.models.organization_domain import OrganizationDomain
 
-    return OrganizationDomain.objects.get_sso_enforcement_for_email_address(request.user.email)
+    return bool(OrganizationDomain.objects.get_sso_enforcement_for_email_address(request.user.email))
