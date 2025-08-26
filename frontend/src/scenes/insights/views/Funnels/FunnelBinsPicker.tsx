@@ -36,7 +36,7 @@ const BIN_OPTIONS: BinOption[] = [
 ]
 
 export function FunnelBinsPicker(): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, editingDisabledReason } = useValues(insightLogic)
     const { funnelsFilter, numericBinCount } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
     const [visible, setVisible] = useState<boolean>(false)
@@ -99,6 +99,7 @@ export function FunnelBinsPicker(): JSX.Element {
                 overlay={overlay}
                 className="w-32"
                 placement="bottom-end"
+                disabledReason={editingDisabledReason}
             >
                 <LemonButton size="small" type="secondary" icon={<IconGraph />} onClick={() => setVisible(true)}>
                     {selectedOption?.label}

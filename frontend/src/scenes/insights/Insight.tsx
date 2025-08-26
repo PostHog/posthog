@@ -27,16 +27,14 @@ export interface InsightSceneProps {
 
 export function Insight({ insightId }: InsightSceneProps): JSX.Element | null {
     // insightSceneLogic
-    const { insightMode, insight, filtersOverride, variablesOverride, freshQuery } = useValues(insightSceneLogic)
+    const { insightMode, insight, filtersOverride, variablesOverride, hasOverrides, freshQuery } =
+        useValues(insightSceneLogic)
 
     // insightLogic
     const logic = insightLogic({
         dashboardItemId: insightId || 'new',
-        // don't use cached insight if we have filtersOverride
-        cachedInsight:
-            (isObject(filtersOverride) || isObject(variablesOverride)) && insight?.short_id === insightId
-                ? insight
-                : null,
+        // don't use cached insight if we have overrides
+        cachedInsight: hasOverrides && insight?.short_id === insightId ? insight : null,
         filtersOverride,
         variablesOverride,
     })
@@ -61,11 +59,6 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element | null {
         return <AccessDenied object="insight" />
     }
 
-    const dashboardOverridesExist =
-        (isObject(filtersOverride) && !isEmptyObject(filtersOverride)) ||
-        (isObject(variablesOverride) && !isEmptyObject(variablesOverride))
-    const overrideType = isObject(filtersOverride) ? 'filters' : 'variables'
-
     if (!insight?.query) {
         return null
     }
@@ -75,13 +68,13 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element | null {
             <SceneContent className="Insight">
                 <InsightPageHeader insightLogicProps={insightProps} />
 
-                {dashboardOverridesExist && (
+                {hasOverrides && (
                     <LemonBanner type="warning" className="mb-4">
                         <div className="flex flex-row items-center justify-between gap-2">
-                            <span>You are viewing this insight with {overrideType} from a dashboard</span>
+                            <span>You are viewing this insight with filter/variable overrides</span>
 
                             <LemonButton type="secondary" to={urls.insightView(insightId as InsightShortId)}>
-                                Discard dashboard {overrideType}
+                                Discard overrides
                             </LemonButton>
                         </div>
                     </LemonBanner>

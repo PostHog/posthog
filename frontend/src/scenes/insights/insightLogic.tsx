@@ -9,7 +9,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { objectsEqual } from 'lib/utils'
+import { isEmptyObject, isObject, objectsEqual } from 'lib/utils'
 import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -399,6 +399,16 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         ],
         isUsingPathsV1: [(s) => [s.featureFlags], (featureFlags) => !featureFlags[FEATURE_FLAGS.PATHS_V2]],
         isUsingPathsV2: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.PATHS_V2]],
+        hasOverrides: [
+            (_, p) => [p.filtersOverride, p.variablesOverride],
+            (filtersOverride, variablesOverride) =>
+                (isObject(filtersOverride) && !isEmptyObject(filtersOverride)) ||
+                (isObject(variablesOverride) && !isEmptyObject(variablesOverride)),
+        ],
+        editingDisabledReason: [
+            (s) => [s.hasOverrides],
+            (hasOverrides) => (hasOverrides ? 'Discard overrides to edit the insight.' : null),
+        ],
     }),
     listeners(({ actions, values }) => ({
         saveInsight: async ({ redirectToViewMode, folder }) => {
