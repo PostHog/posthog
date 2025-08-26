@@ -1,11 +1,7 @@
 from django.conf import settings
 
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.clickhouse.table_engines import (
-    Distributed,
-    ReplicationScheme,
-    AggregatingMergeTree,
-)
+from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 
 TABLE_BASE_NAME = "raw_sessions"
 
@@ -22,8 +18,16 @@ def TRUNCATE_RAW_SESSIONS_TABLE_SQL():
     return f"TRUNCATE TABLE IF EXISTS {SHARDED_RAW_SESSIONS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
 
 
-def DROP_RAW_SESSION_TABLE_SQL():
+def DROP_RAW_SESSION_SHARDED_TABLE_SQL():
     return f"DROP TABLE IF EXISTS {SHARDED_RAW_SESSIONS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
+
+
+def DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL():
+    return f"DROP TABLE IF EXISTS {TABLE_BASE_NAME} {ON_CLUSTER_CLAUSE()}"
+
+
+def DROP_RAW_SESSION_WRITABLE_TABLE_SQL():
+    return f"DROP TABLE IF EXISTS {WRITABLE_RAW_SESSIONS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
 
 
 def DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL():

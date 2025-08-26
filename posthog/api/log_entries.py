@@ -1,13 +1,14 @@
 import dataclasses
 from datetime import datetime
 from typing import Any, Optional, cast
+
 from rest_framework import serializers, viewsets
+from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
-from posthog.api.utils import action
-from rest_framework.exceptions import ValidationError
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from posthog.api.utils import action
 from posthog.clickhouse.client.execute import sync_execute
 
 

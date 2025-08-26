@@ -1,5 +1,6 @@
 from copy import deepcopy
 from typing import Any
+
 from posthog.schema_migrations import LATEST_VERSIONS, MIGRATIONS
 
 

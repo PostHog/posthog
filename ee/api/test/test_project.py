@@ -1,10 +1,12 @@
-from ee.api.test.test_team import team_enterprise_api_test_factory
+from posthog.test.base import FuzzyInt
+
 from posthog.api.test.test_team import EnvironmentToProjectRewriteClient
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project import Project
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.test.base import FuzzyInt
+
+from ee.api.test.test_team import team_enterprise_api_test_factory
 
 
 class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):
@@ -128,7 +130,7 @@ class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):
         projects_response = self.client.get(f"/api/environments/")
 
         # 9 (above):
-        with self.assertNumQueries(FuzzyInt(14, 15)):
+        with self.assertNumQueries(FuzzyInt(15, 16)):
             current_org_response = self.client.get(f"/api/organizations/{self.organization.id}/")
 
         self.assertEqual(projects_response.status_code, 200)

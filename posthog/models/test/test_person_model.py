@@ -1,10 +1,11 @@
 from uuid import uuid4
 
+from posthog.test.base import BaseTest
+
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Person, PersonDistinctId
 from posthog.models.event.util import create_event
 from posthog.models.person.util import delete_person
-from posthog.test.base import BaseTest
 
 
 def _create_event(**kwargs):

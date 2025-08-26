@@ -43,6 +43,8 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     columnFeatures?: ColumnFeature[]
     /** Key to be used in dataNodeLogic so that we can find the dataNodeLogic */
     dataNodeLogicKey?: string
+    /** Override the maximum pagination limit for Data Tables. */
+    dataTableMaxPaginationLimit?: number
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{

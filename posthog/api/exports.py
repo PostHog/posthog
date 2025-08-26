@@ -1,23 +1,24 @@
 from datetime import timedelta
 from typing import Any
 
-import posthoganalytics
-import structlog
 from django.http import HttpResponse
 from django.utils.timezone import now
+
+import structlog
+import posthoganalytics
+from loginas.utils import is_impersonated_session
 from rest_framework import mixins, serializers, viewsets
-from posthog.api.utils import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.utils import action
 from posthog.event_usage import report_user_action
 from posthog.models import Insight, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.exported_asset import ExportedAsset, get_content_response
-from posthog.tasks import exporter
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
-from loginas.utils import is_impersonated_session
+from posthog.tasks import exporter
 
 logger = structlog.get_logger(__name__)
 

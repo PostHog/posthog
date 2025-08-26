@@ -21,24 +21,29 @@ import { SnappySessionRecorder } from './snappy-session-recorder'
  * - Persists the batch to storage
  * - Handles partition revocation
  *
- * One SessionBatchRecorder corresponds to one batch file:
+ * One SessionBatchRecorder corresponds to one batch file per retention period:
  * ```
- * Session Batch File 1 (previous)
+ * Session Batch 1 (previous)
  * └── ... (previous batch)
  *
- * Session Batch File 2 <── One SessionBatchRecorder corresponds to one batch file
- * ├── Compressed Session Recording Block 1
- * │   └── JSONL Session Recording Block
- * │       ├── [windowId, event1]
- * │       ├── [windowId, event2]
- * │       └── ...
- * ├── Compressed Session Recording Block 2
- * │   └── JSONL Session Recording Block
- * │       ├── [windowId, event1]
- * │       └── ...
+ * Session Batch 2 <── One SessionBatchRecorder corresponds to one batch
+ * ├── Batch file 1 (30 day retention)
+ * │   ├── Compressed Session Recording Block 1
+ * │   │   └── JSONL Session Recording Block
+ * │   │       ├── [windowId, event1]
+ * │   │       ├── [windowId, event2]
+ * │   │       └── ...
+ * │   └── ...
+ * ├── Batch file 2 (1 year retention)
+ * │   ├── Compressed Session Recording Block 2
+ * │   │   └── JSONL Session Recording Block
+ * │   │       ├── [windowId, event3]
+ * │   │       ├── [windowId, event4]
+ * │   │       └── ...
+ * │   └── ...
  * └── ...
  *
- * Session Batch File 3 (next)
+ * Session Batch 3 (next)
  * └── ... (future batch)
  * ```
  *
@@ -176,6 +181,7 @@ export class SessionBatchRecorder {
         }
 
         const writer = this.storage.newBatch()
+
         const blockMetadata: SessionBlockMetadata[] = []
 
         let totalEvents = 0
@@ -205,7 +211,11 @@ export class SessionBatchRecorder {
 
                     const { consoleLogCount, consoleWarnCount, consoleErrorCount } = consoleLogRecorder.end()
 
-                    const { bytesWritten, url } = await writer.writeSession(buffer)
+                    const { bytesWritten, url } = await writer.writeSession({
+                        buffer,
+                        teamId: sessionBlockRecorder.teamId,
+                        sessionId: sessionBlockRecorder.sessionId,
+                    })
 
                     blockMetadata.push({
                         sessionId: sessionBlockRecorder.sessionId,

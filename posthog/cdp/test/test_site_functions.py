@@ -1,17 +1,21 @@
-from posthog.test.test_utils import create_group_type_mapping_without_created_at
 import json
-import subprocess
 import tempfile
-from inline_snapshot import snapshot
+import subprocess
+
 import pytest
+
 from django.test import TestCase
+
+from inline_snapshot import snapshot
+
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.models.action.action import Action
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.organization import Organization
-from posthog.models.project import Project
 from posthog.models.plugin import TranspilerError
+from posthog.models.project import Project
 from posthog.models.user import User
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
 class TestSiteFunctions(TestCase):
@@ -148,7 +152,7 @@ function onLoad() {
         assert "console.log(globals);" in result
         assert "const filterMatches = " in result
         assert '__getGlobal("event") == "$pageview"' in result
-        assert "const filterMatches = !!(!!((__getGlobal" in result
+        assert 'const filterMatches = (__getGlobal("event") == "$pageview")' in result
         assert "if (!filterMatches) { return; }" in result
 
     def test_get_transpiled_function_with_invalid_template_input(self):
@@ -292,8 +296,8 @@ function onLoad() {
         result = self.compile_and_run()
 
         assert "console.log(inputs);" in result
-        assert 'const filterMatches = !!(!!((__getGlobal("event") == "$pageview")));' in result
-        assert 'if (!!(!!((__getGlobal("event") == "$autocapture")))) {' in result
+        assert 'const filterMatches = (__getGlobal("event") == "$pageview");' in result
+        assert 'if ((__getGlobal("event") == "$autocapture")) {' in result
         assert "const newInputs = structuredClone(inputs);" in result
         assert 'newInputs["greeting"] = concat("Hallo, ", __getProperty' in result
 

@@ -1,5 +1,7 @@
 import base64
 
+from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries
+
 from django.core import exceptions
 
 from posthog.models import Plugin, PluginSourceFile
@@ -19,7 +21,6 @@ from posthog.plugins.test.plugin_archives import (
     HELLO_WORLD_PLUGIN_RAW_WITHOUT_PLUGIN_JS,
     HELLO_WORLD_PLUGIN_SITE_TS,
 )
-from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries
 
 
 class TestPlugin(BaseTest):

@@ -3,18 +3,25 @@ from typing import cast
 
 from langchain_core.prompts import ChatPromptTemplate
 
-from ee.hogai.graph.mixins import AssistantContextMixin
-from ee.hogai.graph.schema_generator.utils import SchemaGeneratorOutput
-from ee.hogai.utils.warehouse import serialize_database_schema
+from posthog.schema import AssistantHogQLQuery
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database, create_hogql_database
-from posthog.hogql.errors import ExposedHogQLError, NotImplementedError as HogQLNotImplementedError, ResolutionError
+from posthog.hogql.errors import (
+    ExposedHogQLError,
+    NotImplementedError as HogQLNotImplementedError,
+    ResolutionError,
+)
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import print_ast
-from posthog.schema import AssistantHogQLQuery
+
 from posthog.sync import database_sync_to_async
+
+from ee.hogai.graph.mixins import AssistantContextMixin
+from ee.hogai.graph.schema_generator.utils import SchemaGeneratorOutput
+from ee.hogai.utils.warehouse import serialize_database_schema
 
 from ..schema_generator.parsers import PydanticOutputParserException, parse_pydantic_structured_output
 from .prompts import (

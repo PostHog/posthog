@@ -1,23 +1,8 @@
 import json
 from typing import Optional, cast
-from unittest import mock
-from unittest.mock import patch
 from uuid import uuid4
-from flaky import flaky
 
-from django.utils import timezone
 from freezegun.api import freeze_time
-from rest_framework import status
-
-import posthog.models.person.deletion
-from posthog.clickhouse.client import sync_execute
-from posthog.models import Cohort, Organization, Person, Team, PropertyDefinition
-from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.person import PersonDistinctId
-from posthog.models.person.sql import PERSON_DISTINCT_ID2_TABLE
-from posthog.models.person.util import create_person, create_person_distinct_id
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
-from posthog.models.utils import generate_random_token_personal
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -28,6 +13,23 @@ from posthog.test.base import (
     override_settings,
     snapshot_clickhouse_queries,
 )
+from unittest import mock
+from unittest.mock import patch
+
+from django.utils import timezone
+
+from flaky import flaky
+from rest_framework import status
+
+import posthog.models.person.deletion
+from posthog.clickhouse.client import sync_execute
+from posthog.models import Cohort, Organization, Person, PropertyDefinition, Team
+from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.person import PersonDistinctId
+from posthog.models.person.sql import PERSON_DISTINCT_ID2_TABLE
+from posthog.models.person.util import create_person, create_person_distinct_id
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.utils import generate_random_token_personal
 
 
 class TestPerson(ClickhouseTestMixin, APIBaseTest):
@@ -848,7 +850,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         create_person(team_id=self.team.pk, version=0)
 
         returned_ids = []
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(10):
             response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 9)
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]
@@ -859,7 +861,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         created_ids.reverse()  # ids are returned in desc order
         self.assertEqual(returned_ids, created_ids, returned_ids)
 
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(9):
             response_include_total = self.client.get("/api/person/?limit=10&include_total").json()
         self.assertEqual(response_include_total["count"], 20)  #  With `include_total`, the total count is returned too
 

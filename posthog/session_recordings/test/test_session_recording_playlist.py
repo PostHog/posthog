@@ -1,14 +1,17 @@
-from datetime import datetime, timedelta, UTC
 import json
+from datetime import UTC, datetime, timedelta
+from uuid import uuid4
+
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest import mock
 from unittest.mock import MagicMock, patch
-from uuid import uuid4
+
+from django.db import transaction
+from django.test import override_settings
 
 from boto3 import resource
 from botocore.config import Config
-from django.db import transaction
-from django.test import override_settings
-from freezegun import freeze_time
 from parameterized import parameterized
 from rest_framework import status
 
@@ -21,9 +24,7 @@ from posthog.session_recordings.models.session_recording_playlist import (
     SessionRecordingPlaylist,
     SessionRecordingPlaylistViewed,
 )
-from posthog.session_recordings.queries.test.session_replay_sql import (
-    produce_replay_summary,
-)
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -31,7 +32,6 @@ from posthog.settings import (
     OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
-from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 
 TEST_BUCKET = "test_storage_bucket-ee.TestSessionRecordingPlaylist"
 
@@ -275,13 +275,13 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         )
 
     def test_can_create_many_playlists_without_n_plus_1(self):
-        # one query to get started and then 13 per creation
-        with self.assertNumQueries(13 * 50 + 1):
+        # one query to get started and then 14 per creation (was 13, +1 for organization query)
+        with self.assertNumQueries(14 * 50 + 1):
             for i in range(50):
                 self._create_playlist({"name": f"test-{i}", "type": "collection"})
 
-        # 13 per creation
-        with self.assertNumQueries(13 * 100):
+        # 14 per creation (was 13, +1 for organization query)
+        with self.assertNumQueries(14 * 100):
             for i in range(100):
                 self._create_playlist({"name": f"test-{i}", "type": "collection"})
 

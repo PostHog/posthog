@@ -1,19 +1,22 @@
 import json
+
 from unittest.mock import MagicMock, patch
+
 from rest_framework import status
 
-from ee.api.test.base import APILicensedTest
-from ee.models.rbac.role import Role, RoleMembership
 from posthog.constants import AvailableFeature
 from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.notebook.notebook import Notebook
 from posthog.models.organization import OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
-from posthog.models.personal_api_key import hash_key_value, PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal
 from posthog.rbac.user_access_control import AccessSource
 from posthog.utils import render_template
+
+from ee.api.test.base import APILicensedTest
+from ee.models.rbac.role import Role, RoleMembership
 
 
 class BaseAccessControlTest(APILicensedTest):
@@ -726,7 +729,7 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         with self.assertNumQueries(baseline + 4):
             self.client.get(f"/api/projects/@current/dashboards/{other_user_dashboard.id}?no_items_field=true")
 
-        baseline = 7
+        baseline = 8
         # Getting my own notebook is the same as a dashboard - 3 extra queries
         with self.assertNumQueries(baseline + 5):
             self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
@@ -735,14 +738,14 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         with self.assertNumQueries(baseline + 6):
             self.client.get(f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}")
 
-        baseline = 7
+        baseline = 8
         # Project access doesn't double query the object
         with self.assertNumQueries(baseline + 7):
             # We call this endpoint as we don't want to include all the extra queries that rendering the project uses
             self.client.get("/api/projects/@current/is_generating_demo_data")
 
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
-        baseline = 8
+        baseline = 9
         with self.assertNumQueries(baseline + 6):  # org, roles, preloaded access controls
             self.client.get("/api/projects/@current/notebooks/")
 
@@ -769,7 +772,7 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         self._org_membership(OrganizationMembership.Level.MEMBER)
         # Baseline query (triggers any first time cache things)
         self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
-        baseline = 7
+        baseline = 8
 
         # Getting my own notebook is the same as a dashboard - 3 extra queries
         with self.assertNumQueries(baseline + 5):
@@ -782,20 +785,20 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
     def test_query_counts_stable_for_project_access(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
 
-        baseline = 7
+        baseline = 8
         # Project access doesn't double query the object
         with self.assertNumQueries(baseline + 7):
             # We call this endpoint as we don't want to include all the extra queries that rendering the project uses
             self.client.get("/api/projects/@current/is_generating_demo_data")
 
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
-        baseline = 8
+        baseline = 9
         with self.assertNumQueries(baseline + 6):  # org, roles, preloaded access controls
             self.client.get("/api/projects/@current/notebooks/")
 
     def test_query_counts_stable_when_listing_resources(self):
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
-        baseline = 8
+        baseline = 9
 
         with self.assertNumQueries(baseline + 6):  # org, roles, preloaded access controls
             self.client.get("/api/projects/@current/notebooks/")

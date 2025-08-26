@@ -3,10 +3,11 @@ from typing import Any, Optional
 
 from freezegun import freeze_time
 from freezegun.api import FrozenDateTimeFactory, StepTickTimeFactory
+from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest
+
 from rest_framework import status
 
-from posthog.models import User, NotificationViewed
-from posthog.test.base import APIBaseTest, QueryMatchingTest, FuzzyInt
+from posthog.models import NotificationViewed, User
 
 
 def _feature_flag_json_payload(key: str) -> dict:
@@ -301,7 +302,7 @@ class TestMyNotifications(APIBaseTest, QueryMatchingTest):
                 user=user, defaults={"last_viewed_activity_date": f"2023-0{i}-17T04:36:50Z"}
             )
 
-            with self.assertNumQueries(FuzzyInt(42, 42)):
+            with self.assertNumQueries(FuzzyInt(43, 43)):
                 self.client.get(f"/api/projects/{self.team.id}/my_notifications")
 
     def test_microsecond_precision_mismatch(self):

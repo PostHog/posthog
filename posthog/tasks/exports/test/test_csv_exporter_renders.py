@@ -1,8 +1,8 @@
-import json
 import os
-from unittest.mock import Mock, patch
+import json
 
 import pytest
+from unittest.mock import Mock, patch
 
 from posthog.models import ExportedAsset
 from posthog.models.organization import Organization

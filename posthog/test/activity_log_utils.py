@@ -5,10 +5,11 @@ This module provides a test helper class with methods to create and update all m
 covered by the activity logging system.
 """
 
-from typing import Any, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional
 from uuid import uuid4
 
 from django.utils import timezone
+
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
