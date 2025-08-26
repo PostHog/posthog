@@ -91,6 +91,24 @@ class ProjectSettingsStrategy(TeamSelectionStrategy):
             return set()
 
 
+class RecentlyEnabledStrategy(TeamSelectionStrategy):
+    """Select teams that recently enabled pre-aggregated tables and may need backfill."""
+
+    def get_name(self) -> str:
+        return "recently_enabled"
+
+    def get_teams(self, context: dagster.OpExecutionContext) -> set[int]:
+        try:
+            team_ids = set(
+                Team.objects.filter(web_analytics_pre_aggregated_tables_enabled=True).values_list("id", flat=True)
+            )
+            context.log.info(f"Found {len(team_ids)} teams that recently enabled pre-aggregated tables")
+            return team_ids
+        except Exception as e:
+            context.log.warning(f"Failed to fetch recently enabled teams: {e}")
+            return set()
+
+
 class StrategyRegistry:
     """
     This class is the source for all available strategies we can use to enable the pre-aggregated tables for teams.
@@ -107,6 +125,7 @@ class StrategyRegistry:
             EnvironmentVariableStrategy(),
             HighPageviewsStrategy(),
             ProjectSettingsStrategy(),
+            RecentlyEnabledStrategy(),
         ]:
             self.register(strategy)
 

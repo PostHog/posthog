@@ -202,3 +202,101 @@ def web_pre_aggregate_current_day_schedule(context: dagster.ScheduleEvaluationCo
     return dagster.RunRequest(
         partition_key=datetime.now(UTC).strftime("%Y-%m-%d"),
     )
+
+
+# Backfill Assets and Schedules
+backfill_partition_def = DailyPartitionsDefinition(start_date="2024-01-01", end_offset=-30)
+backfill_policy_def_extended = BackfillPolicy.multi_run(max_partitions_per_run=5)
+
+
+@dagster.asset(
+    name="web_pre_aggregated_stats_backfill",
+    group_name="web_analytics_v2",
+    config_schema=WEB_ANALYTICS_CONFIG_SCHEMA,
+    deps=["web_analytics_team_selection_v2"],
+    partitions_def=backfill_partition_def,
+    backfill_policy=backfill_policy_def_extended,
+    metadata={"table": "web_pre_aggregated_stats"},
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value, "backfill": "true"},
+    retry_policy=web_analytics_retry_policy_def,
+)
+def web_pre_aggregated_stats_backfill(
+    context: dagster.AssetExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+) -> None:
+    query_tagging.get_query_tags().with_dagster(dagster_tags(context))
+    return pre_aggregate_web_analytics_data(
+        context=context,
+        table_name="web_pre_aggregated_stats",
+        sql_generator=WEB_STATS_INSERT_SQL,
+        cluster=cluster,
+    )
+
+
+@dagster.asset(
+    name="web_pre_aggregated_bounces_backfill",
+    group_name="web_analytics_v2",
+    config_schema=WEB_ANALYTICS_CONFIG_SCHEMA,
+    deps=["web_analytics_team_selection_v2"],
+    partitions_def=backfill_partition_def,
+    backfill_policy=backfill_policy_def_extended,
+    metadata={"table": "web_pre_aggregated_bounces"},
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value, "backfill": "true"},
+    retry_policy=web_analytics_retry_policy_def,
+)
+def web_pre_aggregated_bounces_backfill(
+    context: dagster.AssetExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+) -> None:
+    query_tagging.get_query_tags().with_dagster(dagster_tags(context))
+    return pre_aggregate_web_analytics_data(
+        context=context,
+        table_name="web_pre_aggregated_bounces",
+        sql_generator=WEB_BOUNCES_INSERT_SQL,
+        cluster=cluster,
+    )
+
+
+web_pre_aggregate_backfill_job = dagster.define_asset_job(
+    name="web_pre_aggregate_backfill_job",
+    selection=["web_pre_aggregated_bounces_backfill", "web_pre_aggregated_stats_backfill"],
+    tags={
+        "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
+        "dagster/max_runtime": str(DAGSTER_WEB_JOB_TIMEOUT),
+        "backfill": "true",
+    },
+    executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 2}),
+)
+
+
+@dagster.schedule(
+    cron_schedule="0 3 * * *",  # Daily at 3 AM UTC
+    job=web_pre_aggregate_backfill_job,
+    execution_timezone="UTC",
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value, "backfill": "true"},
+)
+def web_pre_aggregate_backfill_schedule(context: dagster.ScheduleEvaluationContext):
+    skip_reason = check_for_concurrent_runs(context)
+    if skip_reason:
+        return skip_reason
+
+    # Run backfill for recently enabled teams (30 days ago)
+    backfill_date = (datetime.now(UTC) - timedelta(days=30)).strftime("%Y-%m-%d")
+
+    return dagster.RunRequest(
+        partition_key=backfill_date,
+        run_config={
+            "ops": {
+                "web_pre_aggregated_stats_backfill": {
+                    "config": {
+                        "extra_clickhouse_settings": "max_partitions_per_insert_block=1000"
+                    }
+                },
+                "web_pre_aggregated_bounces_backfill": {
+                    "config": {
+                        "extra_clickhouse_settings": "max_partitions_per_insert_block=1000"
+                    }
+                }
+            }
+        },
+    )
