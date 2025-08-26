@@ -296,6 +296,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
         PERSONS_DUAL_WRITE_ENABLED: false,
         PERSONS_DUAL_WRITE_COMPARISON_ENABLED: false,
+        GROUPS_DUAL_WRITE_ENABLED: false,
+        GROUPS_DUAL_WRITE_COMPARISON_ENABLED: false,
         USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: false,
 
         // Messaging

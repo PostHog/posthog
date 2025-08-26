@@ -203,6 +203,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number // starting interval for exponential backoff between retries for optimistic update
     PERSONS_DUAL_WRITE_ENABLED: boolean // Enable dual-write mode for persons to both primary and migration databases
     PERSONS_DUAL_WRITE_COMPARISON_ENABLED: boolean // Enable comparison metrics between primary and secondary DBs during dual-write
+    GROUPS_DUAL_WRITE_ENABLED: boolean // Enable dual-write mode for groups to both primary and migration databases
+    GROUPS_DUAL_WRITE_COMPARISON_ENABLED: boolean // Enable comparison metrics between primary and secondary DBs during dual-write
     TASK_TIMEOUT: number // how many seconds until tasks are timed out
     DATABASE_URL: string // Postgres database URL
     DATABASE_READONLY_URL: string // Optional read-only replica to the main Postgres database
