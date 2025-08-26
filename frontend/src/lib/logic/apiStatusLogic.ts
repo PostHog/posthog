@@ -1,7 +1,6 @@
 import { actions, kea, listeners, path, reducers } from 'kea'
 
 import api from 'lib/api'
-import { twoFactorLogic } from 'scenes/authentication/twoFactorLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import type { apiStatusLogicType } from './apiStatusLogicType'
@@ -49,18 +48,9 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
 
             try {
                 if (response?.status === 403) {
-                    const responseData = await response?.json()
-                    if (responseData.detail === 'This action requires you to be recently authenticated.') {
+                    const data = await response?.json()
+                    if (data.detail === 'This action requires you to be recently authenticated.') {
                         actions.setTimeSensitiveAuthenticationRequired(true)
-                    } else if (
-                        (responseData.detail === '2FA setup required' ||
-                            responseData.detail === '2FA verification required') &&
-                        !values.timeSensitiveAuthenticationRequired
-                    ) {
-                        const setupCallState = twoFactorLogic.findMounted()?.values.setupCallState
-                        if (!setupCallState?.isOngoing) {
-                            twoFactorLogic.findMounted()?.actions.openTwoFactorSetupModal(true)
-                        }
                     }
                 }
             } catch {
