@@ -4,6 +4,7 @@ from typing import Any, Optional, cast
 
 from posthog.schema import (
     Breakdown,
+    BreakdownType,
     CachedRetentionQueryResponse,
     EntityType,
     HogQLQueryModifiers,
@@ -783,20 +784,47 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
     def to_actors_query(
         self, interval: Optional[int] = None, breakdown_values: str | list[str] | int | None = None
     ) -> ast.SelectQuery:
-        selected_breakdown_value = None
-
-        if breakdown_values:
-            if not isinstance(breakdown_values, list):
-                raise ValueError(
-                    "Single breakdowns are not supported, ensure multiple-breakdowns feature flag is enabled"
-                )
-
-            selected_breakdown_value = "::".join(breakdown_values)
-
         with self.timings.measure("retention_actors_query"):
-            actor_query = self.actor_query(
-                start_interval_index_filter=interval, selected_breakdown_value=selected_breakdown_value
+            # Cohort breakdowns require special handling as cohort breakdowns unlike say event breakdowns
+            # run the original retention query for each cohort value separately and then combine the results
+            # so while breaking down by cohort, we need to change the base query to only keep the cohort
+            # for which we want to see the actors
+            is_cohort_breakdown = (
+                self.query.breakdownFilter is not None
+                and self.query.breakdownFilter.breakdowns is not None
+                and any(b.type == "cohort" for b in self.query.breakdownFilter.breakdowns)
             )
+
+            actor_query: ast.SelectQuery | ast.SelectSetQuery
+            if is_cohort_breakdown:
+                if not breakdown_values or not isinstance(breakdown_values, list) or len(breakdown_values) == 0:
+                    raise ValueError("A cohort breakdown value is required for actors query with cohort breakdowns.")
+
+                cohort_id = breakdown_values[0]
+                temp_query = self.query.model_copy(deep=True)
+                if temp_query.breakdownFilter:
+                    temp_query.breakdownFilter.breakdowns = [Breakdown(type="cohort", property=int(cohort_id))]
+                    # these are passed to the new runner to correctly construct the query
+                    temp_query.breakdownFilter.breakdown = cohort_id
+                    temp_query.breakdownFilter.breakdown_type = BreakdownType.COHORT
+
+                runner = RetentionQueryRunner(
+                    query=temp_query, team=self.team, timings=self.timings, modifiers=self.modifiers
+                )
+                actor_query = runner.actor_query(start_interval_index_filter=interval)
+
+            else:
+                selected_breakdown_value = None
+                if breakdown_values:
+                    if not isinstance(breakdown_values, list):
+                        raise ValueError(
+                            "Single breakdowns are not supported, ensure multiple-breakdowns feature flag is enabled"
+                        )
+                    selected_breakdown_value = "::".join(breakdown_values)
+
+                actor_query = self.actor_query(
+                    start_interval_index_filter=interval, selected_breakdown_value=selected_breakdown_value
+                )
 
             # Build the retention actors query
             retention_query = parse_select(
