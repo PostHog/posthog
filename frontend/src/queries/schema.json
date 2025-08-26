@@ -12566,6 +12566,13 @@
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit",
                     "default": "day"
                 },
+                "goalLines": {
+                    "description": "Goal Lines",
+                    "items": {
+                        "$ref": "#/definitions/GoalLine"
+                    },
+                    "type": "array"
+                },
                 "hiddenLegendBreakdowns": {
                     "items": {
                         "type": "string"

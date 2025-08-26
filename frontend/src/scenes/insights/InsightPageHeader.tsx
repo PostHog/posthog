@@ -67,6 +67,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { getLastNewFolder } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import {
     ScenePanel,
     ScenePanelActions,
@@ -285,7 +286,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 saveInsight={(redirectToViewMode) =>
                                     insight.short_id
                                         ? saveInsight(redirectToViewMode)
-                                        : saveInsight(redirectToViewMode, 'Unfiled/Insights')
+                                        : saveInsight(redirectToViewMode, getLastNewFolder() ?? 'Unfiled/Insights')
                                 }
                                 isSaved={hasDashboardItemId}
                                 addingToDashboard={!!insight.dashboards?.length && !insight.id}
