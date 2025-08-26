@@ -1,5 +1,9 @@
+from typing import cast
+
 from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import AsyncMock, Mock, patch
+
+from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import AssistantHogQLQuery, AssistantToolCall
 
@@ -46,7 +50,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
                 type="tool_call",
                 args={"instructions": "What is the average session length?"},
             )
-            result = await tool.ainvoke(tool_call.model_dump(), config)
+            result = await tool.ainvoke(tool_call.model_dump(), config=cast(RunnableConfig, config))
             self.assertEqual(result.content, "```sql\nSELECT AVG(properties.$session_length) FROM events\n```")
 
     async def test_generates_queries_with_placeholders(self):
@@ -84,7 +88,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
                 type="tool_call",
                 args={"instructions": "What are the properties for the variable {filters}?"},
             )
-            result = await tool.ainvoke(tool_call.model_dump(), config)
+            result = await tool.ainvoke(tool_call.model_dump(), config=cast(RunnableConfig, config))
             self.assertEqual(
                 result.content, "```sql\nSELECT properties FROM events WHERE {filters} AND {custom_filter}\n```"
             )
@@ -119,7 +123,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
                 args={"instructions": "Count events"},
             )
 
-            result = await tool.ainvoke(tool_call.model_dump(), config)
+            result = await tool.ainvoke(tool_call.model_dump(), config=cast(RunnableConfig, config))
 
             # Should succeed
             self.assertEqual(result.content, "```sql\nSELECT count() FROM events\n```")
@@ -128,7 +132,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
             # Graph should have been called exactly once (happy path, loop breaks on success)
             mock_graph.ainvoke.assert_called_once()
             # Verify it was called with the expected SQL query
-            call_args = mock_quality_check.call_args[0][0]
+            call_args = mock_quality_check.call_args.kwargs["output"]
             self.assertEqual(call_args.query.query, "SELECT count() FROM events")
 
     async def test_hogql_tool_retry_exhausted_still_returns_result(self):
@@ -169,7 +173,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
                 args={"instructions": "Count events"},
             )
 
-            result = await tool.ainvoke(tool_call.model_dump(), config)
+            result = await tool.ainvoke(tool_call.model_dump(), config=cast(RunnableConfig, config))
 
             # Should still return the result despite quality check failure
             self.assertEqual(result.content, "```sql\nSELECT suspicious_query FROM events\n```")
@@ -221,7 +225,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
 
             # Should raise an exception when no valid result is produced
             with self.assertRaises(Exception):
-                await tool.ainvoke(tool_call.model_dump(), config)
+                await tool.ainvoke(tool_call.model_dump(), config=cast(RunnableConfig, config))
 
     async def test_hogql_tool_removes_semicolon_from_query(self):
         """Test that HogQLGeneratorTool properly removes semicolons from the end of queries."""
@@ -256,7 +260,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
                 type="tool_call",
                 args={"instructions": "Count events"},
             )
-            result = await tool.ainvoke(tool_call.model_dump(), config)
+            result = await tool.ainvoke(tool_call.model_dump(), config=cast(RunnableConfig, config))
             self.assertEqual(result.content, "```sql\nSELECT count() FROM events\n```")
 
     async def test_hogql_tool_removes_multiple_semicolons_from_query(self):
@@ -292,7 +296,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
                 type="tool_call",
                 args={"instructions": "Count events"},
             )
-            result = await tool.ainvoke(tool_call.model_dump(), config)
+            result = await tool.ainvoke(tool_call.model_dump(), config=cast(RunnableConfig, config))
             self.assertEqual(result.content, "```sql\nSELECT count() FROM events\n```")
 
     async def test_hogql_tool_preserves_semicolons_in_middle_of_query(self):
@@ -328,5 +332,5 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
                 type="tool_call",
                 args={"instructions": "Get hello world"},
             )
-            result = await tool.ainvoke(tool_call.model_dump(), config)
+            result = await tool.ainvoke(tool_call.model_dump(), config=cast(RunnableConfig, config))
             self.assertEqual(result.content, "```sql\nSELECT 'hello;world' FROM events\n```")
