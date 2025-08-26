@@ -22,16 +22,6 @@ from posthog.models.team.team import Team
 
 class FunnelQueryContext(QueryContext):
     query: FunnelsQuery
-    funnelsFilter: FunnelsFilter
-
-    interval: IntervalType
-
-    breakdownType: BreakdownType
-    breakdownAttributionType: BreakdownAttributionType
-
-    funnelWindowInterval: int
-    funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit
-
     actorsQuery: FunnelsActorsQuery | None
 
     includeTimestamp: Optional[bool]
@@ -54,20 +44,6 @@ class FunnelQueryContext(QueryContext):
         include_final_matching_events: Optional[bool] = None,
     ):
         super().__init__(query=query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
-
-        self.funnelsFilter = self.query.funnelsFilter or FunnelsFilter()
-
-        # defaults
-        self.interval = self.query.interval or IntervalType.DAY
-
-        self.breakdownType = self.breakdownFilter.breakdown_type or BreakdownType.EVENT
-        self.breakdownAttributionType = (
-            self.funnelsFilter.breakdownAttributionType or BreakdownAttributionType.FIRST_TOUCH
-        )
-        self.funnelWindowInterval = self.funnelsFilter.funnelWindowInterval or 14
-        self.funnelWindowIntervalUnit = (
-            self.funnelsFilter.funnelWindowIntervalUnit or FunnelConversionWindowTimeUnit.DAY
-        )
 
         self.includeTimestamp = include_timestamp
         self.includePrecedingTimestamp = include_preceding_timestamp
@@ -112,6 +88,30 @@ class FunnelQueryContext(QueryContext):
             return boxed_breakdown
         else:
             return self.breakdownFilter.breakdown
+
+    @property
+    def breakdownType(self) -> BreakdownType:
+        return self.breakdownFilter.breakdown_type or BreakdownType.EVENT
+
+    @property
+    def funnelsFilter(self) -> FunnelsFilter:
+        return self.query.funnelsFilter or FunnelsFilter()
+
+    @property
+    def breakdownAttributionType(self) -> BreakdownAttributionType:
+        return self.funnelsFilter.breakdownAttributionType or BreakdownAttributionType.FIRST_TOUCH
+
+    @property
+    def interval(self) -> IntervalType:
+        return self.query.interval or IntervalType.DAY
+
+    @property
+    def funnelWindowInterval(self) -> int:
+        return self.funnelsFilter.funnelWindowInterval or 14
+
+    @property
+    def funnelWindowIntervalUnit(self) -> FunnelConversionWindowTimeUnit:
+        return self.funnelsFilter.funnelWindowIntervalUnit or FunnelConversionWindowTimeUnit.DAY
 
     @property
     def max_steps(self) -> int:
