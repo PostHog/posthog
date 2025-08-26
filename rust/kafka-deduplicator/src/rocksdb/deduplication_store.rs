@@ -270,7 +270,7 @@ impl DeduplicationStore {
             DeduplicationStore::RECORDS_CF,
             vec![(&key_bytes, &serialized_metadata)],
         )?;
-        
+
         // Track unique event with library info
         let (lib_name, lib_version) = extract_library_info(raw_event);
         self.metrics
@@ -278,7 +278,7 @@ impl DeduplicationStore {
             .with_label("lib", &lib_name)
             .with_label("lib_version", &lib_version)
             .increment(1);
-        
+
         Ok(true) // New event
     }
 
@@ -383,7 +383,7 @@ impl DeduplicationStore {
 
     /// Update metrics for this store (including database size)
     pub fn update_metrics(&self) -> Result<()> {
-        self.store.update_db_metrics()
+        self.store.update_db_metrics(Self::RECORDS_CF)
     }
 
     /// Create a checkpoint and return the SST files at the time of checkpoint
