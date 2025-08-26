@@ -556,7 +556,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             label: 'LLM analytics',
                             icon: <IconAI />,
                             to: urls.llmAnalyticsDashboard(),
-                            tooltipDocLink: 'https://posthog.com/docs/ai-engineering/dashboard',
+                            tooltipDocLink: 'https://posthog.com/docs/llm-analytics/dashboard',
                         },
                         featureFlags[FEATURE_FLAGS.LOGS]
                             ? {

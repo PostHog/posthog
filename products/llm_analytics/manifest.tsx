@@ -13,7 +13,7 @@ export const manifest: ProductManifest = {
             name: 'LLM analytics',
             activityScope: 'LLMAnalytics',
             layout: 'app-container',
-            defaultDocsPath: '/docs/ai-engineering/observability',
+            defaultDocsPath: '/docs/llm-analytics/installation',
         },
         LLMAnalyticsTrace: {
             import: () => import('./frontend/LLMAnalyticsTraceScene'),
@@ -21,7 +21,7 @@ export const manifest: ProductManifest = {
             name: 'LLM analytics trace',
             activityScope: 'LLMAnalytics',
             layout: 'app-container',
-            defaultDocsPath: '/docs/ai-engineering/observability',
+            defaultDocsPath: '/docs/llm-analytics/traces',
         },
         LLMAnalyticsUsers: {
             import: () => import('./frontend/LLMAnalyticsUsers'),
@@ -29,7 +29,7 @@ export const manifest: ProductManifest = {
             name: 'LLM analytics users',
             activityScope: 'LLMAnalytics',
             layout: 'app-container',
-            defaultDocsPath: '/docs/ai-engineering/observability',
+            defaultDocsPath: '/docs/llm-analytics/installation',
         },
         LLMAnalyticsPlayground: {
             import: () => import('./frontend/LLMAnalyticsPlaygroundScene'),
@@ -37,7 +37,7 @@ export const manifest: ProductManifest = {
             name: 'LLM playground',
             activityScope: 'LLMAnalytics',
             layout: 'app-container',
-            defaultDocsPath: '/docs/ai-engineering/observability',
+            defaultDocsPath: '/docs/llm-analytics/installation',
         },
     },
     routes: {
