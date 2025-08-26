@@ -318,7 +318,7 @@ function shouldBePreFilteredBasedOnEventName(
         // If we get here, there is at least one event filter and it checks this event type
         return false
     }
-    // If we get here, we have no event filters, so we can early exit
+    // If we get here, we have no event filters, so we cannot early exit based on the event name
     return false
 }
 
