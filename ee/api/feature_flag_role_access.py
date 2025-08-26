@@ -1,14 +1,15 @@
 from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 
-from ee.api.rbac.role import RoleSerializer
-from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
-from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
-from ee.models.rbac.role import Role
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import FeatureFlag
 from posthog.models.organization import OrganizationMembership
+
+from ee.api.rbac.role import RoleSerializer
+from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
+from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
+from ee.models.rbac.role import Role
 
 
 # DEPRECATED - do not use

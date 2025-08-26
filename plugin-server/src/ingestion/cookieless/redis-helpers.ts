@@ -3,10 +3,11 @@ import Redis from 'ioredis'
 
 import { CacheOptions } from '@posthog/plugin-scaffold'
 
+import { withSpan } from '~/common/tracing/tracing-utils'
+
 import { RedisOperationError } from '../../utils/db/error'
 import { timeoutGuard } from '../../utils/db/utils'
 import { parseJSON } from '../../utils/json-parse'
-import { instrumentQuery } from '../../utils/metrics'
 import { tryTwice } from '../../utils/utils'
 
 /** The recommended way of accessing the database. */
@@ -24,7 +25,7 @@ export class RedisHelpers {
         logContext: Record<string, string | string[] | number>,
         runQuery: (client: Redis.Redis) => Promise<T>
     ): Promise<T> {
-        return instrumentQuery(operationName, tag, async () => {
+        return withSpan('redis', operationName, { tag: tag ?? 'unknown' }, async () => {
             let client: Redis.Redis
             const timeout = timeoutGuard(`${operationName} delayed. Waiting over 30 sec.`, logContext)
             try {

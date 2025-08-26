@@ -1,23 +1,27 @@
 import dataclasses
 from collections import defaultdict
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
 from typing import Literal, Optional, Union, cast
-from posthog.hogql.property import property_to_expr
-from posthog.hogql_queries.query_runner import QueryRunnerWithHogQLContext, AR
-from posthog.hogql import ast
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.warehouse.models import ExternalDataSchema
-from posthog.warehouse.types import ExternalDataSourceType
-from posthog.models.filters.mixins.utils import cached_property
+from zoneinfo import ZoneInfo
+
 from posthog.schema import (
+    RevenueAnalyticsGroupBy,
     RevenueAnalyticsGrowthRateQuery,
     RevenueAnalyticsMetricsQuery,
     RevenueAnalyticsOverviewQuery,
     RevenueAnalyticsRevenueQuery,
     RevenueAnalyticsTopCustomersQuery,
-    RevenueAnalyticsGroupBy,
 )
+
+from posthog.hogql import ast
+from posthog.hogql.property import property_to_expr
+
+from posthog.hogql_queries.query_runner import AR, QueryRunnerWithHogQLContext
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.filters.mixins.utils import cached_property
+from posthog.warehouse.models import ExternalDataSchema
+from posthog.warehouse.types import ExternalDataSourceType
+
 from products.revenue_analytics.backend.utils import (
     REVENUE_SELECT_OUTPUT_CHARGE_KEY,
     REVENUE_SELECT_OUTPUT_CUSTOMER_KEY,

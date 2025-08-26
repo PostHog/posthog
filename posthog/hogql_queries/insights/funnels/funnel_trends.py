@@ -1,8 +1,10 @@
 from datetime import datetime
 from itertools import groupby
 from typing import Any, Optional
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
+
 from posthog.hogql_queries.insights.funnels.base import FunnelBase
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.funnels.utils import get_funnel_order_class

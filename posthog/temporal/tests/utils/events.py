@@ -1,12 +1,12 @@
 """Test utilities that deal with test event generation."""
 
+import json
+import uuid
+import random
+import typing
 import asyncio
 import datetime as dt
 import itertools
-import json
-import random
-import typing
-import uuid
 
 import aiohttp.client_exceptions
 

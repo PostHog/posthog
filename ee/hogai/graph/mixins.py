@@ -4,11 +4,13 @@ from typing import Any, get_args, get_origin
 from uuid import UUID
 
 from django.utils import timezone
+
 from langchain_core.runnables import RunnableConfig
 
-from ee.models import Conversation, CoreMemory
 from posthog.models import Team
 from posthog.models.user import User
+
+from ee.models import Conversation, CoreMemory
 
 
 class AssistantContextMixin(ABC):

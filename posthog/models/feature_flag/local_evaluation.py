@@ -1,17 +1,17 @@
-from django.conf import settings
-from django.db.models.signals import post_save, post_delete
-from django.dispatch import receiver
-import structlog
-from typing import Any, cast, Union
 from collections.abc import Generator
+from typing import Any, Union, cast
 
-from posthog.models.feature_flag.types import FlagProperty, FlagFilters, PropertyFilterType
-
-from django.db.models import Q
+from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
+from django.db.models.signals import post_delete, post_save
+from django.dispatch import receiver
+
+import structlog
 
 from posthog.models.cohort.cohort import Cohort, CohortOrEmpty
 from posthog.models.feature_flag import FeatureFlag
+from posthog.models.feature_flag.types import FlagFilters, FlagProperty, PropertyFilterType
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team import Team
 from posthog.storage.hypercache import HyperCache

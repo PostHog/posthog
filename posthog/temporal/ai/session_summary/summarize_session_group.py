@@ -1,43 +1,29 @@
-import asyncio
-import dataclasses
-from datetime import datetime, timedelta
-import hashlib
 import json
-from math import ceil
 import uuid
+import asyncio
+import hashlib
+import dataclasses
 from collections.abc import AsyncGenerator
+from datetime import datetime, timedelta
+from math import ceil
+
+from django.conf import settings
 
 import structlog
 import temporalio
 from temporalio.client import WorkflowExecutionStatus
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
-from django.conf import settings
-from ee.hogai.session_summaries.constants import (
-    FAILED_SESSION_SUMMARIES_MIN_RATIO,
-    FAILED_PATTERNS_EXTRACTION_MIN_RATIO,
-    SESSION_GROUP_SUMMARIES_WORKFLOW_POLLING_INTERVAL_MS,
-)
-from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
-from ee.hogai.session_summaries.session.input_data import add_context_and_filter_events, get_team
-from ee.hogai.session_summaries.session_group.patterns import (
-    EnrichedSessionGroupSummaryPatternsList,
-)
-from ee.hogai.session_summaries.session.summarize_session import (
-    ExtraSummaryContext,
-    SingleSessionSummaryLlmInputs,
-    SessionSummaryDBData,
-    prepare_data_for_single_session_summary,
-    prepare_single_session_summary_input,
-)
-from ee.hogai.session_summaries.session_group.summary_notebooks import (
-    format_extracted_patterns_status,
-    format_patterns_assignment_progress,
-    format_single_sessions_status,
-)
-from ee.hogai.session_summaries.utils import logging_session_ids
-from posthog import constants
-from posthog.models.team.team import Team
+from temporalio.exceptions import ApplicationError
+
 from posthog.schema import CachedSessionBatchEventsQueryResponse
+
+from posthog import constants
+from posthog.hogql_queries.ai.session_batch_events_query_runner import (
+    SessionBatchEventsQueryRunner,
+    create_session_batch_events_query,
+)
+from posthog.models.team.team import Team
+from posthog.redis import get_async_client
 from posthog.session_recordings.constants import DEFAULT_TOTAL_EVENTS_PER_QUERY
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.sync import database_sync_to_async
@@ -48,17 +34,12 @@ from posthog.temporal.ai.session_summary.activities.patterns import (
     get_patterns_from_redis_outside_workflow,
     split_session_summaries_into_chunks_for_patterns_extraction_activity,
 )
-from posthog.hogql_queries.ai.session_batch_events_query_runner import (
-    SessionBatchEventsQueryRunner,
-    create_session_batch_events_query,
-)
 from posthog.temporal.ai.session_summary.state import (
-    get_data_class_from_redis,
-    generate_state_key,
     StateActivitiesEnum,
+    generate_state_key,
+    get_data_class_from_redis,
     store_data_in_redis,
 )
-from posthog.redis import get_async_client
 from posthog.temporal.ai.session_summary.summarize_session import get_llm_single_session_summary_activity
 from posthog.temporal.ai.session_summary.types.group import (
     SessionGroupSummaryInputs,
@@ -70,7 +51,28 @@ from posthog.temporal.ai.session_summary.types.group import (
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
-from temporalio.exceptions import ApplicationError
+
+from ee.hogai.session_summaries.constants import (
+    FAILED_PATTERNS_EXTRACTION_MIN_RATIO,
+    FAILED_SESSION_SUMMARIES_MIN_RATIO,
+    SESSION_GROUP_SUMMARIES_WORKFLOW_POLLING_INTERVAL_MS,
+    SESSION_SUMMARIES_SYNC_MODEL,
+)
+from ee.hogai.session_summaries.session.input_data import add_context_and_filter_events, get_team
+from ee.hogai.session_summaries.session.summarize_session import (
+    ExtraSummaryContext,
+    SessionSummaryDBData,
+    SingleSessionSummaryLlmInputs,
+    prepare_data_for_single_session_summary,
+    prepare_single_session_summary_input,
+)
+from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
+from ee.hogai.session_summaries.session_group.summary_notebooks import (
+    format_extracted_patterns_status,
+    format_patterns_assignment_progress,
+    format_single_sessions_status,
+)
+from ee.hogai.session_summaries.utils import logging_session_ids
 
 logger = structlog.get_logger(__name__)
 

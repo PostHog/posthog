@@ -1,23 +1,14 @@
-from typing import Any
 from collections.abc import AsyncIterator
+from typing import Any
 
 from langgraph.config import get_stream_writer
 from pydantic import BaseModel, Field
 
+from posthog.schema import AssistantMessage, AssistantToolCallMessage, VisualizationMessage
+
 from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
 from ee.hogai.tool import MaxTool
 from ee.hogai.utils.types import AssistantState
-from posthog.schema import (
-    AssistantFunnelsQuery,
-    AssistantHogQLQuery,
-    AssistantMessage,
-    AssistantRetentionQuery,
-    AssistantToolCallMessage,
-    AssistantTrendsQuery,
-    VisualizationMessage,
-)
-
-QueryResult = AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
 
 
 class EditCurrentInsightArgs(BaseModel):

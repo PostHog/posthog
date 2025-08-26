@@ -1,25 +1,22 @@
-import dataclasses
 import json
+import dataclasses
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 from uuid import UUID
 
+from django.conf import settings
+from django.core.exceptions import FieldDoesNotExist, ObjectDoesNotExist
+from django.core.paginator import Paginator
+from django.db import models, transaction
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
-from posthog.exceptions_capture import capture_exception
-import structlog
-from django.core.paginator import Paginator
-from django.core.exceptions import ObjectDoesNotExist, FieldDoesNotExist
-from django.db import transaction
-
-from django.db import models
 from django.utils import timezone
-from django.conf import settings
 
+import structlog
+
+from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import UUIDT, UUIDTModel
-
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -743,9 +740,9 @@ def load_all_activity(scope_list: list[ActivityScope], team_id: int, limit: int 
 
 @receiver(post_save, sender=ActivityLog)
 def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
-    from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
     from posthog.api.activity_log import ActivityLogSerializer
     from posthog.api.shared import UserBasicSerializer
+    from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
 
     try:
         serialized_data = ActivityLogSerializer(instance).data

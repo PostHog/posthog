@@ -1,59 +1,51 @@
-import dataclasses
 import os
+import gzip
 import json
 import base64
-import gzip
+import logging
+import dataclasses
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from typing import Any, Literal, Optional, TypedDict, Union
-from collections.abc import Callable
 
-import requests
-import structlog
-import logging
-from cachetools import cached
-from celery import shared_task
-from dateutil import parser
 from django.conf import settings
 from django.db import connection
 from django.db.models import Count, Q, Sum
+
+import requests
+import structlog
+from cachetools import cached
+from celery import shared_task
+from dateutil import parser
 from posthoganalytics.client import Client as PostHogClient
 from psycopg import sql
 from retry import retry
 
-from posthog.clickhouse.query_tagging import tags_context
-from posthog.exceptions_capture import capture_exception
-
 from posthog import version_requirement
-from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.query_tagging import tags_context
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import FlagRequestType
+from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed_log
-from posthog.models import GroupTypeMapping, OrganizationMembership, User
+from posthog.models import BatchExport, GroupTypeMapping, OrganizationMembership, User
 from posthog.models.dashboard import Dashboard
+from posthog.models.error_tracking import ErrorTrackingIssue, ErrorTrackingSymbolSet
 from posthog.models.feature_flag import FeatureFlag
+from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.models.organization import Organization
 from posthog.models.plugin import PluginConfig
 from posthog.models.property.util import get_property_string_expr
+from posthog.models.surveys.util import get_unique_survey_event_uuids_sql_subquery
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
 from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
 from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
-from posthog.utils import (
-    get_helm_info_env,
-    get_instance_realm,
-    get_instance_region,
-    get_previous_day,
-)
-from posthog.models import BatchExport
+from posthog.utils import get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
 from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseTable, ExternalDataJob, ExternalDataSchema
-from posthog.models.error_tracking import ErrorTrackingIssue, ErrorTrackingSymbolSet
-from posthog.models.surveys.util import get_unique_survey_event_uuids_sql_subquery
-from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
-
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)

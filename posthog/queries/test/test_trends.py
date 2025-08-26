@@ -1,46 +1,12 @@
-from posthog.test.test_utils import create_group_type_mapping_without_created_at
-import dataclasses
 import json
 import uuid
+import dataclasses
 from datetime import datetime
 from typing import Optional, Union
-from unittest.mock import patch, ANY
 from urllib.parse import parse_qsl, urlparse
-
 from zoneinfo import ZoneInfo
-from django.conf import settings
-from django.core.cache import cache
-from django.test import override_settings
-from django.utils import timezone
-from freezegun import freeze_time
-from rest_framework.exceptions import ValidationError
 
-from posthog.constants import (
-    ENTITY_ID,
-    ENTITY_TYPE,
-    TREND_FILTER_TYPE_EVENTS,
-    TRENDS_BAR_VALUE,
-    TRENDS_LINEAR,
-    TRENDS_TABLE,
-)
-from posthog.models import (
-    Action,
-    Cohort,
-    Entity,
-    Filter,
-    Organization,
-    Person,
-)
-from posthog.models.group.util import create_group
-from posthog.models.instance_setting import (
-    get_instance_setting,
-    override_instance_config,
-    set_instance_setting,
-)
-from posthog.models.person.util import create_person_distinct_id
-from posthog.models.utils import uuid7
-from posthog.queries.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
-from posthog.queries.trends.trends import Trends
+from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -53,7 +19,32 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import ANY, patch
+
+from django.conf import settings
+from django.core.cache import cache
+from django.test import override_settings
+from django.utils import timezone
+
+from rest_framework.exceptions import ValidationError
+
+from posthog.constants import (
+    ENTITY_ID,
+    ENTITY_TYPE,
+    TREND_FILTER_TYPE_EVENTS,
+    TRENDS_BAR_VALUE,
+    TRENDS_LINEAR,
+    TRENDS_TABLE,
+)
+from posthog.models import Action, Cohort, Entity, Filter, Organization, Person
+from posthog.models.group.util import create_group
+from posthog.models.instance_setting import get_instance_setting, override_instance_config, set_instance_setting
+from posthog.models.person.util import create_person_distinct_id
+from posthog.models.utils import uuid7
+from posthog.queries.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
+from posthog.queries.trends.trends import Trends
 from posthog.test.test_journeys import journeys_for
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import generate_cache_key
 
 
