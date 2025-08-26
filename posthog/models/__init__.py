@@ -93,9 +93,9 @@ from .web_experiment import WebExperiment
 
 # Keeping products imports at the bottom to avoid circular imports errors
 # Products Imports
-from products.early_access_features.backend.models import EarlyAccessFeature
-from products.llm_analytics.models.datasets import Dataset, DatasetItem
 from products.tasks.backend.models import Task
+from products.early_access_features.backend.models import EarlyAccessFeature
+from products.llm_analytics.backend.models import Dataset, DatasetItem
 
 from .oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
 

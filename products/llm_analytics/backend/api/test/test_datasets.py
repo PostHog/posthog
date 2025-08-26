@@ -8,8 +8,12 @@ from products.llm_analytics.backend.models.datasets import Dataset, DatasetItem
 
 
 class TestDatasetsApi(APIBaseTest):
+    def test_unauthenticated_user_cannot_access_datasets(self):
+        self.client.logout()
+        response = self.client.get(f"/api/environments/{self.team.id}/datasets/")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
     def test_can_create_dataset(self):
-        self.client.force_login(self.user)
         response = self.client.post(
             f"/api/environments/{self.team.id}/datasets/",
             {"name": "Test Dataset", "description": "Test Description", "metadata": {"key": "value"}},
@@ -25,7 +29,6 @@ class TestDatasetsApi(APIBaseTest):
         self.assertEqual(dataset.created_by, self.user)
 
     def test_can_retrieve_list_of_datasets(self):
-        self.client.force_login(self.user)
         Dataset.objects.create(name="Dataset 1", team=self.team, created_by=self.user)
         Dataset.objects.create(name="Dataset 2", team=self.team, created_by=self.user)
 
@@ -38,7 +41,6 @@ class TestDatasetsApi(APIBaseTest):
         self.assertIn("Dataset 2", dataset_names)
 
     def test_can_get_single_dataset(self):
-        self.client.force_login(self.user)
         dataset = Dataset.objects.create(
             name="Test Dataset",
             description="Test Description",
@@ -54,7 +56,6 @@ class TestDatasetsApi(APIBaseTest):
         self.assertEqual(response.data["metadata"], {"key": "value"})
 
     def test_can_edit_dataset(self):
-        self.client.force_login(self.user)
         dataset = Dataset.objects.create(name="Original Name", team=self.team, created_by=self.user)
 
         response = self.client.patch(
@@ -68,14 +69,12 @@ class TestDatasetsApi(APIBaseTest):
         self.assertEqual(dataset.description, "Updated Description")
 
     def test_delete_method_returns_405(self):
-        self.client.force_login(self.user)
         dataset = Dataset.objects.create(name="Test Dataset", team=self.team, created_by=self.user)
 
         response = self.client.delete(f"/api/environments/{self.team.id}/datasets/{dataset.id}/")
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
     def test_can_soft_delete_dataset_with_patch(self):
-        self.client.force_login(self.user)
         dataset = Dataset.objects.create(name="Test Dataset", team=self.team, created_by=self.user)
 
         response = self.client.patch(f"/api/environments/{self.team.id}/datasets/{dataset.id}/", {"deleted": True})
@@ -90,7 +89,6 @@ class TestDatasetsApi(APIBaseTest):
 
     def test_cannot_create_dataset_for_another_team(self):
         another_team = Team.objects.create(name="Another Team", organization=self.organization)
-        self.client.force_login(self.user)
 
         response = self.client.post(
             f"/api/environments/{another_team.id}/datasets/", {"name": "Test Dataset", "team": another_team.id}
@@ -106,8 +104,6 @@ class TestDatasetsApi(APIBaseTest):
         another_dataset = Dataset.objects.create(
             name="Another Team Dataset", team=another_team, created_by=another_user
         )
-
-        self.client.force_login(self.user)
 
         # Test GET
         response = self.client.get(f"/api/environments/{self.team.id}/datasets/{another_dataset.id}/")
@@ -129,7 +125,6 @@ class TestDatasetsApi(APIBaseTest):
         self.assertEqual(another_dataset.name, "Another Team Dataset")
 
     def test_post_ignores_created_by(self):
-        self.client.force_login(self.user)
         another_user = self._create_user("another@example.com")
 
         response = self.client.post(
@@ -147,7 +142,6 @@ class TestDatasetsApi(APIBaseTest):
         self.assertEqual(dataset.created_by, self.user)
 
     def test_patch_ignores_created_by_and_team(self):
-        self.client.force_login(self.user)
         dataset = Dataset.objects.create(name="Original Name", team=self.team, created_by=self.user)
         another_user = self._create_user("another@example.com")
         another_team = Team.objects.create(name="Another Team", organization=self.organization)
@@ -167,19 +161,7 @@ class TestDatasetsApi(APIBaseTest):
         self.assertEqual(dataset.created_by, self.user)
         self.assertEqual(dataset.team, self.team)
 
-    def test_can_filter_datasets_by_name(self):
-        self.client.force_login(self.user)
-        Dataset.objects.create(name="Alpha", team=self.team, created_by=self.user)
-        Dataset.objects.create(name="Beta", team=self.team, created_by=self.user)
-
-        response = self.client.get(f"/api/environments/{self.team.id}/datasets/", {"name": "alph"})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data["results"]), 1)
-        self.assertEqual(response.data["results"][0]["name"], "Alpha")
-
     def test_new_dataset_is_first_in_list(self):
-        self.client.force_login(self.user)
-
         Dataset.objects.create(name="Older", team=self.team, created_by=self.user)
 
         create_response = self.client.post(
@@ -193,11 +175,249 @@ class TestDatasetsApi(APIBaseTest):
         self.assertGreaterEqual(len(list_response.data.get("results", [])), 1)
         self.assertEqual(list_response.data["results"][0]["name"], "Newest")
 
+    def test_order_by_created_at_desc(self):
+        # Create datasets with small time gaps to ensure different created_at values
+        Dataset.objects.create(name="First", team=self.team, created_by=self.user)
+        Dataset.objects.create(name="Second", team=self.team, created_by=self.user)
+        Dataset.objects.create(name="Third", team=self.team, created_by=self.user)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/datasets/", {"order_by": "-created_at"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.data["results"]
+        self.assertEqual(len(results), 3)
+
+        # Should be ordered by newest first
+        self.assertEqual(results[0]["name"], "Third")
+        self.assertEqual(results[1]["name"], "Second")
+        self.assertEqual(results[2]["name"], "First")
+
+    def test_order_by_created_at_asc(self):
+        Dataset.objects.create(name="First", team=self.team, created_by=self.user)
+        Dataset.objects.create(name="Second", team=self.team, created_by=self.user)
+        Dataset.objects.create(name="Third", team=self.team, created_by=self.user)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/datasets/", {"order_by": "created_at"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.data["results"]
+        self.assertEqual(len(results), 3)
+
+        # Should be ordered by oldest first
+        self.assertEqual(results[0]["name"], "First")
+        self.assertEqual(results[1]["name"], "Second")
+        self.assertEqual(results[2]["name"], "Third")
+
+    def test_order_by_updated_at_desc(self):
+        # Create datasets
+        first = Dataset.objects.create(name="First", team=self.team, created_by=self.user)
+        second = Dataset.objects.create(name="Second", team=self.team, created_by=self.user)
+        third = Dataset.objects.create(name="Third", team=self.team, created_by=self.user)
+
+        # Update them in reverse order to change updated_at
+        third.description = "Updated third"
+        third.save()
+        first.description = "Updated first"
+        first.save()
+        second.description = "Updated second"
+        second.save()
+
+        response = self.client.get(f"/api/environments/{self.team.id}/datasets/", {"order_by": "-updated_at"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.data["results"]
+        self.assertEqual(len(results), 3)
+
+        # Should be ordered by most recently updated first
+        self.assertEqual(results[0]["name"], "Second")
+        self.assertEqual(results[1]["name"], "First")
+        self.assertEqual(results[2]["name"], "Third")
+
+    def test_order_by_updated_at_asc(self):
+        first = Dataset.objects.create(name="First", team=self.team, created_by=self.user)
+        second = Dataset.objects.create(name="Second", team=self.team, created_by=self.user)
+        third = Dataset.objects.create(name="Third", team=self.team, created_by=self.user)
+
+        # Update them in specific order
+        second.description = "Updated second"
+        second.save()
+        third.description = "Updated third"
+        third.save()
+        first.description = "Updated first"
+        first.save()
+
+        response = self.client.get(f"/api/environments/{self.team.id}/datasets/", {"order_by": "updated_at"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.data["results"]
+        self.assertEqual(len(results), 3)
+
+        # Should be ordered by least recently updated first
+        self.assertEqual(results[0]["name"], "Second")
+        self.assertEqual(results[1]["name"], "Third")
+        self.assertEqual(results[2]["name"], "First")
+
+    def test_invalid_filter_raises(self):
+        response = self.client.get(f"/api/environments/{self.team.id}/datasets/", {"order_by": "invalid_field"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_no_order_by_defaults_to_created_at_desc(self):
+        Dataset.objects.create(name="First", team=self.team, created_by=self.user)
+        Dataset.objects.create(name="Second", team=self.team, created_by=self.user)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/datasets/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.data["results"]
+        self.assertEqual(len(results), 2)
+
+        # Should default to newest first (created_at desc)
+        self.assertEqual(results[0]["name"], "Second")
+        self.assertEqual(results[1]["name"], "First")
+
+    def test_search_by_name(self):
+        Dataset.objects.create(name="Training Dataset", team=self.team, created_by=self.user)
+        Dataset.objects.create(name="Test Dataset", team=self.team, created_by=self.user)
+        Dataset.objects.create(name="Validation Data", team=self.team, created_by=self.user)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/datasets/", {"search": "training"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.data["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["name"], "Training Dataset")
+
+    def test_search_by_description(self):
+        Dataset.objects.create(
+            name="Dataset A", description="Machine learning training data", team=self.team, created_by=self.user
+        )
+        Dataset.objects.create(
+            name="Dataset B", description="Test validation set", team=self.team, created_by=self.user
+        )
+        Dataset.objects.create(name="Dataset C", description="Production dataset", team=self.team, created_by=self.user)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/datasets/", {"search": "training"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.data["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["name"], "Dataset A")
+
+    def test_search_by_metadata(self):
+        Dataset.objects.create(
+            name="Dataset 1", metadata={"type": "training", "version": "1.0"}, team=self.team, created_by=self.user
+        )
+        Dataset.objects.create(
+            name="Dataset 2",
+            metadata={"type": "test", "environment": "production"},
+            team=self.team,
+            created_by=self.user,
+        )
+        Dataset.objects.create(
+            name="Dataset 3", metadata={"category": "validation"}, team=self.team, created_by=self.user
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/datasets/", {"search": "production"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.data["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["name"], "Dataset 2")
+
+    def test_search_case_insensitive(self):
+        Dataset.objects.create(name="Training Dataset", team=self.team, created_by=self.user)
+        Dataset.objects.create(name="test dataset", team=self.team, created_by=self.user)
+
+        # Test uppercase search
+        response = self.client.get(f"/api/environments/{self.team.id}/datasets/", {"search": "TRAINING"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), 1)
+        self.assertEqual(response.data["results"][0]["name"], "Training Dataset")
+
+        # Test lowercase search
+        response = self.client.get(f"/api/environments/{self.team.id}/datasets/", {"search": "test"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), 1)
+        self.assertEqual(response.data["results"][0]["name"], "test dataset")
+
+    def test_search_multiple_matches(self):
+        Dataset.objects.create(name="ML Training Set", team=self.team, created_by=self.user)
+        Dataset.objects.create(name="Training Data V2", team=self.team, created_by=self.user)
+        Dataset.objects.create(name="Validation Set", team=self.team, created_by=self.user)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/datasets/", {"search": "training"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.data["results"]
+        self.assertEqual(len(results), 2)
+
+        names = [result["name"] for result in results]
+        self.assertIn("ML Training Set", names)
+        self.assertIn("Training Data V2", names)
+
+    def test_search_no_matches(self):
+        Dataset.objects.create(name="Training Dataset", team=self.team, created_by=self.user)
+        Dataset.objects.create(name="Test Dataset", team=self.team, created_by=self.user)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/datasets/", {"search": "nonexistent"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), 0)
+
+    def test_search_empty_string(self):
+        Dataset.objects.create(name="Dataset 1", team=self.team, created_by=self.user)
+        Dataset.objects.create(name="Dataset 2", team=self.team, created_by=self.user)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/datasets/", {"search": ""})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), 2)
+
+    def test_search_with_order_by_created_at_desc(self):
+        Dataset.objects.create(name="Training Alpha", team=self.team, created_by=self.user)
+        Dataset.objects.create(name="Training Beta", team=self.team, created_by=self.user)
+        Dataset.objects.create(name="Test Dataset", team=self.team, created_by=self.user)
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/datasets/", {"search": "training", "order_by": "-created_at"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.data["results"]
+        self.assertEqual(len(results), 2)
+
+        # Should be ordered by newest first within search results
+        self.assertEqual(results[0]["name"], "Training Beta")
+        self.assertEqual(results[1]["name"], "Training Alpha")
+
+    def test_search_with_order_by_created_at_asc(self):
+        Dataset.objects.create(name="Training Alpha", team=self.team, created_by=self.user)
+        Dataset.objects.create(name="Training Beta", team=self.team, created_by=self.user)
+        Dataset.objects.create(name="Test Dataset", team=self.team, created_by=self.user)
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/datasets/", {"search": "training", "order_by": "created_at"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.data["results"]
+        self.assertEqual(len(results), 2)
+
+        # Should be ordered by oldest first within search results
+        self.assertEqual(results[0]["name"], "Training Alpha")
+        self.assertEqual(results[1]["name"], "Training Beta")
+
+    def test_search_with_order_by_updated_at(self):
+        first = Dataset.objects.create(name="Training Alpha", description="First", team=self.team, created_by=self.user)
+        Dataset.objects.create(name="Training Beta", description="Second", team=self.team, created_by=self.user)
+        Dataset.objects.create(name="Test Dataset", team=self.team, created_by=self.user)
+
+        # Update second dataset to make it more recently updated
+        first.description = "Updated first"
+        first.save()
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/datasets/", {"search": "training", "order_by": "-updated_at"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.data["results"]
+        self.assertEqual(len(results), 2)
+
+        # Should be ordered by most recently updated first
+        self.assertEqual(results[0]["name"], "Training Alpha")
+        self.assertEqual(results[1]["name"], "Training Beta")
+
 
 class TestDatasetItemsApi(APIBaseTest):
     def setUp(self):
         super().setUp()
-        self.client.force_login(self.user)
         self.dataset = Dataset.objects.create(name="Parent Dataset", team=self.team, created_by=self.user)
 
     def test_can_create_dataset_item(self):
@@ -241,7 +461,7 @@ class TestDatasetItemsApi(APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.id}/dataset_items/{item.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["dataset"], str(self.dataset.id))
+        self.assertEqual(response.data["dataset"], self.dataset.id)
         self.assertEqual(response.data["input"], {"a": 1})
         self.assertEqual(response.data["output"], {"b": 2})
         self.assertEqual(response.data["metadata"], {"m": 3})

@@ -11,6 +11,8 @@ class Dataset(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields
             models.Index(fields=["team", "-created_at", "id"]),
         ]
 
+    objects: models.Manager["Dataset"]
+
     name = models.CharField(max_length=400)
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     description = models.TextField(null=True, blank=True)
@@ -23,6 +25,8 @@ class DatasetItem(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFi
         indexes = [
             models.Index(fields=["dataset", "-created_at", "id"]),
         ]
+
+    objects: models.Manager["DatasetItem"]
 
     dataset = models.ForeignKey(Dataset, on_delete=models.CASCADE, related_name="items")
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
