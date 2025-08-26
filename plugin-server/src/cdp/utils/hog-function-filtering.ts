@@ -305,7 +305,7 @@ function shouldBePreFilteredBasedOnEventName(
     filterGlobals: HogFunctionFilterGlobals
 ): boolean {
     // If event filter is present check for a match
-    if (filters?.events && filters.events.length > 0) {
+    if (filters?.events?.length) {
         const eventMatches = filters.events.some((eventFilter) => {
             if (eventFilter.name) {
                 return eventFilter.name === filterGlobals.event
