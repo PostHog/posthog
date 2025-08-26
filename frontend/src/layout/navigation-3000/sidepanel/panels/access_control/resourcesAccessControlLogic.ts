@@ -208,6 +208,7 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
                     AccessControlResourceType.Dashboard,
                     AccessControlResourceType.Insight,
                     AccessControlResourceType.Notebook,
+                    AccessControlResourceType.SessionRecording,
                 ]
             },
         ],

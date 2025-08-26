@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
+import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -18,6 +19,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { SceneExport } from 'scenes/sceneTypes'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 
@@ -28,6 +30,7 @@ import {
     ScenePanelDivider,
     ScenePanelMetaInfo,
 } from '~/layout/scenes/SceneLayout'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { isUniversalFilters } from '../utils'
 import { SessionRecordingsPlaylist } from './SessionRecordingsPlaylist'
@@ -116,9 +119,20 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                                             </LemonButton>
                                             <LemonDivider />
 
-                                            <LemonButton status="danger" onClick={() => deletePlaylist()} fullWidth>
+                                            <AccessControlledLemonButton
+                                                status="danger"
+                                                onClick={() => deletePlaylist()}
+                                                fullWidth
+                                                minAccessLevel={AccessControlLevel.Editor}
+                                                resourceType={AccessControlResourceType.SessionRecording}
+                                                userAccessLevel={
+                                                    getAppContext()?.resource_access_control?.[
+                                                        AccessControlResourceType.SessionRecording
+                                                    ]
+                                                }
+                                            >
                                                 Delete collection
-                                            </LemonButton>
+                                            </AccessControlledLemonButton>
                                         </>
                                     }
                                 />
