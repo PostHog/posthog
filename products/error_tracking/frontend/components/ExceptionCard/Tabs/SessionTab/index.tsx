@@ -5,6 +5,7 @@ import { Spinner } from '@posthog/lemon-ui'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
+import { SessionTimeline } from 'lib/components/SessionTimeline/SessionTimeline'
 import {
     TabsPrimitive,
     TabsPrimitiveContent,
@@ -16,7 +17,6 @@ import {
 import { exceptionCardLogic } from '../../exceptionCardLogic'
 import { SubHeader } from '../SubHeader'
 import { SessionRecording } from './SessionRecording'
-import { SessionTimeline } from './SessionTimeline/SessionTimeline'
 import { sessionTabLogic } from './sessionTabLogic'
 
 export interface SessionTabProps extends TabsPrimitiveContentProps {
@@ -51,7 +51,9 @@ export function SessionTab({ timestamp, ...props }: SessionTabProps): JSX.Elemen
                                 </TabsPrimitiveList>
                             </SubHeader>
                             <SessionRecording value="recording" />
-                            <SessionTimeline value="timeline" />
+                            <TabsPrimitiveContent value="timeline">
+                                <SessionTimeline />
+                            </TabsPrimitiveContent>
                         </TabsPrimitive>
                     </BindLogic>
                 ))

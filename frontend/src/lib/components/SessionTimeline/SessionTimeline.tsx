@@ -6,25 +6,26 @@ import { Link, Spinner } from '@posthog/lemon-ui'
 
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { dayjs } from 'lib/dayjs'
+import { useScrollObserver } from 'lib/hooks/useScrollObserver'
 import { IconVerticalAlignCenter } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
-import { TabsPrimitiveContent, TabsPrimitiveContentProps } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 import { cn } from 'lib/utils/css-classes'
 
 import { useAsyncCallback } from 'products/error_tracking/frontend/hooks/use-async-callback'
 
-import { useScrollObserver } from '../../../../../hooks/use-scroll-observer'
-import { exceptionCardLogic } from '../../../exceptionCardLogic'
 import { sessionTabLogic } from '../sessionTabLogic'
 import { ItemCollector, ItemRenderer, RendererProps, TimelineItem } from './timeline'
 
 const LOADING_DEBOUNCE_OPTIONS = { leading: true, delay: 500 }
 
-export function SessionTimeline({ ...props }: TabsPrimitiveContentProps): JSX.Element {
+export interface SessionTimelineProps {
+    className?: string
+}
+
+export function SessionTimeline({ className }: SessionTimelineProps): JSX.Element {
     const { items, timestamp, sessionId, currentCategories } = useValues(sessionTabLogic)
     const { setItems, toggleCategory } = useActions(sessionTabLogic)
     const { uuid } = useValues(errorPropertiesLogic)
-    const { currentSessionTab } = useValues(exceptionCardLogic)
 
     const collector = useMemo(() => {
         // Add jitter to catch event at exact timestamp
@@ -95,66 +96,64 @@ export function SessionTimeline({ ...props }: TabsPrimitiveContentProps): JSX.El
             // Scroll to item on tab change
             scrollToItem(uuid)
         })
-    }, [uuid, scrollToItem, currentSessionTab])
+    }, [uuid, scrollToItem])
 
     return (
-        <TabsPrimitiveContent {...props}>
-            <div className="flex">
-                <div className="flex flex-col justify-between items-center p-1 border-r border-gray-3">
-                    <div className="flex flex-col items-center gap-2">
-                        {collector.getCategories().map((cat) => (
-                            <SessionGroupToggle
-                                active={currentCategories.includes(cat)}
-                                key={cat}
-                                onClick={() => toggleCategory(cat)}
-                            >
-                                {collector.getRenderer(cat)?.categoryIcon}
-                            </SessionGroupToggle>
-                        ))}
-                    </div>
-                    {items.find((item) => item.id === uuid) && (
-                        <ButtonPrimitive iconOnly onClick={() => scrollToItem(uuid)}>
-                            <IconVerticalAlignCenter />
-                        </ButtonPrimitive>
-                    )}
+        <div className={cn('flex', className)}>
+            <div className="flex flex-col justify-between items-center p-1 border-r border-gray-3">
+                <div className="flex flex-col items-center gap-2">
+                    {collector.getCategories().map((cat) => (
+                        <SessionGroupToggle
+                            active={currentCategories.includes(cat)}
+                            key={cat}
+                            onClick={() => toggleCategory(cat)}
+                        >
+                            {collector.getRenderer(cat)?.categoryIcon}
+                        </SessionGroupToggle>
+                    ))}
                 </div>
-                <div
-                    ref={(el) => {
-                        scrollRefCb(el)
-                        containerRef.current = el
-                    }}
-                    className="h-[500px] w-full overflow-y-auto relative"
-                    style={{ scrollbarGutter: 'stable' }}
-                >
-                    {beforeLoading && (
-                        <div className={cn(itemContainer({ selected: false }), 'justify-start')}>
-                            <Spinner />
-                            <span className="text-secondary">loading...</span>
-                        </div>
-                    )}
-                    {items.map((item) => {
-                        const renderer = collector.getRenderer(item.category)
-                        if (!renderer) {
-                            return null
-                        }
-                        return (
-                            <SessionTimelineItemContainer
-                                renderer={renderer}
-                                key={item.id}
-                                item={item}
-                                selected={item.id === uuid}
-                            />
-                        )
-                    })}
-                    {afterLoading && !beforeLoading && (
-                        <div className={cn(itemContainer({ selected: false }), 'justify-start')}>
-                            <Spinner />
-                            <span className="text-secondary">loading...</span>
-                        </div>
-                    )}
-                </div>
+                {items.find((item) => item.id === uuid) && (
+                    <ButtonPrimitive iconOnly onClick={() => scrollToItem(uuid)}>
+                        <IconVerticalAlignCenter />
+                    </ButtonPrimitive>
+                )}
             </div>
-        </TabsPrimitiveContent>
+            <div
+                ref={(el) => {
+                    scrollRefCb(el)
+                    containerRef.current = el
+                }}
+                className="h-[500px] w-full overflow-y-auto relative"
+                style={{ scrollbarGutter: 'stable' }}
+            >
+                {beforeLoading && (
+                    <div className={cn(itemContainer({ selected: false }), 'justify-start')}>
+                        <Spinner />
+                        <span className="text-secondary">loading...</span>
+                    </div>
+                )}
+                {items.map((item) => {
+                    const renderer = collector.getRenderer(item.category)
+                    if (!renderer) {
+                        return null
+                    }
+                    return (
+                        <SessionTimelineItemContainer
+                            renderer={renderer}
+                            key={item.id}
+                            item={item}
+                            selected={item.id === uuid}
+                        />
+                    )
+                })}
+                {afterLoading && !beforeLoading && (
+                    <div className={cn(itemContainer({ selected: false }), 'justify-start')}>
+                        <Spinner />
+                        <span className="text-secondary">loading...</span>
+                    </div>
+                )}
+            </div>
+        </div>
     )
 }
 
