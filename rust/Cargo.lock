@@ -3798,6 +3798,7 @@ dependencies = [
  "bincode",
  "bytesize",
  "chrono",
+ "common-alloc",
  "common-types",
  "dashmap 6.1.0",
  "envconfig",

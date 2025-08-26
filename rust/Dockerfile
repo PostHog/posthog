@@ -3,7 +3,6 @@ FROM rust:1.88 AS base
 RUN cargo install --locked cargo-chef sccache
 ENV RUSTC_WRAPPER=sccache SCCACHE_DIR=/sccache
 
-FROM base AS planner
 WORKDIR /app
 ARG BIN
 

@@ -2,11 +2,17 @@ use anyhow::{Context, Result};
 use axum::{routing::get, Router};
 use futures::future::ready;
 use health::HealthRegistry;
-use serve_metrics::{serve, setup_metrics_routes};
+use serve_metrics::{serve, setup_metrics_recorder};
+use std::time::Duration;
 use tokio::task::JoinHandle;
 use tracing::info;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::EnvFilter;
 
 use kafka_deduplicator::{config::Config, service::KafkaDeduplicatorService};
+
+common_alloc::used!();
 
 pub async fn index() -> &'static str {
     "kafka deduplicator service"
@@ -17,7 +23,16 @@ fn start_server(config: &Config, liveness: HealthRegistry) -> JoinHandle<()> {
         .route("/", get(index))
         .route("/_readiness", get(index))
         .route("/_liveness", get(move || ready(liveness.get_status())));
-    let router = setup_metrics_routes(router);
+
+    // Don't install metrics unless asked to
+    // Installing a global recorder when capture is used as a library (during tests etc)
+    // does not work well.
+    let router = if config.export_prometheus {
+        let recorder_handle = setup_metrics_recorder();
+        router.route("/metrics", get(move || ready(recorder_handle.render())))
+    } else {
+        router
+    };
 
     let bind = config.bind_address();
 
@@ -30,8 +45,14 @@ fn start_server(config: &Config, liveness: HealthRegistry) -> JoinHandle<()> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Initialize tracing
-    tracing_subscriber::fmt::init();
+    // Initialize tracing with EnvFilter for RUST_LOG support
+    // Default to INFO level if RUST_LOG is not set
+    let log_filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("info"));
+    
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer().with_filter(log_filter))
+        .init();
 
     info!("Starting Kafka Deduplicator service");
 
