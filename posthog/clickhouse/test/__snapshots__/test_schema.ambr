@@ -484,7 +484,7 @@
       message_count Int64,
       snapshot_source LowCardinality(Nullable(String)),
       snapshot_library Nullable(String),
-      retention_period String,
+      retention_period Nullable(String),
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
   
   '''
@@ -1561,7 +1561,7 @@
       message_count Int64,
       snapshot_source LowCardinality(Nullable(String)),
       snapshot_library Nullable(String),
-      retention_period String,
+      retention_period Nullable(String),
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
   
   '''
@@ -2551,7 +2551,7 @@
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- CH will pick any value of retention_period for the session
       -- the retention period should _always_ be the same across all blocks in a session so any will do
-      retention_period String
+      retention_period Nullable(String)
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
   
   '''
@@ -2612,7 +2612,7 @@
   argMinState(snapshot_source, first_timestamp) as snapshot_source,
   argMinState(snapshot_library, first_timestamp) as snapshot_library,
   max(_timestamp) as _timestamp,
-  any(retention_period) as retention_period
+  anyRespectNulls(retention_period) as retention_period
   FROM posthog_test.kafka_session_replay_events
   group by session_id, team_id
   
@@ -3275,7 +3275,7 @@
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- CH will pick any value of retention_period for the session
       -- the retention period should _always_ be the same across all blocks in a session so any will do
-      retention_period String
+      retention_period Nullable(String)
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
   
       PARTITION BY toYYYYMM(min_first_timestamp)
@@ -5158,7 +5158,7 @@
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- CH will pick any value of retention_period for the session
       -- the retention period should _always_ be the same across all blocks in a session so any will do
-      retention_period String
+      retention_period Nullable(String)
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
   
       PARTITION BY toYYYYMM(min_first_timestamp)
