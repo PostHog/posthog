@@ -18,7 +18,6 @@ const MAX_COLLAPSIBLE_H_LEVEL = 3
 export const CollapsibleHeading = Heading.extend({
     addAttributes() {
         return {
-            ...this.parent?.(),
             collapsed: {
                 default: false,
                 parseHTML: (element: HTMLElement) => element.getAttribute('data-collapsed') === 'true',
