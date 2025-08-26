@@ -860,14 +860,10 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                     typePlural: 'insights',
                 }}
                 onNameChange={(name) => {
-                    setTimeout(() => {
-                        setInsightMetadata({ name })
-                    }, 1000)
+                    setInsightMetadata({ name })
                 }}
                 onDescriptionChange={(description) => {
-                    setTimeout(() => {
-                        setInsightMetadata({ description })
-                    }, 1000)
+                    setInsightMetadata({ description })
                 }}
                 canEdit={canEditInsight}
                 isLoading={insightLoading}

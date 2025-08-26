@@ -204,18 +204,6 @@ function SceneName({
         onChange && canEdit ? (
             <>
                 {isEditing ? (
-                    // <TextInputPrimitive
-                    //     variant="default"
-                    //     value={name || ''}
-                    //     onChange={(e) => {
-                    //         setName(e.target.value)
-                    //         debouncedOnChange(e.target.value)
-                    //     }}
-                    //     className={`${textClasses} field-sizing-content w-full`}
-                    //     size="default"
-                    //     autoFocus={!forceEdit}
-                    //     onBlur={() => !forceEdit && setIsEditing(false)}
-                    // />
                     <TextareaPrimitive
                         variant="default"
                         name="name"
