@@ -4,6 +4,7 @@ import { Counter, Histogram } from 'prom-client'
 
 import { ExecResult, convertHogToJS } from '@posthog/hogvm'
 
+import { instrumented } from '~/common/tracing/tracing-utils'
 import {
     CyclotronInvocationQueueParametersEmailSchema,
     CyclotronInvocationQueueParametersFetchSchema,
@@ -11,7 +12,6 @@ import {
 import { FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError, fetch } from '~/utils/request'
 import { tryCatch } from '~/utils/try-catch'
 
-import { instrumented } from '~/common/tracing/tracing-utils'
 import { buildIntegerMatcher } from '../../config/config'
 import { Hub, PluginsServerConfig, ValueMatcher } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
