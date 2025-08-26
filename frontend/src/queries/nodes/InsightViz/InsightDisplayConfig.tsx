@@ -288,6 +288,7 @@ export function InsightDisplayConfig(): JSX.Element {
                             compareFilter={compareFilter}
                             updateCompareFilter={updateCompareFilter}
                             disabled={!canEditInsight || !supportsCompare}
+                            disableReason={editingDisabledReason}
                         />
                     </ConfigFilter>
                 )}
