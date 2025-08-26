@@ -2,11 +2,11 @@ from datetime import datetime, timedelta
 from typing import Any, Optional, cast
 from uuid import UUID
 
-import posthoganalytics
 from django.db.models import QuerySet
-from rest_framework import exceptions, mixins, request, response, serializers, status, viewsets, permissions
 
-from ee.models.explicit_team_membership import ExplicitTeamMembership
+import posthoganalytics
+from rest_framework import exceptions, mixins, permissions, request, response, serializers, status, viewsets
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
@@ -18,9 +18,11 @@ from posthog.models import OrganizationInvite, OrganizationMembership
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.tasks.email import send_invite
-from posthog.permissions import UserCanInvitePermission, OrganizationMemberPermissions
+from posthog.permissions import OrganizationMemberPermissions, UserCanInvitePermission
 from posthog.rbac.user_access_control import UserAccessControl
+from posthog.tasks.email import send_invite
+
+from ee.models.explicit_team_membership import ExplicitTeamMembership
 
 
 class OrganizationInviteManager:

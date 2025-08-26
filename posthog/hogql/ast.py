@@ -1,25 +1,25 @@
-import dataclasses
-import inspect
 import sys
-from enum import StrEnum
-from typing import Any, Literal, Optional, Union, get_args
+import inspect
+import dataclasses
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from enum import StrEnum
+from typing import Any, Literal, Optional, Union, get_args
 
-from posthog.hogql.base import Type, Expr, CTE, ConstantType, UnknownType, AST
+from posthog.hogql.base import AST, CTE, ConstantType, Expr, Type, UnknownType
 from posthog.hogql.constants import ConstantDataType, HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
+    DatabaseField,
+    ExpressionField,
+    FieldOrTable,
     FieldTraverser,
     LazyJoin,
+    LazyTable,
+    StringArrayDatabaseField,
     StringJSONDatabaseField,
     Table,
     VirtualTable,
-    LazyTable,
-    FieldOrTable,
-    DatabaseField,
-    StringArrayDatabaseField,
-    ExpressionField,
 )
 from posthog.hogql.errors import NotImplementedError, QueryError, ResolutionError
 

@@ -1,51 +1,52 @@
-import datetime
 import time
+import datetime
 from typing import Any, Optional, cast
 from uuid import uuid4
 
 from django.conf import settings
-from django.utils import timezone
-from django.contrib.auth import authenticate, login
-from django.contrib.auth import views as auth_views
+from django.contrib.auth import (
+    authenticate,
+    login,
+    views as auth_views,
+)
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.signals import user_logged_in
-from django.contrib.auth.tokens import (
-    PasswordResetTokenGenerator as DefaultPasswordResetTokenGenerator,
-)
+from django.contrib.auth.tokens import PasswordResetTokenGenerator as DefaultPasswordResetTokenGenerator
 from django.core.exceptions import ValidationError
 from django.core.signing import BadSignature
 from django.db import transaction
 from django.dispatch import receiver
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
+from django.utils import timezone
 from django.views.decorators.csrf import csrf_protect
+
 from django_otp import login as otp_login
+from django_otp.plugins.otp_static.models import StaticDevice
 from loginas.utils import is_impersonated_session, restore_original_login
 from rest_framework import mixins, permissions, serializers, status, viewsets
 from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
-from posthog.exceptions_capture import capture_exception
 from social_django.views import auth
 from two_factor.utils import default_device
 from two_factor.views.core import REMEMBER_COOKIE_PREFIX
-from two_factor.views.utils import (
-    get_remember_device_cookie,
-    validate_remember_device_cookie,
-)
-from django_otp.plugins.otp_static.models import StaticDevice
+from two_factor.views.utils import get_remember_device_cookie, validate_remember_device_cookie
 
 from posthog.api.email_verification import EmailVerifier, is_email_verification_disabled
+from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
+from posthog.exceptions_capture import capture_exception
+from posthog.geoip import get_geoip_properties
 from posthog.models import OrganizationDomain, User
 from posthog.rate_limit import UserPasswordResetThrottle
-from posthog.tasks.email import send_password_reset, send_two_factor_auth_backup_code_used_email
-from posthog.utils import get_instance_available_sso_providers
-from posthog.tasks.email import login_from_new_device_notification
-from posthog.caching.login_device_cache import check_and_cache_login_device
-from posthog.utils import get_short_user_agent, get_ip_address
-from posthog.geoip import get_geoip_properties
+from posthog.tasks.email import (
+    login_from_new_device_notification,
+    send_password_reset,
+    send_two_factor_auth_backup_code_used_email,
+)
+from posthog.utils import get_instance_available_sso_providers, get_ip_address, get_short_user_agent
 
 
 @receiver(user_logged_in)
