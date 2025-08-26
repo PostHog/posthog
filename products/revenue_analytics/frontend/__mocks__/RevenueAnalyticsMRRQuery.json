@@ -129,12 +129,12 @@
                         "2025-04-01T00:00:00-03:00",
                         "2025-05-01T00:00:00-03:00"
                     ],
-                    "id": "New | stripe.dev",
-                    "name": "New | stripe.dev"
+                    "id": "stripe.dev",
+                    "name": "stripe.dev"
                 },
                 "data": [6657.07, 7500, 57108.46, 32000.82, 12818.62],
                 "days": ["2025-01-01", "2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"],
-                "label": "New | stripe.dev",
+                "label": "stripe.dev",
                 "labels": ["Jan 2025", "Feb 2025", "Mar 2025", "Apr 2025", "May 2025"]
             },
             "new": {
@@ -146,12 +146,12 @@
                         "2025-04-01T00:00:00-03:00",
                         "2025-05-01T00:00:00-03:00"
                     ],
-                    "id": "Expansion | stripe.dev",
-                    "name": "Expansion | stripe.dev"
+                    "id": "New | stripe.dev",
+                    "name": "New | stripe.dev"
                 },
                 "data": [657.07, 500, 7108.46, 2000.82, 2818.62],
                 "days": ["2025-01-01", "2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"],
-                "label": "Expansion | stripe.dev",
+                "label": "New | stripe.dev",
                 "labels": ["Jan 2025", "Feb 2025", "Mar 2025", "Apr 2025", "May 2025"]
             },
             "expansion": {
@@ -163,12 +163,12 @@
                         "2025-04-01T00:00:00-03:00",
                         "2025-05-01T00:00:00-03:00"
                     ],
-                    "id": "stripe.dev",
-                    "name": "stripe.dev"
+                    "id": "Expansion | stripe.dev",
+                    "name": "Expansion | stripe.dev"
                 },
                 "data": [57.07, 0, 108.46, 0.82, 818.62],
                 "days": ["2025-01-01", "2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"],
-                "label": "Contraction | stripe.dev",
+                "label": "Expansion | stripe.dev",
                 "labels": ["Jan 2025", "Feb 2025", "Mar 2025", "Apr 2025", "May 2025"]
             },
             "contraction": {
@@ -185,7 +185,7 @@
                 },
                 "data": [-665.07, -750, -5710.46, -3200.82, -1281.62],
                 "days": ["2025-01-01", "2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"],
-                "label": "Churn | stripe.dev",
+                "label": "Contraction | stripe.dev",
                 "labels": ["Jan 2025", "Feb 2025", "Mar 2025", "Apr 2025", "May 2025"]
             },
             "churn": {
@@ -202,7 +202,7 @@
                 },
                 "data": [-66.07, -75, -571.46, -320.82, -128.62],
                 "days": ["2025-01-01", "2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"],
-                "label": "stripe.dev",
+                "label": "Churn | stripe.dev",
                 "labels": ["Jan 2025", "Feb 2025", "Mar 2025", "Apr 2025", "May 2025"]
             }
         }
