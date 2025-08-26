@@ -30,6 +30,7 @@ interface FilterRowProps {
     errorMessage?: JSX.Element | null
     disabledReason?: string
     editable: boolean
+    size?: 'xsmall' | 'small' | 'medium'
 }
 
 export const FilterRow = React.memo(function FilterRow({
@@ -48,6 +49,7 @@ export const FilterRow = React.memo(function FilterRow({
     errorMessage,
     disabledReason,
     editable,
+    size = 'small',
 }: FilterRowProps) {
     const [open, setOpen] = useState(() => openOnInsert)
 
@@ -65,13 +67,10 @@ export const FilterRow = React.memo(function FilterRow({
     return (
         <>
             <div
-                className={clsx(
-                    'property-filter-row flex items-center flex-nowrap deprecated-space-x-2 max-w-full grow',
-                    {
-                        'sm:grow-0': isValid,
-                        'wrap-filters': !disablePopover,
-                    }
-                )}
+                className={clsx('property-filter-row flex flex-nowrap deprecated-space-x-2 max-w-full grow', {
+                    'sm:grow-0': isValid,
+                    'wrap-filters': !disablePopover,
+                })}
                 data-attr={'property-filter-' + index}
             >
                 {disablePopover ? (
@@ -107,7 +106,7 @@ export const FilterRow = React.memo(function FilterRow({
                                 className="new-prop-filter grow"
                                 data-attr={'new-prop-filter-' + pageKey}
                                 type="secondary"
-                                size="small"
+                                size={size}
                                 icon={<IconPlusSmall />}
                                 sideIcon={null}
                             >
