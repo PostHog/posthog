@@ -1,8 +1,11 @@
 module.exports = {
     transform: {
-        '^.+\\.(t|j)s$': ['ts-jest', {
-            tsconfig: './tsconfig.json',
-        }],
+        '^.+\\.(t|j)s$': [
+            'ts-jest',
+            {
+                tsconfig: './tsconfig.json',
+            },
+        ],
     },
     testEnvironment: 'node',
     clearMocks: true,

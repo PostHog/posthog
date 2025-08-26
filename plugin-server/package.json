@@ -168,7 +168,6 @@
         "eslint-plugin-promise": "^6.1.1",
         "jest": "^30.0.0",
         "node-pg-migrate": "^8.0.3",
-
         "pino-pretty": "^9.1.0",
         "prettier": "^3.6.2",
         "supertest": "^7.0.0",
