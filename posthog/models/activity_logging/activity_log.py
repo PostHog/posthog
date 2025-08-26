@@ -227,6 +227,9 @@ field_with_masked_contents: dict[ActivityScope, list[str]] = {
     "Subscription": [
         "target_value",
     ],
+    "ExternalDataSource": [
+        "job_inputs",
+    ],
 }
 
 field_name_overrides: dict[ActivityScope, dict[str, str]] = {
@@ -245,6 +248,9 @@ field_name_overrides: dict[ActivityScope, dict[str, str]] = {
     },
     "BatchExport": {
         "paused": "enabled",
+    },
+    "ExternalDataSource": {
+        "job_inputs": "configuration",
     },
     "ExternalDataSchema": {
         "should_sync": "enabled",
@@ -443,7 +449,6 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "steps_json",
     ],
     "ExternalDataSource": [
-        "job_inputs",
         "connection_id",
         "destination_id",
         "are_tables_created",
