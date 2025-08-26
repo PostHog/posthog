@@ -1,11 +1,14 @@
 from typing import Optional
 
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+
 from django.test import override_settings
 
-from posthog.hogql.metadata import get_hogql_metadata
-from posthog.models import Cohort, PropertyDefinition
 from posthog.schema import HogLanguage, HogQLMetadata, HogQLMetadataResponse, HogQLQuery
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+
+from posthog.hogql.metadata import get_hogql_metadata
+
+from posthog.models import Cohort, PropertyDefinition
 
 
 class TestMetadata(ClickhouseTestMixin, APIBaseTest):

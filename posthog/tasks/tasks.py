@@ -2,21 +2,23 @@ import time
 from typing import Optional
 from uuid import UUID
 
-import posthoganalytics
-import requests
-from celery import shared_task
 from django.conf import settings
 from django.db import connection
 from django.utils import timezone
+
+import requests
+import posthoganalytics
+from celery import shared_task
 from prometheus_client import Gauge
 from redis import Redis
 from structlog import get_logger
+
+from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
-from posthog.hogql.constants import LimitContext
 from posthog.metrics import pushed_metrics_registry
 from posthog.ph_client import get_regional_ph_client
 from posthog.redis import get_client
@@ -656,9 +658,7 @@ def calculate_decide_usage() -> None:
 def find_flags_with_enriched_analytics() -> None:
     from datetime import datetime, timedelta
 
-    from posthog.models.feature_flag.flag_analytics import (
-        find_flags_with_enriched_analytics,
-    )
+    from posthog.models.feature_flag.flag_analytics import find_flags_with_enriched_analytics
 
     end = datetime.now()
     begin = end - timedelta(hours=12)
@@ -692,9 +692,7 @@ def check_async_migration_health() -> None:
 
 @shared_task(ignore_result=True)
 def verify_persons_data_in_sync() -> None:
-    from posthog.tasks.verify_persons_data_in_sync import (
-        verify_persons_data_in_sync as verify,
-    )
+    from posthog.tasks.verify_persons_data_in_sync import verify_persons_data_in_sync as verify
 
     if not is_cloud():
         return
@@ -737,9 +735,7 @@ def recompute_materialized_columns_enabled() -> bool:
 def clickhouse_materialize_columns() -> None:
     if recompute_materialized_columns_enabled():
         try:
-            from ee.clickhouse.materialized_columns.analyze import (
-                materialize_properties_task,
-            )
+            from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
         except ImportError:
             pass
         else:
@@ -756,9 +752,7 @@ def send_org_usage_reports() -> None:
 @shared_task(ignore_result=True)
 def schedule_all_subscriptions() -> None:
     try:
-        from ee.tasks.subscriptions import (
-            schedule_all_subscriptions as _schedule_all_subscriptions,
-        )
+        from ee.tasks.subscriptions import schedule_all_subscriptions as _schedule_all_subscriptions
     except ImportError:
         pass
     else:
@@ -853,7 +847,9 @@ def background_delete_model_task(
         records_to_delete: Maximum number of records to delete (None means delete all)
     """
     import logging
+
     from django.apps import apps
+
     import structlog
 
     logger = structlog.get_logger(__name__)

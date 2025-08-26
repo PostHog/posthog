@@ -1,22 +1,24 @@
 import os
-from unittest.mock import Mock, patch
 
 import pytest
-import dagster
 from posthog.test.base import APIBaseTest
+from unittest.mock import Mock, patch
+
+import dagster
+
 from posthog.models.team.team import Team
 from posthog.models.web_preaggregated.team_selection import DEFAULT_ENABLED_TEAM_IDS
-
-from dags.web_preaggregated_team_selection import (
-    get_team_ids_from_sources,
-    validate_team_ids,
-    store_team_selection_in_clickhouse,
-    web_analytics_team_selection,
-)
 from posthog.models.web_preaggregated.team_selection_strategies import (
     EnvironmentVariableStrategy,
     HighPageviewsStrategy,
     ProjectSettingsStrategy,
+)
+
+from dags.web_preaggregated_team_selection import (
+    get_team_ids_from_sources,
+    store_team_selection_in_clickhouse,
+    validate_team_ids,
+    web_analytics_team_selection,
 )
 
 

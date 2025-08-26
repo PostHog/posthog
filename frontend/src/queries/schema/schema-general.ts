@@ -39,7 +39,6 @@ import {
     PropertyGroupFilterValue,
     PropertyMathType,
     PropertyOperator,
-    QueryBasedInsightModel,
     RecordingPropertyFilter,
     RetentionDashboardDisplayType,
     RetentionFilterType,
@@ -303,7 +302,6 @@ export type AnyResponseType =
     | EventsQueryResponse
     | ErrorTrackingQueryResponse
     | LogsQueryResponse
-    | Partial<QueryBasedInsightModel>
 
 /** Tags that will be added to the Query log comment  **/
 export interface QueryLogTags {
@@ -1264,6 +1262,8 @@ export type FunnelsFilter = {
     useUdf?: boolean
     /** Customizations for the appearance of result datasets. */
     resultCustomizations?: Record<string, ResultCustomizationByValue>
+    /** Goal Lines */
+    goalLines?: GoalLine[]
 }
 
 export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
@@ -1430,6 +1430,15 @@ export type StickinessFilter = {
         value: integer
     }
     computedAs?: StickinessComputationMode
+    /**
+     * Whether result datasets are associated by their values or by their order.
+     * @default value
+     **/
+    resultCustomizationBy?: ResultCustomizationBy
+    /** Customizations for the appearance of result datasets. */
+    resultCustomizations?:
+        | Record<string, ResultCustomizationByValue>
+        | Record<numerical_key, ResultCustomizationByPosition>
 }
 
 export const STICKINESS_FILTER_PROPERTIES = new Set<keyof StickinessFilter>([
@@ -2357,6 +2366,7 @@ export type FileSystemIconType =
     | 'insightStickiness'
     | 'insightHogQL'
     | 'insightCalendarHeatmap'
+    | 'code'
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
     iconType?: FileSystemIconType

@@ -1,5 +1,5 @@
-import django.contrib.postgres.fields.jsonb
 import django.db.models.deletion
+import django.contrib.postgres.fields.jsonb
 from django.db import migrations, models
 
 

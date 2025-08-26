@@ -1,21 +1,23 @@
 from datetime import timedelta
-from unittest.mock import patch, Mock, MagicMock
 
-from django.utils.timezone import now
 from freezegun import freeze_time
+from posthog.test.base import APIBaseTest
+from unittest.mock import MagicMock, Mock, patch
+
+from django.utils import timezone
+from django.utils.timezone import now
+
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.sharing import shared_url_as_png
 from posthog.constants import AvailableFeature
-from posthog.models import ExportedAsset, ActivityLog
+from posthog.models import ActivityLog, ExportedAsset
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
-from posthog.test.base import APIBaseTest
-from django.utils import timezone
 
 
 @parameterized.expand(
