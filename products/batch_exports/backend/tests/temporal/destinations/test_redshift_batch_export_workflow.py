@@ -15,7 +15,6 @@ from django.conf import settings
 from django.test import override_settings
 
 import psycopg
-import pytest_asyncio
 import temporalio.common
 from psycopg import sql
 from temporalio import activity
@@ -278,7 +277,7 @@ def postgres_config(redshift_config):
     yield redshift_config
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def psycopg_connection(redshift_config, setup_postgres_test_db):
     """Fixture to manage a psycopg2 connection."""
     connection = await psycopg.AsyncConnection.connect(
@@ -668,7 +667,7 @@ def table_name(ateam, interval):
     return f"test_workflow_table_{ateam.pk}_{interval}"
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def redshift_batch_export(ateam, table_name, redshift_config, interval, exclude_events, temporal_client):
     destination_data = {
         "type": "Redshift",
