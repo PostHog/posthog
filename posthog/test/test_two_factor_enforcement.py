@@ -202,6 +202,14 @@ class TestSessionAuthenticationTwoFactor(TestCase):
             result = self.auth.authenticate(request)
             self.assertEqual(result, (self.user, None))
 
+    @patch("posthog.helpers.two_factor_session.is_domain_sso_enforced", return_value=True)
+    @patch("posthog.helpers.two_factor_session.is_two_factor_enforcement_in_effect", return_value=True)
+    def test_authentication_bypasses_two_factor_when_sso_enforced(self, mock_enforcement, mock_sso):
+        request = self._create_drf_request()
+        with patch.object(self.user, "organization", self.organization), patch.object(self.auth, "enforce_csrf"):
+            result = self.auth.authenticate(request)
+            self.assertEqual(result, (self.user, None))
+
     @patch("posthog.helpers.two_factor_session.default_device")
     @patch("posthog.helpers.two_factor_session.is_impersonated_session")
     def test_authentication_skips_whitelisted_paths(self, mock_is_impersonated, mock_default_device):

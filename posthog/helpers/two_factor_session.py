@@ -66,12 +66,16 @@ def is_two_factor_session_expired(request: HttpRequest) -> bool:
 def enforce_two_factor(request, user):
     """
     Enforce Two-Factor Authentication requirements for authenticated users in organizations that require it.
+    Excludes paths that are whitelisted and domains that have SSO enforcement enabled.
     """
     if is_path_whitelisted(request.path):
         return
 
     organization = getattr(user, "organization", None)
     if organization and organization.enforce_2fa:
+        if is_domain_sso_enforced(request._request):
+            return
+
         if not is_two_factor_enforcement_in_effect(request._request):
             return
 
@@ -106,3 +110,9 @@ def is_two_factor_enforcement_in_effect(request: HttpRequest):
         return False
 
     return datetime.datetime.fromtimestamp(session_created_at) >= TWO_FACTOR_ENFORCEMENT_FROM_DATE
+
+
+def is_domain_sso_enforced(request: HttpRequest):
+    from posthog.models.organization_domain import OrganizationDomain
+
+    return OrganizationDomain.objects.get_sso_enforcement_for_email_address(request.user.email)
