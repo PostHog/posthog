@@ -50,7 +50,7 @@ from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseTable
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
 
-EXCLUDED_AI_EVENTS = [
+AI_EVENTS = [
     "$ai_generation",
     "$ai_embedding",
     "$ai_span",
@@ -481,7 +481,7 @@ def get_teams_with_billable_event_count_in_period(
         "survey shown",
         "survey dismissed",
         "$exception",
-        *EXCLUDED_AI_EVENTS,
+        *AI_EVENTS,
     ]
 
     query_template = f"""
@@ -518,7 +518,7 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
         "survey shown",
         "survey dismissed",
         "$exception",
-        *EXCLUDED_AI_EVENTS,
+        *AI_EVENTS,
     ]
 
     query_template = f"""
@@ -876,7 +876,7 @@ def get_teams_with_ai_event_count_in_period(
         WHERE event IN %(ai_events)s AND timestamp >= %(begin)s AND timestamp < %(end)s
         GROUP BY team_id
     """,
-        {"begin": begin, "end": end, "ai_events": EXCLUDED_AI_EVENTS},
+        {"begin": begin, "end": end, "ai_events": AI_EVENTS},
         workload=Workload.OFFLINE,
         settings=CH_BILLING_SETTINGS,
     )
