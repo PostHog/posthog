@@ -1,7 +1,7 @@
-import json
-import glob
-import subprocess
 import sys
+import glob
+import json
+import subprocess
 from pathlib import Path
 from typing import Any
 

@@ -1,28 +1,30 @@
-from ee.hogai.session_summaries.utils import logging_session_ids
+from django.utils import timezone
+
+from structlog import get_logger
+
 from posthog.models.notebook.notebook import Notebook
 from posthog.models.notebook.util import (
     TipTapContent,
     TipTapNode,
-    create_text_content,
     create_bullet_list,
+    create_empty_paragraph,
+    create_heading_with_text,
     create_paragraph_with_content,
     create_paragraph_with_text,
-    create_heading_with_text,
     create_task_list,
-    create_empty_paragraph,
+    create_text_content,
 )
-from posthog.models.user import User
 from posthog.models.team import Team
+from posthog.models.user import User
+from posthog.temporal.ai.session_summary.types.group import SessionSummaryStep
+
 from ee.hogai.session_summaries.session_group.patterns import (
-    EnrichedSessionGroupSummaryPatternsList,
     EnrichedSessionGroupSummaryPattern,
+    EnrichedSessionGroupSummaryPatternsList,
     PatternAssignedEventSegmentContext,
     RawSessionGroupSummaryPattern,
 )
-from django.utils import timezone
-from structlog import get_logger
-
-from posthog.temporal.ai.session_summary.types.group import SessionSummaryStep
+from ee.hogai.session_summaries.utils import logging_session_ids
 
 logger = get_logger(__name__)
 

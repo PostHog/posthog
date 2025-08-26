@@ -1,15 +1,17 @@
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import to_printed_hogql
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.schema import (
     CachedTeamTaxonomyQueryResponse,
     TeamTaxonomyItem,
     TeamTaxonomyQuery,
     TeamTaxonomyQueryResponse,
 )
+
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import to_printed_hogql
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
 try:
     from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP

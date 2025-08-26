@@ -1,21 +1,23 @@
-import asyncio
-import dataclasses
-import datetime as dt
 import json
 import typing
+import asyncio
+import datetime as dt
+import dataclasses
 from itertools import groupby
 
-import temporalio.activity
-import temporalio.common
-import temporalio.workflow
 from django.conf import settings
+
+import temporalio.common
+import temporalio.activity
+import temporalio.workflow
 from structlog import get_logger
 
-from ee.tasks.subscriptions import deliver_subscription_report_async, team_use_temporal_flag
 from posthog.models.subscription import Subscription
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
+
+from ee.tasks.subscriptions import deliver_subscription_report_async, team_use_temporal_flag
 
 LOGGER = get_logger(__name__)
 

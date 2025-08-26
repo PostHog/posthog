@@ -1,8 +1,8 @@
-import argparse
 import os
-import shutil
-import datetime
 import re
+import shutil
+import argparse
+import datetime
 import xml.etree.ElementTree as ET
 from xml import etree
 

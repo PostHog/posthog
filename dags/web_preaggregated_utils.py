@@ -1,11 +1,13 @@
 import os
-import dagster
 from datetime import datetime, timedelta
 from functools import partial
+from typing import Optional
+
+import dagster
+from dagster import Array, Backoff, DagsterRunStatus, Field, Jitter, RetryPolicy, RunsFilter, SkipReason
+
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.settings.base_variables import DEBUG
-from typing import Optional
-from dagster import Backoff, Field, Array, Jitter, RetryPolicy, RunsFilter, DagsterRunStatus, SkipReason
 
 TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS = os.getenv("TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS", 1 if DEBUG else 2)
 

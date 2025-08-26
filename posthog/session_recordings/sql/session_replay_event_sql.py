@@ -1,12 +1,8 @@
 from django.conf import settings
 
-from posthog.clickhouse.kafka_engine import kafka_engine
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.clickhouse.table_engines import (
-    Distributed,
-    ReplicationScheme,
-    AggregatingMergeTree,
-)
+from posthog.clickhouse.kafka_engine import kafka_engine
+from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS
 
 
@@ -204,7 +200,7 @@ group by session_id, team_id
 # This table is responsible for writing to sharded_session_replay_events based on a sharding key.
 
 
-def WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=True):
+def WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=False):
     return SESSION_REPLAY_EVENTS_TABLE_BASE_SQL.format(
         table_name="writable_session_replay_events",
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
@@ -218,7 +214,7 @@ def WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=True):
 # This table is responsible for reading from session_replay_events on a cluster setting
 
 
-def DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=True):
+def DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=False):
     return SESSION_REPLAY_EVENTS_TABLE_BASE_SQL.format(
         table_name="session_replay_events",
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
@@ -230,8 +226,8 @@ def DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=True):
 
 
 def DROP_SESSION_REPLAY_EVENTS_TABLE_SQL():
-    return f"DROP TABLE IF EXISTS {SESSION_REPLAY_EVENTS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
+    return f"DROP TABLE IF EXISTS {SESSION_REPLAY_EVENTS_DATA_TABLE()} {ON_CLUSTER_CLAUSE(False)}"
 
 
 def TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL():
-    return f"TRUNCATE TABLE IF EXISTS {SESSION_REPLAY_EVENTS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
+    return f"TRUNCATE TABLE IF EXISTS {SESSION_REPLAY_EVENTS_DATA_TABLE()} {ON_CLUSTER_CLAUSE(False)}"

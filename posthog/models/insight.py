@@ -1,25 +1,24 @@
 from functools import cached_property
 from typing import TYPE_CHECKING, Optional
 
-
-from posthog.exceptions_capture import capture_exception
-import structlog
 from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.indexes import GinIndex
 from django.db import models
+from django.db.models import QuerySet
 from django.utils import timezone
+
+import structlog
 from django_deprecate_fields import deprecate_field
 from rest_framework.exceptions import ValidationError
-from django.db.models import QuerySet
-from django.contrib.postgres.indexes import GinIndex
 
+from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed
 from posthog.models.dashboard import Dashboard
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
-from posthog.models.filters.utils import get_filter
-from posthog.models.utils import sane_repr
-from posthog.utils import absolute_uri, generate_cache_key, generate_short_id
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
-from posthog.models.utils import RootTeamMixin, RootTeamManager
+from posthog.models.filters.utils import get_filter
+from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
+from posthog.utils import absolute_uri, generate_cache_key, generate_short_id
 
 logger = structlog.get_logger(__name__)
 
@@ -263,8 +262,10 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
         dashboard_filters_override: Optional[dict] = None,
         dashboard_variables_override: Optional[dict[str, dict]] = None,
     ) -> Optional[dict]:
-        from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters_to_dict
-        from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_variables_to_dict
+        from posthog.hogql_queries.apply_dashboard_filters import (
+            apply_dashboard_filters_to_dict,
+            apply_dashboard_variables_to_dict,
+        )
 
         if self.query and dashboard_variables_override:
             self.query = apply_dashboard_variables_to_dict(self.query, dashboard_variables_override or {}, self.team)

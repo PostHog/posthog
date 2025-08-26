@@ -1,25 +1,30 @@
-from collections.abc import AsyncGenerator, Callable, Awaitable
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from typing import Any
-from unittest.mock import patch, MagicMock, AsyncMock
+
+from posthog.test.base import BaseTest
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from django.utils import timezone
 
 from asgiref.sync import async_to_sync
-from django.utils import timezone
+
+from posthog.schema import (
+    AssistantToolCallMessage,
+    FilterLogicalOperator,
+    HumanMessage,
+    MaxOuterUniversalFiltersGroup,
+    MaxRecordingUniversalFilters,
+    RecordingDurationFilter,
+)
+
+from posthog.models import SessionRecording
+from posthog.temporal.ai.session_summary.summarize_session_group import SessionSummaryStreamUpdate
+from posthog.temporal.ai.session_summary.types.group import SessionSummaryStep
+
 from ee.hogai.graph.session_summaries.nodes import SessionSummarizationNode
 from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.models.assistant import Conversation
-from posthog.models import SessionRecording
-from posthog.temporal.ai.session_summary.summarize_session_group import SessionSummaryStreamUpdate
-from posthog.schema import (
-    AssistantToolCallMessage,
-    HumanMessage,
-    MaxRecordingUniversalFilters,
-    RecordingDurationFilter,
-    MaxOuterUniversalFiltersGroup,
-    FilterLogicalOperator,
-)
-from posthog.temporal.ai.session_summary.types.group import SessionSummaryStep
-from posthog.test.base import BaseTest
 
 
 class TestSessionSummarizationNode(BaseTest):
