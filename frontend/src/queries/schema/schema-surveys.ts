@@ -108,3 +108,20 @@ export interface SurveyAppearanceSchema {
     ratingButtonColor?: string
     ratingButtonActiveColor?: string
 }
+
+// Survey response analysis schema - for MaxTool LLM analysis
+export interface SurveyAnalysisResponseItem {
+    responseText: string
+    userDistinctId: string
+    email: string | null
+    timestamp: string
+    isOpenEnded: boolean
+}
+
+export interface SurveyAnalysisQuestionGroup {
+    questionName: string
+    questionId: string
+    responses: SurveyAnalysisResponseItem[]
+}
+
+export type SurveyAnalysisData = SurveyAnalysisQuestionGroup[]

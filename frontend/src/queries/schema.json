@@ -23487,6 +23487,53 @@
             "required": ["questions"],
             "type": "object"
         },
+        "SurveyAnalysisData": {
+            "items": {
+                "$ref": "#/definitions/SurveyAnalysisQuestionGroup"
+            },
+            "type": "array"
+        },
+        "SurveyAnalysisQuestionGroup": {
+            "additionalProperties": false,
+            "properties": {
+                "questionId": {
+                    "type": "string"
+                },
+                "questionName": {
+                    "type": "string"
+                },
+                "responses": {
+                    "items": {
+                        "$ref": "#/definitions/SurveyAnalysisResponseItem"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["questionName", "questionId", "responses"],
+            "type": "object"
+        },
+        "SurveyAnalysisResponseItem": {
+            "additionalProperties": false,
+            "properties": {
+                "email": {
+                    "type": ["string", "null"]
+                },
+                "isOpenEnded": {
+                    "type": "boolean"
+                },
+                "responseText": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "type": "string"
+                },
+                "userDistinctId": {
+                    "type": "string"
+                }
+            },
+            "required": ["responseText", "userDistinctId", "email", "timestamp", "isOpenEnded"],
+            "type": "object"
+        },
         "SurveyAppearanceSchema": {
             "additionalProperties": false,
             "properties": {

@@ -29,6 +29,7 @@ import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepa
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
 import { CompareFilter, DataTableNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { SurveyAnalysisData, SurveyAnalysisResponseItem } from '~/queries/schema/schema-surveys'
 import { HogQLQueryString } from '~/queries/utils'
 import {
     AnyPropertyFilter,
@@ -1766,7 +1767,7 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
         formattedOpenEndedResponses: [
             (s) => [s.consolidatedSurveyResults, s.survey],
-            (consolidatedResults: ConsolidatedSurveyResults, survey: Survey | NewSurvey): any[] => {
+            (consolidatedResults: ConsolidatedSurveyResults, survey: Survey | NewSurvey): SurveyAnalysisData => {
                 if (!consolidatedResults?.responsesByQuestion || !survey.questions) {
                     return []
                 }
@@ -1780,7 +1781,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     timestamp: response.timestamp,
                 })
 
-                const responsesByQuestion: any[] = []
+                const responsesByQuestion: SurveyAnalysisData = []
 
                 Object.entries(consolidatedResults.responsesByQuestion).forEach(([questionId, processedData]) => {
                     const question = survey.questions.find((q) => q.id === questionId)
@@ -1788,7 +1789,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         return
                     }
 
-                    const questionResponses: any[] = []
+                    const questionResponses: SurveyAnalysisResponseItem[] = []
 
                     if (processedData.type === SurveyQuestionType.Open) {
                         // Pure open questions

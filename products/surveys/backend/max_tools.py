@@ -11,7 +11,7 @@ from asgiref.sync import async_to_sync
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
-from posthog.schema import SurveyCreationSchema
+from posthog.schema import SurveyAnalysisData, SurveyCreationSchema
 
 from posthog.constants import DEFAULT_SURVEY_APPEARANCE
 from posthog.exceptions_capture import capture_exception
@@ -318,7 +318,7 @@ class SurveyAnalysisTool(MaxTool):
 
     args_schema: type[BaseModel] = SurveyAnalysisArgs
 
-    async def _extract_open_ended_responses(self, survey: Survey) -> list[dict[str, Any]]:
+    async def _extract_open_ended_responses(self, survey: Survey) -> SurveyAnalysisData:
         """
         Extract all open-ended text responses from the context data provided by frontend.
 
@@ -336,13 +336,38 @@ class SurveyAnalysisTool(MaxTool):
         """
         try:
             context = self.context or {}
-            return context.get("formatted_responses", [])
+            raw_responses = context.get("formatted_responses", [])
+
+            # Handle both old dict format and new typed format during transition
+            if not raw_responses:
+                return []
+
+            # If it's already the new typed format, return as-is
+            if hasattr(raw_responses[0], "questionName"):
+                return raw_responses
+
+            # Convert old dict format to typed format for backwards compatibility
+            typed_responses = []
+            for group in raw_responses:
+                if isinstance(group, dict):
+                    typed_responses.append(
+                        {
+                            "questionName": group.get("questionName", "Unknown question"),
+                            "questionId": group.get("questionId", "unknown"),
+                            "responses": group.get("responses", []),
+                        }
+                    )
+                else:
+                    # Already typed
+                    typed_responses.append(group)
+
+            return typed_responses
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
             return []
 
     async def _analyze_responses(
-        self, question_groups: list[dict[str, Any]], analysis_focus: str
+        self, question_groups: SurveyAnalysisData, analysis_focus: str
     ) -> SurveyAnalysisOutput:
         """
         Analyze the extracted responses using LLM to generate themes, sentiment, and insights.
@@ -370,7 +395,10 @@ class SurveyAnalysisTool(MaxTool):
             )
 
         # Count total responses across all questions
-        total_response_count = sum(len(group.get("responses", [])) for group in question_groups)
+        total_response_count = sum(
+            len(group.responses if hasattr(group, "responses") else group.get("responses", []))
+            for group in question_groups
+        )
 
         try:
             # Format the data for LLM analysis
@@ -428,21 +456,31 @@ class SurveyAnalysisTool(MaxTool):
                 question_breakdown={},
             )
 
-    def _format_responses_for_llm(self, question_groups: list[dict[str, Any]]) -> str:
+    def _format_responses_for_llm(self, question_groups: SurveyAnalysisData) -> str:
         """Format the grouped responses into a clean string for LLM analysis."""
         formatted_sections = []
 
         for group in question_groups:
-            question_name = group.get("questionName", "Unknown question")
-            responses = group.get("responses", [])
+            # Handle both dict and typed object access
+            question_name = (
+                group.questionName if hasattr(group, "questionName") else group.get("questionName", "Unknown question")
+            )
+            responses = group.responses if hasattr(group, "responses") else group.get("responses", [])
 
             formatted_sections.append(f'Question: "{question_name}"')
             formatted_sections.append("Responses:")
 
             for response in responses:
-                response_text = response.get("responseText", "")
-                user_id = response.get("userDistinctId", "anonymous")
-                email = response.get("email")
+                # Handle both dict and typed object access for responses
+                response_text = (
+                    response.responseText if hasattr(response, "responseText") else response.get("responseText", "")
+                )
+                user_id = (
+                    response.userDistinctId
+                    if hasattr(response, "userDistinctId")
+                    else response.get("userDistinctId", "anonymous")
+                )
+                email = response.email if hasattr(response, "email") else response.get("email")
 
                 # Format user identifier
                 user_identifier = email if email else f"user:{user_id}"
