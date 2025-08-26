@@ -177,6 +177,25 @@ async def eval_tool_generate_hogql_query(call_generate_hogql_query, database_sch
                 expected="SELECT anyLast(properties.description) AS dispositivo, if(anyLast(event) = 'enter', 'online', 'offline') AS status, anyLast(timestamp) AS last event ts FROM events WHERE properties.description IS NOT NULL AND NOT ( lower(properties.description) LIKE '%piero%' OR lower(properties.description) LIKE '%test%' OR lower(properties.description) LIKE '%local%' OR lower(properties.description) LIKE '%totem%' ) AND timestamp >= now() - INTERVAL 30 DAY GROUP BY lower(properties.description) ORDER BY status DESC, dispositivo ASC",
                 metadata=metadata,
             ),
+            EvalCase(
+                input=EvalInput(instructions="How many unique users visited our site last week?"),
+                expected="SELECT count(DISTINCT distinct_id) FROM events WHERE event = '$pageview' AND timestamp >= now() - INTERVAL 7 DAY",
+                metadata=metadata,
+            ),
+            EvalCase(
+                input=EvalInput(
+                    instructions="Show me the number of unique registered users who performed a purchase event in the last 30 days"
+                ),
+                expected="SELECT count(DISTINCT person_id) FROM events WHERE event = 'purchase' AND timestamp >= now() - INTERVAL 30 DAY",
+                metadata=metadata,
+            ),
+            EvalCase(
+                input=EvalInput(
+                    instructions="Get the daily count of unique users (including anonymous) who triggered any event, broken down by day for the past 2 weeks"
+                ),
+                expected="SELECT toStartOfDay(timestamp) AS day, count(DISTINCT distinct_id) AS unique_users FROM events WHERE timestamp >= now() - INTERVAL 14 DAY GROUP BY day ORDER BY day DESC",
+                metadata=metadata,
+            ),
         ],
         pytestconfig=pytestconfig,
     )
