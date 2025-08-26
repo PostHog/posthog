@@ -3818,7 +3818,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                             "name": "$pageview",
                         },
                     ],
-                    # "interval": "day",
                     "breakdownFilter": {
                         "breakdown": "$geoip_country_code",
                         "breakdown_type": "event",

@@ -23,11 +23,9 @@ from posthog.models.team.team import Team
 class FunnelQueryContext(QueryContext):
     query: FunnelsQuery
     funnelsFilter: FunnelsFilter
-    breakdownFilter: BreakdownFilter
 
     interval: IntervalType
 
-    breakdown: list[Union[str, int]] | str | int | None
     breakdownType: BreakdownType
     breakdownAttributionType: BreakdownAttributionType
 
@@ -58,7 +56,6 @@ class FunnelQueryContext(QueryContext):
         super().__init__(query=query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
 
         self.funnelsFilter = self.query.funnelsFilter or FunnelsFilter()
-        self.breakdownFilter = self.query.breakdownFilter or BreakdownFilter()
 
         # defaults
         self.interval = self.query.interval or IntervalType.DAY
@@ -77,6 +74,14 @@ class FunnelQueryContext(QueryContext):
         self.includeProperties = include_properties or []
         self.includeFinalMatchingEvents = include_final_matching_events
 
+        self.actorsQuery = None
+
+    @property
+    def breakdownFilter(self) -> BreakdownFilter:
+        return self.query.breakdownFilter or BreakdownFilter()
+
+    @property
+    def breakdown(self) -> Optional[Union[list[Union[str, int]], str, int]]:
         # the API accepts either:
         #   a string (single breakdown) in parameter "breakdown"
         #   a list of numbers (one or more cohorts) in parameter "breakdown"
@@ -104,11 +109,9 @@ class FunnelQueryContext(QueryContext):
             None,
         ]:
             boxed_breakdown: list[Union[str, int]] = box_value(self.breakdownFilter.breakdown)
-            self.breakdown = boxed_breakdown
+            return boxed_breakdown
         else:
-            self.breakdown = self.breakdownFilter.breakdown
-
-        self.actorsQuery = None
+            return self.breakdownFilter.breakdown
 
     @property
     def max_steps(self) -> int:
