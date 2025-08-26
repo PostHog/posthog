@@ -859,11 +859,21 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                     type: 'insight',
                     typePlural: 'insights',
                 }}
-                onNameChange={(name) => setInsightMetadata({ name })}
-                onDescriptionChange={(description) => setInsightMetadata({ description })}
+                onNameChange={(name) => {
+                    setTimeout(() => {
+                        setInsightMetadata({ name })
+                    }, 1000)
+                }}
+                onDescriptionChange={(description) => {
+                    setTimeout(() => {
+                        setInsightMetadata({ description })
+                    }, 1000)
+                }}
                 canEdit={canEditInsight}
                 isLoading={insightLoading}
                 forceEdit={insightMode === ItemMode.Edit}
+                // Renaming insights is too fast, so we need to debounce it
+                renameDebounceMs={1000}
             />
             <SceneDivider />
         </>

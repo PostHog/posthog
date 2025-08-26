@@ -53,6 +53,7 @@ type SceneMainTitleProps = {
      * Usually this is for 'new' resources, or "edit" mode
      */
     forceEdit?: boolean
+    renameDebounceMs?: number
 }
 
 export function SceneTitleSection({
@@ -66,6 +67,7 @@ export function SceneTitleSection({
     docsURL,
     canEdit = false,
     forceEdit = false,
+    renameDebounceMs,
 }: SceneMainTitleProps): JSX.Element | null {
     const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
@@ -101,6 +103,7 @@ export function SceneTitleSection({
                             onChange={onNameChange}
                             canEdit={canEdit}
                             forceEdit={forceEdit}
+                            renameDebounceMs={renameDebounceMs}
                         />
                     </div>
                     {description !== null && (description || canEdit) && (
@@ -120,6 +123,7 @@ export function SceneTitleSection({
                                 onChange={onDescriptionChange}
                                 canEdit={canEdit}
                                 forceEdit={forceEdit}
+                                renameDebounceMs={renameDebounceMs}
                             />
                         </div>
                     )}
@@ -155,6 +159,7 @@ type SceneNameProps = {
     onChange?: (value: string) => void
     canEdit?: boolean
     forceEdit?: boolean
+    renameDebounceMs?: number
 }
 
 function SceneName({
@@ -163,6 +168,7 @@ function SceneName({
     onChange,
     canEdit = false,
     forceEdit = false,
+    renameDebounceMs = 100,
 }: SceneNameProps): JSX.Element {
     const [name, setName] = useState(initialName)
     const [isEditing, setIsEditing] = useState(forceEdit)
@@ -184,7 +190,7 @@ function SceneName({
         }
     }, [isLoading, forceEdit])
 
-    const debouncedOnChange = useDebouncedCallback(onChange || (() => {}), 100)
+    const debouncedOnChange = useDebouncedCallback(onChange || (() => {}), renameDebounceMs)
 
     // If onBlur is provided, we want to show a button that allows the user to edit the name
     // Otherwise, we want to show the name as a text
@@ -273,6 +279,7 @@ type SceneDescriptionProps = {
     onChange?: (value: string) => void
     canEdit?: boolean
     forceEdit?: boolean
+    renameDebounceMs?: number
 }
 
 function SceneDescription({
@@ -282,6 +289,7 @@ function SceneDescription({
     onChange,
     canEdit = false,
     forceEdit = false,
+    renameDebounceMs = 100,
 }: SceneDescriptionProps): JSX.Element | null {
     const [description, setDescription] = useState(initialDescription)
     const [isEditing, setIsEditing] = useState(forceEdit)
@@ -304,7 +312,7 @@ function SceneDescription({
         }
     }, [isLoading, forceEdit])
 
-    const debouncedOnDescriptionChange = useDebouncedCallback(onChange || (() => {}), 100)
+    const debouncedOnDescriptionChange = useDebouncedCallback(onChange || (() => {}), renameDebounceMs)
 
     if (!onChange && canEdit) {
         console.warn('SceneDescription: onBlur is required when canEdit is true')
