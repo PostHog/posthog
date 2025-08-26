@@ -27,6 +27,7 @@ serde_json = { workspace = true }
 serve-metrics = { path = "../common/serve_metrics" }
 time = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { version = "0.7", features = ["rt"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 

@@ -381,6 +381,11 @@ impl DeduplicationStore {
         self.partition
     }
 
+    /// Update metrics for this store (including database size)
+    pub fn update_metrics(&self) -> Result<()> {
+        self.store.update_db_metrics()
+    }
+
     /// Create a checkpoint and return the SST files at the time of checkpoint
     pub fn create_checkpoint_with_metadata<P: AsRef<std::path::Path>>(
         &self,
