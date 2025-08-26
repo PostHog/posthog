@@ -16,7 +16,7 @@ import { QueryContext } from '~/queries/types'
 import { GraphDataset } from '~/types'
 
 import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
-import { AlphaTag, RevenueAnalyticsLineGraph, TileProps, TileWrapper, extractLabelAndDatasets } from './shared'
+import { RevenueAnalyticsLineGraph, TileProps, TileWrapper, extractLabelAndDatasets } from './shared'
 
 let uniqueNode = 0
 export function RevenueAnalyticsMetricsNode(props: {
@@ -106,17 +106,7 @@ const makeTile = (
         const { labels, datasets } = extractLabelAndDatasets(results)
 
         return (
-            <TileWrapper
-                title={title}
-                tooltip={tooltip}
-                extra={
-                    <div className="flex flex-row items-center gap-2 text-muted-alt">
-                        <span className="flex items-center">
-                            <AlphaTag />
-                        </span>
-                    </div>
-                }
-            >
+            <TileWrapper title={title} tooltip={tooltip}>
                 {responseLoading ? (
                     <InsightLoadingState queryId={queryId} key={queryId} insightProps={context.insightProps ?? {}} />
                 ) : (

@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { Tooltip } from '@posthog/lemon-ui'
 
 import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
 import { LineGraph, LineGraphProps } from 'scenes/insights/views/LineGraph/LineGraph'
@@ -87,15 +87,5 @@ export const RevenueAnalyticsLineGraph = (
             labelGroupType="none"
             {...props}
         />
-    )
-}
-
-export const AlphaTag = (): JSX.Element => {
-    return (
-        <Tooltip title="This is a new chart type that is still in alpha. Data might not be accurate.">
-            <LemonTag type="completion" size="small">
-                ALPHA
-            </LemonTag>
-        </Tooltip>
     )
 }
