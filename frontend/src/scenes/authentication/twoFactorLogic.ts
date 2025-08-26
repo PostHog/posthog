@@ -107,6 +107,7 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
     }),
     selectors({
         is2FAEnabled: [(s) => [s.status], (status): boolean => !!status?.is_enabled],
+        canSwitchOrg: [(s) => [s.user], (user): boolean => (user?.organizations || []).length > 1],
     }),
     loaders(({ values, actions }) => ({
         startSetup: [

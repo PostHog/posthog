@@ -13,7 +13,8 @@ import { TwoFactorSetup } from './TwoFactorSetup'
 import { twoFactorLogic } from './twoFactorLogic'
 
 export function TwoFactorSetupModal(): JSX.Element {
-    const { isTwoFactorSetupModalOpen, forceOpenTwoFactorSetupModal, startSetup } = useValues(twoFactorLogic)
+    const { isTwoFactorSetupModalOpen, forceOpenTwoFactorSetupModal, startSetup, canSwitchOrg } =
+        useValues(twoFactorLogic)
     const { closeTwoFactorSetupModal } = useActions(twoFactorLogic)
     const [showOrgDropdown, setShowOrgDropdown] = useState(false)
 
@@ -51,19 +52,21 @@ export function TwoFactorSetupModal(): JSX.Element {
 
                 <LemonDivider />
 
-                <div className="flex flex-col items-center gap-1 mt-4">
-                    <div className="text-muted-alt text-xs">
-                        or{' '}
-                        <button
-                            type="button"
-                            className="text-muted-alt cursor-pointer underline hover:text-muted"
-                            onClick={() => setShowOrgDropdown(true)}
-                        >
-                            change your organization
-                        </button>
+                {canSwitchOrg && (
+                    <div className="flex flex-col items-center gap-1 mt-4">
+                        <div className="text-muted-alt text-xs">
+                            or{' '}
+                            <button
+                                type="button"
+                                className="text-muted-alt cursor-pointer underline hover:text-muted"
+                                onClick={() => setShowOrgDropdown(true)}
+                            >
+                                change your organization
+                            </button>
+                        </div>
+                        {showOrgDropdown && <OrganizationDropdownMenu allowCreate={false} />}
                     </div>
-                    {showOrgDropdown && <OrganizationDropdownMenu allowCreate={false} />}
-                </div>
+                )}
             </div>
         </LemonModal>
     )
