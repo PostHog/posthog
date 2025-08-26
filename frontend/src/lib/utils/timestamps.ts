@@ -14,7 +14,7 @@ export function parseTimestampToMs(input?: string | null): number | undefined {
 
     // Handle mm:ss or hh:mm:ss format
     const parts = value.split(':').map((p) => Number(p))
-    if (parts.length > 1 && parts.length <= 3 && parts.every((n) => !Number.isNaN(n) && n >= 0 && n % 1 === 0)) {
+    if (parts.length > 1 && parts.length <= 3 && parts.every((n) => Number.isSafeInteger(n) && n >= 0)) {
         let seconds = 0
         if (parts.length === 2) {
             const [mm, ss] = parts
