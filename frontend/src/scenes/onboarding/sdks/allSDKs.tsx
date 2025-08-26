@@ -235,7 +235,7 @@ export const allSDKs: SDK[] = [
         key: SDKKey.HELICONE,
         tags: [SDKTag.LLM],
         image: heliconeImage,
-        docsLink: 'https://posthog.com/docs/ai-engineering/helicone-posthog',
+        docsLink: 'https://posthog.com/docs/llm-analytics/integrations/helicone-posthog',
     },
     {
         name: 'iOS',
@@ -267,7 +267,7 @@ export const allSDKs: SDK[] = [
         key: SDKKey.LANGFUSE,
         tags: [SDKTag.LLM],
         image: langfuseImage,
-        docsLink: 'https://posthog.com/docs/ai-engineering/langfuse-posthog',
+        docsLink: 'https://posthog.com/docs/llm-analytics/integrations/langfuse-posthog',
     },
     {
         name: 'Laravel',
@@ -357,7 +357,7 @@ export const allSDKs: SDK[] = [
         key: SDKKey.TRACELOOP,
         tags: [SDKTag.LLM],
         image: traceloopImage,
-        docsLink: 'https://posthog.com/docs/ai-engineering/traceloop-posthog',
+        docsLink: 'https://posthog.com/docs/llm-analytics/integrations/traceloop-posthog',
     },
     {
         name: 'Vue.js',
