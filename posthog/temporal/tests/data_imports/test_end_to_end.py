@@ -53,6 +53,7 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
     CREDIT_NOTE_RESOURCE_NAME as STRIPE_CREDIT_NOTE_RESOURCE_NAME,
+    CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
     DISPUTE_RESOURCE_NAME as STRIPE_DISPUTE_RESOURCE_NAME,
     INVOICE_ITEM_RESOURCE_NAME as STRIPE_INVOICE_ITEM_RESOURCE_NAME,
@@ -117,6 +118,7 @@ def mock_stripe_client(
     stripe_refund,
     stripe_subscription,
     stripe_credit_note,
+    stripe_customer_balance_transaction,
 ):
     with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient") as MockStripeClient:
         mock_balance_transaction_list = mock.MagicMock()
@@ -131,6 +133,7 @@ def mock_stripe_client(
         mock_refunds_list = mock.MagicMock()
         mock_subscription_list = mock.MagicMock()
         mock_credit_notes_list = mock.MagicMock()
+        mock_customer_balance_transactions_list = mock.MagicMock()
 
         mock_balance_transaction_list.auto_paging_iter.return_value = stripe_balance_transaction["data"]
         mock_charges_list.auto_paging_iter.return_value = stripe_charge["data"]
@@ -144,6 +147,9 @@ def mock_stripe_client(
         mock_refunds_list.auto_paging_iter.return_value = stripe_refund["data"]
         mock_subscription_list.auto_paging_iter.return_value = stripe_subscription["data"]
         mock_credit_notes_list.auto_paging_iter.return_value = stripe_credit_note["data"]
+        mock_customer_balance_transactions_list.auto_paging_iter.return_value = stripe_customer_balance_transaction[
+            "data"
+        ]
 
         instance = MockStripeClient.return_value
         instance.balance_transactions.list.return_value = mock_balance_transaction_list
@@ -158,6 +164,7 @@ def mock_stripe_client(
         instance.refunds.list.return_value = mock_refunds_list
         instance.subscriptions.list.return_value = mock_subscription_list
         instance.credit_notes.list.return_value = mock_credit_notes_list
+        instance.customers.balance_transactions.list.return_value = mock_customer_balance_transactions_list
 
         yield instance
 
@@ -492,6 +499,19 @@ async def test_stripe_credit_note(team, stripe_credit_note, mock_stripe_client):
         source_type="Stripe",
         job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
         mock_data_response=stripe_credit_note["data"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_stripe_customer_balance_transaction(team, stripe_customer_balance_transaction, mock_stripe_client):
+    await _run(
+        team=team,
+        schema_name=STRIPE_CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
+        table_name="stripe_customerbalancetransaction",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        mock_data_response=stripe_customer_balance_transaction["data"],
     )
 
 
