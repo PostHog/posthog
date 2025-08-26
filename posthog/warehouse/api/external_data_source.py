@@ -1,26 +1,25 @@
 import uuid
 from typing import Any
 
+from django.db.models import Prefetch, Q
+
 import structlog
 import temporalio
 from dateutil import parser
-from django.db.models import Prefetch, Q
 from rest_framework import filters, serializers, status, viewsets
+from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.exceptions import ValidationError
+
+from posthog.hogql.database.database import create_hogql_database
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql.database.database import create_hogql_database
 from posthog.models.user import User
-from posthog.temporal.data_imports.sources.common.config import Config
 from posthog.temporal.data_imports.sources import SourceRegistry
-from posthog.warehouse.api.external_data_schema import (
-    ExternalDataSchemaSerializer,
-    SimpleExternalDataSchemaSerializer,
-)
+from posthog.temporal.data_imports.sources.common.config import Config
+from posthog.warehouse.api.external_data_schema import ExternalDataSchemaSerializer, SimpleExternalDataSchemaSerializer
 from posthog.warehouse.data_load.service import (
     cancel_external_data_workflow,
     delete_data_import_folder,
@@ -29,11 +28,7 @@ from posthog.warehouse.data_load.service import (
     sync_external_data_job_workflow,
     trigger_external_data_source_workflow,
 )
-from posthog.warehouse.models import (
-    ExternalDataJob,
-    ExternalDataSchema,
-    ExternalDataSource,
-)
+from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from posthog.warehouse.types import ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)

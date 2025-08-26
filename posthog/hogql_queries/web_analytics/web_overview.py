@@ -1,25 +1,24 @@
-from typing import Optional, Union
 import math
+from typing import Optional, Union
+
+import structlog
+
+from posthog.schema import (
+    CachedWebOverviewQueryResponse,
+    HogQLQueryModifiers,
+    WebOverviewQuery,
+    WebOverviewQueryResponse,
+)
 
 from posthog.hogql import ast
+from posthog.hogql.database.schema.exchange_rate import revenue_sum_expression_for_events
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
-    WebAnalyticsQueryRunner,
-)
-from posthog.hogql_queries.web_analytics.web_overview_pre_aggregated import (
-    WebOverviewPreAggregatedQueryBuilder,
-)
+
+from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner
+from posthog.hogql_queries.web_analytics.web_overview_pre_aggregated import WebOverviewPreAggregatedQueryBuilder
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.schema import (
-    CachedWebOverviewQueryResponse,
-    WebOverviewQueryResponse,
-    WebOverviewQuery,
-    HogQLQueryModifiers,
-)
-from posthog.hogql.database.schema.exchange_rate import revenue_sum_expression_for_events
-import structlog
 
 logger = structlog.get_logger(__name__)
 

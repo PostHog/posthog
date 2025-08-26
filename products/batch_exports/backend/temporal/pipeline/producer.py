@@ -1,19 +1,15 @@
-import asyncio
 import typing
+import asyncio
+
+from django.conf import settings
 
 from aiobotocore.response import StreamingBody
-from django.conf import settings
 
 import posthog.temporal.common.asyncpa as asyncpa
 from posthog.temporal.common.logger import get_write_only_logger
-from products.batch_exports.backend.temporal.pipeline.internal_stage import (
-    get_s3_client,
-    get_s3_staging_folder,
-)
-from products.batch_exports.backend.temporal.spmc import (
-    RecordBatchQueue,
-    slice_record_batch,
-)
+
+from products.batch_exports.backend.temporal.pipeline.internal_stage import get_s3_client, get_s3_staging_folder
+from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, slice_record_batch
 
 if typing.TYPE_CHECKING:
     from types_aiobotocore_s3.client import S3Client

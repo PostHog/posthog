@@ -193,7 +193,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     </>
                 ),
                 component: <DataColorThemes />,
-                flag: 'INSIGHT_COLORS',
             },
             {
                 id: 'persons-on-events',

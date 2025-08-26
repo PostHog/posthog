@@ -1,10 +1,16 @@
 from decimal import Decimal
 from pathlib import Path
-from unittest.mock import ANY
 
 from freezegun import freeze_time
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    snapshot_clickhouse_queries,
+)
+from unittest.mock import ANY
 
-from posthog.models.utils import uuid7
 from posthog.schema import (
     CurrencyCode,
     DateRange,
@@ -17,6 +23,8 @@ from posthog.schema import (
     RevenueAnalyticsRevenueQueryResponse,
     RevenueAnalyticsRevenueQueryResult,
 )
+
+from posthog.models.utils import uuid7
 from posthog.temporal.data_imports.sources.stripe.constants import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
@@ -24,15 +32,9 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    snapshot_clickhouse_queries,
-)
 from posthog.warehouse.models import ExternalDataSchema
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
+
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_revenue_query_runner import (
     RevenueAnalyticsRevenueQueryRunner,
 )
@@ -414,7 +416,7 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             mrr.new,
             {
-                "label": "stripe.posthog_test",
+                "label": "New | stripe.posthog_test",
                 "days": ALL_MONTHS_DAYS,
                 "labels": ALL_MONTHS_LABELS,
                 "data": [
@@ -440,8 +442,8 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ],
                 "action": {
                     "days": ALL_MONTHS_FAKEDATETIMES,
-                    "id": "stripe.posthog_test",
-                    "name": "stripe.posthog_test",
+                    "id": "New | stripe.posthog_test",
+                    "name": "New | stripe.posthog_test",
                 },
             },
         )
@@ -449,7 +451,7 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             mrr.expansion,
             {
-                "label": "stripe.posthog_test",
+                "label": "Expansion | stripe.posthog_test",
                 "days": ALL_MONTHS_DAYS,
                 "labels": ALL_MONTHS_LABELS,
                 "data": [
@@ -475,8 +477,8 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ],
                 "action": {
                     "days": ALL_MONTHS_FAKEDATETIMES,
-                    "id": "stripe.posthog_test",
-                    "name": "stripe.posthog_test",
+                    "id": "Expansion | stripe.posthog_test",
+                    "name": "Expansion | stripe.posthog_test",
                 },
             },
         )
@@ -484,7 +486,7 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             mrr.contraction,
             {
-                "label": "stripe.posthog_test",
+                "label": "Contraction | stripe.posthog_test",
                 "days": ALL_MONTHS_DAYS,
                 "labels": ALL_MONTHS_LABELS,
                 "data": [
@@ -493,10 +495,10 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     0,
                     0,
                     0,
-                    Decimal("4.39147"),
-                    Decimal("483.82682"),
+                    Decimal("-4.39147"),
+                    Decimal("-483.82682"),
                     0,
-                    Decimal("135.49000"),
+                    Decimal("-135.49000"),
                     0,
                     0,
                     0,
@@ -510,8 +512,8 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ],
                 "action": {
                     "days": ALL_MONTHS_FAKEDATETIMES,
-                    "id": "stripe.posthog_test",
-                    "name": "stripe.posthog_test",
+                    "id": "Contraction | stripe.posthog_test",
+                    "name": "Contraction | stripe.posthog_test",
                 },
             },
         )
@@ -519,7 +521,7 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             mrr.churn,
             {
-                "label": "stripe.posthog_test",
+                "label": "Churn | stripe.posthog_test",
                 "days": ALL_MONTHS_DAYS,
                 "labels": ALL_MONTHS_LABELS,
                 "data": [
@@ -530,33 +532,35 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     0,
                     0,
                     0,
-                    Decimal("8882.54906"),
-                    Decimal("8729.34175"),
+                    Decimal("-8882.54906"),
+                    Decimal("-8729.34175"),
                     0,
                     0,
                     0,
                     0,
                     0,
                     0,
-                    Decimal("24.5077499999"),
+                    Decimal("-24.5077499999"),
                     0,
                     0,
                     0,
                 ],
                 "action": {
                     "days": ALL_MONTHS_FAKEDATETIMES,
-                    "id": "stripe.posthog_test",
-                    "name": "stripe.posthog_test",
+                    "id": "Churn | stripe.posthog_test",
+                    "name": "Churn | stripe.posthog_test",
                 },
             },
         )
 
         # Iterate over the values and check that the new/expansion/contraction/churn values
         # properly add up to the change between the previous period and the current period
+        #
+        # NOTE: We're summing contraction and churn because they're negative values
         previous = Decimal(0)
         for i in range(len(mrr.total["data"])):
             change_to_previous = mrr.total["data"][i] - previous
-            change = mrr.new["data"][i] + mrr.expansion["data"][i] - mrr.contraction["data"][i] - mrr.churn["data"][i]
+            change = mrr.new["data"][i] + mrr.expansion["data"][i] + mrr.contraction["data"][i] + mrr.churn["data"][i]
             self.assertEqual(change_to_previous, change, f"MRR change at index {i} is incorrect")
             previous = mrr.total["data"][i]
 
@@ -1034,7 +1038,7 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             mrr.new,
             {
-                "label": "revenue_analytics.events.purchase",
+                "label": "New | revenue_analytics.events.purchase",
                 "days": LAST_6_MONTHS_DAYS,
                 "labels": LAST_6_MONTHS_LABELS,
                 "data": [
@@ -1048,8 +1052,8 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ],
                 "action": {
                     "days": LAST_6_MONTHS_FAKEDATETIMES,
-                    "id": "revenue_analytics.events.purchase",
-                    "name": "revenue_analytics.events.purchase",
+                    "id": "New | revenue_analytics.events.purchase",
+                    "name": "New | revenue_analytics.events.purchase",
                 },
             },
         )
@@ -1057,7 +1061,7 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             mrr.expansion,
             {
-                "label": "revenue_analytics.events.purchase",
+                "label": "Expansion | revenue_analytics.events.purchase",
                 "days": LAST_6_MONTHS_DAYS,
                 "labels": LAST_6_MONTHS_LABELS,
                 "data": [
@@ -1071,8 +1075,8 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ],
                 "action": {
                     "days": LAST_6_MONTHS_FAKEDATETIMES,
-                    "id": "revenue_analytics.events.purchase",
-                    "name": "revenue_analytics.events.purchase",
+                    "id": "Expansion | revenue_analytics.events.purchase",
+                    "name": "Expansion | revenue_analytics.events.purchase",
                 },
             },
         )
@@ -1080,7 +1084,7 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             mrr.contraction,
             {
-                "label": "revenue_analytics.events.purchase",
+                "label": "Contraction | revenue_analytics.events.purchase",
                 "days": LAST_6_MONTHS_DAYS,
                 "labels": LAST_6_MONTHS_LABELS,
                 "data": [
@@ -1088,14 +1092,14 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     0,
                     0,
                     0,
-                    Decimal("13.549"),
+                    Decimal("-13.549"),
                     0,
                     0,
                 ],
                 "action": {
                     "days": LAST_6_MONTHS_FAKEDATETIMES,
-                    "id": "revenue_analytics.events.purchase",
-                    "name": "revenue_analytics.events.purchase",
+                    "id": "Contraction | revenue_analytics.events.purchase",
+                    "name": "Contraction | revenue_analytics.events.purchase",
                 },
             },
         )
@@ -1103,7 +1107,7 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             mrr.churn,
             {
-                "label": "revenue_analytics.events.purchase",
+                "label": "Churn | revenue_analytics.events.purchase",
                 "days": LAST_6_MONTHS_DAYS,
                 "labels": LAST_6_MONTHS_LABELS,
                 "data": [
@@ -1112,13 +1116,13 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     0,
                     0,
                     0,
-                    Decimal("19.925"),
-                    Decimal("36.9999675355"),
+                    Decimal("-19.925"),
+                    Decimal("-36.9999675355"),
                 ],
                 "action": {
                     "days": LAST_6_MONTHS_FAKEDATETIMES,
-                    "id": "revenue_analytics.events.purchase",
-                    "name": "revenue_analytics.events.purchase",
+                    "id": "Churn | revenue_analytics.events.purchase",
+                    "name": "Churn | revenue_analytics.events.purchase",
                 },
             },
         )

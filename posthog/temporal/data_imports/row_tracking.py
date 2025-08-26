@@ -1,9 +1,10 @@
 import uuid
 from contextlib import contextmanager
 
-from dateutil import parser
 from django.conf import settings
 from django.db.models import Sum
+
+from dateutil import parser
 from structlog.types import FilteringBoundLogger
 
 from posthog.cloud_utils import get_cached_instance_license

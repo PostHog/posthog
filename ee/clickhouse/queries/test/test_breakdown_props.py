@@ -1,16 +1,5 @@
-from posthog.test.test_utils import create_group_type_mapping_without_created_at
 import pytest
 from freezegun import freeze_time
-
-from posthog.models.cohort import Cohort
-from posthog.models.entity import Entity
-from posthog.models.filters import Filter
-from posthog.models.group.util import create_group
-from posthog.queries.breakdown_props import (
-    _to_bucketing_expression,
-    get_breakdown_prop_values,
-)
-from posthog.queries.trends.util import process_math
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -19,6 +8,14 @@ from posthog.test.base import (
     also_test_with_materialized_columns,
     snapshot_clickhouse_queries,
 )
+
+from posthog.models.cohort import Cohort
+from posthog.models.entity import Entity
+from posthog.models.filters import Filter
+from posthog.models.group.util import create_group
+from posthog.queries.breakdown_props import _to_bucketing_expression, get_breakdown_prop_values
+from posthog.queries.trends.util import process_math
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
 class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):

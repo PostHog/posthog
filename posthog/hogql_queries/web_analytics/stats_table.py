@@ -1,32 +1,31 @@
-from typing import cast, Literal, Union, Optional
+from typing import Literal, Optional, Union, cast
+
+from posthog.schema import (
+    CachedWebStatsTableQueryResponse,
+    EventPropertyFilter,
+    HogQLQueryModifiers,
+    PersonPropertyFilter,
+    WebAnalyticsOrderByDirection,
+    WebAnalyticsOrderByFields,
+    WebStatsBreakdown,
+    WebStatsTableQuery,
+    WebStatsTableQueryResponse,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.parser import parse_select, parse_expr
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import (
-    property_to_expr,
-    get_property_operator,
-    get_property_value,
-    get_property_type,
     get_property_key,
+    get_property_operator,
+    get_property_type,
+    get_property_value,
+    property_to_expr,
 )
+
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.web_analytics.stats_table_pre_aggregated import StatsTablePreAggregatedQueryBuilder
-from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
-    WebAnalyticsQueryRunner,
-    map_columns,
-)
-from posthog.schema import (
-    CachedWebStatsTableQueryResponse,
-    WebStatsTableQuery,
-    WebStatsBreakdown,
-    WebStatsTableQueryResponse,
-    EventPropertyFilter,
-    PersonPropertyFilter,
-    WebAnalyticsOrderByFields,
-    WebAnalyticsOrderByDirection,
-    HogQLQueryModifiers,
-)
+from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner, map_columns
 
 BREAKDOWN_NULL_DISPLAY = "(none)"
 
@@ -693,6 +692,33 @@ GROUP BY session_id, breakdown_value
                 return self._apply_path_cleaning(ast.Field(chain=["session", "$end_pathname"]))
             case WebStatsBreakdown.EXIT_CLICK:
                 return ast.Field(chain=["session", "$last_external_click_url"])
+            case WebStatsBreakdown.PREVIOUS_PAGE:
+                return ast.Call(
+                    name="multiIf",
+                    args=[
+                        # if it's internal navigation within a SPA, use the previous pageview's pathname
+                        ast.Call(
+                            name="isNotNull",
+                            args=[ast.Field(chain=["events", "properties", "$prev_pageview_pathname"])],
+                        ),
+                        self._apply_path_cleaning(ast.Field(chain=["events", "properties", "$prev_pageview_pathname"])),
+                        # if it's internal navigation but not within a SPA, the referrer will be on the same domain, and path cleaning should still be applied
+                        ast.Call(
+                            name="equals",
+                            args=[
+                                ast.Call(
+                                    name="domain", args=[ast.Field(chain=["events", "properties", "$current_url"])]
+                                ),
+                                ast.Call(name="domain", args=[ast.Field(chain=["events", "properties", "$referrer"])]),
+                            ],
+                        ),
+                        self._apply_path_cleaning(
+                            ast.Call(name="path", args=[ast.Field(chain=["events", "properties", "$referrer"])])
+                        ),
+                        # a visit from an external domain
+                        ast.Field(chain=["events", "properties", "$referrer"]),
+                    ],
+                )
             case WebStatsBreakdown.SCREEN_NAME:
                 return ast.Field(chain=["events", "properties", "$screen_name"])
             case WebStatsBreakdown.INITIAL_REFERRING_DOMAIN:

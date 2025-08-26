@@ -1,8 +1,7 @@
 from inline_snapshot import snapshot
+
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-from posthog.cdp.templates.zendesk.template_zendesk import (
-    template as template_zendesk,
-)
+from posthog.cdp.templates.zendesk.template_zendesk import template as template_zendesk
 
 
 def create_inputs(**kwargs):

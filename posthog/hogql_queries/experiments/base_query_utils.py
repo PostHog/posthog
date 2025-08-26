@@ -1,22 +1,6 @@
 from typing import Literal, Union, cast
 from zoneinfo import ZoneInfo
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import action_to_expr, property_to_expr
-from posthog.hogql_queries.experiments.exposure_query_logic import (
-    build_common_exposure_conditions,
-    get_exposure_event_and_property,
-    get_test_accounts_filter,
-    get_variant_selection_expr,
-)
-from posthog.hogql_queries.experiments.hogql_aggregation_utils import (
-    extract_aggregation_and_inner_expr,
-)
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models import Experiment
-from posthog.models.action.action import Action
-from posthog.models.team.team import Team
 from posthog.schema import (
     ActionsNode,
     BaseMathType,
@@ -34,6 +18,22 @@ from posthog.schema import (
     MultipleVariantHandling,
     PropertyMathType,
 )
+
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr
+from posthog.hogql.property import action_to_expr, property_to_expr
+
+from posthog.hogql_queries.experiments.exposure_query_logic import (
+    build_common_exposure_conditions,
+    get_exposure_event_and_property,
+    get_test_accounts_filter,
+    get_variant_selection_expr,
+)
+from posthog.hogql_queries.experiments.hogql_aggregation_utils import extract_aggregation_and_inner_expr
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models import Experiment
+from posthog.models.action.action import Action
+from posthog.models.team.team import Team
 
 
 def get_data_warehouse_metric_source(

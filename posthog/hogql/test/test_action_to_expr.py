@@ -1,12 +1,14 @@
-from typing import Optional, Any
-from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import action_to_expr
-from posthog.hogql.visitor import clear_locations
-from posthog.models import Action
+from typing import Any, Optional
+
 from posthog.test.base import BaseTest, _create_event
+
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.property import action_to_expr
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.visitor import clear_locations
+
+from posthog.models import Action
 
 
 class TestActionToExpr(BaseTest):
