@@ -27,7 +27,6 @@ import { pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { CohortCriteriaGroups } from 'scenes/cohorts/CohortFilters/CohortCriteriaGroups'
 import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
-import { CohortSaveButton } from 'scenes/cohorts/CohortSaveButton'
 import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
@@ -49,7 +48,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const logicProps = { id }
     const logic = cohortEditLogic(logicProps)
     const { deleteCohort, setOuterGroupsType, setQuery, duplicateCohort, setCohortValue } = useActions(logic)
-    const { cohort, cohortLoading, cohortMissing, query, duplicatedCohortLoading, cohortHasChanges } = useValues(logic)
+    const { cohort, cohortLoading, cohortMissing, query, duplicatedCohortLoading } = useValues(logic)
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const { featureFlags } = useValues(featureFlagLogic)
     const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
@@ -143,12 +142,15 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                 }}
                             />
                         )}
-                        <CohortSaveButton
-                            cohortChanged={cohortHasChanges}
-                            cohortLoading={cohortLoading}
-                            isCalculating={cohort.is_calculating ?? false}
-                            isNewCohort={isNewCohort}
-                        />
+                        <LemonButton
+                            type="primary"
+                            data-attr="save-cohort"
+                            htmlType="submit"
+                            loading={cohortLoading || cohort.is_calculating}
+                            form="cohort"
+                        >
+                            Save
+                        </LemonButton>
                     </div>
                 }
             />
@@ -220,15 +222,14 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                             tooltip: 'Go to all cohorts',
                         }}
                         isLoading={cohortLoading}
-                        onNameChange={(value) => {
+                        onNameBlur={(value) => {
                             setCohortValue('name', value)
                         }}
-                        onDescriptionChange={(value) => {
+                        onDescriptionBlur={(value) => {
                             setCohortValue('description', value)
                         }}
                         docsURL="https://posthog.com/docs/data/cohorts"
                         canEdit
-                        forceEdit={isNewCohort}
                     />
 
                     <SceneDivider />
