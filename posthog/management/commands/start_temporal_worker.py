@@ -15,6 +15,7 @@ with workflow.unsafe.imports_passed_through():
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import (
     BATCH_EXPORTS_TASK_QUEUE,
+    BILLING_TASK_QUEUE,
     DATA_MODELING_TASK_QUEUE,
     DATA_WAREHOUSE_COMPACTION_TASK_QUEUE,
     DATA_WAREHOUSE_TASK_QUEUE,
@@ -84,6 +85,10 @@ from products.tasks.backend.temporal import (
     WORKFLOWS as TASKS_WORKFLOWS,
 )
 
+# TODO: Add billing workflows and activities once ready
+BILLING_WORKFLOWS: list = []
+BILLING_ACTIVITIES: list = []
+
 # Workflow and activity index
 WORKFLOWS_DICT = {
     SYNC_BATCH_EXPORTS_TASK_QUEUE: BATCH_EXPORTS_WORKFLOWS,
@@ -102,6 +107,7 @@ WORKFLOWS_DICT = {
     TASKS_TASK_QUEUE: TASKS_WORKFLOWS,
     MAX_AI_TASK_QUEUE: AI_WORKFLOWS,
     TEST_TASK_QUEUE: TEST_WORKFLOWS,
+    BILLING_TASK_QUEUE: BILLING_WORKFLOWS,
 }
 ACTIVITIES_DICT = {
     SYNC_BATCH_EXPORTS_TASK_QUEUE: BATCH_EXPORTS_ACTIVITIES,
@@ -120,6 +126,7 @@ ACTIVITIES_DICT = {
     TASKS_TASK_QUEUE: TASKS_ACTIVITIES,
     MAX_AI_TASK_QUEUE: AI_ACTIVITIES,
     TEST_TASK_QUEUE: TEST_ACTIVITIES,
+    BILLING_TASK_QUEUE: BILLING_ACTIVITIES,
 }
 
 TASK_QUEUE_METRIC_PREFIXES = {
@@ -261,9 +268,11 @@ class Command(BaseCommand):
                     client_key=client_key,
                     workflows=workflows,  # type: ignore
                     activities=activities,
-                    graceful_shutdown_timeout=dt.timedelta(seconds=graceful_shutdown_timeout_seconds)
-                    if graceful_shutdown_timeout_seconds is not None
-                    else None,
+                    graceful_shutdown_timeout=(
+                        dt.timedelta(seconds=graceful_shutdown_timeout_seconds)
+                        if graceful_shutdown_timeout_seconds is not None
+                        else None
+                    ),
                     max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
                     max_concurrent_activities=max_concurrent_activities,
                     metric_prefix=TASK_QUEUE_METRIC_PREFIXES.get(task_queue, None),
