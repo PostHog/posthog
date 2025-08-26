@@ -914,6 +914,17 @@ code here
         assert converted_funnels["source"].kind == "FunnelsQuery", "Source should be converted to regular FunnelsQuery"
         assert type(converted_funnels["source"]).__name__ == "FunnelsQuery", "Source should be FunnelsQuery type"
 
+        assistant_hogql_query = AssistantHogQLQuery(kind="HogQLQuery", query="SELECT * FROM events")
+
+        converted_hogql = serializer._convert_assistant_query_to_insight_viz_node(assistant_hogql_query)
+
+        assert isinstance(converted_hogql, dict), "Converted HogQL query should be a dict"
+        assert (
+            converted_hogql["kind"] == "DataTableNode"
+        ), "Should wrap AssistantHogQLQuery in DataTableNode, NOT InsightVizNode"
+        assert converted_hogql["source"].kind == "HogQLQuery", "Source should be converted to regular HogQLQuery"
+        assert type(converted_hogql["source"]).__name__ == "HogQLQuery", "Source should be HogQLQuery type"
+
         # Test that non-Assistant queries pass through unchanged
         regular_query = {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}}
         unchanged = serializer._convert_assistant_query_to_insight_viz_node(regular_query)

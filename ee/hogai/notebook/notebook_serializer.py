@@ -692,9 +692,10 @@ class NotebookSerializer:
         """
         Convert AssistantQuery types to InsightVizNode format for frontend compatibility.
 
-        The frontend expects ph-query nodes to have an InsightVizNode structure:
+        The frontend expects ph-query nodes to have an InsightVizNode structure for insight queries
+        or DataTableNode structure for HogQL queries:
         {
-            "kind": "InsightVizNode",
+            "kind": "InsightVizNode" | "DataTableNode",
             "source": <actual query>
         }
         """
@@ -706,9 +707,17 @@ class NotebookSerializer:
         if isinstance(
             query, AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
         ):
-            # Convert AssistantQuery to regular Query type, then wrap in InsightVizNode structure
+            # Convert AssistantQuery to regular Query type
             regular_query = cast_assistant_query(query)
-            converted = {"kind": "InsightVizNode", "source": regular_query}
+
+            # HogQLQuery needs to be wrapped in DataTableNode, not InsightVizNode
+            if isinstance(query, AssistantHogQLQuery):
+                logger.info("Converting AssistantHogQLQuery to DataTableNode")
+                converted = {"kind": "DataTableNode", "source": regular_query}
+            else:
+                # Other queries (Trends, Funnels, Retention) are wrapped in InsightVizNode
+                converted = {"kind": "InsightVizNode", "source": regular_query}
+
             self._converted_query_cache[query_id] = converted
             return converted
         else:
