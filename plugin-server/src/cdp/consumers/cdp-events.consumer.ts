@@ -304,7 +304,6 @@ export class CdpEventsConsumer extends CdpConsumerBase {
     public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
         return await this.runWithHeartbeat(async () => {
                 const events: HogFunctionInvocationGlobals[] = []
-
                 await Promise.all(
                     messages.map(async (message) => {
                         try {

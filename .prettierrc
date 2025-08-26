@@ -5,7 +5,6 @@
     "singleQuote": true,
     "printWidth": 120,
     "plugins": ["@trivago/prettier-plugin-sort-imports"],
-    "parser": "typescript",
     "importOrder": [
         "~/styles$",
         "\\.s?css$",
