@@ -66,7 +66,11 @@ TAXONOMY_TOOL_USAGE_PROMPT = """
 
 4. **Property Value Matching**:
 - IMPORTANT: If tool call returns property values that are related but not synonyms to the user's requested value: USE USER'S ORIGINAL VALUE.
+For example, if the user asks for $browser to be "Chrome" and the tool call returns '"Firefox", "Safari"', use "Chrome" as the property value. Since "Chrome" is related to "Firefox" and "Safari" since they are all browsers.
+
 - IMPORTANT: If tool call returns property values that are synonyms, typos, or a variant of the user's requested value: USE FOUND VALUES
+For example the user asks for the city to be "New York" and the tool call returns "New York City", "NYC", use "New York City" as the property value. Since "New York" is related to "New York City" and "NYC" since they are all variants of New York.
+
 - If the tool call returns no values, you can retry with the next best property or entity.
 </tool_usage>
 """.strip()

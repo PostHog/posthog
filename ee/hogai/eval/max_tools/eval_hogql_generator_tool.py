@@ -159,6 +159,13 @@ async def eval_tool_generate_hogql_query(call_generate_hogql_query, database_sch
             ),
             EvalCase(
                 input=EvalInput(
+                    instructions="Count the browser languages currently used by users that signed up, and finally there are three columns: browser, browser language, and number of users. Include the time period from the 1st of January 2025 to the 1st of February 2025",
+                ),
+                expected="SELECT properties.$browser AS browser, properties.$browser_language AS browser_language, count(DISTINCT person_id) AS number_of_users FROM events WHERE event = 'signed_up' AND timestamp >= '2025-01-01T00:00:00:000' AND timestamp <= '2025-02-01T23:59:59:999' GROUP BY browser, browser_language ORDER BY number_of_users DESC",
+                metadata=metadata,
+            ),
+            EvalCase(
+                input=EvalInput(
                     instructions="want to see a pattern of traffic volume across all weekdays (for example, a breakdown showing counts for each weekday)",
                 ),
                 expected="SELECT toDayOfWeek(timestamp) AS weekday, count() AS event_count FROM events WHERE timestamp >= now() - INTERVAL 30 DAY GROUP BY weekday ORDER BY weekday",
