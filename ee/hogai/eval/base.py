@@ -31,10 +31,6 @@ async def BaseMaxEval(
             data = await data
         data = [case for case in data if case_filter in str(case.input)]  # type: ignore
 
-    trial_count = 1
-    if os.getenv("EVAL_MODE") == "ci":
-        trial_count = 3
-
     timeout = 60 * 8  # 8 minutes
     if os.getenv("EVAL_MODE") == "offline":
         timeout = 60 * 60  # 1 hour
@@ -44,7 +40,6 @@ async def BaseMaxEval(
         data=data,
         task=task,
         scores=scores,
-        trial_count=trial_count,
         timeout=timeout,
         max_concurrency=100,
         is_public=is_public,

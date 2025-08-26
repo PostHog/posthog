@@ -8,6 +8,7 @@ import structlog
 
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
+from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.models.hog_functions.hog_function import HogFunctionType
 from posthog.plugins.plugin_server_api import get_hog_function_templates
 
@@ -49,10 +50,12 @@ class Command(BaseCommand):
         total_templates = 0
         updated_count = 0
         error_count = 0
+        deleted_count = 0
 
         self.stdout.write("Starting HogFunction template sync...")
 
         all_templates: list[dict] = []
+        current_template_ids = set()
 
         # Process templates from HOG_FUNCTION_TEMPLATES (Python templates)
         for template_dc in HOG_FUNCTION_TEMPLATES:
@@ -60,7 +63,9 @@ class Command(BaseCommand):
                 continue
 
             total_templates += 1
-            all_templates.append(dataclasses.asdict(template_dc))
+            template_dict = dataclasses.asdict(template_dc)
+            all_templates.append(template_dict)
+            current_template_ids.add(template_dict["id"])
 
         # Process templates from Node.js
         try:
@@ -72,6 +77,7 @@ class Command(BaseCommand):
                         continue
 
                     all_templates.append(template_data)
+                    current_template_ids.add(template_data["id"])
             else:
                 self.stdout.write(
                     self.style.WARNING(f"Failed to fetch Node.js templates. Status code: {response.status_code}")
@@ -94,6 +100,25 @@ class Command(BaseCommand):
                     exc_info=True,
                 )
 
+        try:
+            existing_templates = HogFunctionTemplate.objects.values_list("template_id", flat=True).distinct()
+
+            candidates_for_deletion = {
+                tid for tid in existing_templates if tid.startswith("coming-soon-")
+            } - current_template_ids
+
+            if candidates_for_deletion:
+                templates_to_delete = HogFunctionTemplate.objects.filter(template_id__in=candidates_for_deletion)
+                deleted_count += templates_to_delete.delete()[0]
+
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"Deleted {deleted_count} unused templates: {', '.join(candidates_for_deletion)}"
+                    )
+                )
+        except Exception as e:
+            logger.error("Error checking for unused templates", error=str(e), exc_info=True)
+
         # Output summary
         duration = time.time() - start_time
         self.stdout.write(
@@ -101,6 +126,7 @@ class Command(BaseCommand):
                 f"Sync completed in {duration:.2f}s. "
                 f"Templates: {total_templates}, "
                 f"Created or updated: {updated_count}, "
+                f"Deleted: {deleted_count}, "
                 f"Errors: {error_count}"
             )
         )
