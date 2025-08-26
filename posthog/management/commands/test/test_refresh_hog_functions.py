@@ -45,7 +45,7 @@ class TestRefreshHogFunctions(BaseTest):
                 enabled=True,
             )
 
-            # Create disabled function - should not be processed
+            # Create disabled function - should also be processed
             self.disabled_function = HogFunction.objects.create(
                 team=self.team,
                 name="Disabled Function",
