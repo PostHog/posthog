@@ -300,7 +300,10 @@ export function convertToHogFunctionFilterGlobal(
 
 const HOG_FILTERING_TIMEOUT_MS = 100
 
-function shouldBePreFiltered(filters: HogFunctionType['filters'], filterGlobals: HogFunctionFilterGlobals): boolean {
+function shouldBePreFilteredBasedOnEventName(
+    filters: HogFunctionType['filters'],
+    filterGlobals: HogFunctionFilterGlobals
+): boolean {
     // If event filter is present check for a match
     if (filters?.events && filters.events.length > 0) {
         const eventMatches = filters.events.some((eventFilter) => {
@@ -354,7 +357,7 @@ export async function filterFunctionInstrumented(options: {
             return result
         }
         // Quick pre-filter check to avoid running bytecode for obvious non-matches
-        if (shouldBePreFiltered(filters, filterGlobals)) {
+        if (shouldBePreFilteredBasedOnEventName(filters, filterGlobals)) {
             // Event definitely doesn't match, skip bytecode execution
             hogFunctionPreFilterCounter.inc({ result: 'skipped' })
             metrics.push({
