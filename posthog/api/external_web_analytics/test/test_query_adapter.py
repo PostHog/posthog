@@ -14,7 +14,6 @@ from posthog.api.external_web_analytics.serializers import (
     WebAnalyticsBreakdownRequestSerializer,
     WebAnalyticsOverviewRequestSerializer,
 )
-from posthog.test.base import APIBaseTest
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql_queries.web_analytics.test.web_preaggregated_test_base import WebAnalyticsPreAggregatedTestBase
 from posthog.models.utils import uuid7
