@@ -37,8 +37,8 @@ export function Intro(): JSX.Element {
                         }
                         className="text-sm text-pretty"
                     >
-                        <strong>Thanks for trying out Floating Max!</strong> Based on data and your feedback, we're
-                        moving Max back to the sidebar. Click <IconX /> to forget Max was ever able to float.
+                        <strong>Thanks for trying out Floating Max!</strong> Based on data and feedback, we're moving
+                        Max back to the sidebar. Click <IconX /> to forget Max was ever able to float.
                     </LemonBanner>
                 </div>
             )}
