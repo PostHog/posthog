@@ -195,8 +195,8 @@ export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordi
         getAttributes: async (match) => {
             const id = match[1]
             const remainder = match[2] || ''
-            const tMatch = /[?&#]t=([^&]+)/.exec(remainder)
-            const timestampMs = tMatch ? parseTimestampToMs(decodeURIComponent(tMatch[1])) : undefined
+            const tMatch = /[?&#]t=(\d+)/.exec(remainder)
+            const timestampMs = tMatch ? Number(tMatch[1]) * 1000 : undefined
             return { id, noInspector: false, timestampMs }
         },
     },
