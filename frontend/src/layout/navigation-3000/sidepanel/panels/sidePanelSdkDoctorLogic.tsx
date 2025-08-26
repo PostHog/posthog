@@ -1568,7 +1568,7 @@ function checkVersionAgainstLatest(
             }
         }
 
-        const isOutdated = releasesBehind >= 2
+        const isOutdated = releasesBehind > 2
         if (IS_DEBUG_MODE) {
             console.info(
                 `[SDK Doctor] Final result: isOutdated=${isOutdated}, releasesAhead=${releasesBehind}, latestVersion=${latestVersion}`
