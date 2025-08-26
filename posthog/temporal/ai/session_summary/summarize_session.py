@@ -19,12 +19,12 @@ from temporalio.exceptions import ApplicationError
 from posthog import constants
 from posthog.models.team.team import Team
 from posthog.redis import get_async_client, get_client
+from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.state import (
     StateActivitiesEnum,
     decompress_redis_data,
     generate_state_key,
     get_data_class_from_redis,
-    get_data_str_from_redis,
     get_redis_state_client,
     store_data_in_redis,
 )
@@ -43,6 +43,7 @@ from ee.hogai.session_summaries.session.summarize_session import (
     prepare_single_session_summary_input,
 )
 from ee.hogai.session_summaries.utils import serialize_to_sse_event
+from ee.models.session_summaries import SingleSessionSummary
 
 logger = structlog.get_logger(__name__)
 
@@ -113,22 +114,21 @@ async def get_llm_single_session_summary_activity(
 ) -> None:
     """Summarize a single session in one call and store/cache in Redis (to avoid hitting Temporal memory limits)"""
     # Base key includes session ids, so when summarizing this session again, but with different inputs (or order) - we don't use cache
-    redis_client, redis_input_key, redis_output_key = get_redis_state_client(
+    redis_client, redis_input_key, _ = get_redis_state_client(
         key_base=inputs.redis_key_base,
         input_label=StateActivitiesEnum.SESSION_DB_DATA,
-        output_label=StateActivitiesEnum.SESSION_SUMMARY,
         state_id=inputs.session_id,
     )
-    # Check if the summary is already in Redis. If it is - it's within TTL, so no need to re-generate it with LLM
-    success = await get_data_str_from_redis(
-        redis_client=redis_client,
-        redis_key=redis_output_key,
-        label=StateActivitiesEnum.SESSION_SUMMARY,
+    # Check if summary is already in the DB (in case of race conditions/multiple group summaries running in parallel/etc.)
+    ready_summary = await database_sync_to_async(SingleSessionSummary.objects.get_summary)(
+        session_id=inputs.session_id,
+        team_id=inputs.team_id,
+        extra_summary_context=inputs.extra_summary_context,
     )
-    if success is not None:
-        # Cached successfully
+    if ready_summary is not None:
+        # Stored successfully, no need to summarize again
         return None
-    # If not yet, or TTL expired - generate the summary with LLM
+    # If not yet - generate the summary with LLM
     llm_input_raw = await get_data_class_from_redis(
         redis_client=redis_client,
         redis_key=redis_input_key,
@@ -146,7 +146,7 @@ async def get_llm_single_session_summary_activity(
         llm_input_raw,
     )
     # Get summary from LLM
-    session_summary_str = await get_llm_single_session_summary(
+    session_summary = await get_llm_single_session_summary(
         session_id=llm_input.session_id,
         user_id=llm_input.user_id,
         model_to_use=llm_input.model_to_use,
@@ -165,12 +165,13 @@ async def get_llm_single_session_summary_activity(
         session_duration=llm_input.session_duration,
         trace_id=temporalio.activity.info().workflow_id,
     )
-    # Store the generated summary in Redis
-    await store_data_in_redis(
-        redis_client=redis_client,
-        redis_key=redis_output_key,
-        data=session_summary_str,
-        label=StateActivitiesEnum.SESSION_SUMMARY,
+    # Store the generated summary in the DB
+    await database_sync_to_async(SingleSessionSummary.objects.add_summary)(
+        session_id=inputs.session_id,
+        team_id=inputs.team_id,
+        summary=session_summary,
+        exception_event_ids=[],
+        extra_summary_context=inputs.extra_summary_context,
     )
     # Returning nothing as the data is stored in Redis
     return None

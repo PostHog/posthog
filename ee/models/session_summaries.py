@@ -1,5 +1,5 @@
 from dataclasses import asdict, dataclass
-from typing import Any, Optional
+from typing import Optional
 
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
@@ -9,6 +9,8 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import UUIDModel
+
+from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 
 
 @dataclass(frozen=True)
@@ -33,7 +35,7 @@ class SessionSummaryPage:
     results: list["SingleSessionSummary"]
 
 
-class SingleSessionSummaryManager(models.Manager):
+class SingleSessionSummaryManager(models.Manager["SingleSessionSummary"]):
     """Manager for SingleSessionSummary with utility methods."""
 
     def get_summary(
@@ -50,7 +52,7 @@ class SingleSessionSummaryManager(models.Manager):
             queryset = queryset.filter(extra_summary_context__isnull=True)
         summary = queryset.order_by("-created_at").first()
         # No summary found
-        if not summary:
+        if summary is None:
             return None
         # Summary found, no context to match
         if extra_summary_context is None:
@@ -64,19 +66,19 @@ class SingleSessionSummaryManager(models.Manager):
         self,
         team_id: int,
         session_id: str,
-        summary: dict[str, Any],
+        summary: SessionSummarySerializer,
         exception_event_ids: list[str],
         extra_summary_context: ExtraSummaryContext | None = None,
         run_metadata: SessionSummaryRunMeta | None = None,
         created_by: Optional[User] = None,
-    ) -> "SingleSessionSummary":
+    ) -> None:
         """Store a new session summary"""
         extra_summary_context_dict = asdict(extra_summary_context) if extra_summary_context else None
         run_metadata_dict = asdict(run_metadata) if run_metadata else {}
-        return self.create(
+        self.create(
             team_id=team_id,
             session_id=session_id,
-            summary=summary,
+            summary=summary.data,
             # Enforce max 100 limit, just in case
             exception_event_ids=exception_event_ids[:100],
             extra_summary_context=extra_summary_context_dict,
