@@ -206,7 +206,6 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         Returns daily breakdown of rows synced within the current billing period.
         Used by the frontend data warehouse scene to display sync activity trends.
         """
-        log = structlog.get_logger()
         billing_period_start = billing_period_end = None
         billing_available = False
         breakdown_of_rows_by_day = []
@@ -271,10 +270,10 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     for row in daily_totals
                 ]
             else:
-                log.info("no_billing_period_for_daily_breakdown")
+                logger.info("no_billing_period_for_daily_breakdown")
 
         except Exception as e:
-            log.exception("daily_breakdown_error", exc_info=e)
+            logger.exception("daily_breakdown_error", exc_info=e)
             return Response(
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 data={"error": "An error occurred retrieving daily breakdown"},

@@ -25,6 +25,32 @@ import { dataWarehouseViewsLogic } from './saved_queries/dataWarehouseViewsLogic
 
 const REFRESH_INTERVAL = 10000
 
+const ERROR_PATTERNS = {
+    AUTH: /auth|credential|permission|unauthorized|forbidden|invalid.*token|expired.*token|access.*denied/i,
+    RATE_LIMIT: /rate.*limit|429|quota.*exceeded|too.*many.*requests|throttle/i,
+    WARNING: /slow|performance|timeout.*warning|retry.*limit/i,
+}
+
+const determineSeverity = (error: string | null): 'critical' | 'warning' => {
+    if (!error) {
+        return 'critical'
+    }
+    return ERROR_PATTERNS.WARNING.test(error) ? 'warning' : 'critical'
+}
+
+const getActionType = (error: string | null): 'update_credentials' | 'adjust_frequency' | 'retry_sync' => {
+    if (!error) {
+        return 'retry_sync'
+    }
+    if (ERROR_PATTERNS.AUTH.test(error)) {
+        return 'update_credentials'
+    }
+    if (ERROR_PATTERNS.RATE_LIMIT.test(error)) {
+        return 'adjust_frequency'
+    }
+    return 'retry_sync'
+}
+
 export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     path(['scenes', 'data-warehouse', 'dataWarehouseSceneLogic']),
     connect(() => ({
@@ -319,6 +345,83 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                         runs: data.runs.sort((a, b) => dayjs(b.created_at).valueOf() - dayjs(a.created_at).valueOf()),
                     }))
                     .sort((a, b) => b.rows - a.rows)
+            },
+        ],
+        actionableIssues: [
+            (s) => [s.recentActivity, s.dataWarehouseSources, s.dataWarehouseSavedQueryMapById],
+            (recentActivity, dataWarehouseSources, dataWarehouseSavedQueryMapById) => {
+                const issues: Array<{
+                    id: string
+                    type: 'data_source' | 'materialization'
+                    severity: 'critical' | 'warning'
+                    title: string
+                    description: string
+                    timestamp: string
+                    actionType: string
+                    actionUrl: string
+                    count?: number
+                }> = []
+                const materializedViewActivities = recentActivity
+                    .filter((activity) => activity.type === 'Materialized view')
+                    .reduce(
+                        (groups, activity) => {
+                            const key = activity.name || 'unknown'
+                            groups[key] = groups[key] || []
+                            groups[key].push(activity)
+                            return groups
+                        },
+                        {} as Record<string, typeof recentActivity>
+                    )
+
+                for (const [viewName, activities] of Object.entries(materializedViewActivities)) {
+                    const latestActivity = activities.sort(
+                        (a, b) => dayjs(b.created_at).valueOf() - dayjs(a.created_at).valueOf()
+                    )[0]
+
+                    if (latestActivity.status !== 'Failed' && !latestActivity.latest_error) {
+                        continue
+                    }
+                    const materializedView = Object.values(dataWarehouseSavedQueryMapById).find(
+                        (query) => query.name === latestActivity.name
+                    )
+
+                    issues.push({
+                        id: `materialization-${latestActivity.id}`,
+                        type: 'materialization',
+                        severity: 'critical',
+                        title: `${viewName} (Materialized View)`,
+                        description: latestActivity.latest_error || 'Materialization failed',
+                        timestamp: latestActivity.created_at,
+                        actionType: 'view_materialization',
+                        actionUrl: urls.sqlEditor(
+                            undefined,
+                            materializedView?.id,
+                            undefined,
+                            undefined,
+                            'materialization'
+                        ),
+                    })
+                }
+                const sourcesWithErrors =
+                    dataWarehouseSources?.results?.filter(
+                        (source) => source.latest_error && source.status === 'Error'
+                    ) || []
+                sourcesWithErrors.forEach((source) => {
+                    issues.push({
+                        id: `source-status-${source.id}`,
+                        type: 'data_source',
+                        severity: determineSeverity(source.latest_error),
+                        title: source.source_type,
+                        description: source.latest_error || 'Sync failed',
+                        timestamp:
+                            (typeof source.last_run_at === 'string'
+                                ? source.last_run_at
+                                : source.last_run_at?.toISOString()) || new Date().toISOString(),
+                        actionType: getActionType(source.latest_error),
+                        actionUrl: urls.dataWarehouseSource(`managed-${source.id}`),
+                    })
+                })
+                return issues.sort((a, b) => dayjs(b.timestamp).valueOf() - dayjs(a.timestamp).valueOf())
             },
         ],
     }),

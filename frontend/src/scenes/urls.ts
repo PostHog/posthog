@@ -80,24 +80,24 @@ export const urls = {
             nodeTab ? `/${nodeTab}` : ''
         }`,
     customCss: (): string => '/themes/custom-css',
-    sqlEditor: (query?: string, view_id?: string, insightShortId?: string, draftId?: string): string => {
+    sqlEditor: (query?: string, view_id?: string, insightShortId?: string, draftId?: string, tab?: string): string => {
+        let url = ''
         if (query) {
-            return `/sql?open_query=${encodeURIComponent(query)}`
+            url = `/sql?open_query=${encodeURIComponent(query)}`
+        } else if (view_id) {
+            url = `/sql?open_view=${view_id}`
+        } else if (insightShortId) {
+            url = `/sql?open_insight=${insightShortId}`
+        } else if (draftId) {
+            url = `/sql?open_draft=${draftId}`
+        } else {
+            url = '/sql'
+        }
+        if (tab) {
+            url += url.includes('?') ? `&tab=${tab}` : `?tab=${tab}`
         }
 
-        if (view_id) {
-            return `/sql?open_view=${view_id}`
-        }
-
-        if (insightShortId) {
-            return `/sql?open_insight=${insightShortId}`
-        }
-
-        if (draftId) {
-            return `/sql?open_draft=${draftId}`
-        }
-
-        return '/sql'
+        return url
     },
     annotations: (): string => '/data-management/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,

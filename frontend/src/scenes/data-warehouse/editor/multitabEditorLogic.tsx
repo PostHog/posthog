@@ -1693,6 +1693,14 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
 
             await waitUntilMonaco().then(async () => {
                 await createQueryTab()
+                if (searchParams.tab) {
+                    const tabValue = searchParams.tab.toLowerCase()
+                    const validTabs = Object.values(OutputTab)
+                    if (validTabs.includes(tabValue as (typeof validTabs)[0])) {
+                        const outputLogic = outputPaneLogic.findMounted() || outputPaneLogic()
+                        outputLogic.actions.setActiveTab(tabValue as OutputTab)
+                    }
+                }
             })
         },
     })),
