@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
+import { IconPeople } from '@posthog/icons'
+
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -52,8 +54,9 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
                     name="Groups"
                     description="Associate events with a group or entity - such as a company, community, or project. Analyze these events as if they were sent by that entity itself. Great for B2B, marketplaces, and more."
                     resourceType={{
-                        type: 'group',
-                        typePlural: 'groups',
+                        type: groupTypeName,
+                        typePlural: groupTypeNamePlural,
+                        forceIcon: <IconPeople />,
                     }}
                 />
                 <GroupsIntroduction />
@@ -91,8 +94,9 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
                 name={capitalizeFirstLetter(groupTypeNamePlural)}
                 description={`A catalog of all ${groupTypeNamePlural} for this project`}
                 resourceType={{
-                    type: 'group',
-                    typePlural: 'groups',
+                    type: groupTypeName,
+                    typePlural: groupTypeNamePlural,
+                    forceIcon: <IconPeople />,
                 }}
             />
             <SceneDivider />
