@@ -91,22 +91,52 @@ class ProjectSettingsStrategy(TeamSelectionStrategy):
             return set()
 
 
-class RecentlyEnabledStrategy(TeamSelectionStrategy):
-    """Select teams that recently enabled pre-aggregated tables and may need backfill."""
+def get_teams_with_missing_data(context: dagster.OpExecutionContext) -> set[int]:
+    """
+    Identify teams that have web analytics enabled but are missing data in pre-aggregated tables.
+    This is used specifically for backfill operations.
+    """
+    try:
+        # Get teams with web analytics enabled (permission already granted)
+        enabled_team_ids = set(
+            Team.objects.filter(web_analytics_pre_aggregated_tables_enabled=True).values_list("id", flat=True)
+        )
 
-    def get_name(self) -> str:
-        return "recently_enabled"
-
-    def get_teams(self, context: dagster.OpExecutionContext) -> set[int]:
-        try:
-            team_ids = set(
-                Team.objects.filter(web_analytics_pre_aggregated_tables_enabled=True).values_list("id", flat=True)
-            )
-            context.log.info(f"Found {len(team_ids)} teams that recently enabled pre-aggregated tables")
-            return team_ids
-        except Exception as e:
-            context.log.warning(f"Failed to fetch recently enabled teams: {e}")
+        if not enabled_team_ids:
+            context.log.info("No teams have web analytics pre-aggregated tables enabled")
             return set()
+
+        # Check which teams have missing data by querying the pre-aggregated tables
+        # Look for teams that should have recent data (last 7 days) but don't
+        missing_data_query = """
+        SELECT DISTINCT team_id
+        FROM (
+            SELECT team_id FROM events
+            WHERE event = '$pageview'
+            AND timestamp >= now() - INTERVAL 7 DAY
+            AND team_id IN %(team_ids)s
+        ) active_teams
+        WHERE team_id NOT IN (
+            SELECT DISTINCT team_id
+            FROM web_pre_aggregated_stats
+            WHERE date >= today() - 7
+            AND team_id IN %(team_ids)s
+        )
+        """
+
+        result = sync_execute(missing_data_query, {"team_ids": tuple(enabled_team_ids)})
+        teams_missing_data = {row[0] for row in result}
+
+        context.log.info(
+            f"Found {len(teams_missing_data)} teams with missing pre-aggregated data out of "
+            f"{len(enabled_team_ids)} enabled teams"
+        )
+
+        return teams_missing_data
+
+    except Exception as e:
+        context.log.warning(f"Failed to identify teams with missing data: {e}")
+        return set()
 
 
 class StrategyRegistry:
@@ -125,7 +155,6 @@ class StrategyRegistry:
             EnvironmentVariableStrategy(),
             HighPageviewsStrategy(),
             ProjectSettingsStrategy(),
-            RecentlyEnabledStrategy(),
         ]:
             self.register(strategy)
 
