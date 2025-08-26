@@ -993,20 +993,12 @@ async def call_survey_analysis_tool(demo_org_team_user, create_test_surveys):
             result = await analysis_tool._arun_impl()
 
             # Return structured output
-            if isinstance(result, tuple) and len(result) == 2:
-                user_message, artifact = result
-                return {
-                    "success": True,
-                    "user_message": user_message,
-                    "artifact": artifact,
-                }
-            else:
-                return {
-                    "success": False,
-                    "user_message": "Unknown response format",
-                    "artifact": None,
-                    "error": "Invalid response format from tool",
-                }
+            user_message, artifact = result
+            return {
+                "success": True,
+                "user_message": user_message,
+                "artifact": artifact,
+            }
 
         except Exception as e:
             return {
