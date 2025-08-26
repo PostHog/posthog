@@ -98,6 +98,11 @@ function SimpleLineChart({
             hover: {
                 intersect: false,
             },
+            onHover: (_: any, activeElements: any[]) => {
+                if (activeElements.length === 0) {
+                    hideTooltip()
+                }
+            },
             plugins: {
                 legend: { display: false },
                 crosshair: {
@@ -119,6 +124,10 @@ function SimpleLineChart({
                     enabled: false,
                     external: ({ chart, tooltip }: any) => {
                         if (!tooltip.body || isModalOpen) {
+                            hideTooltip()
+                            return
+                        }
+                        if (tooltip.opacity === 0) {
                             hideTooltip()
                             return
                         }
