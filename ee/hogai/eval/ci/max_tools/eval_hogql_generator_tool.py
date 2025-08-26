@@ -14,9 +14,8 @@ from posthog.sync import database_sync_to_async
 
 from products.data_warehouse.backend.max_tools import HogQLGeneratorArgs, HogQLGeneratorTool
 
-from ee.hogai.eval.conftest import MaxEval
-from ee.hogai.eval.eval_sql import SQLSyntaxCorrectness
-from ee.hogai.eval.scorers import SQLSemanticsCorrectness
+from ee.hogai.eval.base import MaxPublicEval
+from ee.hogai.eval.scorers import SQLSemanticsCorrectness, SQLSyntaxCorrectness
 from ee.hogai.utils.markdown import remove_markdown
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.warehouse import serialize_database_schema
@@ -73,7 +72,8 @@ async def database_schema(demo_org_team_user):
     return await serialize_database_schema(database, context)
 
 
-async def sql_semantics_scorer(input: EvalInput, expected: str, output: str, metadata: dict) -> Score:
+async def sql_semantics_scorer(input: EvalInput, expected: str, output: str, **kwargs) -> Score:
+    metadata: dict = kwargs["metadata"]
     metric = SQLSemanticsCorrectness()
     return await metric.eval_async(
         input=input.instructions, expected=expected, output=output, database_schema=metadata["schema"]
@@ -84,7 +84,7 @@ async def sql_semantics_scorer(input: EvalInput, expected: str, output: str, met
 async def eval_tool_generate_hogql_query(call_generate_hogql_query, database_schema, pytestconfig):
     metadata = {"schema": database_schema}
 
-    await MaxEval(
+    await MaxPublicEval(
         experiment_name="tool_generate_hogql_query",
         task=call_generate_hogql_query,
         scores=[SQLSyntaxCorrectness(), sql_semantics_scorer],
