@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 import os
 
 import dagster
-from dagster import DailyPartitionsDefinition, BackfillPolicy
+from dagster import DailyPartitionsDefinition, BackfillPolicy, Field
 from dags.common import JobOwners, dagster_tags
 from dags.web_preaggregated_utils import (
     WEB_PRE_AGGREGATED_CLICKHOUSE_SETTINGS,
@@ -178,3 +178,167 @@ def web_pre_aggregate_current_day_schedule(context: dagster.ScheduleEvaluationCo
     return dagster.RunRequest(
         partition_key=datetime.now(UTC).strftime("%Y-%m-%d"),
     )
+
+
+# Backfill configuration
+BACKFILL_DAYS = 7  # Number of days to backfill
+backfill_partition_def = DailyPartitionsDefinition(
+    start_date=(datetime.now(UTC) - timedelta(days=BACKFILL_DAYS)).strftime("%Y-%m-%d"),
+    end_offset=1
+)
+
+
+@dagster.asset(
+    name="web_pre_aggregated_stats_backfill",
+    group_name="web_analytics_v2",
+    config_schema={
+        "team_strategy": Field(
+            str,
+            default_value="recently_enabled",
+            description="Team selection strategy to use for backfill (recently_enabled, project_settings, etc.)"
+        ),
+        "extra_clickhouse_settings": Field(
+            str,
+            default_value="",
+            description="Additional ClickHouse execution settings"
+        ),
+    },
+    partitions_def=backfill_partition_def,
+    metadata={"table": "web_pre_aggregated_stats"},
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    retry_policy=web_analytics_retry_policy_def,
+)
+def web_pre_aggregated_stats_backfill(
+    context: dagster.AssetExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+) -> None:
+    """
+    Backfill web analytics stats for teams that recently enabled pre-aggregated tables.
+
+    This asset uses the same infrastructure as the regular pre-aggregation but targets
+    teams that may be missing recent data due to recently enabling the feature.
+    """
+    query_tagging.get_query_tags().with_dagster(dagster_tags(context))
+
+    # Get team selection strategy from config
+    config = context.op_config
+    strategy_name = config.get("team_strategy", "recently_enabled")
+
+    # Import here to avoid circular dependencies
+    from posthog.models.web_preaggregated.team_selection_strategies import strategy_registry
+    strategy = strategy_registry.get_strategy(strategy_name)
+
+    if not strategy:
+        raise dagster.Failure(f"Unknown team selection strategy: {strategy_name}")
+
+    # Get teams that need backfill
+    team_ids = list(strategy.get_teams(context))
+    if not team_ids:
+        context.log.info(f"No teams found needing backfill with strategy: {strategy_name}")
+        return
+
+    context.log.info(f"Starting backfill for {len(team_ids)} teams using strategy: {strategy_name}")
+
+    # Use the existing pre_aggregate_web_analytics_data function
+    # but override the team_ids in the config
+    modified_config = {**config, "team_ids": team_ids}
+    context.op_config = modified_config
+
+    return pre_aggregate_web_analytics_data(
+        context=context,
+        table_name="web_pre_aggregated_stats",
+        sql_generator=WEB_STATS_INSERT_SQL,
+        cluster=cluster,
+    )
+
+
+@dagster.asset(
+    name="web_pre_aggregated_bounces_backfill",
+    group_name="web_analytics_v2",
+    config_schema={
+        "team_strategy": Field(
+            str,
+            default_value="recently_enabled",
+            description="Team selection strategy to use for backfill"
+        ),
+        "extra_clickhouse_settings": Field(
+            str,
+            default_value="",
+            description="Additional ClickHouse execution settings"
+        ),
+    },
+    partitions_def=backfill_partition_def,
+    metadata={"table": "web_pre_aggregated_bounces"},
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    retry_policy=web_analytics_retry_policy_def,
+)
+def web_pre_aggregated_bounces_backfill(
+    context: dagster.AssetExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+) -> None:
+    """Backfill web analytics bounces for teams that recently enabled pre-aggregated tables."""
+    query_tagging.get_query_tags().with_dagster(dagster_tags(context))
+
+    config = context.op_config
+    strategy_name = config.get("team_strategy", "recently_enabled")
+
+    from posthog.models.web_preaggregated.team_selection_strategies import strategy_registry
+    strategy = strategy_registry.get_strategy(strategy_name)
+
+    if not strategy:
+        raise dagster.Failure(f"Unknown team selection strategy: {strategy_name}")
+
+    team_ids = list(strategy.get_teams(context))
+    if not team_ids:
+        context.log.info(f"No teams found needing backfill with strategy: {strategy_name}")
+        return
+
+    context.log.info(f"Starting bounces backfill for {len(team_ids)} teams using strategy: {strategy_name}")
+
+    modified_config = {**config, "team_ids": team_ids}
+    context.op_config = modified_config
+
+    return pre_aggregate_web_analytics_data(
+        context=context,
+        table_name="web_pre_aggregated_bounces",
+        sql_generator=WEB_BOUNCES_INSERT_SQL,
+        cluster=cluster,
+    )
+
+
+web_pre_aggregate_backfill_job = dagster.define_asset_job(
+    name="web_pre_aggregate_backfill_job",
+    selection=["web_pre_aggregated_bounces_backfill", "web_pre_aggregated_stats_backfill"],
+    tags={
+        "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
+        "dagster/max_runtime": str(DAGSTER_WEB_JOB_TIMEOUT),
+    },
+    executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 1}),
+)
+
+
+@dagster.schedule(
+    cron_schedule="0 */6 * * *",  # Every 6 hours
+    job=web_pre_aggregate_backfill_job,
+    execution_timezone="UTC",
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+)
+def web_pre_aggregate_backfill_schedule(context: dagster.ScheduleEvaluationContext):
+    """
+    Schedule backfill job to run every 6 hours for teams that recently enabled pre-aggregated tables.
+
+    This ensures teams have data without waiting for the next regular aggregation cycle.
+    """
+    # Check for existing runs to prevent concurrent execution
+    skip_reason = check_for_concurrent_runs(context)
+    if skip_reason:
+        return skip_reason
+
+    # Generate partition keys for the last BACKFILL_DAYS
+    requests = []
+    for i in range(BACKFILL_DAYS):
+        partition_date = (datetime.now(UTC) - timedelta(days=i+1)).strftime("%Y-%m-%d")
+        requests.append(dagster.RunRequest(partition_key=partition_date))
+
+    context.log.info(f"Scheduling backfill for {len(requests)} partitions (last {BACKFILL_DAYS} days)")
+    return requests

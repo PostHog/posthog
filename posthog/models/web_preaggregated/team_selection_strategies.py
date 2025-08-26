@@ -1,13 +1,12 @@
 import os
-import requests
 from abc import ABC, abstractmethod
 from typing import Optional
 
 import dagster
+from django.conf import settings
 from posthog.models.team.team import Team
 from posthog.clickhouse.client import sync_execute
 from posthog.cloud_utils import is_cloud
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.models.web_preaggregated.team_selection import (
     DEFAULT_TOP_TEAMS_BY_PAGEVIEWS_LIMIT,
     get_top_teams_by_median_pageviews_sql,
@@ -107,6 +106,37 @@ class ProjectSettingsStrategy(TeamSelectionStrategy):
             return set()
 
 
+class RecentlyEnabledStrategy(TeamSelectionStrategy):
+    """Select teams that recently enabled pre-aggregated tables and may need backfill."""
+
+    def get_name(self) -> str:
+        return "recently_enabled"
+
+    def get_teams(self, context: dagster.OpExecutionContext) -> set[int]:
+        """
+        Get teams that have pre-aggregated tables enabled and may be missing recent data.
+
+        This is a simple implementation that targets teams with the setting enabled.
+        A more sophisticated version could track when the setting was enabled and
+        only backfill teams that enabled it recently.
+        """
+        try:
+            # For now, this is identical to ProjectSettingsStrategy
+            # but provides a separate strategy for backfill-specific logic
+            team_ids = set(
+                Team.objects.filter(web_analytics_pre_aggregated_tables_enabled=True).values_list("id", flat=True)
+            )
+
+            # Optional: Add logic to check which teams actually need backfill
+            # by querying for missing recent data in pre-aggregated tables
+            context.log.info(f"Found {len(team_ids)} teams potentially needing backfill")
+            return team_ids
+
+        except Exception as e:
+            context.log.warning(f"Failed to fetch teams needing backfill: {e}")
+            return set()
+
+
 class StrategyRegistry:
     """
     This class is the source for all available strategies we can use to enable the pre-aggregated tables for teams.
@@ -123,6 +153,7 @@ class StrategyRegistry:
             EnvironmentVariableStrategy(),
             HighPageviewsStrategy(),
             ProjectSettingsStrategy(),
+            RecentlyEnabledStrategy(),
         ]:
             self.register(strategy)
 
