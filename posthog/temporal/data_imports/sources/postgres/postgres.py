@@ -272,7 +272,7 @@ def _has_duplicate_primary_keys(
 def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, logger: FilteringBoundLogger) -> int:
     try:
         query = sql.SQL("""
-            SELECT SUM(pg_column_size(t.*)) / COUNT(t.*) FROM ({}) as t
+            SELECT SUM(pg_column_size(t)) / COUNT(*) FROM ({}) as t
         """).format(inner_query)
 
         cursor.execute(query)
@@ -304,7 +304,7 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
 def _get_rows_to_sync(cursor: psycopg.Cursor, inner_query: sql.Composed, logger: FilteringBoundLogger) -> int:
     try:
         query = sql.SQL("""
-            SELECT COUNT(t.*) FROM ({}) as t
+            SELECT COUNT(*) FROM ({}) as t
         """).format(inner_query)
 
         cursor.execute(query)

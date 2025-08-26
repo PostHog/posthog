@@ -286,7 +286,7 @@ def setup_accuracy_check_config(
     context: AssetCheckExecutionContext, check_name: str
 ) -> tuple[float, int, int, str, str]:
     run_config = context.run.run_config.get("ops", {}).get(check_name, {}).get("config", {})
-    tolerance_pct = run_config.get("tolerance_pct", DEFAULT_TOLERANCE_PCT)
+    tolerance_percentage = run_config.get("tolerance_pct", DEFAULT_TOLERANCE_PCT)
     days_back = run_config.get("days_back", DEFAULT_DAYS_BACK)
     team_id = TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS
 
@@ -295,7 +295,7 @@ def setup_accuracy_check_config(
     date_from = start_date.strftime("%Y-%m-%d")
     date_to = end_date.strftime("%Y-%m-%d")
 
-    return tolerance_pct, days_back, team_id, date_from, date_to
+    return tolerance_percentage, days_back, team_id, date_from, date_to
 
 
 def create_runners_for_accuracy_check(
@@ -328,7 +328,7 @@ def execute_accuracy_check(
     date_from: str,
     date_to: str,
     context: AssetCheckExecutionContext,
-    tolerance_pct: float,
+    tolerance_percentage: float,
     table_version: str,
 ) -> tuple[bool, dict[str, Any]]:
     """Execute accuracy check between pre-aggregated and regular query runners."""
@@ -342,24 +342,24 @@ def execute_accuracy_check(
 
         context.log.info(f"About to execute pre-aggregated query ({table_version})")
         start_time = time.time()
-        response_pre_agg = runner_pre_agg.calculate()
-        pre_agg_time = time.time() - start_time
+        pre_agg_response = runner_pre_agg.calculate()
+        pre_agg_execution_time = time.time() - start_time
 
         context.log.info(f"About to execute regular query ({table_version})")
         start_time = time.time()
-        response_regular = runner_regular.calculate()
-        regular_time = time.time() - start_time
+        regular_response = runner_regular.calculate()
+        regular_execution_time = time.time() - start_time
 
         context.log.info(
-            f"Query execution completed for team {team_id} ({table_version}), pre-agg time: {pre_agg_time}, regular time: {regular_time}"
+            f"Query execution completed for team {team_id} ({table_version}), pre-agg time: {pre_agg_execution_time}, regular time: {regular_execution_time}"
         )
 
         # Convert results to dict for easier comparison
         def results_to_dict(results: list[WebOverviewItem]) -> dict[str, float]:
             return {item.key: item.value for item in results if item.value is not None}
 
-        pre_agg_metrics = results_to_dict(response_pre_agg.results)
-        regular_metrics = results_to_dict(response_regular.results)
+        pre_agg_metrics = results_to_dict(pre_agg_response.results)
+        regular_metrics = results_to_dict(regular_response.results)
 
         comparison_data = {
             "team_id": team_id,
@@ -368,29 +368,29 @@ def execute_accuracy_check(
             "table_version": table_version,
             "metrics": {},
             "all_within_tolerance": True,
-            "tolerance_pct": tolerance_pct,
-            "timing": {"pre_aggregated": pre_agg_time, "regular": regular_time},
+            "tolerance_pct": tolerance_percentage,
+            "timing": {"pre_aggregated": pre_agg_execution_time, "regular": regular_execution_time},
         }
 
-        for metric_key in set(pre_agg_metrics.keys()) | set(regular_metrics.keys()):
-            pre_agg_val = pre_agg_metrics.get(metric_key, 0)
-            regular_val = regular_metrics.get(metric_key, 0)
+        for metric_name in set(pre_agg_metrics.keys()) | set(regular_metrics.keys()):
+            pre_agg_value = pre_agg_metrics.get(metric_name, 0)
+            regular_value = regular_metrics.get(metric_name, 0)
 
             # Calculate percentage difference
-            if regular_val == 0 and pre_agg_val == 0:
-                pct_diff = 0.0
+            if regular_value == 0 and pre_agg_value == 0:
+                percentage_difference = 0.0
                 within_tolerance = True
-            elif regular_val == 0:
-                pct_diff = 100.0 if pre_agg_val != 0 else 0.0
-                within_tolerance = pre_agg_val == 0
+            elif regular_value == 0:
+                percentage_difference = 100.0 if pre_agg_value != 0 else 0.0
+                within_tolerance = pre_agg_value == 0
             else:
-                pct_diff = abs(pre_agg_val - regular_val) / regular_val * 100
-                within_tolerance = pct_diff <= tolerance_pct
+                percentage_difference = abs(pre_agg_value - regular_value) / regular_value * 100
+                within_tolerance = percentage_difference <= tolerance_percentage
 
-            comparison_data["metrics"][metric_key] = {
-                "pre_aggregated": pre_agg_val,
-                "regular": regular_val,
-                "pct_difference": pct_diff,
+            comparison_data["metrics"][metric_name] = {
+                "pre_aggregated": pre_agg_value,
+                "regular": regular_value,
+                "pct_difference": percentage_difference,
                 "within_tolerance": within_tolerance,
             }
 
@@ -411,13 +411,13 @@ def execute_accuracy_check(
             "table_version": table_version,
             "metrics": {},
             "all_within_tolerance": False,
-            "tolerance_pct": tolerance_pct,
+            "tolerance_pct": tolerance_percentage,
             "timing": {"pre_aggregated": 0.0, "regular": 0.0},
         }
 
 
 def create_accuracy_check_result(comparison_data: dict[str, Any], team_id: int, table_version: str) -> AssetCheckResult:
-    """Create AssetCheckResult from comparison data."""
+    """Create AssetCheckResult from comparison data with individual metric metadata for Dagster plotting."""
     total_metrics_checked = len(comparison_data.get("metrics", {}))
     failed_metrics = sum(
         1 for metric in comparison_data.get("metrics", {}).values() if not metric.get("within_tolerance", True)
@@ -438,11 +438,23 @@ def create_accuracy_check_result(comparison_data: dict[str, Any], team_id: int, 
         "success_rate": MetadataValue.float(success_rate),
         "failed_metrics": MetadataValue.int(failed_metrics),
         "total_metrics": MetadataValue.int(total_metrics_checked),
-        "tolerance_pct": MetadataValue.float(comparison_data.get("tolerance_pct", 0.0)),
+        "tolerance_percentage": MetadataValue.float(comparison_data.get("tolerance_pct", 0.0)),
         "date_range": MetadataValue.text(f"{comparison_data.get('date_from')} to {comparison_data.get('date_to')}"),
         "table_version": MetadataValue.text(table_version),
         "detailed_results": MetadataValue.json(comparison_data),
     }
+
+    # Add individual metric metadata for Dagster plotting
+    metrics = comparison_data.get("metrics", {})
+    for metric_name, metric_values in metrics.items():
+        metadata.update(
+            {
+                f"{metric_name}_pre_aggregated": MetadataValue.float(metric_values.get("pre_aggregated", 0.0)),
+                f"{metric_name}_regular": MetadataValue.float(metric_values.get("regular", 0.0)),
+                f"{metric_name}_percentage_difference": MetadataValue.float(metric_values.get("pct_difference", 0.0)),
+                f"{metric_name}_within_tolerance": MetadataValue.bool(metric_values.get("within_tolerance", True)),
+            }
+        )
 
     # Add timing metadata if available
     if comparison_data and not comparison_data.get("skipped") and "timing" in comparison_data:
@@ -478,7 +490,7 @@ def run_accuracy_check_for_version(
         )
 
     try:
-        tolerance_pct, days_back, team_id, date_from, date_to = setup_accuracy_check_config(context, check_name)
+        tolerance_percentage, days_back, team_id, date_from, date_to = setup_accuracy_check_config(context, check_name)
     except Exception as e:
         context.log.exception(f"Failed to setup accuracy check config: {e}")
         return AssetCheckResult(
@@ -520,7 +532,7 @@ def run_accuracy_check_for_version(
 
     try:
         is_valid, comparison_data = execute_accuracy_check(
-            runner_pre_agg, runner_regular, team_id, date_from, date_to, context, tolerance_pct, table_version
+            runner_pre_agg, runner_regular, team_id, date_from, date_to, context, tolerance_percentage, table_version
         )
         timing = comparison_data.get("timing", {})
         context.log.info(
@@ -535,7 +547,7 @@ def run_accuracy_check_for_version(
             "date_to": date_to,
             "table_version": table_version,
             "skipped": True,
-            "tolerance_pct": tolerance_pct,
+            "tolerance_pct": tolerance_percentage,
             "all_within_tolerance": False,
             "metrics": {},
         }

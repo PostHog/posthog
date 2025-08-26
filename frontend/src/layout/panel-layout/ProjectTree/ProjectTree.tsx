@@ -33,12 +33,14 @@ import {
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { openDeleteGroupTypeDialog } from 'scenes/settings/environment/GroupAnalyticsConfig'
 
 import { DashboardsMenuItems } from '~/layout/panel-layout/ProjectTree/menus/DashboardsMenuItems'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { NewMenu } from '~/layout/panel-layout/menus/NewMenu'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
+import { groupAnalyticsConfigLogic } from '~/scenes/settings/environment/groupAnalyticsConfigLogic'
 import { UserBasicType } from '~/types'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
@@ -78,6 +80,8 @@ export function ProjectTree({
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
     const { viableItems } = useValues(projectTreeDataLogic)
     const { deleteShortcut, addShortcutItem } = useActions(projectTreeDataLogic)
+    const { groupTypes } = useValues(groupAnalyticsConfigLogic)
+    const { deleteGroupType } = useActions(groupAnalyticsConfigLogic)
     const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root }
     const {
         fullFileSystemFiltered,
@@ -410,6 +414,26 @@ export function ProjectTree({
                         data-attr="tree-item-menu-delete-folder-button"
                     >
                         <ButtonPrimitive menuItem>Delete folder</ButtonPrimitive>
+                    </MenuItem>
+                ) : root === 'persons://' && item.record?.category === 'Groups' && item.record?.href ? (
+                    <MenuItem
+                        asChild
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            const href = item.record?.href as string
+                            const groupTypeIndex = parseInt(href.match(/\/groups\/(\d+)/)?.[1] || '0', 10)
+                            const groupType = Array.from(groupTypes.values()).find(
+                                (gt) => gt.group_type_index === groupTypeIndex
+                            )
+
+                            openDeleteGroupTypeDialog({
+                                onConfirm: () => deleteGroupType(groupTypeIndex),
+                                groupTypeName: groupType?.group_type || item.name || 'group type',
+                            })
+                        }}
+                        data-attr="tree-item-menu-delete-group-button"
+                    >
+                        <ButtonPrimitive menuItem>Delete group type</ButtonPrimitive>
                     </MenuItem>
                 ) : null}
             </>
