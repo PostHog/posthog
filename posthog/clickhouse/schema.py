@@ -279,4 +279,11 @@ CREATE_VIEW_QUERIES = (
 )
 
 build_query = lambda query: query if isinstance(query, str) else query()
-get_table_name = lambda query: re.findall(r"[\.\s]`?([a-z0-9_]+)`?\s+ON CLUSTER", build_query(query))[0]
+
+
+def get_table_name(query):
+    query = build_query(query)
+    try:
+        return re.findall(r"[\.\s]`?([a-z0-9_]+)`?\s+(?:ON CLUSTER '[a-z0-9_]+'\s+)?|\(", query)[0]
+    except Exception:
+        raise ValueError(f"No table name found in query {query}")
