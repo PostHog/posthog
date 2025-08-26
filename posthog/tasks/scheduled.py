@@ -53,6 +53,7 @@ from posthog.tasks.tasks import (
     count_items_in_playlists,
     schedule_all_subscriptions,
 )
+from posthog.tasks.scheduled_web_analytics_backfill import discover_and_backfill_teams
 from posthog.utils import get_crontab
 
 from posthog.tasks.remote_config import sync_all_remote_configs
@@ -343,4 +344,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="0", minute=str(randrange(0, 40))),
         sync_all_remote_configs.s(),
         name="sync all remote configs",
+    )
+
+    # Web analytics automatic backfill - runs every 6 hours to ensure teams with 
+    # pre-aggregated tables enabled have recent data
+    sender.add_periodic_task(
+        crontab(minute="0", hour="*/6"),
+        discover_and_backfill_teams.s(),
+        name="web analytics automatic backfill",
     )
