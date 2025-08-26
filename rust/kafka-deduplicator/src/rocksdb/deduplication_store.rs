@@ -226,8 +226,7 @@ impl DeduplicationStore {
         let key_bytes = key.as_ref().to_vec();
 
         // Check if this is a duplicate
-        let cf = self.store.get_cf_handle(DeduplicationStore::RECORDS_CF)?;
-        let existing_metadata = self.store.db.get_cf(&cf, &key_bytes)?;
+        let existing_metadata = self.store.get(DeduplicationStore::RECORDS_CF, &key_bytes)?;
 
         if let Some(existing_bytes) = existing_metadata {
             // Key exists - it's a duplicate, update metrics
@@ -271,6 +270,15 @@ impl DeduplicationStore {
             DeduplicationStore::RECORDS_CF,
             vec![(&key_bytes, &serialized_metadata)],
         )?;
+        
+        // Track unique event with library info
+        let (lib_name, lib_version) = extract_library_info(raw_event);
+        self.metrics
+            .counter(UNIQUE_EVENTS_TOTAL_COUNTER)
+            .with_label("lib", &lib_name)
+            .with_label("lib_version", &lib_version)
+            .increment(1);
+        
         Ok(true) // New event
     }
 
