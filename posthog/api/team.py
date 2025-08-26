@@ -4,6 +4,7 @@ from functools import cached_property
 from typing import Any, Literal, Optional, cast
 from uuid import UUID
 
+from django.conf import settings
 from django.shortcuts import get_object_or_404
 
 from loginas.utils import is_impersonated_session
@@ -762,6 +763,12 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         return self.get_object()
 
     def perform_destroy(self, team: Team):
+        # Check if bulk deletion operations are disabled via environment variable
+        if settings.DISABLE_BULK_DELETES:
+            raise exceptions.ValidationError(
+                "Team deletion is temporarily disabled during database migration. Please try again later."
+            )
+
         team_id = team.pk
         organization_id = team.organization_id
         team_name = team.name

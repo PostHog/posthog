@@ -201,6 +201,7 @@ class PipelineNonDLT:
             self._post_run_operations(row_count=row_count)
         finally:
             # Help reduce the memory footprint of each job
+            self._logger.debug("Cleaning up delta table helper")
             delta_table = self._delta_table_helper.get_delta_table()
             self._delta_table_helper.get_delta_table.cache_clear()
             if delta_table:
@@ -366,6 +367,7 @@ class PipelineNonDLT:
             row_count=row_count,
             table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
         )
+        self._logger.debug("Finished validating schema and updating table")
 
 
 def _update_last_synced_at_sync(schema: ExternalDataSchema, job: ExternalDataJob) -> None:
