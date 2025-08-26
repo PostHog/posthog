@@ -8,8 +8,8 @@ from posthog.schema import AssistantHogQLQuery, NodeKind
 
 from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES
-from posthog.hogql.parser import parse_select
-from posthog.hogql.visitor import Visitor
+from posthog.hogql.parser import ast, parse_select
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.errors import InternalCHQueryError
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
@@ -138,27 +138,22 @@ class SQLFunctionCorrectness(Scorer):
     def _name(self):
         return "sql_function_correctness"
 
-    def _extract_functions_from_sql(self, sql_query: str) -> set[str]:
+    def _extract_functions_from_sql(self, sql_query: ast.SelectQuery) -> set[str]:
         """Extract all function names from SQL query using AST parsing."""
-        if not sql_query:
-            return set()
 
-        # Parse the SQL query into an AST
-        parsed_query = parse_select(sql_query, placeholders={})
-
-        class FunctionNameCollector(Visitor):
+        class FunctionNameCollector(TraversingVisitor):
             def __init__(self):
                 self.function_names = set()
 
             def visit_call(self, node):
-                if node.name not in HOGQL_KEYWORDS:
-                    self.function_names.add(node.name)
-
+                if hasattr(node, "name") and isinstance(node.name, str):
+                    if node.name not in HOGQL_KEYWORDS:
+                        self.function_names.add(node.name)
                 super().visit_call(node)
 
         # Extract function names from the parsed query
         collector = FunctionNameCollector()
-        collector.visit(parsed_query)
+        collector.visit(sql_query)
         return collector.function_names
 
     async def _run_eval_async(self, output, expected=None, **kwargs):
@@ -170,7 +165,12 @@ class SQLFunctionCorrectness(Scorer):
                 name=self._name(), score=None, metadata={"reason": "No SQL query to verify, skipping evaluation"}
             )
 
-        functions = self._extract_functions_from_sql(output)
+        try:
+            sql = parse_select(output, placeholders={})
+        except Exception:
+            return Score(name=self._name(), score=0, metadata={"reason": "Error parsing SQL query"})
+
+        functions = self._extract_functions_from_sql(sql)
         if not functions:
             return Score(name=self._name(), score=None, metadata={"reason": "No functions found in query"})
 
