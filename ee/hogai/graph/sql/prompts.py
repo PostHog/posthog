@@ -21,7 +21,10 @@ Person or event metadata unspecified above (emails, names, etc.) is stored in `p
 
 Note: "persons" means "users" here - instead of a "users" table, we have a "persons" table.
 
-When searching for unique users use `DISTINCT distinct_id` to count all unique users (including anonymous users) or `DISTINCT person_id` to count unique identified users (excludes anonymous users).
+<persons>
+When working with persons, default to `events.distinct_id`–it includes all activity.
+Use person_id only when the request is explicitly about identified people/person-profile logic (e.g., person properties), which excludes anonymous users.
+</persons>
 
 Standardized events/properties such as pageview or screen start with `$`. Custom events/properties start with any other character.
 
