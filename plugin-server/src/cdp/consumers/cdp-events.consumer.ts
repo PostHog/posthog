@@ -1,8 +1,8 @@
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
-import { instrumentFn } from '~/common/tracing/tracing-utils'
 
+import { instrumented } from '~/common/tracing/tracing-utils'
 import { convertToHogFunctionInvocationGlobals } from '../../cdp/utils'
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
@@ -300,9 +300,9 @@ export class CdpEventsConsumer extends CdpConsumerBase {
     }
 
     // This consumer always parses from kafka
+    @instrumented('cdpConsumer.handleEachBatch.parseKafkaMessages')
     public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
-        return await this.runWithHeartbeat(() =>
-            instrumentFn(`cdpConsumer.handleEachBatch.parseKafkaMessages`, async () => {
+        return await this.runWithHeartbeat(async () => {
                 const events: HogFunctionInvocationGlobals[] = []
 
                 await Promise.all(
@@ -328,9 +328,8 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                     })
                 )
 
-                return events
-            })
-        )
+                    return events
+        })
     }
 
     public async start(): Promise<void> {
@@ -363,7 +362,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
         logger.info('💤', 'Consumer stopped!')
     }
 
-    public isHealthy() {
+    public isHealthy(): boolean {
         return this.kafkaConsumer.isHealthy()
     }
 
