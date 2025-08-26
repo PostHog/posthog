@@ -106,6 +106,7 @@ export function DashboardHeader(): JSX.Element | null {
     const [isPinned, setIsPinned] = useState(dashboard?.pinned)
     const { featureFlags } = useValues(featureFlagLogic)
     const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+    const [isInitiallyNew] = useState(dashboard?.name === 'New Dashboard')
 
     const hasDashboardColors = useFeatureFlag('DASHBOARD_COLORS')
 
@@ -620,13 +621,14 @@ export function DashboardHeader(): JSX.Element | null {
                     type: 'dashboard',
                     typePlural: 'dashboards',
                 }}
-                onNameBlur={(value) => updateDashboard({ id: dashboard?.id, name: value, allowUndo: true })}
-                onDescriptionBlur={(value) =>
+                onNameChange={(value) => updateDashboard({ id: dashboard?.id, name: value, allowUndo: true })}
+                onDescriptionChange={(value) =>
                     updateDashboard({ id: dashboard?.id, description: value, allowUndo: true })
                 }
                 markdown
                 canEdit={canEditDashboard}
                 isLoading={dashboardLoading}
+                forceEdit={dashboardMode === DashboardMode.Edit || isInitiallyNew}
             />
             <SceneDivider />
         </>
