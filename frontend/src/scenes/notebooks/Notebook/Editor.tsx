@@ -5,7 +5,7 @@ import TableOfContents, { getHierarchicalIndexes } from '@tiptap/extension-table
 import { Placeholder } from '@tiptap/extensions'
 import StarterKit from '@tiptap/starter-kit'
 import { useActions, useValues } from 'kea'
-import { useCallback, useMemo } from 'react'
+import { useCallback } from 'react'
 
 import { IconComment } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
@@ -15,7 +15,7 @@ import { RichContentNodeMention } from 'lib/components/RichContentEditor/RichCon
 import { RichContentNode, TTEditor } from 'lib/components/RichContentEditor/types'
 import { createEditor } from 'lib/components/RichContentEditor/utils'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { sampleOne, uuid } from 'lib/utils'
+import { uuid } from 'lib/utils'
 
 import { MentionsExtension } from '../../../lib/components/RichContentEditor/MentionsExtension'
 import { NotebookMarkComment } from '../Marks/NotebookMarkComment'
@@ -53,8 +53,6 @@ const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
 })
 
-const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes', 'Bug analysis']
-
 export function Editor(): JSX.Element {
     const { shortId, mode } = useValues(notebookLogic)
     const { setEditor, onEditorUpdate, onEditorSelectionUpdate, setTableOfContents, insertComment } =
@@ -62,8 +60,6 @@ export function Editor(): JSX.Element {
     const hasDiscussions = useFeatureFlag('DISCUSSIONS')
 
     const { resetSuggestions, setPreviousNode } = useActions(insertionSuggestionsLogic)
-
-    const headingPlaceholder = useMemo(() => sampleOne(PLACEHOLDER_TITLES), [shortId])
 
     const updatePreviousNode = useCallback(
         (editor: TTEditor) => {
@@ -93,7 +89,7 @@ export function Editor(): JSX.Element {
                 Placeholder.configure({
                     placeholder: ({ node }: { node: any }) => {
                         if (node.type.name === 'heading' && node.attrs.level === 1) {
-                            return `Untitled - maybe.. "${headingPlaceholder}"`
+                            return 'Untitled'
                         }
 
                         if (node.type.name === 'heading') {
