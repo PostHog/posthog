@@ -1,7 +1,5 @@
 import { useActions, useValues } from 'kea'
 
-import { IconBug } from '@posthog/icons'
-
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -61,9 +59,8 @@ export function TaskTracker(): JSX.Element {
                     name="Tasks"
                     description="Manage and track development tasks across all PostHog products"
                     resourceType={{
-                        type: 'comment',
-                        typePlural: 'comments',
-                        forceIcon: <IconBug />,
+                        type: 'task',
+                        typePlural: 'tasks',
                     }}
                 />
                 <SceneDivider />
