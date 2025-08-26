@@ -21,7 +21,7 @@ import { QueryContext } from '~/queries/types'
 import { GraphDataset } from '~/types'
 
 import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
-import { mrrBreakdownModalLogic } from './modals'
+import { MRRBreakdownModal, mrrBreakdownModalLogic } from './modals'
 import { RevenueAnalyticsLineGraph, TileProps, TileWrapper, extractLabelAndDatasets } from './shared'
 
 const MODE_OPTIONS: LemonSegmentedButtonOption<'mrr' | 'arr'>[] = [
@@ -57,6 +57,7 @@ export function RevenueAnalyticsMRRNode(props: {
                     queryId={queryId ?? ''}
                     context={props.context}
                 />
+                <MRRBreakdownModal />
             </BindLogic>
         </BindLogic>
     )
