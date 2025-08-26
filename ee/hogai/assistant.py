@@ -29,8 +29,8 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
+from posthog import event_usage
 from posthog.event_usage import report_user_action
-from posthog.exceptions_capture import capture_exception
 from posthog.models import Action, Team, User
 from posthog.sync import database_sync_to_async
 
@@ -180,6 +180,7 @@ class Assistant:
                     "is_first_conversation": is_new_conversation,
                     "$session_id": self._session_id,
                     "assistant_mode": mode.value,
+                    "$groups": event_usage.groups(team=team),
                 },
                 trace_id=trace_id,
             )
@@ -283,16 +284,7 @@ class Assistant:
 
                 if not isinstance(e, GenerationCanceled):
                     logger.exception("Error in assistant stream", error=e)
-                    posthoganalytics.capture_exception(
-                        e,
-                        distinct_id=self._user.distinct_id if self._user else None,
-                        properties={
-                            "$session_id": self._session_id,
-                            "$ai_trace_id": self._trace_id,
-                            "thread_id": self._conversation.id,
-                            "tag": "max_ai",
-                        },
-                    )
+                    self._capture_exception(e)
 
                     # This is an unhandled error, so we just stop further generation at this point
                     snapshot = await self._graph.aget_state(config)
@@ -583,7 +575,7 @@ class Assistant:
                 return None
         except Exception as e:
             logger.exception("Error in chunk_reasoning_headline", error=e)
-            capture_exception(e)  # not expected, so let's capture
+            self._capture_exception(e)  # not expected, so let's capture
             self._reasoning_headline_chunk = None
             return None
 
@@ -667,3 +659,16 @@ class Assistant:
         finally:
             self._conversation.status = Conversation.Status.IDLE
             await self._conversation.asave(update_fields=["status", "updated_at"])
+
+    def _capture_exception(self, e: Exception):
+        posthoganalytics.capture_exception(
+            e,
+            distinct_id=self._user.distinct_id if self._user else None,
+            properties={
+                "$session_id": self._session_id,
+                "$ai_trace_id": self._trace_id,
+                "thread_id": self._conversation.id,
+                "tag": "max_ai",
+                "$groups": event_usage.groups(team=self._team),
+            },
+        )
