@@ -1,5 +1,3 @@
-import re
-
 import pytest
 
 from asgiref.sync import sync_to_async
@@ -9,12 +7,9 @@ from braintrust_core.score import Scorer
 from posthog.schema import AssistantHogQLQuery, NodeKind
 
 from posthog.hogql.errors import BaseHogQLError
-from posthog.hogql.functions.mapping import (
-    HOGQL_AGGREGATIONS,
-    HOGQL_CLICKHOUSE_FUNCTIONS,
-    HOGQL_POSTHOG_FUNCTIONS,
-    SQL_KEYWORDS,
-)
+from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES
+from posthog.hogql.parser import parse_select
+from posthog.hogql.visitor import Visitor
 
 from posthog.errors import InternalCHQueryError
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
@@ -26,6 +21,94 @@ from .conftest import MaxEval
 from .scorers import PlanAndQueryOutput, PlanCorrectness, QueryAndPlanAlignment, QueryKindSelection, TimeRangeRelevancy
 
 QUERY_GENERATION_MAX_RETRIES = 3
+# from https://github.com/PostHog/posthog/blob/master/posthog/hogql/grammar/HogQLParser.g4#L290-L300
+HOGQL_KEYWORDS = {
+    "ALL",
+    "AND",
+    "ANTI",
+    "ANY",
+    "ARRAY",
+    "AS",
+    "ASCENDING",
+    "ASOF",
+    "BETWEEN",
+    "BOTH",
+    "BY",
+    "CASE",
+    "CAST",
+    "COHORT",
+    "COLLATE",
+    "CROSS",
+    "CUBE",
+    "CURRENT",
+    "DATE",
+    "DESC",
+    "DESCENDING",
+    "DISTINCT",
+    "ELSE",
+    "END",
+    "EXTRACT",
+    "FINAL",
+    "FIRST",
+    "FOR",
+    "FOLLOWING",
+    "FROM",
+    "FULL",
+    "GROUP",
+    "HAVING",
+    "ID",
+    "IS",
+    "IF",
+    "ILIKE",
+    "IN",
+    "INNER",
+    "INTERVAL",
+    "JOIN",
+    "KEY",
+    "LAST",
+    "LEADING",
+    "LEFT",
+    "LIKE",
+    "LIMIT",
+    "NOT",
+    "NULLS",
+    "OFFSET",
+    "ON",
+    "OR",
+    "ORDER",
+    "OUTER",
+    "OVER",
+    "PARTITION",
+    "PRECEDING",
+    "PREWHERE",
+    "RANGE",
+    "RETURN",
+    "RIGHT",
+    "ROLLUP",
+    "ROW",
+    "ROWS",
+    "SAMPLE",
+    "SELECT",
+    "SEMI",
+    "SETTINGS",
+    "SUBSTRING",
+    "THEN",
+    "TIES",
+    "TIMESTAMP",
+    "TOTALS",
+    "TRAILING",
+    "TRIM",
+    "TRUNCATE",
+    "TO",
+    "TOP",
+    "UNBOUNDED",
+    "UNION",
+    "USING",
+    "WHEN",
+    "WHERE",
+    "WINDOW",
+    "WITH",
+}
 
 
 class RetryEfficiency(Scorer):
@@ -56,29 +139,27 @@ class SQLFunctionCorrectness(Scorer):
         return "sql_function_correctness"
 
     def _extract_functions_from_sql(self, sql_query: str) -> set[str]:
-        """Extract all function names from SQL query using regex."""
+        """Extract all function names from SQL query using AST parsing."""
         if not sql_query:
             return set()
 
-        # Pattern to match function calls: word followed by opening parenthesis
-        # This captures the function name before the opening parenthesis
-        function_pattern = r"\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\("
+        # Parse the SQL query into an AST
+        parsed_query = parse_select(sql_query, placeholders={})
 
-        functions = set()
-        for match in re.finditer(function_pattern, sql_query):
-            function_name = match.group(1)
+        class FunctionNameCollector(Visitor):
+            def __init__(self):
+                self.function_names = set()
 
-            if function_name.upper() not in SQL_KEYWORDS:
-                functions.add(function_name)
+            def visit_call(self, node):
+                if node.name not in HOGQL_KEYWORDS:
+                    self.function_names.add(node.name)
 
-        return functions
+                super().visit_call(node)
 
-    def _is_function_allowed(self, function_name: str) -> bool:
-        return (
-            function_name in HOGQL_CLICKHOUSE_FUNCTIONS
-            or function_name in HOGQL_AGGREGATIONS
-            or function_name in HOGQL_POSTHOG_FUNCTIONS
-        )
+        # Extract function names from the parsed query
+        collector = FunctionNameCollector()
+        collector.visit(parsed_query)
+        return collector.function_names
 
     async def _run_eval_async(self, output, expected=None, **kwargs):
         return self._run_eval_sync(output, expected, **kwargs)
@@ -95,7 +176,7 @@ class SQLFunctionCorrectness(Scorer):
 
         invalid_functions = set()
         for func in functions:
-            if not self._is_function_allowed(func):
+            if func not in ALL_EXPOSED_FUNCTION_NAMES:
                 invalid_functions.add(func)
 
         if invalid_functions:

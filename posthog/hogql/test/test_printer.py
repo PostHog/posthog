@@ -2564,6 +2564,35 @@ class TestPrinter(BaseTest):
 
         assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot  # type: ignore
 
+    def test_loose_syntax_function_normalization(self):
+        """Test function name normalization with loose_syntax parameter."""
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+
+        # Test basic function normalization - aggregation functions
+        query_ast = parse_select("SELECT COUNT() FROM events")
+        strict_result = print_ast(query_ast, context, "hogql", loose_syntax=False)
+        loose_result = print_ast(query_ast, context, "hogql", loose_syntax=True)
+
+        self.assertIn("COUNT()", strict_result)
+        self.assertIn("count()", loose_result)
+        self.assertNotIn("COUNT()", loose_result)
+
+        # Test multiple aggregation functions
+        query_ast = parse_select("SELECT SUM(value), AVG(score), MAX(age) FROM events")
+        strict_result = print_ast(query_ast, context, "hogql", loose_syntax=False)
+        loose_result = print_ast(query_ast, context, "hogql", loose_syntax=True)
+
+        self.assertIn("SUM(", strict_result)
+        self.assertIn("AVG(", strict_result)
+        self.assertIn("MAX(", strict_result)
+        self.assertIn("sum(", loose_result)
+        self.assertIn("avg(", loose_result)
+        self.assertIn("max(", loose_result)
+
+        query_ast = parse_select("SELECT countIF(active = 1) FROM events")
+        result = print_ast(query_ast, context, "hogql", loose_syntax=True)
+        self.assertIn("countIf(", result)
+
 
 class TestPrinted(APIBaseTest):
     def test_can_call_parametric_function(self):

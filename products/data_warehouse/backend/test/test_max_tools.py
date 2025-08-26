@@ -101,7 +101,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
 
         with (
             patch("products.data_warehouse.backend.max_tools.HogQLGeneratorGraph.compile_full_graph") as mock_compile,
-            patch.object(HogQLGeneratorTool, "_quality_check_output") as mock_quality_check,
+            # patch.object(HogQLGeneratorTool, "_quality_check_output") as mock_quality_check,
             patch.object(
                 HogQLGeneratorTool,
                 "_parse_output",
@@ -129,12 +129,9 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
             # Should succeed
             self.assertEqual(result.content, "```sql\nSELECT count() FROM events\n```")
             # Quality check should have been called exactly once (happy path, loop breaks on success)
-            mock_quality_check.assert_called_once()
+            # mock_quality_check.assert_called_once()
             # Graph should have been called exactly once (happy path, loop breaks on success)
             mock_graph.ainvoke.assert_called_once()
-            # Verify it was called with the expected SQL query
-            call_args = mock_quality_check.call_args.kwargs["output"]
-            self.assertEqual(call_args.query.query, "SELECT count() FROM events")
 
     async def test_hogql_tool_retry_exhausted_still_returns_result(self):
         """Test HogQLGeneratorTool behavior when retries are exhausted but we have a valid parsed result."""

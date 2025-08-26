@@ -107,6 +107,7 @@ def print_ast(
     stack: Optional[list[ast.SelectQuery]] = None,
     settings: Optional[HogQLGlobalSettings] = None,
     pretty: bool = False,
+    loose_syntax: bool = False,
 ) -> str:
     prepared_ast = prepare_ast_for_printing(node=node, context=context, dialect=dialect, stack=stack, settings=settings)
     if prepared_ast is None:
@@ -118,6 +119,7 @@ def print_ast(
         stack=stack,
         settings=settings,
         pretty=pretty,
+        loose_syntax=loose_syntax,
     )
 
 
@@ -202,6 +204,7 @@ def print_prepared_ast(
     stack: Optional[list[ast.SelectQuery]] = None,
     settings: Optional[HogQLGlobalSettings] = None,
     pretty: bool = False,
+    loose_syntax: bool = False,
 ) -> str:
     with context.timings.measure("printer"):
         # _Printer also adds a team_id guard if printing clickhouse
@@ -211,6 +214,7 @@ def print_prepared_ast(
             stack=stack or [],
             settings=settings,
             pretty=pretty,
+            loose_syntax=loose_syntax,
         ).visit(node)
 
 
@@ -275,12 +279,14 @@ class _Printer(Visitor[str]):
         stack: Optional[list[AST]] = None,
         settings: Optional[HogQLGlobalSettings] = None,
         pretty: bool = False,
+        loose_syntax: bool = False,
     ):
         self.context = context
         self.dialect = dialect
         self.stack: list[AST] = stack or []  # Keep track of all traversed nodes.
         self.settings = settings
         self.pretty = pretty
+        self.loose_syntax = loose_syntax
         self._indent = -1
         self.tab_size = 4
 
@@ -1386,6 +1392,13 @@ class _Printer(Visitor[str]):
             return f"{node.name}({', '.join(args)})"
         else:
             close_matches = get_close_matches(node.name, ALL_EXPOSED_FUNCTION_NAMES, 1)
+            # If loose_syntax is enabled, try to correct the function name before throwing an error
+            if self.loose_syntax and len(close_matches) > 0:
+                corrected_name = close_matches[0]
+                if corrected_name != node.name:
+                    # Found a function name that is close to the one we tried to use, use it
+                    return f"{corrected_name}({', '.join([self.visit(arg) for arg in node.args])})"
+
             if len(close_matches) > 0:
                 raise QueryError(
                     f"Unsupported function call '{node.name}(...)'. Perhaps you meant '{close_matches[0]}(...)'?"
