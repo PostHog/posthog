@@ -335,7 +335,8 @@ class SurveyAnalysisTool(MaxTool):
         ]
         """
         try:
-            return self.context.get("formatted_responses", [])
+            context = self.context or {}
+            return context.get("formatted_responses", [])
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
             return []

@@ -17,7 +17,7 @@ from posthog.schema import SurveyCreationSchema, SurveyQuestionSchema, SurveyQue
 
 from posthog.models import FeatureFlag, Survey
 
-from .max_tools import CreateSurveyTool, SurveyLoopNode, SurveyToolkit
+from .max_tools import CreateSurveyTool, SurveyAnalysisTool, SurveyLoopNode, SurveyToolkit
 
 
 class TestSurveyCreatorTool(BaseTest):
@@ -442,3 +442,392 @@ class TestSurveyLoopNode(BaseTest):
         # Verify it contains survey information
         assert "Survey" in summary
         assert "draft" in summary
+
+
+class TestSurveyAnalysisTool(BaseTest):
+    def setUp(self):
+        super().setUp()
+        # Set mock OpenAI API key for tests
+        os.environ["OPENAI_API_KEY"] = "test-api-key"
+        self._config: RunnableConfig = {
+            "configurable": {
+                "team": self.team,
+                "user": self.user,
+            },
+        }
+
+    def tearDown(self):
+        super().tearDown()
+        # Clean up the mock API key
+        if "OPENAI_API_KEY" in os.environ:
+            del os.environ["OPENAI_API_KEY"]
+
+    def _setup_tool_with_context(self, context=None):
+        """Helper to create a SurveyAnalysisTool instance with context"""
+        tool = SurveyAnalysisTool(team=self.team, user=self.user)
+        tool._init_run(self._config)
+
+        if context:
+            tool._context = context
+
+        return tool
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_extract_open_ended_responses_empty_context(self):
+        """Test _extract_open_ended_responses with empty context"""
+        tool = self._setup_tool_with_context()
+
+        # Create a mock survey
+        survey = await sync_to_async(Survey.objects.create)(
+            team=self.team,
+            name="Test Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "Test?", "id": "q1"}],
+            created_by=self.user,
+        )
+
+        responses = await tool._extract_open_ended_responses(survey)
+
+        assert responses == []
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_extract_open_ended_responses_null_context(self):
+        """Test _extract_open_ended_responses with null context"""
+        tool = self._setup_tool_with_context(context=None)
+
+        # Create a mock survey
+        survey = await sync_to_async(Survey.objects.create)(
+            team=self.team,
+            name="Test Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "Test?", "id": "q1"}],
+            created_by=self.user,
+        )
+
+        responses = await tool._extract_open_ended_responses(survey)
+
+        assert responses == []
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_extract_open_ended_responses_no_formatted_responses(self):
+        """Test _extract_open_ended_responses with context but no formatted_responses"""
+        context = {"survey_id": "test-id", "survey_name": "Test Survey"}
+        tool = self._setup_tool_with_context(context)
+
+        # Create a mock survey
+        survey = await sync_to_async(Survey.objects.create)(
+            team=self.team,
+            name="Test Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "Test?", "id": "q1"}],
+            created_by=self.user,
+        )
+
+        responses = await tool._extract_open_ended_responses(survey)
+
+        assert responses == []
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_extract_open_ended_responses_valid_data(self):
+        """Test _extract_open_ended_responses with valid data"""
+        context = {
+            "survey_id": "test-id",
+            "survey_name": "Test Survey",
+            "formatted_responses": [
+                {
+                    "questionName": "What do you think?",
+                    "questionId": "q1",
+                    "responses": [
+                        {
+                            "responseText": "Great product",
+                            "userDistinctId": "user1",
+                            "email": "user1@test.com",
+                            "isOpenEnded": True,
+                        },
+                        {
+                            "responseText": "Could be better",
+                            "userDistinctId": "user2",
+                            "email": None,
+                            "isOpenEnded": True,
+                        },
+                    ],
+                },
+                {
+                    "questionName": "Any suggestions?",
+                    "questionId": "q2",
+                    "responses": [
+                        {
+                            "responseText": "Add dark mode",
+                            "userDistinctId": "user3",
+                            "email": "user3@test.com",
+                            "isOpenEnded": True,
+                        },
+                    ],
+                },
+            ],
+        }
+        tool = self._setup_tool_with_context(context)
+
+        # Create a mock survey for the method
+        survey = await sync_to_async(Survey.objects.create)(
+            team=self.team,
+            name="Test Survey",
+            type="popover",
+            questions=[
+                {"type": "open", "question": "What do you think?", "id": "q1"},
+                {"type": "open", "question": "Any suggestions?", "id": "q2"},
+            ],
+            created_by=self.user,
+        )
+
+        responses = await tool._extract_open_ended_responses(survey)
+
+        assert len(responses) == 2
+        assert responses[0]["questionName"] == "What do you think?"
+        assert len(responses[0]["responses"]) == 2
+        assert responses[1]["questionName"] == "Any suggestions?"
+        assert len(responses[1]["responses"]) == 1
+
+    @patch("products.surveys.backend.max_tools.MaxChatOpenAI")
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_analyze_responses_success(self, mock_chat_openai):
+        """Test successful response analysis with mocked LLM"""
+        # Mock LLM response
+        mock_response = {
+            "themes": ["User Interface", "Performance"],
+            "sentiment": "constructive",
+            "insights": ["Users appreciate the design but want improvements"],
+            "recommendations": ["Implement dark mode", "Optimize loading speed"],
+            "response_count": 3,
+        }
+        mock_chat_openai.return_value.invoke.return_value.content = f"```json\n{mock_response}\n```"
+
+        tool = self._setup_tool_with_context()
+        responses_data = [
+            {
+                "questionName": "What do you think?",
+                "questionId": "q1",
+                "responses": [
+                    {
+                        "responseText": "Great UI design",
+                        "userDistinctId": "user1",
+                        "email": "user1@test.com",
+                        "isOpenEnded": True,
+                    },
+                    {"responseText": "Slow loading", "userDistinctId": "user2", "email": None, "isOpenEnded": True},
+                    {
+                        "responseText": "Add dark mode",
+                        "userDistinctId": "user3",
+                        "email": "user3@test.com",
+                        "isOpenEnded": True,
+                    },
+                ],
+            }
+        ]
+
+        result = await tool._analyze_responses(responses_data)
+
+        assert result == mock_response
+        mock_chat_openai.return_value.invoke.assert_called_once()
+
+    @patch("products.surveys.backend.max_tools.MaxChatOpenAI")
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_analyze_responses_json_parsing_error(self, mock_chat_openai):
+        """Test LLM response with malformed JSON"""
+        # Mock malformed JSON response
+        mock_chat_openai.return_value.invoke.return_value.content = "This is not JSON"
+
+        tool = self._setup_tool_with_context()
+        responses_data = [
+            {"questionName": "What do you think?", "responses": [{"responseText": "Good", "userDistinctId": "user1"}]}
+        ]
+
+        result = await tool._analyze_responses(responses_data)
+
+        # Should return error structure for JSON parsing failure
+        assert "error" in result
+        assert "JSON parsing failed" in result["error"]
+
+    @patch("products.surveys.backend.max_tools.MaxChatOpenAI")
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_analyze_responses_llm_error(self, mock_chat_openai):
+        """Test LLM invocation error handling"""
+        # Mock LLM error
+        mock_chat_openai.return_value.invoke.side_effect = Exception("LLM API error")
+
+        tool = self._setup_tool_with_context()
+        responses_data = [
+            {"questionName": "What do you think?", "responses": [{"responseText": "Good", "userDistinctId": "user1"}]}
+        ]
+
+        result = await tool._analyze_responses(responses_data)
+
+        # Should return error structure for LLM failure
+        assert "error" in result
+        assert "LLM API error" in result["error"]
+
+    def test_format_analysis_for_user_success(self):
+        """Test successful analysis formatting"""
+        analysis = {
+            "themes": ["User Interface", "Performance"],
+            "sentiment": "constructive feedback",
+            "insights": ["Users love the design but want faster loading"],
+            "recommendations": ["Implement caching", "Optimize images"],
+            "response_count": 5,
+        }
+
+        tool = self._setup_tool_with_context()
+        formatted = tool._format_analysis_for_user(analysis, "Test Product Survey")
+
+        assert "✅ **Survey Analysis: 'Test Product Survey'**" in formatted
+        assert "🎯 **Key Themes Identified:**" in formatted
+        assert "User Interface" in formatted
+        assert "Performance" in formatted
+        assert "💭 **Overall Sentiment:**" in formatted
+        assert "constructive feedback" in formatted
+        assert "💡 **Key Insights:**" in formatted
+        assert "Users love the design" in formatted
+        assert "🚀 **Recommendations:**" in formatted
+        assert "Implement caching" in formatted
+        assert "📈 **Analysis Summary:**" in formatted
+        assert "5 responses" in formatted
+
+    def test_format_analysis_for_user_test_data_detected(self):
+        """Test analysis formatting when test data is detected"""
+        analysis = {
+            "themes": ["Test Data"],
+            "sentiment": "test responses detected",
+            "insights": ["Most responses appear to be test data"],
+            "recommendations": ["Collect genuine user feedback"],
+            "response_count": 10,
+            "test_data_detected": True,
+        }
+
+        tool = self._setup_tool_with_context()
+        formatted = tool._format_analysis_for_user(analysis, "Test Survey")
+
+        assert "⚠️ **Test Data Detected**" in formatted
+        assert "appears to contain mostly test" in formatted
+        assert "genuine user responses" in formatted
+
+    def test_format_analysis_for_user_error(self):
+        """Test analysis formatting with error"""
+        analysis = {"error": "LLM analysis failed due to API timeout"}
+
+        tool = self._setup_tool_with_context()
+        formatted = tool._format_analysis_for_user(analysis, "Test Survey")
+
+        assert "❌ Analysis failed" in formatted
+        assert "LLM analysis failed due to API timeout" in formatted
+
+    @patch("products.surveys.backend.max_tools.MaxChatOpenAI")
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_arun_impl_no_responses(self, mock_chat_openai):
+        """Test _arun_impl with no open-ended responses"""
+        context = {"survey_id": "test-id", "survey_name": "Test Survey", "formatted_responses": []}
+        tool = self._setup_tool_with_context(context)
+
+        user_message, artifact = await tool._arun_impl()
+
+        assert "no open-ended responses" in user_message.lower()
+        assert not artifact["success"]
+        assert "no_responses" in artifact["error"]
+        # LLM should not be called
+        mock_chat_openai.return_value.invoke.assert_not_called()
+
+    @patch("products.surveys.backend.max_tools.MaxChatOpenAI")
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_arun_impl_success_flow(self, mock_chat_openai):
+        """Test complete _arun_impl success flow"""
+        # Mock LLM response
+        mock_analysis = {
+            "themes": ["Product Feedback", "Feature Requests"],
+            "sentiment": "positive and constructive",
+            "insights": ["Users appreciate current features but want more customization"],
+            "recommendations": ["Add theme customization", "Improve mobile experience"],
+            "response_count": 3,
+        }
+        mock_chat_openai.return_value.invoke.return_value.content = f"```json\n{mock_analysis}\n```"
+
+        context = {
+            "survey_id": "test-id",
+            "survey_name": "Product Feedback Survey",
+            "formatted_responses": [
+                {
+                    "questionName": "How can we improve?",
+                    "questionId": "q1",
+                    "responses": [
+                        {
+                            "responseText": "Love the app but need dark mode",
+                            "userDistinctId": "user1",
+                            "email": "user1@test.com",
+                            "isOpenEnded": True,
+                        },
+                        {
+                            "responseText": "Mobile version is slow",
+                            "userDistinctId": "user2",
+                            "email": None,
+                            "isOpenEnded": True,
+                        },
+                        {
+                            "responseText": "Great overall experience",
+                            "userDistinctId": "user3",
+                            "email": "user3@test.com",
+                            "isOpenEnded": True,
+                        },
+                    ],
+                }
+            ],
+        }
+        tool = self._setup_tool_with_context(context)
+
+        user_message, artifact = await tool._arun_impl()
+
+        # Verify user message contains formatted analysis
+        assert "📊 Survey Response Analysis" in user_message
+        assert "Product Feedback" in user_message
+        assert "Feature Requests" in user_message
+        assert "positive and constructive" in user_message
+
+        # Verify artifact structure
+        assert artifact["success"]
+        assert artifact["survey_id"] == "test-id"
+        assert artifact["survey_name"] == "Product Feedback Survey"
+        assert artifact["analysis"] == mock_analysis
+
+        # Verify LLM was called
+        mock_chat_openai.return_value.invoke.assert_called_once()
+
+    @patch("products.surveys.backend.max_tools.MaxChatOpenAI")
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_arun_impl_handles_llm_failure(self, mock_chat_openai):
+        """Test _arun_impl handles LLM failure gracefully"""
+        # Mock LLM failure
+        mock_chat_openai.return_value.invoke.side_effect = Exception("OpenAI API timeout")
+
+        context = {
+            "survey_id": "test-id",
+            "survey_name": "Test Survey",
+            "formatted_responses": [
+                {"questionName": "Feedback?", "responses": [{"responseText": "Good", "userDistinctId": "user1"}]}
+            ],
+        }
+        tool = self._setup_tool_with_context(context)
+
+        user_message, artifact = await tool._arun_impl()
+
+        # Should handle error gracefully
+        assert "❌ Analysis failed" in user_message
+        assert "OpenAI API timeout" in user_message
+        assert not artifact["success"]
+        assert artifact["error"] == "analysis_failed"

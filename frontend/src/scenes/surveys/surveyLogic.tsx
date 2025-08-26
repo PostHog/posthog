@@ -1765,6 +1765,15 @@ export const surveyLogic = kea<surveyLogicType>([
                     return []
                 }
 
+                // Helper function to extract user information consistently
+                const extractUserInfo = (
+                    response: any
+                ): { email: string | null; userDistinctId: string; timestamp: string } => ({
+                    email: response.personProperties?.email || null,
+                    userDistinctId: response.distinctId,
+                    timestamp: response.timestamp,
+                })
+
                 const responsesByQuestion: any[] = []
 
                 Object.entries(consolidatedResults.responsesByQuestion).forEach(([questionId, processedData]) => {
@@ -1781,13 +1790,11 @@ export const surveyLogic = kea<surveyLogicType>([
 
                         openData.data.forEach((response) => {
                             if (response.response?.trim()) {
-                                const email = response.personProperties?.email || null
+                                const userInfo = extractUserInfo(response)
                                 questionResponses.push({
                                     responseText: response.response.trim(),
-                                    userDistinctId: response.distinctId,
-                                    email,
+                                    ...userInfo,
                                     isOpenEnded: true,
-                                    timestamp: response.timestamp,
                                 })
                             }
                         })
@@ -1800,13 +1807,11 @@ export const surveyLogic = kea<surveyLogicType>([
 
                         choiceData.data.forEach((item) => {
                             if (!item.isPredefined && item.label?.trim()) {
-                                const email = item.personProperties?.email || null
+                                const userInfo = extractUserInfo(item)
                                 questionResponses.push({
                                     responseText: item.label.trim(),
-                                    userDistinctId: item.distinctId,
-                                    email,
+                                    ...userInfo,
                                     isOpenEnded: true,
-                                    timestamp: item.timestamp,
                                 })
                             }
                         })

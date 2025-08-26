@@ -1,7 +1,7 @@
 import './SurveyView.scss'
 
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { IconGraph, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDivider } from '@posthog/lemon-ui'
@@ -445,11 +445,14 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
 
     const atLeastOneResponse = !!processedSurveyStats?.[SurveyEventName.SENT].total_count
 
-    const maxToolContext = {
-        survey_id: survey.id,
-        survey_name: survey.name,
-        formatted_responses: formattedOpenEndedResponses,
-    }
+    const maxToolContext = useMemo(
+        () => ({
+            survey_id: survey.id,
+            survey_name: survey.name,
+            formatted_responses: formattedOpenEndedResponses,
+        }),
+        [survey.id, survey.name, formattedOpenEndedResponses]
+    )
 
     return (
         <div className="deprecated-space-y-4">
