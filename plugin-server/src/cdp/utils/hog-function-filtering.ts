@@ -300,28 +300,24 @@ export function convertToHogFunctionFilterGlobal(
 
 const HOG_FILTERING_TIMEOUT_MS = 100
 
-function doesEventNameFilterMatch(
-    filters: HogFunctionType['filters'],
-    filterGlobals: HogFunctionFilterGlobals
-): boolean {
+function shouldBePreFiltered(filters: HogFunctionType['filters'], filterGlobals: HogFunctionFilterGlobals): boolean {
     // If event filter is present check for a match
     if (filters?.events && filters.events.length > 0) {
         const eventMatches = filters.events.some((eventFilter) => {
             if (eventFilter.name) {
                 return eventFilter.name === filterGlobals.event
             }
-            // if no event id specified, this filter matches all events - need bytecode
-            return true
         })
 
         // If none of the event filters match, we can early exit
         if (!eventMatches) {
-            return false
+            return true
         }
+        // If we get here, we have a match
+        return false
     }
-
-    // Default to running bytecode for all other cases
-    return true
+    // If we get here, we have no event filters, so we can early exit
+    return false
 }
 
 /**
@@ -358,7 +354,7 @@ export async function filterFunctionInstrumented(options: {
             return result
         }
         // Quick pre-filter check to avoid running bytecode for obvious non-matches
-        if (!doesEventNameFilterMatch(filters, filterGlobals)) {
+        if (shouldBePreFiltered(filters, filterGlobals)) {
             // Event definitely doesn't match, skip bytecode execution
             hogFunctionPreFilterCounter.inc({ result: 'skipped' })
             metrics.push({
@@ -368,7 +364,8 @@ export async function filterFunctionInstrumented(options: {
                 metric_name: 'filtered',
                 count: 1,
             })
-            return result // match is already false
+            result.match = false
+            return result
         }
 
         // Pre-filter passed, need to execute bytecode

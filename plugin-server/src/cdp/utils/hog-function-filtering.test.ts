@@ -275,7 +275,7 @@ describe('hog-function-filtering', () => {
             }
         })
 
-        it('should skip bytecode when event does not match specific events', async () => {
+        it('should return false and skip bytecode when event does not match specific events', async () => {
             // Filter with only specific event names
             mockHogFunction.filters = {
                 events: [{ id: 'change_order_generated', name: 'change_order_generated', type: 'events', order: 0 }],
@@ -289,11 +289,11 @@ describe('hog-function-filtering', () => {
                 filterGlobals: mockFilterGlobals,
             })
 
-            // Should skip bytecode execution entirely
+            // Should skip bytecode execution
             expect(result.match).toBe(false)
         })
 
-        it('should execute bytecode when event matches specific event name', async () => {
+        it('should return true and execute bytecode when event matches specific event name', async () => {
             mockHogFunction.filters = {
                 events: [
                     { id: 'change_order_generated', name: 'change_order_generated', type: 'events', order: 0 },
@@ -317,7 +317,7 @@ describe('hog-function-filtering', () => {
             expect(result.match).toBe(true)
         })
 
-        it('should return true when no filters are configured (real database scenario)', async () => {
+        it('should return true and skip bytecode when no filters are configured', async () => {
             // This is what we actually get in the database when no filters are configured
             mockHogFunction.filters = {
                 bytecode: ['_H', 1, 29], // Minimal bytecode that returns true for all events
