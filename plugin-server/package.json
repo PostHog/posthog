@@ -66,6 +66,7 @@
         "@opentelemetry/auto-instrumentations-node": "^0.62.1",
         "@opentelemetry/exporter-trace-otlp-grpc": "^0.203.0",
         "@opentelemetry/exporter-trace-otlp-http": "^0.203.0",
+        "@opentelemetry/instrumentation-pg": "^0.56.0",
         "@opentelemetry/resources": "^2.0.1",
         "@opentelemetry/sdk-node": "^0.203.0",
         "@opentelemetry/sdk-trace-node": "^2.0.1",
