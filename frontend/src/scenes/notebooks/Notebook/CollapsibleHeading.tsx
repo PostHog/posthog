@@ -18,7 +18,8 @@ const MAX_COLLAPSIBLE_H_LEVEL = 3
 export const CollapsibleHeading = Heading.extend({
     addAttributes() {
         return {
-            ...this.parent?.(), // @ts-expect-error For some reason TypeScript doesn't like it, but this inheriting is necessary
+            // @ts-expect-error For some reason TypeScript doesn't like it, but this inheriting is necessary
+            ...this.parent?.(),
             collapsed: {
                 default: false,
                 parseHTML: (element: HTMLElement) => element.getAttribute('data-collapsed') === 'true',
