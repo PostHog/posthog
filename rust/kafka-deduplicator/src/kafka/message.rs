@@ -39,10 +39,11 @@ impl AckableMessage {
             return;
         }
 
+        let offset = self.handle.offset;
         self.handle.complete(MessageResult::Success).await;
         self.acked = true;
 
-        debug!("Acked message: id={}", self.handle.message_id);
+        info!("Acked message: id={}, offset={}", self.handle.message_id, offset);
     }
 
     /// Acknowledge failed processing of this message
@@ -52,14 +53,15 @@ impl AckableMessage {
             return;
         }
 
+        let offset = self.handle.offset;
         self.handle
             .complete(MessageResult::Failed(error.clone()))
             .await;
         self.acked = true;
 
-        debug!(
-            "Nacked message: id={}, error={}",
-            self.handle.message_id, error
+        info!(
+            "Nacked message: id={}, offset={}, error={}",
+            self.handle.message_id, offset, error
         );
     }
 
