@@ -988,7 +988,7 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
         redis.clone(),
         QUOTA_LIMITER_CACHE_KEY.to_string(),
         None,
-        QuotaResource::AIEvents,
+        QuotaResource::LLMEvents,
         ServiceName::Capture,
     )
     .expect("failed to create llm events limiter");

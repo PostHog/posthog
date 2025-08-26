@@ -168,7 +168,7 @@ where
         redis_client.clone(),
         QUOTA_LIMITER_CACHE_KEY.to_string(),
         config.redis_key_prefix.clone(),
-        QuotaResource::AIEvents,
+        QuotaResource::LLMEvents,
         ServiceName::Capture,
     )
     .expect("failed to create AI events limiter");
