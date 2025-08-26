@@ -52,9 +52,7 @@ def create_mock_query_executor():
 # TRICKY: Preserve the non-atomic setup for the test. Otherwise, threads would stall because
 # `query_executor.arun_and_format_query` spawns threads with a new connection.
 @patch("ee.hogai.graph.insights.nodes.AssistantQueryExecutor", create_mock_query_executor)
-class TestInsightSearchNode(NonAtomicBaseTest):
-    # TRICKY: See above.
-    CLASS_DATA_LEVEL_SETUP = False
+class TestInsightSearchNode(BaseTest):
 
     def setUp(self):
         super().setUp()
