@@ -170,10 +170,11 @@ def prepare_ast_for_printing(
             resolve_lazy_tables(node, dialect, stack, context)
 
         # Add timestamp condition optimization for events table queries
-        if context.modifiers and getattr(context.modifiers, 'optimizeTimestampConditions', True):
+        if context.modifiers and getattr(context.modifiers, "optimizeTimestampConditions", False):
             with context.timings.measure("optimize_timestamp_conditions"):
                 from posthog.hogql.transforms.timestamp_condition import optimize_timestamp_conditions
-                node = optimize_timestamp_conditions(node, context)
+
+                optimize_timestamp_conditions(node, context)
 
         with context.timings.measure("swap_properties"):
             node = PropertySwapper(

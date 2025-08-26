@@ -1,10 +1,10 @@
 # HogQL Timestamp Optimization Implementation Plan
 
 ## Executive Summary
-This document outlines the plan to refactor the HogQL SQL generator to ensure that all queries against the `events` table include a `toDate(timestamp)` condition. This optimization will leverage the existing ClickHouse index on `(team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))` to significantly improve query performance.
+This document outlines the plan to optimize HogQL SQL generation by automatically adding `toDate(timestamp)` conditions to queries against the `events` table. For each existing condition on the `timestamp` column, we will add a corresponding condition on `toDate(timestamp)` that checks only the date portion. This optimization leverages the existing ClickHouse index on `(team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))` to significantly improve query performance.
 
 ## Problem Statement
-Currently, HogQL queries against the events table may not always include a `toDate(timestamp)` condition in their WHERE clause. Without this condition, ClickHouse cannot efficiently use the primary index, leading to slower query execution times and higher resource consumption.
+Currently, HogQL queries against the events table that filter on timestamp do not include corresponding `toDate(timestamp)` conditions. Without these date-level conditions, ClickHouse cannot efficiently use the primary index, leading to slower query execution times and higher resource consumption.
 
 ## Technical Background
 
@@ -29,43 +29,52 @@ Location: `posthog/models/event/sql.py:129`
 **File**: `posthog/hogql/transforms/timestamp_condition.py`
 
 **Responsibilities**:
-- Traverse the AST to identify queries using the events table
-- Check for existing `toDate(timestamp)` conditions
-- Inject optimized conditions when missing
-- Handle complex query patterns (joins, subqueries, CTEs)
+- Traverse the AST to identify SELECT queries with events table
+- Find all conditions on the `timestamp` column
+- For each timestamp condition, generate a corresponding `toDate(timestamp)` condition
+- Add the date conditions to the WHERE clause without modifying existing conditions
 
 **Key Classes**:
 ```python
 class TimestampConditionTransformer(TraversingVisitor):
     """
-    Ensures all events table queries include toDate(timestamp) conditions
-    for optimal index usage.
+    For each condition on timestamp column in events table queries,
+    adds a corresponding toDate(timestamp) condition checking only the date.
     """
     
     def visit_select_query(self, node: ast.SelectQuery):
-        # Implementation details
+        if self._uses_events_table(node):
+            timestamp_conditions = self._find_timestamp_conditions(node)
+            for condition in timestamp_conditions:
+                date_condition = self._create_date_condition(condition)
+                self._add_condition_to_where(node, date_condition)
+        return node
+    
+    def _uses_events_table(self, node: ast.SelectQuery) -> bool:
+        # Check if events table is referenced in FROM clause
         pass
     
-    def _has_events_table(self, node: ast.SelectQuery) -> bool:
-        # Check if events table is referenced
+    def _find_timestamp_conditions(self, node: ast.SelectQuery) -> List[ast.Expr]:
+        # Find all conditions that filter on timestamp column
         pass
     
-    def _has_todate_condition(self, node: ast.SelectQuery) -> bool:
-        # Check for existing toDate conditions
+    def _create_date_condition(self, timestamp_condition: ast.Expr) -> ast.Expr:
+        # Convert timestamp condition to corresponding toDate condition
+        # e.g., timestamp > '2024-01-01' -> toDate(timestamp) >= toDate('2024-01-01')
         pass
     
-    def _inject_todate_condition(self, node: ast.SelectQuery) -> ast.SelectQuery:
-        # Add the condition to WHERE clause
+    def _add_condition_to_where(self, node: ast.SelectQuery, condition: ast.Expr):
+        # Add the date condition to WHERE clause using AND
         pass
 ```
 
-#### 1.2 Enhance Timestamp Detection
+#### 1.2 Condition Analysis Utilities
 **File**: `posthog/hogql/helpers/timestamp_visitor.py`
 
 **New Functions**:
-- `extract_timestamp_range()`: Extract date ranges from existing conditions
-- `has_todate_condition()`: Check for toDate wrapped conditions
-- `create_todate_condition()`: Generate optimized toDate conditions
+- `extract_timestamp_field()`: Check if an expression references the timestamp column
+- `convert_operator_for_date()`: Convert timestamp operators to appropriate date operators
+- `create_todate_condition()`: Generate `toDate(timestamp)` condition from timestamp condition
 
 ### Phase 2: Pipeline Integration
 
@@ -98,23 +107,22 @@ class HogQLQueryModifiers:
 
 ### Phase 3: Implementation Details
 
-#### 3.1 Condition Injection Logic
+#### 3.1 Condition Transformation Logic
 The transformer will follow these rules:
 
 1. **Detection Phase**:
-   - Identify if `events` table is in FROM clause
-   - Check for existing timestamp conditions
-   - Analyze query date range requirements
+   - Check if the SELECT query's table is `events`
+   - Find all WHERE conditions that reference the `timestamp` column
 
-2. **Injection Phase**:
-   - If no date condition exists, add a reasonable default (e.g., last 30 days)
-   - If timestamp conditions exist but no toDate, wrap them appropriately
-   - Preserve existing conditions while adding optimization
+2. **Transformation Phase**:
+   - For each timestamp condition found, create a corresponding `toDate(timestamp)` condition
+   - Convert operators appropriately (e.g., `>` becomes `>=`, `<` becomes `<=` for date boundaries)
+   - Preserve the original timestamp conditions unchanged
 
-3. **Optimization Phase**:
-   - Combine multiple date conditions when possible
-   - Use the most restrictive date range
-   - Ensure conditions align with index structure
+3. **Integration Phase**:
+   - Add the new date conditions to the WHERE clause using AND logic
+   - Ensure conditions are properly parenthesized
+   - Maintain query semantics and correctness
 
 #### 3.2 Edge Cases to Handle
 - Queries with JOIN operations involving events table
@@ -242,23 +250,40 @@ if context.modifiers.optimizeTimestampConditions:
 
 ### Example Transformations
 
-#### Before Optimization
+#### Simple Timestamp Filter
 ```sql
+-- Before
 SELECT count(*) 
 FROM events 
-WHERE event = 'pageview'
-```
+WHERE timestamp > '2024-01-01 10:30:00'
 
-#### After Optimization
-```sql
+-- After  
 SELECT count(*) 
 FROM events 
-WHERE event = 'pageview' 
-  AND toDate(timestamp) >= today() - 30
-  AND toDate(timestamp) <= today()
+WHERE timestamp > '2024-01-01 10:30:00'
+  AND toDate(timestamp) >= toDate('2024-01-01 10:30:00')
 ```
 
-#### Complex Query Example
+#### Range Query Example
+```sql
+-- Before
+SELECT event, count(*) 
+FROM events 
+WHERE timestamp >= '2024-01-01' 
+  AND timestamp < '2024-02-01'
+  AND event = 'pageview'
+
+-- After
+SELECT event, count(*) 
+FROM events 
+WHERE timestamp >= '2024-01-01' 
+  AND timestamp < '2024-02-01'
+  AND event = 'pageview'
+  AND toDate(timestamp) >= toDate('2024-01-01')
+  AND toDate(timestamp) < toDate('2024-02-01')
+```
+
+#### Complex Query with JOIN
 ```sql
 -- Before
 SELECT event, count(*) 
@@ -273,7 +298,6 @@ FROM events e
 JOIN persons p ON e.person_id = p.id
 WHERE e.timestamp > '2024-01-01'
   AND toDate(e.timestamp) >= toDate('2024-01-01')
-  AND toDate(e.timestamp) <= today()
 GROUP BY event
 ```
 
