@@ -185,18 +185,25 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
 
         // Get tracker statistics
         let stats = self.tracker.get_stats().await;
-        info!("Tracker stats before commit: in_flight={}, completed={}, failed={}", 
-            stats.in_flight, stats.completed, stats.failed);
+        info!(
+            "Tracker stats before commit: in_flight={}, completed={}, failed={}",
+            stats.in_flight, stats.completed, stats.failed
+        );
 
         // Get safe commit offsets from tracker (only commits completed messages)
         let safe_offsets = self.tracker.get_safe_commit_offsets().await;
 
         if safe_offsets.is_empty() {
-            info!("No safe offsets to commit - this may indicate messages are not being acknowledged");
+            info!(
+                "No safe offsets to commit - this may indicate messages are not being acknowledged"
+            );
             return Ok(());
         }
 
-        info!("Found {} partition(s) with safe offsets to commit", safe_offsets.len());
+        info!(
+            "Found {} partition(s) with safe offsets to commit",
+            safe_offsets.len()
+        );
 
         // Build TopicPartitionList with safe offsets
         let mut topic_partition_list = rdkafka::TopicPartitionList::new();
@@ -221,7 +228,10 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
             .commit(&topic_partition_list, CommitMode::Async)
         {
             Ok(_) => {
-                info!("Successfully committed offsets for {} partition(s)", topic_partition_list.count());
+                info!(
+                    "Successfully committed offsets for {} partition(s)",
+                    topic_partition_list.count()
+                );
                 Ok(())
             }
             Err(e) => {
