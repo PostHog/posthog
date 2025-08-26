@@ -64,12 +64,15 @@ class InsightSearchNode(AssistantNode):
         self._cutoff_date_for_insights_in_days = self.INSIGHTS_CUTOFF_DAYS
         self._query_cache = {}
         self._insight_id_cache = {}
+        self._stream_writer = None
 
     def _get_stream_writer(self) -> StreamWriter | None:
-        try:
-            return get_stream_writer()
-        except Exception:
-            return None
+        if self._stream_writer is None:
+            try:
+                self._stream_writer = get_stream_writer()
+            except Exception:
+                self._stream_writer = None
+        return self._stream_writer
 
     def _stream_reasoning(
         self, content: str, substeps: list[str] | None = None, writer: StreamWriter | None = None
@@ -144,7 +147,6 @@ class InsightSearchNode(AssistantNode):
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         search_query = state.search_insights_query
-
         try:
             self._current_iteration = 0
 
