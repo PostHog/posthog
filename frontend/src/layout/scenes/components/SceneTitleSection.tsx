@@ -308,10 +308,6 @@ function SceneDescription({
 
     const debouncedOnDescriptionChange = useDebouncedCallback(onChange || (() => {}), renameDebounceMs)
 
-    if (!onChange && canEdit) {
-        console.warn('SceneDescription: onBlur is required when canEdit is true')
-    }
-
     const Element =
         onChange && canEdit ? (
             <>
