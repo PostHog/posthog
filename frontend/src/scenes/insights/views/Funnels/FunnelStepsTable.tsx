@@ -36,7 +36,6 @@ export function FunnelStepsTable(): JSX.Element | null {
     )
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
     const { openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
-    const { hasInsightColors } = useValues(resultCustomizationsModalLogic(insightProps))
     const { openModal } = useActions(resultCustomizationsModalLogic(insightProps))
 
     const isOnlySeries = flattenedBreakdowns.length <= 1
@@ -56,7 +55,7 @@ export function FunnelStepsTable(): JSX.Element | null {
     in by experiments as a measure of detecting wether we are in an experiment context.
     Likely this can be done in a better way once experiments are re-written to use their own
     queries. */
-    const showCustomizationIcon = hasInsightColors && !insightProps.cachedInsight?.disable_baseline
+    const showCustomizationIcon = !insightProps.cachedInsight?.disable_baseline
 
     const columnsGrouped = [
         {
