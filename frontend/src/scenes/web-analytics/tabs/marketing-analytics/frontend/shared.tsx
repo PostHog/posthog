@@ -69,10 +69,10 @@ const formatChangePercentage = (changeFromPreviousPct: number | null | undefined
     }
 
     if (changeFromPreviousPct === InfinityValue.INFINITY_VALUE) {
-        return '∞%'
+        return '-'
     }
     if (changeFromPreviousPct === InfinityValue.NEGATIVE_INFINITY_VALUE) {
-        return '-∞%'
+        return '-'
     }
 
     return percentage(changeFromPreviousPct / 100, 2)
@@ -184,7 +184,13 @@ const getChangeBackgroundColor = (
 }
 
 // Internal component that handles the actual rendering
-const MarketingAnalyticsCellInternal = ({ value: item }: { value: MarketingAnalyticsItem }): JSX.Element | null => {
+const MarketingAnalyticsCellInternal = ({
+    value: item,
+    style,
+}: {
+    value: MarketingAnalyticsItem
+    style?: React.CSSProperties
+}): JSX.Element | null => {
     const { baseCurrency } = useValues(teamLogic)
 
     // Handle different no-data scenarios
@@ -192,8 +198,8 @@ const MarketingAnalyticsCellInternal = ({ value: item }: { value: MarketingAnaly
         return (
             <Tooltip title={getNoDataTooltip(item)} delayMs={300} className="cursor-default">
                 <div
-                    className="flex items-center justify-start min-w-0 cursor-default text-muted w-full hover:bg-warning-highlight"
-                    style={{ maxWidth: '200px' }}
+                    className="flex items-center justify-start min-w-0 cursor-default text-muted w-full hover:bg-warning-highlight h-full"
+                    style={{ padding: '0.5rem', ...style }}
                 >
                     <span className="overflow-hidden text-ellipsis whitespace-nowrap">-</span>
                 </div>
@@ -210,8 +216,8 @@ const MarketingAnalyticsCellInternal = ({ value: item }: { value: MarketingAnaly
         return (
             <Tooltip title={getNoDataTooltip(item)} delayMs={300} className="cursor-default">
                 <div
-                    className="flex flex-wrap min-w-0 cursor-default text-muted w-full hover:bg-warning-highlight"
-                    style={{ maxWidth: '200px' }}
+                    className="flex flex-wrap items-center min-w-0 cursor-default text-muted w-full hover:bg-warning-highlight h-full"
+                    style={{ padding: '0.5rem', ...style }}
                 >
                     <div className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap w-full">
                         ({formattedPrevious})
@@ -253,10 +259,11 @@ const MarketingAnalyticsCellInternal = ({ value: item }: { value: MarketingAnaly
     return (
         <Tooltip title={tooltip} delayMs={300} className="cursor-default">
             <div
-                className="flex flex-wrap min-w-0 cursor-default w-full hover:bg-warning-highlight"
+                className="flex flex-wrap items-center min-w-0 cursor-default w-full hover:bg-warning-highlight h-full"
                 style={{
                     backgroundColor: bgColor,
-                    maxWidth: '200px',
+                    padding: '0.5rem',
+                    ...style,
                 }}
             >
                 <div className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap w-full">
@@ -277,11 +284,17 @@ const MarketingAnalyticsCellInternal = ({ value: item }: { value: MarketingAnaly
 }
 
 // Adapter component that matches QueryContextColumnComponent interface
-export const MarketingAnalyticsCell = ({ value }: { value: unknown }): JSX.Element | null => {
+export const MarketingAnalyticsCell = ({
+    value,
+    style,
+}: {
+    value: unknown
+    style?: React.CSSProperties
+}): JSX.Element | null => {
     // Type guard to ensure we have a MarketingAnalyticsItem
     if (typeof value !== 'object' || value === null || !('key' in value)) {
         return <span>-</span>
     }
 
-    return <MarketingAnalyticsCellInternal value={value as MarketingAnalyticsItem} />
+    return <MarketingAnalyticsCellInternal value={value as MarketingAnalyticsItem} style={style} />
 }
