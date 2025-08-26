@@ -61,13 +61,13 @@ from ee.hogai.session_summaries.session.summarize_session import (
     prepare_single_session_summary_input,
 )
 from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
-from ee.hogai.session_summaries.session_group.summarize_session_group import get_ready_summaries_from_db
 from ee.hogai.session_summaries.session_group.summary_notebooks import (
     format_extracted_patterns_status,
     format_patterns_assignment_progress,
     format_single_sessions_status,
 )
 from ee.hogai.session_summaries.utils import logging_session_ids
+from ee.models.session_summaries import SingleSessionSummary
 
 logger = structlog.get_logger(__name__)
 
@@ -93,6 +93,27 @@ def _get_db_events_per_page(
     return response
 
 
+def _get_ready_summaries_from_db(
+    session_ids: list[str], team: Team, extra_summary_context: ExtraSummaryContext | None
+) -> list[SingleSessionSummary]:
+    has_next = True
+    offset = 0
+    ready_summaries = []
+    while has_next:
+        summaries = SingleSessionSummary.objects.get_bulk_summaries(
+            team=team,
+            session_ids=session_ids,
+            extra_summary_context=extra_summary_context,
+            limit=100,
+            offset=offset,
+        )
+        ready_summaries.extend(summaries.results)
+        if not summaries.has_next:
+            has_next = False
+        offset += 100
+    return ready_summaries
+
+
 def _get_db_columns(response_columns: list) -> list[str]:
     """Get the columns from the response and remove the properties prefix for backwards compatibility."""
     columns = [str(x).replace("properties.", "") for x in response_columns]
@@ -109,7 +130,7 @@ async def fetch_session_batch_events_activity(
     # Get the team
     team = await database_sync_to_async(get_team)(team_id=inputs.team_id)
     # Find sessions that have summaries already and stored in the DB
-    ready_summaries = await database_sync_to_async(get_ready_summaries_from_db)(
+    ready_summaries = await database_sync_to_async(_get_ready_summaries_from_db)(
         team=team,
         session_ids=inputs.session_ids,
         extra_summary_context=inputs.extra_summary_context,
