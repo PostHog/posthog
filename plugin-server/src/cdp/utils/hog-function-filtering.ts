@@ -351,8 +351,9 @@ export async function filterFunctionInstrumented(options: {
     }
 
     try {
-        // If there are no filters, everything matches no need to execute bytecode (lets save those cpu cycles)
-        if (!filters?.actions && !filters?.events && !filters?.filter_test_accounts && !filters?.properties) {
+        // If there are no filters (only bytecode exists then on the filter object)
+        // everything matches no need to execute bytecode (lets save those cpu cycles)
+        if (filters && Object.keys(filters).length === 1 && 'bytecode' in filters) {
             result.match = true
             return result
         }
