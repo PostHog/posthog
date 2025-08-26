@@ -1,8 +1,9 @@
 import json
-from collections.abc import Generator
+from collections.abc import AsyncGenerator
 from contextlib import nullcontext
 from typing import Any, Optional, cast
 
+from django.conf import settings
 from django.db.models import Prefetch
 from django.http import StreamingHttpResponse
 from django.utils.timezone import now
@@ -10,6 +11,7 @@ from django.utils.timezone import now
 import structlog
 import pydantic_core
 import posthoganalytics
+from asgiref.sync import sync_to_async
 from opentelemetry import trace
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
@@ -43,6 +45,8 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import filters_override_requested_by_client, variables_override_requested_by_client
+
+from ee.hogai.utils.aio import async_to_sync
 
 logger = structlog.get_logger(__name__)
 
@@ -695,69 +699,78 @@ class DashboardsViewSet(
         """Stream dashboard metadata and tiles via Server-Sent Events. Sends metadata first, then tiles as they are rendered."""
         dashboard = self.get_object()  # This will raise 404 if not found - let it bubble up normally
 
-        def tile_stream_generator() -> Generator[str, None, None]:
-            # Create renderer once for all messages
+        # Do all database operations and data loading synchronously first
+        dashboard.last_accessed_at = now()
+        dashboard.save(update_fields=["last_accessed_at"])
+
+        # Prepare metadata
+        metadata_serializer = DashboardMetadataSerializer(dashboard, context=self.get_serializer_context())
+        metadata_data = metadata_serializer.data
+        # Ensure tiles field is present (empty array for streaming)
+        metadata_data["tiles"] = []
+
+        # Create serializer context for tiles
+        context = self.get_serializer_context()
+        context.update({"dashboard": dashboard})
+
+        # Get tiles with proper prefetch
+        tiles = DashboardTile.dashboard_queryset(dashboard.tiles.all()).prefetch_related(
+            Prefetch(
+                "insight__tagged_items",
+                queryset=TaggedItem.objects.select_related("tag"),
+                to_attr="prefetched_tags",
+            )
+        )
+
+        layout_size = self._get_layout_size_from_request(request)
+
+        sorted_tiles = sorted(
+            tiles,
+            key=lambda tile: (
+                tile.layouts.get(layout_size, {}).get("y", 100),
+                tile.layouts.get(layout_size, {}).get("x", 100),
+            ),
+        )
+
+        # Async generator that handles progressive tile serialization and streaming
+        async def async_tile_stream_generator() -> AsyncGenerator[bytes, None]:
             renderer = SafeJSONRenderer()
 
             try:
-                # First, stream the dashboard metadata
-                dashboard.last_accessed_at = now()
-                dashboard.save(update_fields=["last_accessed_at"])
-                metadata_serializer = DashboardMetadataSerializer(dashboard, context=self.get_serializer_context())
-                metadata_data = metadata_serializer.data
-                # Ensure tiles field is present (empty array for streaming)
-                metadata_data["tiles"] = []
+                # Stream metadata first
                 metadata_json = renderer.render({"type": "metadata", "dashboard": metadata_data}).decode()
-                yield f"data: {metadata_json}\n\n"
+                yield f"data: {metadata_json}\n\n".encode()
 
-                # Create serializer context for tiles
-                context = self.get_serializer_context()
-                context.update({"dashboard": dashboard})
-
-                # Get tiles with proper prefetch
-                tiles = DashboardTile.dashboard_queryset(dashboard.tiles.all()).prefetch_related(
-                    Prefetch(
-                        "insight__tagged_items",
-                        queryset=TaggedItem.objects.select_related("tag"),
-                        to_attr="prefetched_tags",
-                    )
-                )
-
-                layout_size = self._get_layout_size_from_request(request)
-
-                sorted_tiles = sorted(
-                    tiles,
-                    key=lambda tile: (
-                        tile.layouts.get(layout_size, {}).get("y", 100),
-                        tile.layouts.get(layout_size, {}).get("x", 100),
-                    ),
-                )
-
+                # Serialize and stream tiles one at a time
                 for order, tile in enumerate(sorted_tiles):
                     try:
-                        order, tile_data = serialize_tile_with_context(tile, order, context)
+                        order, tile_data = await sync_to_async(serialize_tile_with_context, thread_sensitive=True)(
+                            tile, order, context
+                        )
                         tile_json = renderer.render({"type": "tile", "order": order, "tile": tile_data}).decode()
-                        yield f"data: {tile_json}\n\n"
+                        yield f"data: {tile_json}\n\n".encode()
                     except Exception as e:
                         logger.exception(f"Error serializing tile {tile.id}: {e}")
                         error_json = renderer.render({"type": "error", "tile_id": tile.id, "error": str(e)}).decode()
-                        yield f"data: {error_json}\n\n"
+                        yield f"data: {error_json}\n\n".encode()
 
                 # Send completion signal
                 complete_json = renderer.render({"type": "complete"}).decode()
-                yield f"data: {complete_json}\n\n"
+                yield f"data: {complete_json}\n\n".encode()
 
             except Exception as e:
                 logger.exception(f"Error in tile streaming: {e}")
                 error_json = renderer.render({"type": "error", "error": str(e)}).decode()
-                yield f"data: {error_json}\n\n"
+                yield f"data: {error_json}\n\n".encode()
 
-        # Create streaming response
         response = StreamingHttpResponse(
-            streaming_content=tile_stream_generator(), content_type=ServerSentEventRenderer.media_type
+            streaming_content=(
+                async_tile_stream_generator()
+                if settings.SERVER_GATEWAY_INTERFACE == "ASGI"
+                else async_to_sync(lambda: async_tile_stream_generator())
+            ),
+            content_type=ServerSentEventRenderer.media_type,
         )
-        response["Cache-Control"] = "no-cache"
-        response["X-Accel-Buffering"] = "no"
         return response
 
     def _get_layout_size_from_request(self, request: Request) -> str:
