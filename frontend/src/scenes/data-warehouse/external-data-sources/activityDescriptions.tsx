@@ -5,7 +5,23 @@ import {
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 
-import { ActivityScope } from '~/types'
+import { ActivityScope, DataWarehouseSyncInterval, ExternalDataSourceSyncSchema } from '~/types'
+
+import { SyncTypeLabelMap } from '../utils'
+
+const getSyncFrequencyLabel = (syncFrequency: string): string => {
+    const syncFrequencyMap: Record<DataWarehouseSyncInterval, string> = {
+        '5min': 'every 5 mins',
+        '30min': 'every 30 mins',
+        '1hour': 'every 1 hour',
+        '6hour': 'every 6 hours',
+        '12hour': 'every 12 hours',
+        '24hour': 'daily',
+        '7day': 'weekly',
+        '30day': 'monthly',
+    }
+    return syncFrequencyMap[syncFrequency as DataWarehouseSyncInterval] || syncFrequency
+}
 
 const getDisplayName = (logItem: ActivityLogItem): string => {
     const name = logItem?.detail?.name
@@ -28,18 +44,24 @@ const getDisplayName = (logItem: ActivityLogItem): string => {
     // Handle ExternalDataSchema display name
     if (logItem.scope === ActivityScope.EXTERNAL_DATA_SCHEMA) {
         const schemaName = logItem?.detail?.name || 'Unnamed Schema'
-        const syncType = (logItem?.detail as any)?.sync_type
-        const syncFrequency = (logItem?.detail as any)?.sync_frequency
+        const context = (logItem?.detail as any)?.context
+        const syncType = context?.sync_type
+        const syncFrequency = context?.sync_frequency
 
-        if (syncType && syncFrequency) {
-            return `${schemaName} (${syncType}, ${syncFrequency})`
-        } else if (syncType) {
-            return `${schemaName} (${syncType})`
+        const humanizedSyncType = syncType
+            ? SyncTypeLabelMap[syncType as NonNullable<ExternalDataSourceSyncSchema['sync_type']>] || syncType
+            : null
+        const humanizedSyncFrequency = syncFrequency ? getSyncFrequencyLabel(syncFrequency) : null
+
+        if (humanizedSyncType && humanizedSyncFrequency) {
+            return `${schemaName} (${humanizedSyncType}, ${humanizedSyncFrequency})`
+        } else if (humanizedSyncType) {
+            return `${schemaName} (${humanizedSyncType})`
         }
         return schemaName
     }
 
-    return 'External Data Source'
+    return 'Source'
 }
 
 export function externalDataSourceActivityDescriber(

@@ -369,21 +369,18 @@ class ExternalDataSchemaContext(ActivityContextBase):
 def handle_external_data_schema_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
-    from posthog.models.activity_logging.external_data_utils import get_external_data_schema_detail_name
+    if activity == "created":
+        # We don't want to log the creation of schemas as they get bulk created on source creation
+        return
 
-    # Use after_update for create/update, before_update for delete
     external_data_schema = after_update or before_update
 
     if not external_data_schema:
         return
 
-    detail_name = get_external_data_schema_detail_name(external_data_schema)
-
-    # Get source information for context
     source = external_data_schema.source
     source_type = source.source_type if source else ""
 
-    # Get sync frequency from sync_frequency_interval if available
     sync_frequency = None
     if external_data_schema.sync_frequency_interval:
         from posthog.warehouse.models.external_data_schema import sync_frequency_interval_to_sync_frequency
@@ -408,7 +405,7 @@ def handle_external_data_schema_change(
         activity=activity,
         detail=Detail(
             changes=changes_between(scope, previous=before_update, current=after_update),
-            name=detail_name,
+            name=external_data_schema.name,
             context=context,
         ),
     )

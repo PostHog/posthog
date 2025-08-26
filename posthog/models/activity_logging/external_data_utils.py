@@ -11,45 +11,6 @@ def get_external_data_source_detail_name(external_data_source) -> str:
     return source_type
 
 
-def get_external_data_schema_detail_name(external_data_schema) -> str:
-    """Generate detail name for ExternalDataSchema activity"""
-    name = external_data_schema.name or "Unnamed Schema"
-    sync_type = external_data_schema.sync_type or "unknown"
-
-    # Use the deprecated sync_frequency if available, otherwise use sync_frequency_interval
-    sync_frequency = None
-    if hasattr(external_data_schema, "sync_frequency") and external_data_schema.sync_frequency:
-        sync_frequency = external_data_schema.sync_frequency
-    elif external_data_schema.sync_frequency_interval:
-        # Convert timedelta to human-readable format
-        days = external_data_schema.sync_frequency_interval.days
-        hours = external_data_schema.sync_frequency_interval.seconds // 3600
-
-        if days > 0:
-            if days == 1:
-                sync_frequency = "daily"
-            elif days == 7:
-                sync_frequency = "weekly"
-            elif days >= 30:
-                sync_frequency = "monthly"
-            else:
-                sync_frequency = f"{days}d"
-        elif hours > 0:
-            if hours == 1:
-                sync_frequency = "hourly"
-            elif hours == 6:
-                sync_frequency = "6h"
-            elif hours == 12:
-                sync_frequency = "12h"
-            else:
-                sync_frequency = f"{hours}h"
-
-    if sync_frequency:
-        return f"{name} ({sync_type}, {sync_frequency})"
-
-    return f"{name} ({sync_type})"
-
-
 def get_external_data_source_created_by_info(
     external_data_source,
 ) -> tuple[Optional[str], Optional[str], Optional[str]]:

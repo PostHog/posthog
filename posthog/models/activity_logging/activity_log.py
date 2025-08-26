@@ -1,6 +1,6 @@
 import json
 import dataclasses
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 from uuid import UUID
@@ -118,6 +118,8 @@ class ActivityDetailEncoder(json.JSONEncoder):
             return obj.isoformat()
         if isinstance(obj, time):
             return obj.isoformat()
+        if isinstance(obj, timedelta):
+            return str(obj)
         if isinstance(obj, UUIDT):
             return str(obj)
         if isinstance(obj, UUID):
@@ -243,6 +245,9 @@ field_name_overrides: dict[ActivityScope, dict[str, str]] = {
     },
     "BatchExport": {
         "paused": "enabled",
+    },
+    "ExternalDataSchema": {
+        "should_sync": "enabled",
     },
 }
 
@@ -447,8 +452,6 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "sync_type_config",
         "latest_error",
         "last_synced_at",
-        "table",
-        "sync_frequency_interval",
     ],
 }
 
@@ -763,8 +766,9 @@ def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
 
     try:
         serialized_data = ActivityLogSerializer(instance).data
+        # We need to serialize the detail object using the encoder to avoid unsupported types like timedelta
+        serialized_data["detail"] = json.loads(json.dumps(serialized_data["detail"], cls=ActivityDetailEncoder))
         # TODO: Move this into the producer to support dataclasses
-        serialized_data["detail"] = dataclasses.asdict(serialized_data["detail"])
         user_data = UserBasicSerializer(instance.user).data if instance.user else None
 
         if created and instance.team_id is not None:
