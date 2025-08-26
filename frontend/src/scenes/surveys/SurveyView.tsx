@@ -441,6 +441,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         processedSurveyStats,
         survey,
         formattedOpenEndedResponses,
+        isSurveyAnalysisMaxToolEnabled,
     } = useValues(surveyLogic)
 
     const atLeastOneResponse = !!processedSurveyStats?.[SurveyEventName.SENT].total_count
@@ -460,7 +461,11 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
             <SurveyStatsSummary />
             {isAnyResultsLoading || atLeastOneResponse ? (
                 <>
-                    <MaxTool identifier="analyze_survey_responses" context={maxToolContext}>
+                    <MaxTool
+                        identifier="analyze_survey_responses"
+                        context={maxToolContext}
+                        active={isSurveyAnalysisMaxToolEnabled}
+                    >
                         <SurveyResponsesByQuestionV2 />
                     </MaxTool>
                     <LemonButton

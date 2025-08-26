@@ -1280,6 +1280,12 @@ export const surveyLogic = kea<surveyLogicType>([
                         )`
             },
         ],
+        isSurveyAnalysisMaxToolEnabled: [
+            (s) => [s.enabledFlags],
+            (enabledFlags: FeatureFlagsSet): boolean => {
+                return !!enabledFlags[FEATURE_FLAGS.SURVEY_ANALYSIS_MAX_TOOL]
+            },
+        ],
         isExternalSurveyFFEnabled: [
             (s) => [s.enabledFlags],
             (enabledFlags: FeatureFlagsSet): boolean => {
