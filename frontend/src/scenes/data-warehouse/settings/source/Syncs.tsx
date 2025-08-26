@@ -22,8 +22,10 @@ interface SyncsProps {
 }
 
 export const Syncs = ({ id }: SyncsProps): JSX.Element => {
-    const { jobs, jobsLoading, canLoadMoreJobs } = useValues(dataWarehouseSourceSettingsLogic({ id }))
-    const { loadMoreJobs } = useActions(dataWarehouseSourceSettingsLogic({ id }))
+    const { jobs, jobsLoading, canLoadMoreJobs } = useValues(
+        dataWarehouseSourceSettingsLogic({ id, availableSources: {} })
+    )
+    const { loadMoreJobs } = useActions(dataWarehouseSourceSettingsLogic({ id, availableSources: {} }))
 
     return (
         <LemonTable

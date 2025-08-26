@@ -1,13 +1,16 @@
 from typing import Any, cast
 from uuid import uuid4
-from ee.hogai.graph.base import AssistantNode
-from ee.hogai.graph.billing.prompts import BILLING_CONTEXT_PROMPT
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
+
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import AssistantToolCallMessage, MaxBillingContext, SpendHistoryItem, UsageHistoryItem
+
 from posthog.clickhouse.client import sync_execute
+
+from ee.hogai.graph.base import AssistantNode
+from ee.hogai.graph.billing.prompts import BILLING_CONTEXT_PROMPT
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
 # sync with frontend/src/scenes/billing/constants.ts
 USAGE_TYPES = [

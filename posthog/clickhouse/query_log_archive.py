@@ -1,12 +1,16 @@
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
 
-
 QUERY_LOG_ARCHIVE_DATA_TABLE = "query_log_archive"
+QUERY_LOG_ARCHIVE_MV = "query_log_archive_mv"
 
 
 def QUERY_LOG_ARCHIVE_TABLE_ENGINE():
     return MergeTreeEngine("query_log_archive", replication_scheme=ReplicationScheme.REPLICATED)
+
+
+def QUERY_LOG_ARCHIVE_TABLE_ENGINE_NEW():
+    return MergeTreeEngine("query_log_archive_new", replication_scheme=ReplicationScheme.REPLICATED)
 
 
 CREATE_QUERY_LOG_ARCHIVE_BASE_TABLE = """
@@ -123,9 +127,9 @@ MODIFY_QUERY_LOG_ARCHIVE_TABLE_V2 = [
 ADD_TEAM_ID_ALIAS_COLUMN = "ALTER TABLE query_log_archive ADD COLUMN IF NOT EXISTS team_id Int64 ALIAS lc_team_id"
 
 
-def QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(on_cluster=True):
+def QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(table_name="query_log_archive_new", on_cluster=True):
     return """
-CREATE TABLE IF NOT EXISTS query_log_archive_new {on_cluster_clause} (
+CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause} (
     hostname                              LowCardinality(String),
     user                                  LowCardinality(String),
     query_id                              String,
@@ -227,14 +231,17 @@ PARTITION BY toYYYYMM(event_date)
 ORDER BY (team_id, event_date, event_time, query_id)
 PRIMARY KEY (team_id, event_date, event_time, query_id)
     """.format(
+        table_name=table_name,
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
-        engine=QUERY_LOG_ARCHIVE_TABLE_ENGINE(),
+        engine=QUERY_LOG_ARCHIVE_TABLE_ENGINE_NEW(),
     )
 
 
-def QUERY_LOG_ARCHIVE_NEW_MV(on_cluster=True):
-    return """CREATE MATERIALIZED VIEW query_log_archive_new_mv {on_cluster_clause}
-TO query_log_archive_new
+def QUERY_LOG_ARCHIVE_NEW_MV_SQL(
+    view_name="query_log_archive_new_mv", dest_table="query_log_archive_new", on_cluster=True
+):
+    return """CREATE MATERIALIZED VIEW IF NOT EXISTS {view_name} {on_cluster_clause}
+TO {dest_table}
 AS SELECT
     hostname,
     user,
@@ -341,221 +348,18 @@ WHERE
     type != 'QueryStart'
     AND is_initial_query
     """.format(
+        view_name=view_name,
+        dest_table=dest_table,
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
     )
-
-
-def INSERT_HISTORICAL_DATA_TO_QUERY_LOG_ARCHIVE_NEW():
-    return """
-        INSERT INTO query_log_archive_new
-        SELECT
-            hostname,
-            user,
-            query_id,
-            type,
-            event_date,
-            event_time,
-            event_time_microseconds,
-            query_start_time,
-            query_start_time_microseconds,
-            query_duration_ms,
-            read_rows,
-            read_bytes,
-            written_rows,
-            written_bytes,
-            result_rows,
-            result_bytes,
-            memory_usage,
-            peak_threads_usage,
-            current_database,
-            query,
-            formatted_query,
-            normalized_query_hash,
-            query_kind,
-            exception_code,
-            exception,
-            stack_trace,
-            ProfileEvents_RealTimeMicroseconds,
-            ProfileEvents_OSCPUVirtualTimeMicroseconds,
-            ProfileEvents_S3Clients,
-            ProfileEvents_S3DeleteObjects,
-            ProfileEvents_S3CopyObject,
-            ProfileEvents_S3ListObjects,
-            ProfileEvents_S3HeadObject,
-            ProfileEvents_S3GetObjectAttributes,
-            ProfileEvents_S3CreateMultipartUpload,
-            ProfileEvents_S3UploadPartCopy,
-            ProfileEvents_S3UploadPart,
-            ProfileEvents_S3AbortMultipartUpload,
-            ProfileEvents_S3CompleteMultipartUpload,
-            ProfileEvents_S3PutObject,
-            ProfileEvents_S3GetObject,
-            ProfileEvents_ReadBufferFromS3Bytes,
-            ProfileEvents_WriteBufferFromS3Bytes,
-            lc_workflow,
-            lc_kind,
-            lc_id,
-            lc_route_id,
-            lc_access_method,
-            lc_query_type,
-            lc_product,
-            lc_chargeable,
-            lc_name,
-            lc_client_query_id,
-            lc_org_id,
-            lc_team_id as team_id,  -- Map lc_team_id to team_id
-            lc_user_id,
-            lc_session_id,
-            lc_dashboard_id,
-            lc_insight_id,
-            lc_cohort_id,
-            lc_batch_export_id,
-            lc_experiment_id,
-            lc_experiment_feature_flag_key,
-            '' as lc_alert_config_id,  -- Field doesn't exist in old table
-            '' as lc_feature,  -- Field doesn't exist in old table
-            '' as lc_table_id,  -- Field doesn't exist in old table
-            0 as lc_warehouse_query,  -- Field doesn't exist in old table
-            '' as lc_person_on_events_mode,  -- Field doesn't exist in old table
-            '' as lc_service_name,  -- Field doesn't exist in old table
-            '' as lc_workload,  -- Field doesn't exist in old table
-            lc_query__kind,
-            lc_query__query,
-            lc_temporal__workflow_namespace,
-            lc_temporal__workflow_type,
-            lc_temporal__workflow_id,
-            lc_temporal__workflow_run_id,
-            lc_temporal__activity_type,
-            lc_temporal__activity_id,
-            lc_temporal__attempt,
-            lc_dagster__job_name,
-            lc_dagster__run_id,
-            lc_dagster__owner
-        FROM query_log_archive
-        WHERE event_time < (
-            SELECT event_time - INTERVAL 10 MINUTE
-            FROM query_log_archive_new
-            ORDER BY event_time ASC
-            LIMIT 1
-        )
-        """
-
-
-def INSERT_TRANSITION_PERIOD_DATA_TO_QUERY_LOG_ARCHIVE_NEW():
-    return """
-        INSERT INTO query_log_archive_new
-        SELECT
-            hostname,
-            user,
-            query_id,
-            type,
-            event_date,
-            event_time,
-            event_time_microseconds,
-            query_start_time,
-            query_start_time_microseconds,
-            query_duration_ms,
-            read_rows,
-            read_bytes,
-            written_rows,
-            written_bytes,
-            result_rows,
-            result_bytes,
-            memory_usage,
-            peak_threads_usage,
-            current_database,
-            query,
-            formatted_query,
-            normalized_query_hash,
-            query_kind,
-            exception_code,
-            exception,
-            stack_trace,
-            ProfileEvents_RealTimeMicroseconds,
-            ProfileEvents_OSCPUVirtualTimeMicroseconds,
-            ProfileEvents_S3Clients,
-            ProfileEvents_S3DeleteObjects,
-            ProfileEvents_S3CopyObject,
-            ProfileEvents_S3ListObjects,
-            ProfileEvents_S3HeadObject,
-            ProfileEvents_S3GetObjectAttributes,
-            ProfileEvents_S3CreateMultipartUpload,
-            ProfileEvents_S3UploadPartCopy,
-            ProfileEvents_S3UploadPart,
-            ProfileEvents_S3AbortMultipartUpload,
-            ProfileEvents_S3CompleteMultipartUpload,
-            ProfileEvents_S3PutObject,
-            ProfileEvents_S3GetObject,
-            ProfileEvents_ReadBufferFromS3Bytes,
-            ProfileEvents_WriteBufferFromS3Bytes,
-            lc_workflow,
-            lc_kind,
-            lc_id,
-            lc_route_id,
-            lc_access_method,
-            lc_query_type,
-            lc_product,
-            lc_chargeable,
-            lc_name,
-            lc_client_query_id,
-            lc_org_id,
-            lc_team_id as team_id,
-            lc_user_id,
-            lc_session_id,
-            lc_dashboard_id,
-            lc_insight_id,
-            lc_cohort_id,
-            lc_batch_export_id,
-            lc_experiment_id,
-            lc_experiment_feature_flag_key,
-            '' as lc_alert_config_id,
-            '' as lc_feature,
-            '' as lc_table_id,
-            0 as lc_warehouse_query,
-            '' as lc_person_on_events_mode,
-            '' as lc_service_name,
-            '' as lc_workload,
-            lc_query__kind,
-            lc_query__query,
-            lc_temporal__workflow_namespace,
-            lc_temporal__workflow_type,
-            lc_temporal__workflow_id,
-            lc_temporal__workflow_run_id,
-            lc_temporal__activity_type,
-            lc_temporal__activity_id,
-            lc_temporal__attempt,
-            lc_dagster__job_name,
-            lc_dagster__run_id,
-            lc_dagster__owner
-        FROM query_log_archive AS old
-        WHERE event_time >= (
-            SELECT event_time - INTERVAL 10 MINUTE
-            FROM query_log_archive_new
-            ORDER BY event_time ASC
-            LIMIT 1
-        )
-        AND event_time <= (
-            SELECT event_time + INTERVAL 10 MINUTE
-            FROM query_log_archive_new
-            ORDER BY event_time ASC
-            LIMIT 1
-        )
-        AND NOT EXISTS (
-            SELECT 1
-            FROM query_log_archive_new AS new
-            WHERE new.query_id = old.query_id
-            AND new.event_time >= old.event_time - INTERVAL 1 MINUTE
-            AND new.event_time <= old.event_time + INTERVAL 1 MINUTE
-        )
-        """
 
 
 def DROP_QUERY_LOG_ARCHIVE_MV(on_cluster=True):
     return f"DROP VIEW IF EXISTS query_log_archive_mv {ON_CLUSTER_CLAUSE(on_cluster)}"
 
 
-def RENAME_QUERY_LOG_ARCHIVE_TABLES(on_cluster=True):
-    return f"RENAME TABLE query_log_archive TO query_log_archive_old, query_log_archive_new TO query_log_archive {ON_CLUSTER_CLAUSE(on_cluster)}"
+def EXCHANGE_QUERY_LOG_ARCHIVE_TABLES(on_cluster=True):
+    return f"EXCHANGE TABLES query_log_archive_new AND query_log_archive {ON_CLUSTER_CLAUSE(on_cluster)}"
 
 
 def RENAME_QUERY_LOG_ARCHIVE_MV(on_cluster=True):
@@ -563,7 +367,7 @@ def RENAME_QUERY_LOG_ARCHIVE_MV(on_cluster=True):
 
 
 def DROP_QUERY_LOG_ARCHIVE_OLD_TABLE(on_cluster=True):
-    return f"DROP TABLE IF EXISTS query_log_archive_old {ON_CLUSTER_CLAUSE(on_cluster)}"
+    return f"DROP TABLE IF EXISTS query_log_archive_new {ON_CLUSTER_CLAUSE(on_cluster)}"
 
 
 def QUERY_LOG_ARCHIVE_TABLE_SQL(on_cluster=True):
@@ -580,7 +384,7 @@ ORDER BY (event_date, event_time)
     )
 
 
-def QUERY_LOG_ARCHIVE_MV(on_cluster=True):
+def QUERY_LOG_ARCHIVE_MV_SQL(on_cluster=True):
     return """CREATE MATERIALIZED VIEW query_log_archive_mv {on_cluster_clause}
 TO {table_name}
 AS SELECT

@@ -313,7 +313,7 @@ describe('dashboardLogic', () => {
             jest.spyOn(api, 'update')
 
             await expectLogic(logic, () => {
-                logic.actions.updateFiltersAndLayoutsAndVariables()
+                logic.actions.saveEditModeChanges()
             }).toFinishAllListeners()
 
             expect(api.update).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/dashboards/5`, {
@@ -333,28 +333,9 @@ describe('dashboardLogic', () => {
                 ],
                 breakdown_colors: [],
                 data_color_theme_id: null,
-                filters: {
-                    date_from: null,
-                    date_to: null,
-                    properties: [],
-                    breakdown_filter: null,
-                },
+                filters: {},
                 variables: {},
             })
-        })
-    })
-
-    describe('when the dashboard has filters', () => {
-        it('sets the filters reducer on load', async () => {
-            logic = dashboardLogic({ id: 11 })
-            logic.mount()
-
-            await expectLogic(logic)
-                .toFinishAllListeners()
-                .toNotHaveDispatchedActions(['setDates'])
-                .toMatchValues({
-                    filters: { date_from: '-24h', date_to: null, properties: [], breakdown_filter: null },
-                })
         })
     })
 
@@ -480,7 +461,7 @@ describe('dashboardLogic', () => {
             // TODO: Not sure why this test is not working
             await expectLogic(logic, () => {
                 // try and load dashboard items data once dashboard is loaded
-                logic.actions.triggerDashboardItemRefresh({
+                logic.actions.refreshDashboardItem({
                     tile: {
                         insight: {
                             id: 1001,
@@ -540,8 +521,7 @@ describe('dashboardLogic', () => {
                     .toDispatchActions([
                         // starts loading
                         'triggerDashboardRefresh',
-                        'loadDashboard',
-                        'updateDashboardItems',
+                        'refreshDashboardItems',
                         // sets the "reloading" status
                         logic.actionCreators.setRefreshStatuses([insight1.short_id, insight2.short_id], false, true),
                     ])
@@ -616,7 +596,7 @@ describe('dashboardLogic', () => {
                     .toDispatchActions([
                         // starts loading
                         'loadDashboard',
-                        'updateDashboardItems',
+                        'refreshDashboardItems',
                         // sets the "reloading" status for the stale insight
                         logic.actionCreators.setRefreshStatuses([staleInsight.short_id], false, true),
                     ])

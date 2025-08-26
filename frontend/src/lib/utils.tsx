@@ -389,10 +389,14 @@ export function isNonEmptyObject(candidate: unknown): candidate is Record<string
 }
 
 // https://stackoverflow.com/questions/25421233/javascript-removing-undefined-fields-from-an-object
-export function objectClean<T extends Record<string | number | symbol, unknown>>(obj: T): T {
+export function objectClean<T extends Record<string | number | symbol, unknown>>(
+    obj: T,
+    options?: { removeNulls?: boolean }
+): T {
+    const { removeNulls = false } = options || {}
     const response = { ...obj }
     Object.keys(response).forEach((key) => {
-        if (response[key] === undefined) {
+        if (removeNulls ? response[key] == null : response[key] === undefined) {
             delete response[key]
         }
     })
@@ -1124,8 +1128,12 @@ export function dateStringToComponents(date: string | null): DateComponents | nu
     return { amount, unit, clip: clip as 'Start' | 'End' }
 }
 
-export function componentsToDayJs({ amount, unit, clip }: DateComponents, offset?: Dayjs): Dayjs {
-    const dayjsInstance = offset ?? dayjs()
+export function componentsToDayJs(
+    { amount, unit, clip }: DateComponents,
+    offset?: Dayjs,
+    timezone: string = 'UTC'
+): Dayjs {
+    const dayjsInstance = offset ?? dayjs().tz(timezone)
     let response: dayjs.Dayjs
     switch (unit) {
         case 'year':
@@ -1162,16 +1170,16 @@ export function componentsToDayJs({ amount, unit, clip }: DateComponents, offset
 }
 
 /** Convert a string like "-30d" or "2022-02-02" or "-1mEnd" to `Dayjs().startOf('day')` */
-export function dateStringToDayJs(date: string | null): dayjs.Dayjs | null {
+export function dateStringToDayJs(date: string | null, timezone: string = 'UTC'): dayjs.Dayjs | null {
     if (isDate.test(date || '')) {
-        return dayjs(date)
+        return dayjs(date).tz(timezone)
     }
     const dateComponents = dateStringToComponents(date)
     if (!dateComponents) {
         return null
     }
-    const offset: dayjs.Dayjs = dayjs().startOf('day')
-    const response = componentsToDayJs(dateComponents, offset)
+    const offset: dayjs.Dayjs = dayjs().tz(timezone).startOf('day')
+    const response = componentsToDayJs(dateComponents, offset, timezone)
     return response
 }
 

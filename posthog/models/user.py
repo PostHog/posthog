@@ -7,13 +7,15 @@ from django.db import models, transaction
 from django.db.models import Q
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
+
 from rest_framework.exceptions import ValidationError
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
+from posthog.exceptions_capture import capture_exception
+from posthog.helpers.email_utils import EmailNormalizer
 from posthog.settings import INSTANCE_TAG, SITE_URL
 from posthog.utils import get_instance_realm
-from posthog.helpers.email_utils import EmailNormalizer
 
 from .organization import Organization, OrganizationMembership
 from .personal_api_key import PersonalAPIKey, hash_key_value
@@ -257,6 +259,7 @@ class User(AbstractUser, UUIDTClassicModel):
     ) -> OrganizationMembership:
         with transaction.atomic():
             membership = OrganizationMembership.objects.create(user=self, organization=organization, level=level)
+
             self.current_organization = organization
             if (
                 not organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
@@ -269,6 +272,26 @@ class User(AbstractUser, UUIDTClassicModel):
                 # We don't need to check for ExplicitTeamMembership as none can exist for a completely new member
                 self.current_team = organization.teams.order_by("id").filter(access_control=False).first()
             self.save()
+
+        # Auto-assign default role if configured
+        if organization.default_role_id:
+            try:
+                from ee.models import RoleMembership
+
+                RoleMembership.objects.create(
+                    role_id=organization.default_role_id, user=self, organization_member=membership
+                )
+            except Exception as e:
+                capture_exception(
+                    e,
+                    {
+                        "organization_id": organization.id,
+                        "role_id": organization.default_role_id,
+                        "context": "default_role_assignment",
+                        "tag": "platform-features",
+                    },
+                )
+
         self.update_billing_organization_users(organization)
         return membership
 

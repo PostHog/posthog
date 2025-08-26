@@ -1,7 +1,8 @@
 import pytest
+
 from clickhouse_driver.errors import ServerException
 
-from posthog.errors import wrap_query_error, ch_error_type
+from posthog.errors import ch_error_type, wrap_query_error
 
 
 @pytest.mark.parametrize(

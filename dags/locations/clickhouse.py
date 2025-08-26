@@ -1,7 +1,5 @@
 import dagster
 
-from . import resources
-
 from dags import (
     backups,
     ch_examples,
@@ -13,6 +11,8 @@ from dags import (
     postgres_to_clickhouse_etl,
     property_definitions,
 )
+
+from . import resources
 
 defs = dagster.Definitions(
     assets=[

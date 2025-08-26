@@ -6,8 +6,8 @@ import posthoganalytics
 from azure.core.exceptions import HttpResponseError as AzureHttpResponseError
 from langchain_core.runnables import RunnableConfig
 
-from ee.hogai.utils.embeddings import embed_search_query, get_azure_embeddings_client
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from posthog.schema import CachedVectorSearchQueryResponse, MaxActionContext, TeamTaxonomyQuery, VectorSearchQuery
+
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.ai.vector_search_query_runner import (
     LATEST_ACTIONS_EMBEDDING_VERSION,
@@ -15,7 +15,9 @@ from posthog.hogql_queries.ai.vector_search_query_runner import (
 )
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Action
-from posthog.schema import CachedVectorSearchQueryResponse, MaxActionContext, TeamTaxonomyQuery, VectorSearchQuery
+
+from ee.hogai.utils.embeddings import embed_search_query, get_azure_embeddings_client
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
 from ..base import AssistantNode
 

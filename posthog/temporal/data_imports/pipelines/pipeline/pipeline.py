@@ -3,21 +3,18 @@ import sys
 import time
 from typing import Any, Literal
 
-import deltalake as deltalake
-import posthoganalytics
-import pyarrow as pa
-import pyarrow.compute as pc
 from django.db.models import F
 
+import pyarrow as pa
+import deltalake as deltalake
+import pyarrow.compute as pc
+import posthoganalytics
+from structlog.types import FilteringBoundLogger
+
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.common.shutdown import ShutdownMonitor
-from posthog.temporal.data_imports.deltalake_compaction_job import (
-    trigger_compaction_job,
-)
-from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
-    DeltaTableHelper,
-)
+from posthog.temporal.data_imports.deltalake_compaction_job import trigger_compaction_job
+from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
@@ -35,16 +32,10 @@ from posthog.temporal.data_imports.pipelines.pipeline_sync import (
     update_last_synced_at_sync,
     validate_schema_and_update_table_sync,
 )
-from posthog.temporal.data_imports.sources.stripe.constants import (
-    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
-)
 from posthog.temporal.data_imports.row_tracking import decrement_rows, increment_rows, will_hit_billing_limit
+from posthog.temporal.data_imports.sources.stripe.constants import CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
-from posthog.warehouse.models import (
-    DataWarehouseTable,
-    ExternalDataJob,
-    ExternalDataSchema,
-)
+from posthog.warehouse.models import DataWarehouseTable, ExternalDataJob, ExternalDataSchema
 from posthog.warehouse.models.external_data_schema import process_incremental_value
 from posthog.warehouse.types import ExternalDataSourceType
 
@@ -210,6 +201,7 @@ class PipelineNonDLT:
             self._post_run_operations(row_count=row_count)
         finally:
             # Help reduce the memory footprint of each job
+            self._logger.debug("Cleaning up delta table helper")
             delta_table = self._delta_table_helper.get_delta_table()
             self._delta_table_helper.get_delta_table.cache_clear()
             if delta_table:
@@ -375,6 +367,7 @@ class PipelineNonDLT:
             row_count=row_count,
             table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
         )
+        self._logger.debug("Finished validating schema and updating table")
 
 
 def _update_last_synced_at_sync(schema: ExternalDataSchema, job: ExternalDataJob) -> None:

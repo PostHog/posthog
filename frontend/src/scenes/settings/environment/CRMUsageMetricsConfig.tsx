@@ -6,22 +6,44 @@ import {
     LemonButton,
     LemonDialog,
     LemonInput,
+    LemonLabel,
     LemonMenu,
     LemonSelect,
     LemonTable,
     LemonTableColumns,
 } from '@posthog/lemon-ui'
 
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { groupsModel } from '~/models/groupsModel'
-import { EntityTypes } from '~/types'
+import { AnyPropertyFilter, EntityTypes, FilterType } from '~/types'
 
 import { UsageMetric, crmUsageMetricsConfigLogic } from './crmUsageMetricsConfigLogic'
+
+function sanitizeFilters(filters?: FilterType): FilterType {
+    if (!filters) {
+        return {}
+    }
+
+    const sanitized: FilterType = {}
+    if (filters.events) {
+        sanitized.events = filters.events.map((f) => ({
+            id: f.id,
+            type: 'events',
+            name: f.name,
+            order: f.order,
+            properties: f.properties,
+        }))
+    }
+
+    return sanitized
+}
 
 function CRMUsageMetricsTable(): JSX.Element {
     const { usageMetrics, usageMetricsLoading } = useValues(crmUsageMetricsConfigLogic)
@@ -126,6 +148,12 @@ function CRMUsageMetricsForm({ metric }: CRMUsageMetricsFormProps): JSX.Element 
         setIsEditing(false)
     }
 
+    const taxonomicGroupTypes = [
+        TaxonomicFilterGroupType.EventProperties,
+        TaxonomicFilterGroupType.EventMetadata,
+        TaxonomicFilterGroupType.HogQLExpression,
+    ]
+
     return (
         <Form id="usageMetric" logic={crmUsageMetricsConfigLogic} formKey="usageMetric" enableFormOnSubmit>
             <div className="flex flex-col gap-2">
@@ -165,32 +193,64 @@ function CRMUsageMetricsForm({ metric }: CRMUsageMetricsFormProps): JSX.Element 
 
                 <div className="grid grid-cols-1 gap-2">
                     <LemonField
-                        name="events"
+                        name="filters"
                         label="Match events"
-                        help="The usage metric will take into account events matching any of the above."
+                        help="The usage metric will take into account events matching any of the above. Filters apply for all match events."
                     >
-                        <ActionFilter
-                            actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
-                            addFilterDefaultOptions={{
-                                id: '$pageview',
-                                name: '$pageview',
-                                type: EntityTypes.EVENTS,
-                            }}
-                            bordered
-                            buttonCopy="Add event matcher"
-                            filters={{}}
-                            hideDuplicate
-                            hideRename
-                            mathAvailability={MathAvailability.None}
-                            propertiesTaxonomicGroupTypes={[
-                                TaxonomicFilterGroupType.EventProperties,
-                                TaxonomicFilterGroupType.EventMetadata,
-                            ]}
-                            propertyFiltersPopover
-                            setFilters={() => {}}
-                            showNestedArrow={false}
-                            typeKey="crm-usage-metrics"
-                        />
+                        {({ value, onChange }) => {
+                            const currentFilters = (value ?? {}) as FilterType
+                            return (
+                                <>
+                                    <ActionFilter
+                                        bordered
+                                        filters={currentFilters}
+                                        setFilters={(payload) => {
+                                            onChange({
+                                                ...currentFilters,
+                                                ...sanitizeFilters(payload),
+                                            })
+                                        }}
+                                        typeKey="plugin-filters"
+                                        mathAvailability={MathAvailability.None}
+                                        hideRename
+                                        hideDuplicate
+                                        showNestedArrow={false}
+                                        actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                                        propertiesTaxonomicGroupTypes={taxonomicGroupTypes}
+                                        propertyFiltersPopover
+                                        addFilterDefaultOptions={{
+                                            id: '$pageview',
+                                            name: '$pageview',
+                                            type: EntityTypes.EVENTS,
+                                        }}
+                                        buttonCopy="Add event matcher"
+                                    />
+                                    <div className="flex gap-2 justify-between w-full">
+                                        <LemonLabel>Filters</LemonLabel>
+                                    </div>
+                                    <PropertyFilters
+                                        propertyFilters={(currentFilters?.properties ?? []) as AnyPropertyFilter[]}
+                                        taxonomicGroupTypes={taxonomicGroupTypes}
+                                        onChange={(properties: AnyPropertyFilter[]) => {
+                                            const newValue = {
+                                                ...currentFilters,
+                                                properties,
+                                            }
+                                            onChange(newValue)
+                                        }}
+                                        pageKey="CRMUsageMetricsConfig"
+                                    />
+                                    <TestAccountFilterSwitch
+                                        checked={currentFilters?.filter_test_accounts ?? false}
+                                        onChange={(filter_test_accounts) => {
+                                            const newValue = { ...currentFilters, filter_test_accounts }
+                                            onChange(newValue)
+                                        }}
+                                        fullWidth
+                                    />
+                                </>
+                            )
+                        }}
                     </LemonField>
                 </div>
                 <div>

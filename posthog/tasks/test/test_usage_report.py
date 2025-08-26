@@ -1,41 +1,52 @@
-from datetime import datetime
-from typing import Any
-from unittest.mock import MagicMock, Mock, patch
-from uuid import uuid4
 import gzip
 import json
 import base64
+from datetime import datetime
+from typing import Any
+from uuid import uuid4
 
 import pytest
+from freezegun import freeze_time
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseDestroyTablesMixin,
+    ClickhouseTestMixin,
+    QueryMatchingTest,
+    _create_event,
+    _create_person,
+    also_test_with_materialized_columns,
+    flush_persons_and_events,
+    run_clickhouse_statement_in_parallel,
+    snapshot_clickhouse_queries,
+)
+from unittest.mock import MagicMock, Mock, patch
+
+from django.test import TestCase
+from django.utils.timezone import now
+
 import structlog
 from dateutil.relativedelta import relativedelta
 from dateutil.tz import tzutc
-from django.test import TestCase
-from django.utils.timezone import now
-from freezegun import freeze_time
 
-from ee.api.test.base import LicensedTestMixin
-from ee.models.license import License
+from posthog.schema import EventsQuery
+
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.batch_exports.models import BatchExport, BatchExportDestination
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import TEST_clear_instance_license_cache
-from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Organization, Plugin, Team
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
-from posthog.batch_exports.models import BatchExport, BatchExportDestination
 from posthog.models.dashboard import Dashboard
+from posthog.models.error_tracking import ErrorTrackingIssue
 from posthog.models.event.util import create_event
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.group.util import create_group
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.plugin import PluginConfig
 from posthog.models.sharing_configuration import SharingConfiguration
-from posthog.models.error_tracking import ErrorTrackingIssue
-from posthog.schema import EventsQuery
-from posthog.session_recordings.queries.test.session_replay_sql import (
-    produce_replay_summary,
-)
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.tasks.usage_report import (
     OrgReport,
     _add_team_report_to_org_reports,
@@ -49,28 +60,20 @@ from posthog.tasks.usage_report import (
     get_instance_metadata,
     send_all_org_usage_reports,
 )
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseDestroyTablesMixin,
-    ClickhouseTestMixin,
-    QueryMatchingTest,
-    _create_event,
-    _create_person,
-    also_test_with_materialized_columns,
-    flush_persons_and_events,
-    run_clickhouse_statement_in_parallel,
-    snapshot_clickhouse_queries,
-)
 from posthog.test.fixtures import create_app_metric2
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_previous_day
 from posthog.warehouse.models import (
     DataWarehouseSavedQuery,
     DataWarehouseTable,
     ExternalDataJob,
-    ExternalDataSource,
     ExternalDataSchema,
+    ExternalDataSource,
 )
 from posthog.warehouse.types import ExternalDataSourceType
+
+from ee.api.test.base import LicensedTestMixin
+from ee.models.license import License
 
 logger = structlog.get_logger(__name__)
 
@@ -296,13 +299,13 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 )
 
             # Some groups
-            GroupTypeMapping.objects.create(
+            create_group_type_mapping_without_created_at(
                 team=self.org_1_team_1,
                 project_id=self.org_1_team_1.project_id,
                 group_type="organization",
                 group_type_index=0,
             )
-            GroupTypeMapping.objects.create(
+            create_group_type_mapping_without_created_at(
                 team=self.org_1_team_1,
                 project_id=self.org_1_team_1.project_id,
                 group_type="company",
@@ -600,6 +603,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "ai_event_count_in_period": 1,
                     "hog_function_calls_in_period": 0,
                     "hog_function_fetch_calls_in_period": 0,
+                    "cdp_billable_invocations_in_period": 0,
                     "date": "2022-01-09",
                     "organization_id": str(self.organization.id),
                     "organization_name": "Test",
@@ -664,6 +668,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "exceptions_captured_in_period": 0,
                             "hog_function_calls_in_period": 0,
                             "hog_function_fetch_calls_in_period": 0,
+                            "cdp_billable_invocations_in_period": 0,
                             "ai_event_count_in_period": 1,
                         },
                         str(self.org_1_team_2.id): {
@@ -723,6 +728,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "exceptions_captured_in_period": 0,
                             "hog_function_calls_in_period": 0,
                             "hog_function_fetch_calls_in_period": 0,
+                            "cdp_billable_invocations_in_period": 0,
                             "ai_event_count_in_period": 0,
                         },
                     },
@@ -805,6 +811,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "exceptions_captured_in_period": 0,
                     "hog_function_calls_in_period": 0,
                     "hog_function_fetch_calls_in_period": 0,
+                    "cdp_billable_invocations_in_period": 0,
                     "ai_event_count_in_period": 0,
                     "date": "2022-01-09",
                     "organization_id": str(self.org_2.id),
@@ -872,6 +879,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "exceptions_captured_in_period": 0,
                             "hog_function_calls_in_period": 0,
                             "hog_function_fetch_calls_in_period": 0,
+                            "cdp_billable_invocations_in_period": 0,
                             "ai_event_count_in_period": 0,
                         }
                     },
@@ -1972,6 +1980,12 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         create_app_metric2(team_id=self.org_1_team_2.id, app_source="hog_function", metric_name="failed", count=3)
         create_app_metric2(team_id=self.org_1_team_1.id, app_source="hog_function", metric_name="fetch", count=1)
         create_app_metric2(team_id=self.org_1_team_2.id, app_source="hog_function", metric_name="fetch", count=2)
+        create_app_metric2(
+            team_id=self.org_1_team_1.id, app_source="hog_function", metric_name="billable_invocation", count=5
+        )
+        create_app_metric2(
+            team_id=self.org_1_team_2.id, app_source="hog_function", metric_name="billable_invocation", count=3
+        )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
         period_start, period_end = period
@@ -1984,10 +1998,13 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         assert org_1_report["organization_name"] == "Org 1"
         assert org_1_report["hog_function_calls_in_period"] == 5
         assert org_1_report["hog_function_fetch_calls_in_period"] == 3
+        assert org_1_report["cdp_billable_invocations_in_period"] == 8
         assert org_1_report["teams"]["3"]["hog_function_calls_in_period"] == 2
         assert org_1_report["teams"]["3"]["hog_function_fetch_calls_in_period"] == 1
+        assert org_1_report["teams"]["3"]["cdp_billable_invocations_in_period"] == 5
         assert org_1_report["teams"]["4"]["hog_function_calls_in_period"] == 3
         assert org_1_report["teams"]["4"]["hog_function_fetch_calls_in_period"] == 2
+        assert org_1_report["teams"]["4"]["cdp_billable_invocations_in_period"] == 3
 
 
 @freeze_time("2022-01-10T10:00:00Z")
@@ -2663,8 +2680,8 @@ class TestQuerySplitting(ClickhouseTestMixin, TestCase):
         mock_execute_split_query.return_value = [(self.team.id, 10)]
 
         from posthog.tasks.usage_report import (
-            get_teams_with_billable_event_count_in_period,
             get_all_event_metrics_in_period,
+            get_teams_with_billable_event_count_in_period,
         )
 
         # Call the functions
