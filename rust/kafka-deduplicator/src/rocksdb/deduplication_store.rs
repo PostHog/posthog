@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
@@ -157,7 +158,7 @@ impl From<&RawEvent> for DeduplicationKey {
 
 #[derive(Debug, Clone)]
 pub struct DeduplicationStore {
-    store: RocksDbStore,
+    store: Arc<RocksDbStore>,
     config: DeduplicationStoreConfig,
     topic: String,
     partition: i32,
@@ -181,7 +182,7 @@ impl DeduplicationStore {
         )?;
 
         Ok(Self {
-            store,
+            store: Arc::new(store),
             topic,
             partition,
             config,
@@ -381,6 +382,11 @@ impl DeduplicationStore {
         self.partition
     }
 
+    /// Flush the store to disk
+    pub fn flush(&self) -> Result<()> {
+        self.store.flush_cf(Self::RECORDS_CF)
+    }
+
     /// Update metrics for this store (including database size)
     pub fn update_metrics(&self) -> Result<()> {
         self.store.update_db_metrics(Self::RECORDS_CF)
@@ -403,6 +409,7 @@ impl DeduplicationStore {
         Ok(sst_files)
     }
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -1097,5 +1104,54 @@ mod tests {
         for file_name in &after_flush_sst_files {
             assert!(file_name.ends_with(".sst"));
         }
+    }
+
+    #[test]
+    fn test_flush_method() {
+        let (store, _temp_dir) = create_test_store(None);
+        
+        // Add some events
+        let event1 = create_test_raw_event("user1", "token1", "event1");
+        let event2 = create_test_raw_event("user2", "token2", "event2");
+        
+        store.handle_event_with_raw(&event1).unwrap();
+        store.handle_event_with_raw(&event2).unwrap();
+        
+        // Flush should succeed
+        assert!(store.flush().is_ok());
+        
+        // Flush again should also succeed (idempotent)
+        assert!(store.flush().is_ok());
+    }
+
+    #[test]
+    fn test_update_metrics_succeeds() {
+        let (store, _temp_dir) = create_test_store(None);
+        
+        // Add some events first
+        let event = create_test_raw_event("user1", "token1", "event1");
+        store.handle_event_with_raw(&event).unwrap();
+        
+        // Update metrics should succeed
+        assert!(store.update_metrics().is_ok());
+    }
+
+    #[test]
+    fn test_flush_before_checkpoint() {
+        let (store, temp_dir) = create_test_store(None);
+        
+        // Add some events
+        let event = create_test_raw_event("user1", "token1", "checkpoint_test");
+        store.handle_event_with_raw(&event).unwrap();
+        
+        // Create a checkpoint (which internally calls flush)
+        let checkpoint_path = temp_dir.path().join("checkpoint");
+        let sst_files = store.create_checkpoint_with_metadata(&checkpoint_path).unwrap();
+        
+        // Checkpoint should exist
+        assert!(checkpoint_path.exists());
+        
+        // Should have SST files
+        assert!(!sst_files.is_empty());
     }
 }

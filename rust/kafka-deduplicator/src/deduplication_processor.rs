@@ -7,12 +7,12 @@ use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::util::Timeout;
 use rdkafka::{ClientConfig, Message};
 use serde_json;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
-use tokio::task::JoinHandle;
-use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
+use crate::checkpoint_manager::CheckpointManager;
+use tokio::sync::Mutex as TokioMutex;
 use crate::kafka::message::{AckableMessage, MessageProcessor};
 use crate::rocksdb::deduplication_store::{DeduplicationStore, DeduplicationStoreConfig};
 
@@ -31,6 +31,7 @@ pub struct DeduplicationConfig {
     pub producer_config: ClientConfig,
     pub store_config: DeduplicationStoreConfig,
     pub producer_send_timeout: Duration,
+    pub flush_interval: Duration,
 }
 
 /// Processor that handles deduplication of events using per-partition stores
@@ -44,18 +45,15 @@ pub struct DeduplicationProcessor {
 
     /// Per-partition deduplication stores using DashMap for better concurrent performance
     /// Key: (topic, partition)
-    stores: Arc<DashMap<(String, i32), Arc<DeduplicationStore>>>,
+    stores: Arc<DashMap<(String, i32), DeduplicationStore>>,
     
-    /// Cancellation token for the metrics updater task
-    metrics_cancel: Arc<Mutex<Option<CancellationToken>>>,
-    
-    /// Handle to the metrics updater task
-    metrics_task: Arc<Mutex<Option<JoinHandle<()>>>>,
+    /// Checkpoint manager for periodic flushing and checkpointing
+    checkpoint_manager: Arc<TokioMutex<CheckpointManager>>,
 }
 
 impl DeduplicationProcessor {
     /// Create a new deduplication processor
-    pub fn new(config: DeduplicationConfig) -> Result<Self> {
+    pub fn new(config: DeduplicationConfig) -> Result<Arc<Self>> {
         let producer: Option<FutureProducer> = match &config.output_topic {
             Some(topic) => Some(config.producer_config.create().with_context(|| {
                 format!("Failed to create Kafka producer for output topic '{topic}'")
@@ -63,87 +61,24 @@ impl DeduplicationProcessor {
             None => None,
         };
 
-        let processor = Self {
+        let stores = Arc::new(DashMap::new());
+        
+        // Create checkpoint manager with the stores
+        let mut checkpoint_manager = CheckpointManager::new(
+            stores.clone(),
+            config.flush_interval,
+        );
+        
+        // Start the periodic flush task
+        checkpoint_manager.start();
+        info!("Started checkpoint manager with flush interval: {:?}", config.flush_interval);
+
+        Ok(Arc::new(Self {
             config,
             producer,
-            stores: Arc::new(DashMap::new()),
-            metrics_cancel: Arc::new(Mutex::new(None)),
-            metrics_task: Arc::new(Mutex::new(None)),
-        };
-        
-        // Start the metrics updater task
-        processor.start_metrics_updater();
-        
-        Ok(processor)
-    }
-    
-    /// Start a background task to periodically update store metrics
-    pub fn start_metrics_updater(&self) {
-        // If already running, stop it first (idempotent)
-        self.stop_metrics_updater();
-
-        let stores = self.stores.clone();
-        let cancel = CancellationToken::new();
-        let cancel_child = cancel.child_token();
-
-        let handle = tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(30));
-            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-
-            // Skip the first tick to avoid immediate run
-            interval.tick().await;
-
-            loop {
-                tokio::select! {
-                    _ = cancel_child.cancelled() => {
-                        info!("Metrics updater task shutting down");
-                        break;
-                    }
-                    _ = interval.tick() => {
-                        // Snapshot keys & Arc<DeduplicationStore>s to avoid holding DashMap guards
-                        let snapshot: Vec<((String, i32), Arc<DeduplicationStore>)> =
-                            stores.iter()
-                                .map(|entry| {
-                                    let ((topic, partition), store) = entry.pair();
-                                    ((topic.clone(), *partition), store.clone())
-                                })
-                                .collect();
-
-                        for ((topic, partition), store) in snapshot {
-                            debug!("Updating metrics for store {}:{}", topic, partition);
-                            if let Err(e) = store.update_metrics() {
-                                warn!("Failed to update metrics for store {}:{}: {}", topic, partition, e);
-                            }
-                        }
-
-                        let store_count = stores.len();
-                        if store_count > 0 {
-                            info!("Updated RocksDB metrics for {} active deduplication stores", store_count);
-                        }
-                    }
-                }
-            }
-        });
-
-        // Store cancel + handle without async locking or block_on
-        *self.metrics_cancel.lock().unwrap() = Some(cancel);
-        *self.metrics_task.lock().unwrap() = Some(handle);
-    }
-
-    /// Idempotent stop (safe to call even if not running)
-    pub fn stop_metrics_updater(&self) {
-        if let Some(token) = self.metrics_cancel.lock().unwrap().take() {
-            token.cancel();
-        }
-        if let Some(handle) = self.metrics_task.lock().unwrap().take() {
-            // Join asynchronously if possible; otherwise detach
-            // For now, we'll just detach since we're not in async context
-            std::thread::spawn(move || {
-                let _ = tokio::runtime::Handle::try_current()
-                    .ok()
-                    .map(|rt| rt.block_on(async { let _ = handle.await; }));
-            });
-        }
+            stores,
+            checkpoint_manager: Arc::new(TokioMutex::new(checkpoint_manager)),
+        }))
     }
 
     /// Get or create a deduplication store for a specific partition
@@ -151,7 +86,7 @@ impl DeduplicationProcessor {
         &self,
         topic: &str,
         partition: i32,
-    ) -> Result<Arc<DeduplicationStore>> {
+    ) -> Result<DeduplicationStore> {
         let partition_key = (topic.to_string(), partition);
 
         // Use DashMap's entry API for atomic get-or-create operation
@@ -178,7 +113,6 @@ impl DeduplicationProcessor {
 
                 DeduplicationStore::new(partition_config, topic.to_string(), partition)
                     .with_context(|| format!("Failed to create deduplication store for {topic}:{partition} at path {store_path_str}"))
-                    .map(Arc::new)
             })?
             .clone();
 
@@ -440,6 +374,16 @@ impl DeduplicationProcessor {
             }
         }
     }
+    
+    /// Stop the checkpoint manager (called during shutdown)
+    pub async fn shutdown(&self) {
+        info!("Shutting down deduplication processor");
+        
+        let mut manager = self.checkpoint_manager.lock().await;
+        manager.stop().await;
+        
+        info!("Deduplication processor shut down");
+    }
 }
 
 #[cfg(test)]
@@ -466,6 +410,7 @@ mod tests {
             producer_config,
             store_config,
             producer_send_timeout: Duration::from_secs(5),
+            flush_interval: Duration::from_secs(120),
         };
 
         (config, temp_dir)

@@ -1,5 +1,6 @@
 use anyhow::Result;
 use rdkafka::message::OwnedMessage;
+use tokio::sync::OwnedSemaphorePermit;
 use tracing::{info, warn};
 
 use crate::kafka::tracker::{MessageCompletion, MessageHandle};
@@ -21,14 +22,22 @@ pub struct AckableMessage {
 
     /// Whether this message has been acked
     acked: bool,
+    
+    /// Semaphore permit that will be released when message is ack'd/nack'd
+    _permit: OwnedSemaphorePermit,
 }
 
 impl AckableMessage {
-    pub(crate) fn new(message: OwnedMessage, handle: MessageHandle) -> Self {
+    pub(crate) fn new(
+        message: OwnedMessage, 
+        handle: MessageHandle,
+        permit: OwnedSemaphorePermit,
+    ) -> Self {
         Self {
             message,
             handle,
             acked: false,
+            _permit: permit,
         }
     }
 
@@ -159,8 +168,12 @@ mod tests {
         let tracker = Arc::new(InFlightTracker::new());
         let message = create_test_message("test-topic", 0, 0, "test-payload");
         let (_message_id, handle) = tracker.track_message(&message, 100).await;
+        
+        // Create a test semaphore for the message
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(1));
+        let permit = semaphore.clone().acquire_owned().await.unwrap();
 
-        let ackable = AckableMessage::new(message, handle);
+        let ackable = AckableMessage::new(message, handle, permit);
 
         // Verify message is tracked
         assert_eq!(tracker.in_flight_count().await, 1);
@@ -186,8 +199,12 @@ mod tests {
         let tracker = Arc::new(InFlightTracker::new());
         let message = create_test_message("test-topic", 0, 0, "test-payload");
         let (_, handle) = tracker.track_message(&message, 50).await;
+        
+        // Create a test semaphore for the message
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(1));
+        let permit = semaphore.clone().acquire_owned().await.unwrap();
 
-        let ackable = AckableMessage::new(message, handle);
+        let ackable = AckableMessage::new(message, handle, permit);
 
         // Nack the message
         ackable.nack("test error".to_string()).await;

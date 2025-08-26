@@ -74,6 +74,9 @@ pub struct Config {
     #[envconfig(default = "5")] // 5 seconds
     pub commit_interval_secs: u64,
 
+    #[envconfig(default = "120")] // 120 seconds (2 minutes)
+    pub flush_interval_secs: u64,
+
     // HTTP server configuration
     #[envconfig(from = "BIND_HOST", default = "0.0.0.0")]
     pub host: String,
@@ -177,6 +180,11 @@ impl Config {
     /// Get commit interval as Duration
     pub fn commit_interval(&self) -> Duration {
         Duration::from_secs(self.commit_interval_secs)
+    }
+
+    /// Get flush interval as Duration
+    pub fn flush_interval(&self) -> Duration {
+        Duration::from_secs(self.flush_interval_secs)
     }
 
     /// Get producer send timeout as Duration

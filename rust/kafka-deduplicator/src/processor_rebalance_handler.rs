@@ -84,6 +84,7 @@ mod tests {
             producer_config,
             store_config,
             producer_send_timeout: Duration::from_secs(5),
+            flush_interval: Duration::from_secs(120),
         };
 
         (config, temp_dir)

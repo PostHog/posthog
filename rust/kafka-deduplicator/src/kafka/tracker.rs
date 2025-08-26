@@ -7,6 +7,9 @@ use tokio::sync::{mpsc, RwLock};
 use tracing::{debug, info, warn};
 
 use crate::kafka::message::MessageResult;
+use crate::rocksdb::metrics_consts::{
+    KAFKA_CONSUMER_IN_FLIGHT_MEMORY_BYTES, KAFKA_CONSUMER_IN_FLIGHT_MESSAGES,
+};
 
 /// Type alias for fenced partitions mapping
 type FencedPartitionsMap = Arc<RwLock<HashMap<(String, i32), Arc<AtomicBool>>>>;
@@ -433,12 +436,10 @@ pub struct TrackerStats {
 impl TrackerStats {
     /// Publish tracker statistics as global metrics
     pub fn publish_metrics(&self) {
-        use crate::rocksdb::metrics_consts::*;
-        
         // Publish in-flight messages gauge
         metrics::gauge!(KAFKA_CONSUMER_IN_FLIGHT_MESSAGES).set(self.in_flight as f64);
-        
-        // Publish in-flight memory usage gauge  
+
+        // Publish in-flight memory usage gauge
         metrics::gauge!(KAFKA_CONSUMER_IN_FLIGHT_MEMORY_BYTES).set(self.memory_usage as f64);
     }
 }

@@ -100,7 +100,13 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
                 _ = metrics_interval.tick() => {
                     let stats = self.tracker.get_stats().await;
                     stats.publish_metrics();
-                    debug!("Published metrics: {}", stats);
+                    
+                    // Also publish semaphore permit metrics
+                    metrics::gauge!("kafka_consumer_available_permits")
+                        .set(self.global_semaphore.available_permits() as f64);
+                    
+                    debug!("Published metrics: {}, available_permits={}", 
+                        stats, self.global_semaphore.available_permits());
                 }
 
                 // Commit offsets periodically
@@ -146,15 +152,15 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
         }
 
         // Acquire permit to control backpressure with timeout to prevent deadlocks
-        let _permit = timeout(Duration::from_secs(30), self.global_semaphore.acquire())
+        let permit = timeout(Duration::from_secs(30), self.global_semaphore.clone().acquire_owned())
             .await
             .map_err(|_| {
                 anyhow::anyhow!("Timeout acquiring semaphore permit after 30s - possible deadlock")
             })??;
 
         debug!(
-            "Processing message from topic {} partition {} offset {}",
-            topic, partition, offset
+            "Processing message from topic {} partition {} offset {} (available permits: {})",
+            topic, partition, offset, self.global_semaphore.available_permits()
         );
 
         // Convert to owned message and create ackable wrapper
@@ -166,7 +172,8 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
         let (_message_id, message_handle) =
             self.tracker.track_message(&owned_msg, estimated_size).await;
 
-        let ackable_msg = AckableMessage::new(owned_msg, message_handle);
+        // Pass the permit to the message so it's only released when ack'd/nack'd
+        let ackable_msg = AckableMessage::new(owned_msg, message_handle, permit);
 
         // Process message through user's processor
         match self.message_processor.process_message(ackable_msg).await {
@@ -197,8 +204,8 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
         stats.publish_metrics();
         
         info!(
-            "Tracker stats before commit: in_flight={}, completed={}, failed={}",
-            stats.in_flight, stats.completed, stats.failed
+            "Tracker stats before commit: in_flight={}, completed={}, failed={}, available_permits={}",
+            stats.in_flight, stats.completed, stats.failed, self.global_semaphore.available_permits()
         );
 
         // Get safe commit offsets from tracker (only commits completed messages)
