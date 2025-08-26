@@ -1,22 +1,23 @@
 from datetime import date
-from unittest.mock import patch, MagicMock
-import pytest
 from typing import Any
 
+import pytest
 from freezegun import freeze_time
-from posthog.models.utils import uuid7
+from posthog.test.base import APIBaseTest, _create_event, _create_person, flush_persons_and_events
+from unittest.mock import MagicMock, patch
+
+from posthog.schema import WebOverviewItem, WebOverviewItemKind, WebStatsBreakdown
+
 from posthog.api.external_web_analytics.query_adapter import ExternalWebAnalyticsQueryAdapter
 from posthog.api.external_web_analytics.serializers import (
     EXTERNAL_WEB_ANALYTICS_NONE_BREAKDOWN_VALUE,
-    WebAnalyticsOverviewRequestSerializer,
     WebAnalyticsBreakdownRequestSerializer,
+    WebAnalyticsOverviewRequestSerializer,
 )
-from posthog.schema import WebOverviewItem, WebOverviewItemKind, WebStatsBreakdown
-from posthog.test.base import APIBaseTest
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql_queries.web_analytics.test.web_preaggregated_test_base import WebAnalyticsPreAggregatedTestBase
+from posthog.models.utils import uuid7
 from posthog.models.web_preaggregated.sql import WEB_BOUNCES_INSERT_SQL, WEB_STATS_INSERT_SQL
-from posthog.test.base import _create_event, _create_person, flush_persons_and_events
 
 
 class TestExternalWebAnalyticsQueryAdapterOverview(APIBaseTest):

@@ -553,10 +553,10 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             : null,
                         featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY]
                             ? {
-                                  identifier: 'LLMObservability',
-                                  label: 'LLM observability',
+                                  identifier: 'LLMAnalytics',
+                                  label: 'LLM analytics',
                                   icon: <IconAI />,
-                                  to: urls.llmObservabilityDashboard(),
+                                  to: urls.llmAnalyticsDashboard(),
                                   tag: 'beta' as const,
                                   tooltipDocLink: 'https://posthog.com/docs/ai-engineering/dashboard',
                               }

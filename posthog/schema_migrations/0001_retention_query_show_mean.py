@@ -1,4 +1,5 @@
 from posthog.schema import NodeKind
+
 from posthog.schema_migrations.base import SchemaMigration
 
 

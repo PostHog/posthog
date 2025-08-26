@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use axum::{routing::get, Router};
 use futures::future::ready;
+use health::HealthRegistry;
 use serve_metrics::{serve, setup_metrics_routes};
 use tokio::task::JoinHandle;
 use tracing::info;
@@ -11,11 +12,11 @@ pub async fn index() -> &'static str {
     "kafka deduplicator service"
 }
 
-fn start_server(config: &Config) -> JoinHandle<()> {
+fn start_server(config: &Config, liveness: HealthRegistry) -> JoinHandle<()> {
     let router = Router::new()
         .route("/", get(index))
         .route("/_readiness", get(index))
-        .route("/_liveness", get(|| ready("ok")));
+        .route("/_liveness", get(move || ready(liveness.get_status())));
     let router = setup_metrics_routes(router);
 
     let bind = config.bind_address();
@@ -40,12 +41,15 @@ async fn main() -> Result<()> {
 
     info!("Configuration loaded: {:?}", config);
 
+    // Create health registry for liveness checks
+    let liveness = HealthRegistry::new("liveness");
+
     // Start HTTP server with metrics endpoint
-    let server_handle = start_server(&config);
+    let server_handle = start_server(&config, liveness.clone());
     info!("Started metrics server on {}", config.bind_address());
 
     // Create and run the service
-    let service = KafkaDeduplicatorService::new(config)
+    let service = KafkaDeduplicatorService::new(config, liveness)
         .with_context(|| "Failed to create Kafka Deduplicator service. Check your Kafka connection and RocksDB configuration.".to_string())?;
 
     // Run the service (this blocks until shutdown)

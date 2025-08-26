@@ -1,24 +1,25 @@
 import re
 from typing import cast
+
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
+
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-
+from posthog.temporal.data_imports.sources.common.utils import dlt_source_to_source_response
+from posthog.temporal.data_imports.sources.generated_configs import ZendeskSourceConfig
 from posthog.temporal.data_imports.sources.zendesk.settings import (
     BASE_ENDPOINTS,
     INCREMENTAL_FIELDS as ZENDESK_INCREMENTAL_FIELDS,
     SUPPORT_ENDPOINTS,
 )
-from posthog.temporal.data_imports.sources.zendesk.zendesk import zendesk_source, validate_credentials
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.utils import dlt_source_to_source_response
-from posthog.temporal.data_imports.sources.generated_configs import ZendeskSourceConfig
+from posthog.temporal.data_imports.sources.zendesk.zendesk import validate_credentials, zendesk_source
 from posthog.warehouse.types import ExternalDataSourceType
 
 

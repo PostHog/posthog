@@ -1,17 +1,17 @@
 from __future__ import annotations
 
-import logging
 import time
-from dataclasses import dataclass
+import logging
 from collections.abc import Sequence
+from dataclasses import dataclass
 
-import structlog
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection, transaction
 
+import structlog
+
 from posthog.clickhouse.client.execute import sync_execute as ch_execute
 from posthog.models.team.team import Team
-
 
 logger = structlog.get_logger(__name__)
 

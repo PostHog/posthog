@@ -20,7 +20,6 @@ export type LemonTagType =
     | 'completion'
     | 'caution'
     | 'none'
-    | 'breakdown'
 
 export interface LemonTagProps {
     type?: LemonTagType

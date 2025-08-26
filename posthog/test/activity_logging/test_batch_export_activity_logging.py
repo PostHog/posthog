@@ -40,8 +40,9 @@ class TestBatchExportActivityLogging(ActivityLogTestHelper):
 
     def test_batch_export_scope_in_activity_log_types(self):
         """Test that BatchExport scope is defined in ActivityScope"""
-        from posthog.models.activity_logging.activity_log import ActivityScope
         from typing import get_args
+
+        from posthog.models.activity_logging.activity_log import ActivityScope
 
         # Check that BatchExport is in the literal type
         # We can't directly test literal types, but we can test that the string value works

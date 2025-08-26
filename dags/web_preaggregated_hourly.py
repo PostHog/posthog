@@ -1,27 +1,24 @@
-from datetime import datetime, UTC, timedelta
 from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 
 import dagster
 from dagster import Field
+
+from posthog.clickhouse import query_tagging
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.cluster import ClickhouseCluster
+from posthog.models.web_preaggregated.sql import WEB_BOUNCES_INSERT_SQL, WEB_STATS_INSERT_SQL
+
 from dags.common import JobOwners, dagster_tags
 from dags.web_preaggregated_utils import (
     DAGSTER_WEB_JOB_TIMEOUT,
     INTRA_DAY_HOURLY_CRON_SCHEDULE,
-    merge_clickhouse_settings,
     WEB_ANALYTICS_CONFIG_SCHEMA,
-    web_analytics_retry_policy_def,
-    check_for_concurrent_runs,
     WEB_PRE_AGGREGATED_CLICKHOUSE_SETTINGS,
+    check_for_concurrent_runs,
+    merge_clickhouse_settings,
+    web_analytics_retry_policy_def,
 )
-from posthog.clickhouse import query_tagging
-from posthog.clickhouse.client import sync_execute
-
-from posthog.models.web_preaggregated.sql import (
-    WEB_BOUNCES_INSERT_SQL,
-    WEB_STATS_INSERT_SQL,
-)
-from posthog.clickhouse.cluster import ClickhouseCluster
-
 
 WEB_ANALYTICS_HOURLY_CONFIG_SCHEMA = {
     **WEB_ANALYTICS_CONFIG_SCHEMA,

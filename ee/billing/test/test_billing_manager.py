@@ -1,15 +1,17 @@
 from typing import Any, cast
+
+from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
-from ee.billing.billing_manager import BillingManager
-from ee.billing.billing_types import Product
-from ee.models.license import License, LicenseManager
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
-from posthog.test.base import BaseTest
+
+from ee.billing.billing_manager import BillingManager
+from ee.billing.billing_types import Product
+from ee.models.license import License, LicenseManager
 
 
 def create_default_products_response(**kwargs) -> dict[str, list[Product]]:

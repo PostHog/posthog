@@ -6,9 +6,9 @@ with shared resources to create a complete Dagster definitions object.
 
 import dagster
 
-from . import resources
-
 from dags import experiments
+
+from . import resources
 
 
 def _create_definitions():
