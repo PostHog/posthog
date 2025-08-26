@@ -1,3 +1,4 @@
+from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 
 from posthog.models.team.team import Team
@@ -9,6 +10,9 @@ class Dataset(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields
         ordering = ["-created_at", "id"]
         indexes = [
             models.Index(fields=["team", "-created_at", "id"]),
+            models.Index(fields=["team", "-updated_at", "id"]),
+            GinIndex(name="llm_dataset_name_trgm", fields=["name"], opclasses=["gin_trgm_ops"]),
+            GinIndex(name="llm_dataset_desc_trgm", fields=["description"], opclasses=["gin_trgm_ops"]),
         ]
 
     objects: models.Manager["Dataset"]
@@ -24,6 +28,7 @@ class DatasetItem(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFi
         ordering = ["-created_at", "id"]
         indexes = [
             models.Index(fields=["dataset", "-created_at", "id"]),
+            models.Index(fields=["team", "dataset", "-created_at", "id"]),
         ]
 
     objects: models.Manager["DatasetItem"]
