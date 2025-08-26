@@ -53,6 +53,12 @@ type SceneMainTitleProps = {
      * Usually this is for 'new' resources, or "edit" mode
      */
     forceEdit?: boolean
+    /**
+     * The number of milliseconds to debounce the name and description changes
+     * useful for renaming resources that update too fast
+     * e.g. insights are renamed too fast, so we need to debounce it with 1000ms
+     * @default 100
+     */
     renameDebounceMs?: number
 }
 
