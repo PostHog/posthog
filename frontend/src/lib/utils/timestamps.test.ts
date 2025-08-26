@@ -17,7 +17,7 @@ describe('parseTimestampToMs', () => {
 
             // Edge cases with valid times
             ['0:05', 5000], // Single digit minute
-            ['1:2', 62000], // Single digit seconds (1:02 interpreted as 1 minute 2 seconds)
+            ['1:2', 62000], // Single digit seconds (1:2 interpreted as 1 minute 2 seconds)
         ]
 
         validCases.forEach(([input, expected]) => {
