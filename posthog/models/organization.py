@@ -45,7 +45,7 @@ class OrganizationUsageInfo(TypedDict):
     cdp_invocations: Optional[OrganizationUsageResource]
     feature_flag_requests: Optional[OrganizationUsageResource]
     api_queries_read_bytes: Optional[OrganizationUsageResource]
-    ai_events: Optional[OrganizationUsageResource]
+    llm_events: Optional[OrganizationUsageResource]
     period: Optional[list[str]]
 
 

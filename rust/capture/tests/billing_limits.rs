@@ -113,12 +113,12 @@ async fn setup_router_with_limits(
     )
     .unwrap();
 
-    let ai_events_limiter = RedisLimiter::new(
+    let llm_events_limiter = RedisLimiter::new(
         Duration::from_secs(60),
         redis.clone(),
         QUOTA_LIMITER_CACHE_KEY.to_string(),
         None,
-        QuotaResource::AiEvents,
+        QuotaResource::LLMEvents,
         ServiceName::Capture,
     )
     .unwrap();
@@ -129,7 +129,7 @@ async fn setup_router_with_limits(
         redis,
         billing_limiter,
         survey_limiter,
-        ai_events_limiter,
+        llm_events_limiter,
         TokenDropper::default(),
         false, // metrics
         CaptureMode::Events,
@@ -926,12 +926,12 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
     )
     .unwrap();
 
-    let ai_events_limiter = RedisLimiter::new(
+    let llm_events_limiter = RedisLimiter::new(
         Duration::from_secs(60),
         redis.clone(),
         QUOTA_LIMITER_CACHE_KEY.to_string(),
         None,
-        QuotaResource::AiEvents,
+        QuotaResource::LLMEvents,
         ServiceName::Capture,
     )
     .unwrap();
@@ -942,7 +942,7 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
         redis,
         billing_limiter,
         survey_limiter,
-        ai_events_limiter,
+        llm_events_limiter,
         TokenDropper::default(),
         false,
         CaptureMode::Events,
@@ -1024,12 +1024,12 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
     )
     .unwrap();
 
-    let ai_events_limiter = RedisLimiter::new(
+    let llm_events_limiter = RedisLimiter::new(
         Duration::from_secs(60),
         redis.clone(),
         QUOTA_LIMITER_CACHE_KEY.to_string(),
         None,
-        QuotaResource::AiEvents,
+        QuotaResource::LLMEvents,
         ServiceName::Capture,
     )
     .unwrap();
@@ -1040,7 +1040,7 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
         redis,
         billing_limiter,
         survey_limiter,
-        ai_events_limiter,
+        llm_events_limiter,
         TokenDropper::default(),
         false,
         CaptureMode::Events,
@@ -1124,12 +1124,12 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
     )
     .unwrap();
 
-    let ai_events_limiter = RedisLimiter::new(
+    let llm_events_limiter = RedisLimiter::new(
         Duration::from_secs(60),
         redis.clone(),
         QUOTA_LIMITER_CACHE_KEY.to_string(),
         None,
-        QuotaResource::AiEvents,
+        QuotaResource::LLMEvents,
         ServiceName::Capture,
     )
     .unwrap();
@@ -1140,7 +1140,7 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
         redis,
         billing_limiter,
         survey_limiter,
-        ai_events_limiter,
+        llm_events_limiter,
         TokenDropper::default(),
         false,
         CaptureMode::Events,

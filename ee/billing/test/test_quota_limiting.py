@@ -47,7 +47,7 @@ class TestQuotaLimiting(BaseTest):
         self.redis_client.delete(f"@posthog/quota-limits/rows_synced")
         self.redis_client.delete(f"@posthog/quota-limits/api_queries_read_bytes")
         self.redis_client.delete(f"@posthog/quota-limits/surveys")
-        self.redis_client.delete(f"@posthog/quota-limits/ai_events")
+        self.redis_client.delete(f"@posthog/quota-limits/llm_events")
         self.redis_client.delete(f"@posthog/quota-limits/cdp_invocations")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/events")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/exceptions")
@@ -55,7 +55,7 @@ class TestQuotaLimiting(BaseTest):
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/rows_synced")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/api_queries_read_bytes")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/surveys")
-        self.redis_client.delete(f"@posthog/quota-limiting-suspended/ai_events")
+        self.redis_client.delete(f"@posthog/quota-limiting-suspended/llm_events")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/cdp_invocations")
 
     @patch("posthoganalytics.capture")
@@ -343,6 +343,7 @@ class TestQuotaLimiting(BaseTest):
                 "quota_limited_rows_synced": None,
                 "quota_limited_feature_flags": None,
                 "quota_limited_surveys": None,
+                "quota_limited_llm_events": None,
                 "quota_limited_cdp_invocations": None,
             }
             assert org_action_call.kwargs.get("groups") == {
