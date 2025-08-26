@@ -28,6 +28,7 @@ import { LLMAnalyticsPlaygroundScene } from './LLMAnalyticsPlaygroundScene'
 import { LLMAnalyticsReloadAction } from './LLMAnalyticsReloadAction'
 import { LLMAnalyticsTraces } from './LLMAnalyticsTracesScene'
 import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
+import { LLMAnalyticsDatasetsScene } from './datasets/LLMAnalyticsDatasetsScene'
 import { LLM_ANALYTICS_DATA_COLLECTION_NODE_ID, llmAnalyticsLogic } from './llmAnalyticsLogic'
 import { CompatMessage } from './types'
 import { normalizeMessages } from './utils'
@@ -292,6 +293,22 @@ export function LLMAnalyticsScene(): JSX.Element {
             ),
             content: <LLMAnalyticsPlaygroundScene />,
             link: combineUrl(urls.llmAnalyticsPlayground(), searchParams).url,
+        })
+    }
+
+    if (featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_DATASETS]) {
+        tabs.push({
+            key: 'datasets',
+            label: (
+                <>
+                    Datasets{' '}
+                    <LemonTag className="ml-1" type="warning">
+                        Beta
+                    </LemonTag>
+                </>
+            ),
+            content: <LLMAnalyticsDatasetsScene />,
+            link: combineUrl(urls.llmAnalyticsDatasets(), searchParams).url,
         })
     }
 

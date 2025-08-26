@@ -40,6 +40,14 @@ export const manifest: ProductManifest = {
             layout: 'app-container',
             defaultDocsPath: '/docs/ai-engineering/observability',
         },
+        LLMAnalyticsDatasets: {
+            import: () => import('./frontend/datasets/LLMAnalyticsDatasetsScene'),
+            projectBased: true,
+            name: 'LLM analytics datasets',
+            activityScope: 'LLMAnalytics',
+            layout: 'app-container',
+            defaultDocsPath: '/docs/ai-engineering/observability',
+        },
     },
     routes: {
         '/llm-analytics': ['LLMAnalytics', 'llmAnalytics'],
@@ -49,6 +57,7 @@ export const manifest: ProductManifest = {
         '/llm-analytics/traces/:id': ['LLMAnalyticsTrace', 'llmAnalytics'],
         '/llm-analytics/users': ['LLMAnalytics', 'llmAnalyticsUsers'],
         '/llm-analytics/playground': ['LLMAnalytics', 'llmAnalyticsPlayground'],
+        '/llm-analytics/datasets': ['LLMAnalytics', 'llmAnalyticsDatasets'],
     },
     redirects: {
         '/llm-observability': (_params, searchParams, hashParams) =>
@@ -65,6 +74,8 @@ export const manifest: ProductManifest = {
             combineUrl(`/llm-analytics/users`, searchParams, hashParams).url,
         '/llm-observability/playground': (_params, searchParams, hashParams) =>
             combineUrl(`/llm-analytics/playground`, searchParams, hashParams).url,
+        '/llm-observability/datasets': (_params, searchParams, hashParams) =>
+            combineUrl(`/llm-analytics/datasets`, searchParams, hashParams).url,
     },
     urls: {
         llmAnalyticsDashboard: (): string => '/llm-analytics',
@@ -84,6 +95,7 @@ export const manifest: ProductManifest = {
         },
         llmAnalyticsUsers: (): string => '/llm-analytics/users',
         llmAnalyticsPlayground: (): string => '/llm-analytics/playground',
+        llmAnalyticsDatasets: (): string => '/llm-analytics/datasets',
     },
     fileSystemTypes: {},
     treeItemsNew: [],
