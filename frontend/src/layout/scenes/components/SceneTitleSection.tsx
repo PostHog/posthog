@@ -15,6 +15,8 @@ import { fileSystemTypes } from '~/products'
 import { FileSystemIconColor } from '~/types'
 
 import '../../panel-layout/ProjectTree/defaultTree'
+import { ProductIconWrapper } from '../../panel-layout/ProjectTree/defaultTree'
+import { iconForType } from '../../panel-layout/ProjectTree/defaultTree'
 
 type ResourceType = {
     to?: string
@@ -70,13 +72,19 @@ export function SceneTitleSection({
     if (!newSceneLayout) {
         return null
     }
-
+    const icon = resourceType.forceIcon ? (
+        <ProductIconWrapper type={resourceType.type} colorOverride={resourceType.forceIconColorOverride}>
+            {resourceType.forceIcon}
+        </ProductIconWrapper>
+    ) : (
+        iconForType(resourceType.type)
+    )
     return (
         <div className="@container/scene-title-section">
             <div className="scene-title-section w-full flex gap-3 group/colorful-product-icons colorful-product-icons-true">
                 <div className="flex flex-col gap-1 flex-1 -ml-[var(--button-padding-x-sm)]">
                     <div className="flex gap-2 [&_svg]:size-6 items-center w-full">
-                        {/* <span
+                        <span
                             className={buttonPrimitiveVariants({
                                 size: 'base',
                                 iconOnly: true,
@@ -86,7 +94,7 @@ export function SceneTitleSection({
                             aria-hidden
                         >
                             {icon}
-                        </span> */}
+                        </span>
                         <SceneName
                             name={name}
                             isLoading={isLoading}
