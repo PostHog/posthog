@@ -209,6 +209,7 @@ function summarizeCollapsedContent(nodes: any[]): string {
     return (
         humanList(
             Object.entries(counts).map(([nodeTypeName, count]) =>
+                // The "Ph " comes form the notebook node identifiers starting with "ph-"
                 pluralize(count, identifierToHuman(nodeTypeName, 'sentence').replace('Ph ', ''))
             )
         ) || 'collapsed content'
