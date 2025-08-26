@@ -52,8 +52,6 @@ class RetryEfficiency(Scorer):
 
 
 class SQLFunctionCorrectness(Scorer):
-    """Evaluate if all SQL functions in the generated query are from the allowed list in mapping.py"""
-
     def _name(self):
         return "sql_function_correctness"
 
@@ -76,8 +74,6 @@ class SQLFunctionCorrectness(Scorer):
         return functions
 
     def _is_function_allowed(self, function_name: str) -> bool:
-        """Check if a function is in the allowed list from mapping.py"""
-        # Check in all three function dictionaries
         return (
             function_name in HOGQL_CLICKHOUSE_FUNCTIONS
             or function_name in HOGQL_AGGREGATIONS
@@ -88,7 +84,6 @@ class SQLFunctionCorrectness(Scorer):
         return self._run_eval_sync(output, expected, **kwargs)
 
     def _run_eval_sync(self, output, expected=None, **kwargs) -> Score:
-        """Evaluate SQL function correctness synchronously."""
         if not output:
             return Score(
                 name=self._name(), score=None, metadata={"reason": "No SQL query to verify, skipping evaluation"}
@@ -123,8 +118,6 @@ class SQLFunctionCorrectness(Scorer):
 
 
 class SQLSyntaxCorrectness(Scorer):
-    """Evaluate if the generated SQL query has correct syntax."""
-
     def _name(self):
         return "sql_syntax_correctness"
 
@@ -136,7 +129,6 @@ class SQLSyntaxCorrectness(Scorer):
         query = {"query": output}
         team = await Team.objects.alatest("created_at")
         try:
-            # Try to parse, print, and run the query
             await sync_to_async(HogQLQueryRunner(query, team).calculate)()
         except BaseHogQLError as e:
             return Score(name=self._name(), score=0.0, metadata={"reason": f"HogQL-level error: {str(e)}"})
@@ -153,7 +145,6 @@ class SQLSyntaxCorrectness(Scorer):
         query = {"query": output}
         team = Team.objects.latest("created_at")
         try:
-            # Try to parse, print, and run the query
             HogQLQueryRunner(query, team).calculate()
         except BaseHogQLError as e:
             return Score(name=self._name(), score=0.0, metadata={"reason": f"HogQL-level error: {str(e)}"})

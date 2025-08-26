@@ -2101,12 +2101,9 @@ def is_allowed_parametric_function(name: str) -> bool:
 
 
 def get_correct_function_name(name: str) -> str:
-    """Get the correct casing for a HogQL function name."""
-    # Check if it's already correctly cased first (fast path)
     if HOGQL_CLICKHOUSE_FUNCTIONS.get(name) or HOGQL_AGGREGATIONS.get(name) or HOGQL_POSTHOG_FUNCTIONS.get(name):
         return name
 
-    # Try case-insensitive lookup by checking all keys
     name_lower = name.lower()
     for key in HOGQL_CLICKHOUSE_FUNCTIONS:
         if key.lower() == name_lower:
@@ -2120,7 +2117,6 @@ def get_correct_function_name(name: str) -> str:
         if key.lower() == name_lower:
             return key
 
-    # Return original name if no match found
     return name
 
 
@@ -2136,7 +2132,6 @@ def normalize_hogql_function_names(query: str) -> str:
 
     def replace_function_name(match):
         function_name = match.group(1)
-        # Don't replace SQL keywords that aren't functions
 
         if function_name.upper() in SQL_KEYWORDS:
             return match.group(0)
