@@ -243,36 +243,13 @@ describe('hog-function-filtering', () => {
                 id: 'test-function',
                 team_id: 1,
                 name: 'Test Function',
-                enabled: true,
-                bytecode: [],
-                filters: {},
-                inputs_schema: [],
-                inputs: {},
             } as unknown as HogFunctionType
 
             mockFilterGlobals = {
                 event: '$pageview',
                 distinct_id: 'user_123',
                 timestamp: '2025-01-01T00:00:00.000Z',
-                properties: {},
-                elements_chain: '',
-                elements_chain_href: '',
-                elements_chain_texts: [],
-                elements_chain_ids: [],
-                elements_chain_elements: [],
-                person: null,
-                pdi: null,
-                $group_0: null,
-                $group_1: null,
-                $group_2: null,
-                $group_3: null,
-                $group_4: null,
-                group_0: { properties: {} },
-                group_1: { properties: {} },
-                group_2: { properties: {} },
-                group_3: { properties: {} },
-                group_4: { properties: {} },
-            }
+            } as HogFunctionFilterGlobals
         })
 
         it('should return false and skip bytecode when event does not match specific events', async () => {
