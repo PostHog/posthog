@@ -609,14 +609,24 @@
     --data-color-15: #30d5c8;
 
     // Lifecycle series (compiled)
-    --lifecycle-new: #1d4aff;
-    --lifecycle-returning: #388600;
-    --lifecycle-resurrecting: #a56eff;
-    --lifecycle-dormant: #db3707;
-    --lifecycle-new-hover: rgb(0 36.23894 182);
-    --lifecycle-returning-hover: rgb(13.37313 32 0);
-    --lifecycle-resurrecting-hover: rgb(101.68966 8 255);
-    --lifecycle-dormant-hover: rgb(120.15929 30.17699 3.84071);
+    --color-lifecycle-new: #388600;
+    --color-lifecycle-returning: #1d4aff;
+    --color-lifecycle-resurrecting: #a56eff;
+    --color-lifecycle-dormant: #db3707;
+    --color-lifecycle-new-hover: #254d08;
+    --color-lifecycle-returning-hover: #0024b6;
+    --color-lifecycle-resurrecting-hover: #6608ff;
+    --color-lifecycle-dormant-hover: #781e04;
+
+    // Revenue analytics MRR series (compiled)
+    --color-revenue-analytics-new: #388600;
+    --color-revenue-analytics-expansion: #1d4aff;
+    --color-revenue-analytics-contraction: #ffa500;
+    --color-revenue-analytics-churn: #db3707;
+    --color-revenue-analytics-new-hover: #254d08;
+    --color-revenue-analytics-expansion-hover: #0024b6;
+    --color-revenue-analytics-contraction-hover: #a26c07;
+    --color-revenue-analytics-churn-hover: #781e04;
 
     // Z-indexes
     --z-bottom-notice: 1450;
