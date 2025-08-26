@@ -21,6 +21,7 @@ export enum Scene {
     Cohort = 'Cohort',
     Cohorts = 'Cohorts',
     CustomCss = 'CustomCss',
+    CustomerAnalytics = 'CustomerAnalytics',
     Dashboard = 'Dashboard',
     Dashboards = 'Dashboards',
     DataManagement = 'DataManagement',
