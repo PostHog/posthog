@@ -70,6 +70,23 @@ def _get_raw_content(llm_response: ChatCompletion | ChatCompletionChunk) -> str:
     return content if content else ""
 
 
+def get_exception_event_ids_from_summary(session_summary: SessionSummarySerializer) -> list[str]:
+    """
+    Extract event UUIDs for all events marked with exceptions (blocking or non-blocking).
+    """
+    exception_event_ids = []
+    summary_data = session_summary.data
+    # Check if key_actions exists and iterate through segments
+    key_actions = summary_data.get("key_actions", [])
+    for segment in key_actions:
+        events = segment.get("events", [])
+        for event in events:
+            # Check if event has an exception (blocking or non-blocking)
+            if event.get("exception") and event.get("event_uuid"):
+                exception_event_ids.append(event["event_uuid"])
+    return exception_event_ids
+
+
 def _convert_llm_content_to_session_summary(
     content: str,
     allowed_event_ids: list[str],

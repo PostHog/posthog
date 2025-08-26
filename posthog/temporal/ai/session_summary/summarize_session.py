@@ -34,7 +34,11 @@ from posthog.temporal.common.client import async_connect
 
 from ee.hogai.session_summaries import ExceptionToRetry
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_STREAMING_MODEL, SESSION_SUMMARIES_SYNC_MODEL
-from ee.hogai.session_summaries.llm.consume import get_llm_single_session_summary, stream_llm_single_session_summary
+from ee.hogai.session_summaries.llm.consume import (
+    get_exception_event_ids_from_summary,
+    get_llm_single_session_summary,
+    stream_llm_single_session_summary,
+)
 from ee.hogai.session_summaries.session.summarize_session import (
     ExtraSummaryContext,
     SingleSessionSummaryLlmInputs,
@@ -166,11 +170,12 @@ async def get_llm_single_session_summary_activity(
         trace_id=temporalio.activity.info().workflow_id,
     )
     # Store the generated summary in the DB
+    exception_event_ids = get_exception_event_ids_from_summary(session_summary)
     await database_sync_to_async(SingleSessionSummary.objects.add_summary)(
         session_id=inputs.session_id,
         team_id=inputs.team_id,
         summary=session_summary,
-        exception_event_ids=[],
+        exception_event_ids=exception_event_ids,
         extra_summary_context=inputs.extra_summary_context,
     )
     # Returning nothing as the data is stored in Redis
