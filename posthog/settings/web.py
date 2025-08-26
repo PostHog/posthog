@@ -196,6 +196,7 @@ SOCIAL_AUTH_FIELDS_STORED_IN_SESSION = [
     "user_name",
     "email_opt_in",
     "organization_name",
+    "reauth",
 ]
 SOCIAL_AUTH_GITHUB_SCOPE = ["user:email"]
 SOCIAL_AUTH_GITHUB_KEY: str | None = os.getenv("SOCIAL_AUTH_GITHUB_KEY")
