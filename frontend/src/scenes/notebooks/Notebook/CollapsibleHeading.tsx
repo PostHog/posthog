@@ -56,16 +56,14 @@ export const CollapsibleHeading = Heading.extend({
 
 function createDecorations(doc: PMNode, editor: Editor): DecorationSet {
     const decorations: Decoration[] = []
-
-    type TopNodeInfo = {
+    const topNodes: {
         node: any
         pos: number
         isHeading: boolean
         level?: number
         collapsed?: boolean
-    }
+    }[] = []
 
-    const topNodes: TopNodeInfo[] = []
     doc.descendants((node, nodePos, parent) => {
         if (parent === doc) {
             topNodes.push({
@@ -108,23 +106,17 @@ function createDecorations(doc: PMNode, editor: Editor): DecorationSet {
     }
 
     // Hierarchy-aware hiding and content analysis
-    let activeCollapsedLevel: number | null = null
-    let activeCollapsedHeadingPos: number | null = null
+    let activeCollapse: [level: number, headingPos: number] | null = null
     let hiddenNodes: any[] = []
-
     for (const info of topNodes) {
         if (info.isHeading) {
-            if (activeCollapsedLevel !== null) {
-                const level = info.level ?? Infinity
-                if (level <= activeCollapsedLevel) {
+            if (activeCollapse) {
+                if ((info.level ?? Infinity) <= activeCollapse[0]) {
                     // Collapsed section starting
-                    if (hiddenNodes.length > 0 && activeCollapsedHeadingPos !== null) {
-                        decorations.push(
-                            createCollapsedContentDecoration(editor, doc, activeCollapsedHeadingPos, hiddenNodes)
-                        )
+                    if (hiddenNodes.length > 0 && activeCollapse[1] !== null) {
+                        decorations.push(createCollapsedContentDecoration(editor, doc, activeCollapse[1], hiddenNodes))
                     }
-                    activeCollapsedLevel = null
-                    activeCollapsedHeadingPos = null
+                    activeCollapse = null
                     hiddenNodes = []
                 } else {
                     // Nested heading inside collapsed region – hide it
@@ -135,20 +127,20 @@ function createDecorations(doc: PMNode, editor: Editor): DecorationSet {
                 }
             }
             if (info.collapsed) {
-                activeCollapsedLevel = info.level ?? null
-                activeCollapsedHeadingPos = info.pos
+                activeCollapse = [info.level ?? Infinity, info.pos]
                 hiddenNodes = []
                 continue
             }
-        } else if (activeCollapsedLevel !== null) {
+        } else if (activeCollapse) {
+            // Hide this node nested in a collapsed region
             hiddenNodes.push(info.node)
             decorations.push(Decoration.node(info.pos, info.pos + info.node.nodeSize, { style: 'display: none' }))
         }
     }
 
-    // If still in a collapsed region at EOF, emit summary here (same flow, not a special section)
-    if (activeCollapsedLevel !== null && hiddenNodes.length > 0 && activeCollapsedHeadingPos !== null) {
-        decorations.push(createCollapsedContentDecoration(editor, doc, activeCollapsedHeadingPos, hiddenNodes))
+    // If at end of file we're still in a collapsed region - emit its summary here
+    if (activeCollapse !== null && hiddenNodes.length > 0) {
+        decorations.push(createCollapsedContentDecoration(editor, doc, activeCollapse[1], hiddenNodes))
     }
 
     return DecorationSet.create(doc as any, decorations)
