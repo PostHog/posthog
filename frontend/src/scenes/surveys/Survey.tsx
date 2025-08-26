@@ -14,7 +14,6 @@ import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { FeatureFlagFilters, Survey, SurveyMatchType } from '~/types'
 
 import SurveyEdit from './SurveyEdit'
@@ -64,7 +63,7 @@ export function SurveyComponent({ id }: SurveyLogicProps): JSX.Element {
 
 export function SurveyForm({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading, targetingFlagFilters } = useValues(surveyLogic)
-    const { loadSurvey, editingSurvey, setSurveyValue } = useActions(surveyLogic)
+    const { loadSurvey, editingSurvey } = useActions(surveyLogic)
 
     const handleCancelClick = (): void => {
         editingSurvey(false)
@@ -106,18 +105,6 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                         </LemonButton>
                     </div>
                 }
-            />
-            <SceneTitleSection
-                name={survey.name}
-                description={survey.description}
-                resourceType={{ type: 'survey', typePlural: 'surveys' }}
-                canEdit
-                onNameChange={(name) => {
-                    setSurveyValue('name', name)
-                }}
-                onDescriptionChange={(description) => {
-                    setSurveyValue('description', description)
-                }}
             />
             <LemonDivider />
             <SurveyEdit />
