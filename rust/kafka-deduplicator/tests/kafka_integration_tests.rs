@@ -114,7 +114,6 @@ fn create_stateful_kafka_consumer(
     StatefulKafkaConsumer<TestProcessor>,
     tokio::sync::oneshot::Sender<()>,
 )> {
-    // Use the new from_config method which includes tracker support
     let mut config = ClientConfig::new();
     config
         .set("bootstrap.servers", KAFKA_BROKERS)
@@ -328,7 +327,6 @@ async fn test_partition_aware_message_filtering() -> Result<()> {
     let processor = Arc::new(TestProcessor::new());
     let rebalance_handler = Arc::new(TestRebalanceHandler::default());
 
-    // Use the new factory method to get integrated tracker/context
     let config = rdkafka::ClientConfig::new()
         .set("bootstrap.servers", KAFKA_BROKERS)
         .set("group.id", &group_id)

@@ -3,11 +3,11 @@ use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
 use rdkafka::Message;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{oneshot, Semaphore};
+use tokio::sync::oneshot;
 use tokio::time::timeout;
 use tracing::{debug, error, info, warn};
 
-use super::message::{AckableMessage, MessageProcessor};
+use super::message::MessageProcessor;
 use super::rebalance_handler::RebalanceHandler;
 use super::stateful_context::StatefulConsumerContext;
 use super::tracker::{InFlightTracker, TrackerStats};
@@ -21,11 +21,8 @@ pub struct StatefulKafkaConsumer<P: MessageProcessor> {
     /// Message processor for handling business logic
     message_processor: Arc<P>,
 
-    /// In-flight message tracker
+    /// In-flight message tracker (owns the semaphore for backpressure)
     tracker: Arc<InFlightTracker>,
-
-    /// Global semaphore to limit total in-flight messages
-    global_semaphore: Arc<Semaphore>,
 
     /// How often to commit offsets
     commit_interval: Duration,
@@ -45,19 +42,16 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
         commit_interval: Duration,
         shutdown_rx: oneshot::Receiver<()>,
     ) -> Result<Self> {
-        let tracker = Arc::new(InFlightTracker::new());
+        let tracker = Arc::new(InFlightTracker::with_capacity(max_in_flight_messages));
         let context = StatefulConsumerContext::new(rebalance_handler, tracker.clone());
 
         let consumer: StreamConsumer<StatefulConsumerContext> =
             config.create_with_context(context)?;
 
-        let global_semaphore = Arc::new(Semaphore::new(max_in_flight_messages));
-
         Ok(Self {
             consumer,
             message_processor,
             tracker,
-            global_semaphore,
             commit_interval,
             shutdown_rx,
         })
@@ -72,6 +66,9 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
         let mut metrics_interval = tokio::time::interval(Duration::from_secs(10));
 
         loop {
+            // Process completions at the start of each loop iteration to keep counts accurate
+            self.tracker.process_completions().await;
+            
             tokio::select! {
                 // Check for shutdown signal
                 _ = &mut self.shutdown_rx => {
@@ -84,6 +81,8 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
                     match msg_result {
                         Ok(Ok(msg)) => {
                             self.handle_message(msg).await?;
+                            // Process completions after each message to keep counts accurate
+                            self.tracker.process_completions().await;
                         }
                         Ok(Err(e)) => {
                             error!("Error receiving message: {}", e);
@@ -98,15 +97,18 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
 
                 // Publish metrics every 10 seconds
                 _ = metrics_interval.tick() => {
+                    // Process any pending completions first to get accurate stats
+                    self.tracker.process_completions().await;
+                    
                     let stats = self.tracker.get_stats().await;
                     stats.publish_metrics();
                     
-                    // Also publish semaphore permit metrics
+                    // Also publish semaphore permit metrics from the tracker
                     metrics::gauge!("kafka_consumer_available_permits")
-                        .set(self.global_semaphore.available_permits() as f64);
+                        .set(self.tracker.available_permits() as f64);
                     
                     debug!("Published metrics: {}, available_permits={}", 
-                        stats, self.global_semaphore.available_permits());
+                        stats, self.tracker.available_permits());
                 }
 
                 // Commit offsets periodically
@@ -151,29 +153,61 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
             return Ok(());
         }
 
-        // Acquire permit to control backpressure with timeout to prevent deadlocks
-        let permit = timeout(Duration::from_secs(30), self.global_semaphore.clone().acquire_owned())
-            .await
-            .map_err(|_| {
-                anyhow::anyhow!("Timeout acquiring semaphore permit after 30s - possible deadlock")
-            })??;
+        // First check if we have permits available
+        if self.tracker.available_permits() == 0 {
+            debug!(
+                "No permits available, applying backpressure. Topic {} partition {} offset {}. In-flight: {}",
+                topic, partition, offset,
+                self.tracker.in_flight_count().await
+            );
+            // Process completions to potentially free up permits
+            self.tracker.process_completions().await;
+            
+            // Check again after processing completions
+            if self.tracker.available_permits() == 0 {
+                // Still no permits - apply backpressure by not consuming this message
+                return Ok(());
+            }
+        }
 
-        debug!(
-            "Processing message from topic {} partition {} offset {} (available permits: {})",
-            topic, partition, offset, self.global_semaphore.available_permits()
-        );
-
-        // Convert to owned message and create ackable wrapper
-        let owned_msg = msg.detach();
-        let estimated_size = owned_msg.payload().map(|p| p.len()).unwrap_or(0)
-            + owned_msg.key().map(|k| k.len()).unwrap_or(0)
+        // Calculate size before detaching
+        let estimated_size = msg.payload().map(|p| p.len()).unwrap_or(0)
+            + msg.key().map(|k| k.len()).unwrap_or(0)
             + topic.len();
 
-        let (_message_id, message_handle) =
-            self.tracker.track_message(&owned_msg, estimated_size).await;
+        // Try to acquire a permit BEFORE detaching the message
+        // This way we never lose a message
+        let permit = match tokio::time::timeout(
+            Duration::from_secs(1),
+            self.tracker.in_flight_semaphore_clone().acquire_owned()
+        ).await {
+            Ok(Ok(permit)) => permit,
+            Ok(Err(_)) => {
+                error!("Semaphore was closed - this is a fatal error");
+                return Err(anyhow::anyhow!("Semaphore closed"));
+            }
+            Err(_) => {
+                // Timeout - apply backpressure
+                debug!(
+                    "Timeout acquiring permit, applying backpressure. Topic {} partition {} offset {}",
+                    topic, partition, offset
+                );
+                return Ok(());
+            }
+        };
 
-        // Pass the permit to the message so it's only released when ack'd/nack'd
-        let ackable_msg = AckableMessage::new(owned_msg, message_handle, permit);
+        // NOW we can safely detach since we have the permit
+        let owned_msg = msg.detach();
+
+        // Track the message and get back an AckableMessage that owns everything
+        let ackable_msg = self.tracker
+            .track_message(owned_msg, estimated_size, permit)
+            .await;
+
+        debug!(
+            "Tracking message from topic {} partition {} offset {} (available permits: {})",
+            topic, partition, offset, self.tracker.available_permits()
+        );
 
         // Process message through user's processor
         match self.message_processor.process_message(ackable_msg).await {
@@ -205,7 +239,7 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
         
         info!(
             "Tracker stats before commit: in_flight={}, completed={}, failed={}, available_permits={}",
-            stats.in_flight, stats.completed, stats.failed, self.global_semaphore.available_permits()
+            stats.in_flight, stats.completed, stats.failed, self.tracker.available_permits()
         );
 
         // Get safe commit offsets from tracker (only commits completed messages)

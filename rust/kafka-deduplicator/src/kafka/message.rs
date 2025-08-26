@@ -167,13 +167,10 @@ mod tests {
     async fn test_message_ack() {
         let tracker = Arc::new(InFlightTracker::new());
         let message = create_test_message("test-topic", 0, 0, "test-payload");
-        let (_message_id, handle) = tracker.track_message(&message, 100).await;
+        let permit = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
         
-        // Create a test semaphore for the message
-        let semaphore = Arc::new(tokio::sync::Semaphore::new(1));
-        let permit = semaphore.clone().acquire_owned().await.unwrap();
-
-        let ackable = AckableMessage::new(message, handle, permit);
+        // Use the new API that returns AckableMessage directly
+        let ackable = tracker.track_message(message, 100, permit).await;
 
         // Verify message is tracked
         assert_eq!(tracker.in_flight_count().await, 1);
@@ -198,13 +195,10 @@ mod tests {
     async fn test_message_nack() {
         let tracker = Arc::new(InFlightTracker::new());
         let message = create_test_message("test-topic", 0, 0, "test-payload");
-        let (_, handle) = tracker.track_message(&message, 50).await;
+        let permit = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
         
-        // Create a test semaphore for the message
-        let semaphore = Arc::new(tokio::sync::Semaphore::new(1));
-        let permit = semaphore.clone().acquire_owned().await.unwrap();
-
-        let ackable = AckableMessage::new(message, handle, permit);
+        // Use the new API that returns AckableMessage directly
+        let ackable = tracker.track_message(message, 50, permit).await;
 
         // Nack the message
         ackable.nack("test error".to_string()).await;

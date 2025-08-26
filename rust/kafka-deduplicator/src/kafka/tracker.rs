@@ -3,10 +3,10 @@ use rdkafka::Message;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{mpsc, OwnedSemaphorePermit, RwLock, Semaphore};
 use tracing::{debug, info, warn};
 
-use crate::kafka::message::MessageResult;
+use crate::kafka::message::{AckableMessage, MessageResult};
 use crate::rocksdb::metrics_consts::{
     KAFKA_CONSUMER_IN_FLIGHT_MEMORY_BYTES, KAFKA_CONSUMER_IN_FLIGHT_MESSAGES,
 };
@@ -111,16 +111,23 @@ pub struct InFlightTracker {
     /// Global statistics
     completed_count: AtomicU64,
     failed_count: AtomicU64,
+
+    /// Semaphore to limit total in-flight messages
+    in_flight_semaphore: Arc<Semaphore>,
 }
 
 impl Default for InFlightTracker {
     fn default() -> Self {
-        Self::new()
+        Self::with_capacity(100) // Default to 100 for tests
     }
 }
 
 impl InFlightTracker {
     pub fn new() -> Self {
+        Self::with_capacity(100) // Default to 100 for backward compatibility
+    }
+
+    pub fn with_capacity(max_in_flight: usize) -> Self {
         Self {
             partitions: Arc::new(RwLock::new(HashMap::new())),
             revoked_partitions: Arc::new(RwLock::new(HashSet::new())),
@@ -128,15 +135,17 @@ impl InFlightTracker {
             next_message_id: AtomicU64::new(1),
             completed_count: AtomicU64::new(0),
             failed_count: AtomicU64::new(0),
+            in_flight_semaphore: Arc::new(Semaphore::new(max_in_flight)),
         }
     }
 
-    /// Add a new message to tracking and return its ID and handle
+    /// Track a message and return an AckableMessage that owns the permit
     pub async fn track_message(
         &self,
-        message: &OwnedMessage,
+        message: OwnedMessage,
         memory_size: usize,
-    ) -> (u64, MessageHandle) {
+        permit: OwnedSemaphorePermit,
+    ) -> AckableMessage {
         let message_id = self.next_message_id.fetch_add(1, Ordering::SeqCst);
         let topic = message.topic().to_string();
         let partition = message.partition();
@@ -156,13 +165,14 @@ impl InFlightTracker {
         };
 
         debug!(
-            "Tracking message: id={}, topic={}, partition={}, offset={}, memory={}",
-            message_id, topic, partition, offset, memory_size
+            "Tracking message with permit: id={}, topic={}, partition={}, offset={}, memory={}, available_permits={}",
+            message_id, topic, partition, offset, memory_size, self.in_flight_semaphore.available_permits()
         );
 
         let handle = MessageHandle::new(message_id, offset, memory_size, completion_tx);
 
-        (message_id, handle)
+        // Create and return the AckableMessage with ownership of both message and permit
+        AckableMessage::new(message, handle, permit)
     }
 
     /// Process completion signals for all partitions
@@ -269,29 +279,22 @@ impl InFlightTracker {
     }
 
     /// Wait for all in-flight messages to complete and return final offsets
+    /// This is a convenience method that waits for ALL partitions
     pub async fn wait_for_completion(&self) -> Vec<(String, i32, i64)> {
-        info!("Waiting for all in-flight messages to complete...");
-
-        loop {
-            // Process any pending completions
-            self.process_completions().await;
-
-            // Check if any messages are still in-flight
-            let total_in_flight = self.in_flight_count().await;
-            if total_in_flight == 0 {
-                break;
-            }
-
-            info!("Still waiting for {} in-flight messages", total_in_flight);
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        // Get all active partitions and wait for them
+        let partitions = {
+            let partitions_guard = self.partitions.read().await;
+            partitions_guard
+                .keys()
+                .map(|(topic, partition)| (topic.clone(), *partition))
+                .collect::<Vec<_>>()
+        };
+        
+        if partitions.is_empty() {
+            return Vec::new();
         }
-
-        // Return final offsets for all partitions
-        let safe_offsets = self.get_safe_commit_offsets().await;
-        safe_offsets
-            .into_iter()
-            .map(|((topic, partition), offset)| (topic, partition, offset))
-            .collect()
+        
+        self.wait_for_partition_completion(&partitions).await
     }
 
     /// Get statistics about message processing
@@ -307,6 +310,16 @@ impl InFlightTracker {
             failed,
             memory_usage,
         }
+    }
+
+    /// Get available permits from the semaphore
+    pub fn available_permits(&self) -> usize {
+        self.in_flight_semaphore.available_permits()
+    }
+    
+    /// Get a clone of the semaphore for acquiring permits
+    pub fn in_flight_semaphore_clone(&self) -> Arc<Semaphore> {
+        self.in_flight_semaphore.clone()
     }
 
     /// Check if a partition is active (not fenced or revoked) - fast non-blocking check
@@ -483,8 +496,11 @@ mod tests {
     async fn test_track_message() {
         let tracker = InFlightTracker::new();
         let message = create_test_message("test-topic", 0, 100, "test-payload");
-
-        let (message_id, _handle) = tracker.track_message(&message, 1024).await;
+        let message2 = create_test_message("test-topic", 0, 101, "test-payload2");
+        
+        // Acquire permit for test
+        let permit = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
+        let _ackable = tracker.track_message(message, 1024, permit).await;
 
         assert_eq!(tracker.in_flight_count().await, 1);
         assert_eq!(tracker.memory_usage().await, 1024);
@@ -495,9 +511,12 @@ mod tests {
         assert_eq!(stats.completed, 0);
         assert_eq!(stats.failed, 0);
 
-        // Verify message ID is sequential
-        let (message_id_2, _) = tracker.track_message(&message, 512).await;
-        assert_eq!(message_id_2, message_id + 1);
+        // Track another message - should succeed since we have capacity
+        let permit2 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
+        let _ackable2 = tracker.track_message(message2, 512, permit2).await;
+        
+        // Both messages should be tracked
+        assert_eq!(tracker.in_flight_count().await, 2);
     }
 
     #[tokio::test]
@@ -505,10 +524,11 @@ mod tests {
         let tracker = InFlightTracker::new();
         let message = create_test_message("test-topic", 0, 0, "payload");
 
-        let (_message_id, handle) = tracker.track_message(&message, 256).await;
+        let permit = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
+        let ackable = tracker.track_message(message, 256, permit).await;
 
         // Complete the message
-        handle.complete(MessageResult::Success).await;
+        ackable.ack().await;
 
         // Process completions
         tracker.process_completions().await;
@@ -530,19 +550,22 @@ mod tests {
         let msg2 = create_test_message("topic", 1, 0, "payload2");
         let msg3 = create_test_message("topic", 0, 1, "payload3");
 
-        let (_, handle1) = tracker.track_message(&msg1, 100).await;
-        let (_, handle2) = tracker.track_message(&msg2, 200).await;
-        let (_, handle3) = tracker.track_message(&msg3, 150).await;
+        let permit1 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
+        let permit2 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
+        let permit3 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
+        
+        // Use the new API that returns AckableMessage
+        let ackable1 = tracker.track_message(msg1, 100, permit1).await;
+        let ackable2 = tracker.track_message(msg2, 200, permit2).await;
+        let ackable3 = tracker.track_message(msg3, 150, permit3).await;
 
         assert_eq!(tracker.in_flight_count().await, 3);
         assert_eq!(tracker.memory_usage().await, 450);
 
         // Complete messages
-        handle1.complete(MessageResult::Success).await;
-        handle2.complete(MessageResult::Success).await;
-        handle3
-            .complete(MessageResult::Failed("error".to_string()))
-            .await;
+        ackable1.ack().await;
+        ackable2.ack().await;
+        ackable3.nack("error".to_string()).await;
 
         tracker.process_completions().await;
 
@@ -563,14 +586,18 @@ mod tests {
         let msg2 = create_test_message("topic", 0, 1, "payload2");
         let msg3 = create_test_message("topic", 0, 2, "payload3");
 
-        let (_, handle1) = tracker.track_message(&msg1, 100).await;
-        let (_, handle2) = tracker.track_message(&msg2, 100).await;
-        let (_, handle3) = tracker.track_message(&msg3, 100).await;
+        let permit1 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
+        let permit2 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
+        let permit3 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
+        
+        let ackable1 = tracker.track_message(msg1, 100, permit1).await;
+        let ackable2 = tracker.track_message(msg2, 100, permit2).await;
+        let ackable3 = tracker.track_message(msg3, 100, permit3).await;
 
         // Complete out of order: 3, 1, 2
-        handle3.complete(MessageResult::Success).await; // offset 2
-        handle1.complete(MessageResult::Success).await; // offset 0
-        handle2.complete(MessageResult::Success).await; // offset 1
+        ackable3.ack().await; // offset 2
+        ackable1.ack().await; // offset 0
+        ackable2.ack().await; // offset 1
 
         tracker.process_completions().await;
 
@@ -587,12 +614,15 @@ mod tests {
         let msg1 = create_test_message("topic", 0, 0, "payload1");
         let msg2 = create_test_message("topic", 0, 2, "payload2"); // Gap at 1
 
-        let (_, handle1) = tracker.track_message(&msg1, 100).await;
-        let (_, handle2) = tracker.track_message(&msg2, 100).await;
+        let permit1 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
+        let permit2 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
+        
+        let ackable1 = tracker.track_message(msg1, 100, permit1).await;
+        let ackable2 = tracker.track_message(msg2, 100, permit2).await;
 
         // Complete both messages
-        handle1.complete(MessageResult::Success).await;
-        handle2.complete(MessageResult::Success).await;
+        ackable1.ack().await;
+        ackable2.ack().await;
 
         tracker.process_completions().await;
 
@@ -606,12 +636,14 @@ mod tests {
         let tracker = Arc::new(InFlightTracker::new());
         let message = create_test_message("test-topic", 0, 0, "payload");
 
-        let (_, handle) = tracker.track_message(&message, 64).await;
+        let permit = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
+        
+        let ackable = tracker.track_message(message, 64, permit).await;
 
         // Start a task that will complete the message after a delay
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-            handle.complete(MessageResult::Success).await;
+            ackable.ack().await;
         });
 
         // Wait for completion
@@ -665,21 +697,24 @@ mod tests {
         let msg3 = create_test_message("topic", 1, 0, "payload3");
         let msg4 = create_test_message("other", 0, 0, "payload4");
 
-        let (_, handle1) = tracker.track_message(&msg1, 100).await;
-        let (_, handle2) = tracker.track_message(&msg2, 100).await;
-        let (_, handle3) = tracker.track_message(&msg3, 100).await;
-        let (_, handle4) = tracker.track_message(&msg4, 100).await;
+        let permit1 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
+        let permit2 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
+        let permit3 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
+        let permit4 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
+        
+        let ackable1 = tracker.track_message(msg1, 100, permit1).await;
+        let ackable2 = tracker.track_message(msg2, 100, permit2).await;
+        let ackable3 = tracker.track_message(msg3, 100, permit3).await;
+        let ackable4 = tracker.track_message(msg4, 100, permit4).await;
 
         // Verify in-flight counts
         assert_eq!(tracker.in_flight_count().await, 4);
 
         // Complete messages in partition topic:0 in background
-        let handle1_clone = handle1;
-        let handle2_clone = handle2;
         tokio::spawn(async move {
             tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
-            handle1_clone.complete(MessageResult::Success).await;
-            handle2_clone.complete(MessageResult::Success).await;
+            ackable1.ack().await;
+            ackable2.ack().await;
         });
 
         // Wait for specific partition completion
@@ -696,8 +731,8 @@ mod tests {
         assert_eq!(tracker.in_flight_count().await, 2);
 
         // Clean up remaining messages
-        handle3.complete(MessageResult::Success).await;
-        handle4.complete(MessageResult::Success).await;
+        ackable3.ack().await;
+        ackable4.ack().await;
         tracker.process_completions().await;
     }
 
@@ -728,20 +763,25 @@ mod tests {
         let msg2 = create_test_message("topic", 1, 0, "payload2");
         let msg3 = create_test_message("topic", 2, 0, "payload3");
 
-        let (_, handle1) = tracker.track_message(&msg1, 100).await;
-        let (_, handle2) = tracker.track_message(&msg2, 100).await;
-        let (_, handle3) = tracker.track_message(&msg3, 100).await;
+        let permit1 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
+        let permit2 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
+        let permit3 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
+        
+        // Use the new API that returns AckableMessage
+        let ackable1 = tracker.track_message(msg1, 100, permit1).await;
+        let ackable2 = tracker.track_message(msg2, 100, permit2).await;
+        let ackable3 = tracker.track_message(msg3, 100, permit3).await;
 
         // Complete messages in background with different timing
         tokio::spawn(async move {
             tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-            handle1.complete(MessageResult::Success).await;
+            ackable1.ack().await;
 
             tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
-            handle2.complete(MessageResult::Success).await;
+            ackable2.ack().await;
 
             tokio::time::sleep(tokio::time::Duration::from_millis(30)).await;
-            handle3.complete(MessageResult::Success).await;
+            ackable3.ack().await;
         });
 
         // Wait for specific partitions
@@ -772,9 +812,14 @@ mod tests {
         let msg2 = create_test_message("topic", 0, 1, "payload2");
         let msg3 = create_test_message("topic", 1, 0, "payload3");
 
-        let (_, handle1) = tracker.track_message(&msg1, 100).await;
-        let (_, handle2) = tracker.track_message(&msg2, 100).await;
-        let (_, handle3) = tracker.track_message(&msg3, 100).await;
+        let permit1 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
+        let permit2 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
+        let permit3 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
+        
+        // Use the new API that returns AckableMessage
+        let ackable1 = tracker.track_message(msg1, 100, permit1).await;
+        let ackable2 = tracker.track_message(msg2, 100, permit2).await;
+        let ackable3 = tracker.track_message(msg3, 100, permit3).await;
 
         // Simulate partition revocation workflow
         let revoked_partitions = vec![("topic".to_string(), 0)];
@@ -789,8 +834,8 @@ mod tests {
         // 2. Complete in-flight messages in background
         tokio::spawn(async move {
             tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-            handle1.complete(MessageResult::Success).await;
-            handle2.complete(MessageResult::Success).await;
+            ackable1.ack().await;
+            ackable2.ack().await;
         });
 
         // 3. Wait for partition completion
@@ -809,7 +854,7 @@ mod tests {
         assert_eq!(tracker.in_flight_count().await, 1);
 
         // Clean up
-        handle3.complete(MessageResult::Success).await;
+        ackable3.ack().await;
         tracker.process_completions().await;
     }
 }

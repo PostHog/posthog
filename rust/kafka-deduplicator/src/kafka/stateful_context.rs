@@ -426,8 +426,12 @@ mod tests {
             Some(rdkafka::message::OwnedHeaders::new()),
         );
 
-        let (_, handle1) = tracker.track_message(&msg1, 100).await;
-        let (_, handle2) = tracker.track_message(&msg2, 100).await;
+        // Need to acquire permits first for the new API
+        let permit1 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
+        let permit2 = tracker.in_flight_semaphore_clone().acquire_owned().await.unwrap();
+        
+        let ackable1 = tracker.track_message(msg1, 100, permit1).await;
+        let ackable2 = tracker.track_message(msg2, 100, permit2).await;
 
         // Verify messages are tracked and partition is active
         assert_eq!(tracker.in_flight_count().await, 2);
@@ -451,12 +455,8 @@ mod tests {
         assert_eq!(tracker.in_flight_count().await, 2);
 
         // Complete the messages to allow async worker to finish
-        handle1
-            .complete(crate::kafka::message::MessageResult::Success)
-            .await;
-        handle2
-            .complete(crate::kafka::message::MessageResult::Success)
-            .await;
+        ackable1.ack().await;
+        ackable2.ack().await;
 
         // Give async worker time to process
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
