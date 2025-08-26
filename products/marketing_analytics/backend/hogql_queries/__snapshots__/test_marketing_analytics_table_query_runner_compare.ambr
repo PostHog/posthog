@@ -5,10 +5,10 @@
   SELECT
       campaign_costs.campaign AS Campaign,
       campaign_costs.source AS Source,
-      round(campaign_costs.total_cost, 2) AS `Total Cost`,
-      round(campaign_costs.total_clicks, 0) AS `Total Clicks`,
-      round(campaign_costs.total_impressions, 0) AS `Total Impressions`,
-      round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_clicks, 0)), 2) AS `Cost per Click`,
+      round(campaign_costs.total_cost, 2) AS Cost,
+      round(campaign_costs.total_clicks, 0) AS Clicks,
+      round(campaign_costs.total_impressions, 0) AS Impressions,
+      round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_clicks, 0)), 2) AS CPC,
       round(multiply(divide(campaign_costs.total_clicks, nullif(campaign_costs.total_impressions, 0)), 100), 2) AS CTR
   
   FROM
@@ -38,8 +38,6 @@
   GROUP BY
           campaign,
           source) AS campaign_costs
-  ORDER BY
-      `Total Cost` DESC
   
   LIMIT 101
   OFFSET 0
@@ -51,10 +49,10 @@
   SELECT
       tuple(current_period.Campaign, previous_period.Campaign) AS Campaign,
       tuple(current_period.Source, previous_period.Source) AS Source,
-      tuple(current_period.`Total Cost`, previous_period.`Total Cost`) AS `Total Cost`,
-      tuple(current_period.`Total Clicks`, previous_period.`Total Clicks`) AS `Total Clicks`,
-      tuple(current_period.`Total Impressions`, previous_period.`Total Impressions`) AS `Total Impressions`,
-      tuple(current_period.`Cost per Click`, previous_period.`Cost per Click`) AS `Cost per Click`,
+      tuple(current_period.Cost, previous_period.Cost) AS Cost,
+      tuple(current_period.Clicks, previous_period.Clicks) AS Clicks,
+      tuple(current_period.Impressions, previous_period.Impressions) AS Impressions,
+      tuple(current_period.CPC, previous_period.CPC) AS CPC,
       tuple(current_period.CTR, previous_period.CTR) AS CTR,
       tuple(current_period.`Sign Up Conversions`, previous_period.`Sign Up Conversions`) AS `Sign Up Conversions`,
       tuple(current_period.`Cost per Sign Up Conversions`, previous_period.`Cost per Sign Up Conversions`) AS `Cost per Sign Up Conversions`
@@ -64,10 +62,10 @@
   SELECT
           campaign_costs.campaign AS Campaign,
           campaign_costs.source AS Source,
-          round(campaign_costs.total_cost, 2) AS `Total Cost`,
-          round(campaign_costs.total_clicks, 0) AS `Total Clicks`,
-          round(campaign_costs.total_impressions, 0) AS `Total Impressions`,
-          round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_clicks, 0)), 2) AS `Cost per Click`,
+          round(campaign_costs.total_cost, 2) AS Cost,
+          round(campaign_costs.total_clicks, 0) AS Clicks,
+          round(campaign_costs.total_impressions, 0) AS Impressions,
+          round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_clicks, 0)), 2) AS CPC,
           round(multiply(divide(campaign_costs.total_clicks, nullif(campaign_costs.total_impressions, 0)), 100), 2) AS CTR,
           cg_0.conversion_0 AS `Sign Up Conversions`,
           round(divide(campaign_costs.total_cost, nullif(cg_0.conversion_0, 0)), 2) AS `Cost per Sign Up Conversions`
@@ -157,10 +155,10 @@
   SELECT
           campaign_costs.campaign AS Campaign,
           campaign_costs.source AS Source,
-          round(campaign_costs.total_cost, 2) AS `Total Cost`,
-          round(campaign_costs.total_clicks, 0) AS `Total Clicks`,
-          round(campaign_costs.total_impressions, 0) AS `Total Impressions`,
-          round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_clicks, 0)), 2) AS `Cost per Click`,
+          round(campaign_costs.total_cost, 2) AS Cost,
+          round(campaign_costs.total_clicks, 0) AS Clicks,
+          round(campaign_costs.total_impressions, 0) AS Impressions,
+          round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_clicks, 0)), 2) AS CPC,
           round(multiply(divide(campaign_costs.total_clicks, nullif(campaign_costs.total_impressions, 0)), 100), 2) AS CTR,
           cg_0.conversion_0 AS `Sign Up Conversions`,
           round(divide(campaign_costs.total_cost, nullif(cg_0.conversion_0, 0)), 2) AS `Cost per Sign Up Conversions`
@@ -247,7 +245,7 @@
               campaign,
               source) AS cg_0 ON and(equals(campaign_costs.campaign, cg_0.campaign), equals(campaign_costs.source, cg_0.source))) AS previous_period ON and(equals(current_period.Campaign, previous_period.Campaign), equals(current_period.Source, previous_period.Source))
   ORDER BY
-      `Total Cost` DESC
+      Cost DESC
   
   LIMIT 101
   OFFSET 0
@@ -260,10 +258,10 @@
       SELECT
           tuple(current_period.Campaign, previous_period.Campaign) AS Campaign,
           tuple(current_period.Source, previous_period.Source) AS Source,
-          tuple(current_period.`Total Cost`, previous_period.`Total Cost`) AS `Total Cost`,
-          tuple(current_period.`Total Clicks`, previous_period.`Total Clicks`) AS `Total Clicks`,
-          tuple(current_period.`Total Impressions`, previous_period.`Total Impressions`) AS `Total Impressions`,
-          tuple(current_period.`Cost per Click`, previous_period.`Cost per Click`) AS `Cost per Click`,
+          tuple(current_period.Cost, previous_period.Cost) AS Cost,
+          tuple(current_period.Clicks, previous_period.Clicks) AS Clicks,
+          tuple(current_period.Impressions, previous_period.Impressions) AS Impressions,
+          tuple(current_period.CPC, previous_period.CPC) AS CPC,
           tuple(current_period.CTR, previous_period.CTR) AS CTR
       
       FROM
@@ -271,10 +269,10 @@
       SELECT
               campaign_costs.campaign AS Campaign,
               campaign_costs.source AS Source,
-              round(campaign_costs.total_cost, 2) AS `Total Cost`,
-              round(campaign_costs.total_clicks, 0) AS `Total Clicks`,
-              round(campaign_costs.total_impressions, 0) AS `Total Impressions`,
-              round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_clicks, 0)), 2) AS `Cost per Click`,
+              round(campaign_costs.total_cost, 2) AS Cost,
+              round(campaign_costs.total_clicks, 0) AS Clicks,
+              round(campaign_costs.total_impressions, 0) AS Impressions,
+              round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_clicks, 0)), 2) AS CPC,
               round(multiply(divide(campaign_costs.total_clicks, nullif(campaign_costs.total_impressions, 0)), 100), 2) AS CTR
           
       FROM
@@ -336,10 +334,10 @@
       SELECT
               campaign_costs.campaign AS Campaign,
               campaign_costs.source AS Source,
-              round(campaign_costs.total_cost, 2) AS `Total Cost`,
-              round(campaign_costs.total_clicks, 0) AS `Total Clicks`,
-              round(campaign_costs.total_impressions, 0) AS `Total Impressions`,
-              round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_clicks, 0)), 2) AS `Cost per Click`,
+              round(campaign_costs.total_cost, 2) AS Cost,
+              round(campaign_costs.total_clicks, 0) AS Clicks,
+              round(campaign_costs.total_impressions, 0) AS Impressions,
+              round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_clicks, 0)), 2) AS CPC,
               round(multiply(divide(campaign_costs.total_clicks, nullif(campaign_costs.total_impressions, 0)), 100), 2) AS CTR
           
       FROM
@@ -398,582 +396,183 @@
                   campaign,
                   source) AS campaign_costs) AS previous_period ON and(equals(current_period.Campaign, previous_period.Campaign), equals(current_period.Source, previous_period.Source))
       ORDER BY
-          `Total Cost` DESC
+          Cost DESC
       
       LIMIT 101
       OFFSET 0
     ''',
     'response': list([
-      tuple(
-        tuple(
-          'Test-Brand-Campaign-EMEA',
-          '',
-        ),
-        tuple(
-          'TikTok Ads',
-          '',
-        ),
-        tuple(
-          47.21,
-          None,
-        ),
-        tuple(
-          118.0,
-          None,
-        ),
-        tuple(
-          324.0,
-          None,
-        ),
-        tuple(
-          0.4,
-          None,
-        ),
-        tuple(
-          36.42,
-          None,
-        ),
-      ),
-      tuple(
-        tuple(
-          'Test-Competitors-AMER',
-          '',
-        ),
-        tuple(
-          'TikTok Ads',
-          '',
-        ),
-        tuple(
-          38.92,
-          None,
-        ),
-        tuple(
-          1.0,
-          None,
-        ),
-        tuple(
-          48.0,
-          None,
-        ),
-        tuple(
-          38.92,
-          None,
-        ),
-        tuple(
-          2.08,
-          None,
-        ),
-      ),
-      tuple(
-        tuple(
-          'TechFlow-Prospecting-AMER-Traffic-Technical-Static-Analytics-Aug-2024',
-          'TechFlow-Prospecting-AMER-Traffic-Technical-Static-Analytics-Aug-2024',
-        ),
-        tuple(
-          'LinkedIn Ads',
-          'LinkedIn Ads',
-        ),
-        tuple(
-          31.92,
-          24.42,
-        ),
-        tuple(
-          4.0,
-          4.0,
-        ),
-        tuple(
-          1581.0,
-          2649.0,
-        ),
-        tuple(
-          7.98,
-          6.1,
-        ),
-        tuple(
-          0.25,
-          0.15,
-        ),
-      ),
-      tuple(
-        tuple(
-          'TechFlow-Prospecting-AMER-Traffic-ProductDev-Static-Analytics-Aug-2024',
-          '',
-        ),
-        tuple(
-          'LinkedIn Ads',
-          '',
-        ),
-        tuple(
-          23.12,
-          None,
-        ),
-        tuple(
-          4.0,
-          None,
-        ),
-        tuple(
-          1171.0,
-          None,
-        ),
-        tuple(
-          5.78,
-          None,
-        ),
-        tuple(
-          0.34,
-          None,
-        ),
-      ),
-      tuple(
-        tuple(
-          'TechFlow-Prospecting-AMER-Traffic-ProductDev-Static-Comparison-Oct-2024',
-          '',
-        ),
-        tuple(
-          'LinkedIn Ads',
-          '',
-        ),
-        tuple(
-          13.49,
-          None,
-        ),
-        tuple(
-          3.0,
-          None,
-        ),
-        tuple(
-          420.0,
-          None,
-        ),
-        tuple(
-          4.5,
-          None,
-        ),
-        tuple(
-          0.71,
-          None,
-        ),
-      ),
-      tuple(
-        tuple(
-          'TechFlow-Prospecting-AMER-Traffic-Leadership-Static-Analytics-Aug-2024',
-          '',
-        ),
-        tuple(
-          'LinkedIn Ads',
-          '',
-        ),
-        tuple(
-          10.25,
-          None,
-        ),
-        tuple(
-          2.0,
-          None,
-        ),
-        tuple(
-          616.0,
-          None,
-        ),
-        tuple(
-          5.12,
-          None,
-        ),
-        tuple(
-          0.32,
-          None,
-        ),
-      ),
-      tuple(
-        tuple(
-          'Test-Experimentation-AMER',
-          '',
-        ),
-        tuple(
-          'TikTok Ads',
-          '',
-        ),
-        tuple(
-          7.43,
-          None,
-        ),
-        tuple(
-          1.0,
-          None,
-        ),
-        tuple(
-          11.0,
-          None,
-        ),
-        tuple(
-          7.43,
-          None,
-        ),
-        tuple(
-          9.09,
-          None,
-        ),
-      ),
-      tuple(
-        tuple(
-          'TestCorp-Search-EMEA-Analytics-Tools',
-          'TestCorp-Search-EMEA-Analytics-Tools',
-        ),
-        tuple(
-          'Facebook Ads',
-          'Facebook Ads',
-        ),
-        tuple(
-          6.88,
-          2.63,
-        ),
-        tuple(
-          3.0,
-          2.0,
-        ),
-        tuple(
-          168.0,
-          164.0,
-        ),
-        tuple(
-          2.29,
-          1.32,
-        ),
-        tuple(
-          1.79,
-          1.22,
-        ),
-      ),
-      tuple(
-        tuple(
-          'Test-AB-Testing-AMER',
-          'Test-AB-Testing-AMER',
-        ),
-        tuple(
-          'TikTok Ads',
-          'TikTok Ads',
-        ),
-        tuple(
-          6.28,
-          8.67,
-        ),
-        tuple(
-          2.0,
-          2.0,
-        ),
-        tuple(
-          76.0,
-          28.0,
-        ),
-        tuple(
-          3.14,
-          4.34,
-        ),
-        tuple(
-          2.63,
-          7.14,
-        ),
-      ),
-      tuple(
-        tuple(
-          'TechFlow-Prospecting-GroupB-Traffic-Engineering-Static-Dec-2024',
-          '',
-        ),
-        tuple(
-          'LinkedIn Ads',
-          '',
-        ),
-        tuple(
-          4.13,
-          None,
-        ),
-        tuple(
-          1.0,
-          None,
-        ),
-        tuple(
-          312.0,
-          None,
-        ),
-        tuple(
-          4.13,
-          None,
-        ),
-        tuple(
-          0.32,
-          None,
-        ),
-      ),
-      tuple(
-        tuple(
-          'test_brand_campaign',
-          '',
-        ),
-        tuple(
-          'Facebook Ads',
-          '',
-        ),
-        tuple(
-          3.43,
-          None,
-        ),
-        tuple(
-          2.0,
-          None,
-        ),
-        tuple(
-          731.0,
-          None,
-        ),
-        tuple(
-          1.72,
-          None,
-        ),
-        tuple(
-          0.27,
-          None,
-        ),
-      ),
-      tuple(
-        tuple(
-          'TestCorp-Search-AMER-Analytics-Tools',
-          'TestCorp-Search-AMER-Analytics-Tools',
-        ),
-        tuple(
-          'Facebook Ads',
-          'Facebook Ads',
-        ),
-        tuple(
-          2.94,
-          2.2,
-        ),
-        tuple(
-          2.0,
-          2.0,
-        ),
-        tuple(
-          207.0,
-          106.0,
-        ),
-        tuple(
-          1.47,
-          1.1,
-        ),
-        tuple(
-          0.97,
-          1.89,
-        ),
-      ),
-      tuple(
-        tuple(
-          'TechFlow-Prospecting-EMEA-Traffic-Technical-Static-Analytics-Aug-2024',
-          '',
-        ),
-        tuple(
-          'LinkedIn Ads',
-          '',
-        ),
-        tuple(
-          1.28,
-          None,
-        ),
-        tuple(
-          2.0,
-          None,
-        ),
-        tuple(
-          238.0,
-          None,
-        ),
-        tuple(
-          0.64,
-          None,
-        ),
-        tuple(
-          0.84,
-          None,
-        ),
-      ),
-      tuple(
-        tuple(
-          'Test-Product-Analytics-EMEA',
-          '',
-        ),
-        tuple(
-          'Facebook Ads',
-          '',
-        ),
-        tuple(
-          0.58,
-          None,
-        ),
-        tuple(
-          1.0,
-          None,
-        ),
-        tuple(
-          298.0,
-          None,
-        ),
-        tuple(
-          0.58,
-          None,
-        ),
-        tuple(
-          0.34,
-          None,
-        ),
-      ),
-      tuple(
-        tuple(
-          'Test-Experimentation-EMEA',
-          'Test-Experimentation-EMEA',
-        ),
-        tuple(
-          'TikTok Ads',
-          'TikTok Ads',
-        ),
-        tuple(
-          0.0,
-          0.0,
-        ),
-        tuple(
-          0.0,
-          0.0,
-        ),
-        tuple(
-          7.0,
-          21.0,
-        ),
-        tuple(
-          None,
-          None,
-        ),
-        tuple(
-          0.0,
-          0.0,
-        ),
-      ),
-      tuple(
-        tuple(
-          'Test-Session-Recording-AMER',
-          '',
-        ),
-        tuple(
-          'TikTok Ads',
-          '',
-        ),
-        tuple(
-          0.0,
-          None,
-        ),
-        tuple(
-          0.0,
-          None,
-        ),
-        tuple(
-          5.0,
-          None,
-        ),
-        tuple(
-          None,
-          None,
-        ),
-        tuple(
-          0.0,
-          None,
-        ),
-      ),
-      tuple(
-        tuple(
-          'TestCorp-Search-EMEA-Mobile-Platform',
-          '',
-        ),
-        tuple(
-          'TikTok Ads',
-          '',
-        ),
-        tuple(
-          0.0,
-          None,
-        ),
-        tuple(
-          0.0,
-          None,
-        ),
-        tuple(
-          13.0,
-          None,
-        ),
-        tuple(
-          None,
-          None,
-        ),
-        tuple(
-          0.0,
-          None,
-        ),
-      ),
-      tuple(
-        tuple(
-          'Test-Product-Analytics-AMER',
-          '',
-        ),
-        tuple(
-          'Facebook Ads',
-          '',
-        ),
-        tuple(
-          0.0,
-          None,
-        ),
-        tuple(
-          0.0,
-          None,
-        ),
-        tuple(
-          2.0,
-          None,
-        ),
-        tuple(
-          None,
-          None,
-        ),
-        tuple(
-          0.0,
-          None,
-        ),
-      ),
-      tuple(
-        tuple(
-          'TechFlow-Prospecting-GroupB-Traffic-Leadership-Static-Dec-2024',
-          '',
-        ),
-        tuple(
-          'LinkedIn Ads',
-          '',
-        ),
-        tuple(
-          0.0,
-          None,
-        ),
-        tuple(
-          0.0,
-          None,
-        ),
-        tuple(
-          257.0,
-          None,
-        ),
-        tuple(
-          None,
-          None,
-        ),
-        tuple(
-          0.0,
-          None,
-        ),
-      ),
+      list([
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='Test-Brand-Campaign-EMEA'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TikTok Ads'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=47.21),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=118.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Impressions', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=324.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=0.4),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=None, value=36.42),
+      ]),
+      list([
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='Test-Competitors-AMER'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TikTok Ads'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=38.92),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=1.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Impressions', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=48.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=38.92),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=None, value=2.08),
+      ]),
+      list([
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='TechFlow-Prospecting-AMER-Traffic-Technical-Static-Analytics-Aug-2024', value='TechFlow-Prospecting-AMER-Traffic-Technical-Static-Analytics-Aug-2024'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='LinkedIn Ads', value='LinkedIn Ads'),
+        MarketingAnalyticsItem(changeFromPreviousPct=31.0, hasComparison=True, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=24.42, value=31.92),
+        MarketingAnalyticsItem(changeFromPreviousPct=0.0, hasComparison=True, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=4.0, value=4.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=-40.0, hasComparison=True, isIncreaseBad=False, key='Impressions', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=2649.0, value=1581.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=31.0, hasComparison=True, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=6.1, value=7.98),
+        MarketingAnalyticsItem(changeFromPreviousPct=67.0, hasComparison=True, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=0.15, value=0.25),
+      ]),
+      list([
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TechFlow-Prospecting-AMER-Traffic-ProductDev-Static-Analytics-Aug-2024'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='LinkedIn Ads'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=23.12),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=4.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Impressions', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=1171.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=5.78),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=None, value=0.34),
+      ]),
+      list([
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TechFlow-Prospecting-AMER-Traffic-ProductDev-Static-Comparison-Oct-2024'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='LinkedIn Ads'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=13.49),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=3.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Impressions', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=420.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=4.5),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=None, value=0.71),
+      ]),
+      list([
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TechFlow-Prospecting-AMER-Traffic-Leadership-Static-Analytics-Aug-2024'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='LinkedIn Ads'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=10.25),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=2.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Impressions', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=616.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=5.12),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=None, value=0.32),
+      ]),
+      list([
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='Test-Experimentation-AMER'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TikTok Ads'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=7.43),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=1.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Impressions', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=11.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=7.43),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=None, value=9.09),
+      ]),
+      list([
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='TestCorp-Search-EMEA-Analytics-Tools', value='TestCorp-Search-EMEA-Analytics-Tools'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='Facebook Ads', value='Facebook Ads'),
+        MarketingAnalyticsItem(changeFromPreviousPct=162.0, hasComparison=True, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=2.63, value=6.88),
+        MarketingAnalyticsItem(changeFromPreviousPct=50.0, hasComparison=True, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=2.0, value=3.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=2.0, hasComparison=True, isIncreaseBad=False, key='Impressions', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=164.0, value=168.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=73.0, hasComparison=True, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=1.32, value=2.29),
+        MarketingAnalyticsItem(changeFromPreviousPct=47.0, hasComparison=True, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=1.22, value=1.79),
+      ]),
+      list([
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='Test-AB-Testing-AMER', value='Test-AB-Testing-AMER'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='TikTok Ads', value='TikTok Ads'),
+        MarketingAnalyticsItem(changeFromPreviousPct=-28.0, hasComparison=True, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=8.67, value=6.28),
+        MarketingAnalyticsItem(changeFromPreviousPct=0.0, hasComparison=True, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=2.0, value=2.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=171.0, hasComparison=True, isIncreaseBad=False, key='Impressions', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=28.0, value=76.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=-28.0, hasComparison=True, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=4.34, value=3.14),
+        MarketingAnalyticsItem(changeFromPreviousPct=-63.0, hasComparison=True, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=7.14, value=2.63),
+      ]),
+      list([
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TechFlow-Prospecting-GroupB-Traffic-Engineering-Static-Dec-2024'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='LinkedIn Ads'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=4.13),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=1.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Impressions', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=312.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=4.13),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=None, value=0.32),
+      ]),
+      list([
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='test_brand_campaign'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='Facebook Ads'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=3.43),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=2.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Impressions', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=731.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=1.72),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=None, value=0.27),
+      ]),
+      list([
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='TestCorp-Search-AMER-Analytics-Tools', value='TestCorp-Search-AMER-Analytics-Tools'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='Facebook Ads', value='Facebook Ads'),
+        MarketingAnalyticsItem(changeFromPreviousPct=34.0, hasComparison=True, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=2.2, value=2.94),
+        MarketingAnalyticsItem(changeFromPreviousPct=0.0, hasComparison=True, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=2.0, value=2.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=95.0, hasComparison=True, isIncreaseBad=False, key='Impressions', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=106.0, value=207.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=34.0, hasComparison=True, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=1.1, value=1.47),
+        MarketingAnalyticsItem(changeFromPreviousPct=-49.0, hasComparison=True, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=1.89, value=0.97),
+      ]),
+      list([
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TechFlow-Prospecting-EMEA-Traffic-Technical-Static-Analytics-Aug-2024'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='LinkedIn Ads'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=1.28),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=2.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Impressions', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=238.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=0.64),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=None, value=0.84),
+      ]),
+      list([
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='Test-Product-Analytics-EMEA'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='Facebook Ads'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=0.58),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=1.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Impressions', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=298.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=0.58),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=None, value=0.34),
+      ]),
+      list([
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='Test-Experimentation-EMEA', value='Test-Experimentation-EMEA'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='TikTok Ads', value='TikTok Ads'),
+        MarketingAnalyticsItem(changeFromPreviousPct=0.0, hasComparison=True, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=0.0, value=0.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=0.0, hasComparison=True, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=0.0, value=0.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=-67.0, hasComparison=True, isIncreaseBad=False, key='Impressions', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=21.0, value=7.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=None),
+        MarketingAnalyticsItem(changeFromPreviousPct=0.0, hasComparison=True, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=0.0, value=0.0),
+      ]),
+      list([
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='Test-Session-Recording-AMER'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TikTok Ads'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=0.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=0.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Impressions', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=5.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=None),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=None, value=0.0),
+      ]),
+      list([
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TestCorp-Search-EMEA-Mobile-Platform'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TikTok Ads'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=0.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=0.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Impressions', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=13.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=None),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=None, value=0.0),
+      ]),
+      list([
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='Test-Product-Analytics-AMER'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='Facebook Ads'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=0.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=0.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Impressions', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=2.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=None),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=None, value=0.0),
+      ]),
+      list([
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TechFlow-Prospecting-GroupB-Traffic-Leadership-Static-Dec-2024'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='LinkedIn Ads'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=0.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=0.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Impressions', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=257.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=None),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=None, value=0.0),
+      ]),
     ]),
   })
 # ---
