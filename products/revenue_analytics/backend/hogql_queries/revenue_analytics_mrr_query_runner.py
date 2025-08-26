@@ -322,7 +322,7 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
         if self.revenue_subqueries.revenue_item is None:
             return None
 
-        queries: list[ast.Expr] = [self.revenue_subqueries.revenue_item]
+        queries: list[ast.SelectQuery | ast.SelectSetQuery] = [self.revenue_subqueries.revenue_item]
 
         # If there's a subscription subquery, then add it to the list of queries
         #
@@ -365,6 +365,7 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
             queries.append(churn_revenue_items_select)
 
         # Join the revenue items with the possible created churn items
+        base_query: ast.SelectQuery | ast.SelectSetQuery
         if len(queries) == 1:
             base_query = queries[0]
         else:
