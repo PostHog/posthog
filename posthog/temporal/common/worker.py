@@ -1,6 +1,6 @@
-import collections.abc
 import datetime as dt
 import itertools
+import collections.abc
 from concurrent.futures import ThreadPoolExecutor
 
 from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
@@ -9,6 +9,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
+
 from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
 
 logger = get_write_only_logger()

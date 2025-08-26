@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
@@ -36,7 +36,7 @@ pub struct EventPropertiesBatch {
     pub event_names: Vec<String>,
     pub property_names: Vec<String>,
 
-    pub to_cache: VecDeque<Update>,
+    pub cached: Vec<Update>,
 }
 
 impl EventPropertiesBatch {
@@ -47,7 +47,7 @@ impl EventPropertiesBatch {
             project_ids: Vec::with_capacity(batch_size),
             event_names: Vec::with_capacity(batch_size),
             property_names: Vec::with_capacity(batch_size),
-            to_cache: VecDeque::with_capacity(batch_size),
+            cached: Vec::with_capacity(batch_size),
         }
     }
 
@@ -57,7 +57,7 @@ impl EventPropertiesBatch {
         self.event_names.push(ep.event.clone());
         self.property_names.push(ep.property.clone());
 
-        self.to_cache.push_back(Update::EventProperty(ep));
+        self.cached.push(Update::EventProperty(ep));
     }
 
     pub fn len(&self) -> usize {
@@ -72,11 +72,11 @@ impl EventPropertiesBatch {
         self.len() == 0
     }
 
-    pub fn uncache_batch(&mut self, cache: &Arc<Cache>) {
+    pub fn uncache_batch(&self, cache: &Arc<Cache>) {
         let timer = common_metrics::timing_guard(V2_EVENT_PROPS_BATCH_CACHE_TIME, &[]);
 
-        for update in self.to_cache.drain(..) {
-            cache.remove(&update);
+        for update in &self.cached {
+            cache.remove(update);
             metrics::counter!(V2_EVENT_PROPS_CACHE_REMOVED).increment(1);
         }
 
@@ -92,7 +92,8 @@ pub struct EventDefinitionsBatch {
     pub team_ids: Vec<i32>,
     pub project_ids: Vec<i64>,
     pub last_seen_ats: Vec<DateTime<Utc>>,
-    pub to_cache: VecDeque<Update>,
+
+    pub cached: Vec<Update>,
 }
 
 impl EventDefinitionsBatch {
@@ -104,7 +105,7 @@ impl EventDefinitionsBatch {
             team_ids: Vec::with_capacity(batch_size),
             project_ids: Vec::with_capacity(batch_size),
             last_seen_ats: Vec::with_capacity(batch_size),
-            to_cache: VecDeque::with_capacity(batch_size),
+            cached: Vec::with_capacity(batch_size),
         }
     }
 
@@ -115,7 +116,7 @@ impl EventDefinitionsBatch {
         self.project_ids.push(ed.project_id);
         self.last_seen_ats.push(ed.last_seen_at);
 
-        self.to_cache.push_back(Update::Event(ed));
+        self.cached.push(Update::Event(ed));
     }
 
     pub fn len(&self) -> usize {
@@ -130,11 +131,11 @@ impl EventDefinitionsBatch {
         self.len() == 0
     }
 
-    pub fn uncache_batch(&mut self, cache: &Arc<Cache>) {
+    pub fn uncache_batch(&self, cache: &Arc<Cache>) {
         let timer = common_metrics::timing_guard(V2_EVENT_DEFS_BATCH_CACHE_TIME, &[]);
 
-        for update in self.to_cache.drain(..) {
-            cache.remove(&update);
+        for update in &self.cached {
+            cache.remove(update);
             metrics::counter!(V2_EVENT_DEFS_CACHE_REMOVED).increment(1);
         }
 
@@ -154,7 +155,7 @@ pub struct PropertyDefinitionsBatch {
     pub property_types: Vec<Option<String>>,
     pub group_type_indices: Vec<Option<i16>>,
     // note: I left off deprecated fields we null out on writes
-    pub to_cache: VecDeque<Update>,
+    pub cached: Vec<Update>,
 }
 
 impl PropertyDefinitionsBatch {
@@ -169,7 +170,7 @@ impl PropertyDefinitionsBatch {
             property_types: Vec::with_capacity(batch_size),
             event_types: Vec::with_capacity(batch_size),
             group_type_indices: Vec::with_capacity(batch_size),
-            to_cache: VecDeque::with_capacity(batch_size),
+            cached: Vec::with_capacity(batch_size),
         }
     }
 
@@ -208,7 +209,7 @@ impl PropertyDefinitionsBatch {
         self.event_types.push(pd.event_type as i16);
         self.group_type_indices.push(group_type_index);
 
-        self.to_cache.push_back(Update::Property(pd));
+        self.cached.push(Update::Property(pd));
     }
 
     pub fn len(&self) -> usize {
@@ -223,11 +224,11 @@ impl PropertyDefinitionsBatch {
         self.len() == 0
     }
 
-    pub fn uncache_batch(&mut self, cache: &Arc<Cache>) {
+    pub fn uncache_batch(&self, cache: &Arc<Cache>) {
         let timer = common_metrics::timing_guard(V2_PROP_DEFS_BATCH_CACHE_TIME, &[]);
 
-        for update in self.to_cache.drain(..) {
-            cache.remove(&update);
+        for update in &self.cached {
+            cache.remove(update);
             metrics::counter!(V2_PROP_DEFS_CACHE_REMOVED).increment(1);
         }
 
@@ -238,9 +239,9 @@ impl PropertyDefinitionsBatch {
 // HACK: making this public so the test suite file can live under "../tests/" dir
 pub async fn process_batch(config: &Config, cache: Arc<Cache>, pool: &PgPool, batch: Vec<Update>) {
     // prep reshaped, isolated data batch bufffers and async join handles
-    let mut event_defs = EventDefinitionsBatch::new(config.v2_ingest_batch_size);
-    let mut event_props = EventPropertiesBatch::new(config.v2_ingest_batch_size);
-    let mut prop_defs = PropertyDefinitionsBatch::new(config.v2_ingest_batch_size);
+    let mut event_defs = EventDefinitionsBatch::new(config.write_batch_size);
+    let mut event_props = EventPropertiesBatch::new(config.write_batch_size);
+    let mut prop_defs = PropertyDefinitionsBatch::new(config.write_batch_size);
     let mut handles: Vec<JoinHandle<Result<(), sqlx::Error>>> = vec![];
 
     // loop over Update batch, grouping by record type into single-target-table
@@ -253,7 +254,7 @@ pub async fn process_batch(config: &Config, cache: Arc<Cache>, pool: &PgPool, ba
                     let pool = pool.clone();
                     let cache = cache.clone();
                     let outbound = event_defs;
-                    event_defs = EventDefinitionsBatch::new(config.v2_ingest_batch_size);
+                    event_defs = EventDefinitionsBatch::new(config.write_batch_size);
                     handles.push(tokio::spawn(async move {
                         write_event_definitions_batch(cache, outbound, &pool).await
                     }));
@@ -265,7 +266,7 @@ pub async fn process_batch(config: &Config, cache: Arc<Cache>, pool: &PgPool, ba
                     let pool = pool.clone();
                     let cache = cache.clone();
                     let outbound = event_props;
-                    event_props = EventPropertiesBatch::new(config.v2_ingest_batch_size);
+                    event_props = EventPropertiesBatch::new(config.write_batch_size);
                     handles.push(tokio::spawn(async move {
                         write_event_properties_batch(cache, outbound, &pool).await
                     }));
@@ -277,7 +278,7 @@ pub async fn process_batch(config: &Config, cache: Arc<Cache>, pool: &PgPool, ba
                     let pool = pool.clone();
                     let cache = cache.clone();
                     let outbound = prop_defs;
-                    prop_defs = PropertyDefinitionsBatch::new(config.v2_ingest_batch_size);
+                    prop_defs = PropertyDefinitionsBatch::new(config.write_batch_size);
                     handles.push(tokio::spawn(async move {
                         write_property_definitions_batch(cache, outbound, &pool).await
                     }));
@@ -330,7 +331,7 @@ pub async fn process_batch(config: &Config, cache: Arc<Cache>, pool: &PgPool, ba
 
 async fn write_event_properties_batch(
     cache: Arc<Cache>,
-    mut batch: EventPropertiesBatch,
+    batch: EventPropertiesBatch,
     pool: &PgPool,
 ) -> Result<(), sqlx::Error> {
     let total_time = common_metrics::timing_guard(V2_EVENT_PROPS_BATCH_WRITE_TIME, &[]);
@@ -402,7 +403,7 @@ async fn write_event_properties_batch(
 
 async fn write_property_definitions_batch(
     cache: Arc<Cache>,
-    mut batch: PropertyDefinitionsBatch,
+    batch: PropertyDefinitionsBatch,
     pool: &PgPool,
 ) -> Result<(), sqlx::Error> {
     let total_time = common_metrics::timing_guard(V2_PROP_DEFS_BATCH_WRITE_TIME, &[]);
@@ -487,7 +488,7 @@ async fn write_property_definitions_batch(
 
 async fn write_event_definitions_batch(
     cache: Arc<Cache>,
-    mut batch: EventDefinitionsBatch,
+    batch: EventDefinitionsBatch,
     pool: &PgPool,
 ) -> Result<(), sqlx::Error> {
     let total_time = common_metrics::timing_guard(V2_EVENT_DEFS_BATCH_WRITE_TIME, &[]);

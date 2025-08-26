@@ -1,30 +1,31 @@
-import datetime as dt
-import inspect
 import re
+import time
+import uuid
+import inspect
+import datetime as dt
 import resource
 import threading
-import time
-import unittest
-import uuid
 from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager
 from functools import wraps
 from typing import Any, Optional, Union
+
+import pytest
+import unittest
+import freezegun
 from unittest.mock import patch
 
-import freezegun
-
-# we have to import pendulum for the side effect of importing it
-# freezegun.FakeDateTime and pendulum don't play nicely otherwise
-import pendulum  # noqa F401
-import pytest
-import sqlparse
 from django.apps import apps
 from django.core.cache import cache
 from django.db import connection, connections
 from django.db.migrations.executor import MigrationExecutor
 from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
+
+# we have to import pendulum for the side effect of importing it
+# freezegun.FakeDateTime and pendulum don't play nicely otherwise
+import pendulum  # noqa F401
+import sqlparse
 from rest_framework.test import APITestCase as DRFTestCase
 
 from posthog import rate_limit, redis
@@ -90,18 +91,18 @@ from posthog.models.person.sql import (
 )
 from posthog.models.person.util import bulk_create_persons, create_person
 from posthog.models.project import Project
-from posthog.models.property_definition import (
-    DROP_PROPERTY_DEFINITIONS_TABLE_SQL,
-    PROPERTY_DEFINITIONS_TABLE_SQL,
-)
+from posthog.models.property_definition import DROP_PROPERTY_DEFINITIONS_TABLE_SQL, PROPERTY_DEFINITIONS_TABLE_SQL
 from posthog.models.raw_sessions.sql import (
     DISTRIBUTED_RAW_SESSIONS_TABLE_SQL,
+    DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL,
     DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL,
-    DROP_RAW_SESSION_TABLE_SQL,
+    DROP_RAW_SESSION_SHARDED_TABLE_SQL,
     DROP_RAW_SESSION_VIEW_SQL,
+    DROP_RAW_SESSION_WRITABLE_TABLE_SQL,
     RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL,
     RAW_SESSIONS_TABLE_MV_SQL,
     RAW_SESSIONS_TABLE_SQL,
+    WRITABLE_RAW_SESSIONS_TABLE_SQL,
 )
 from posthog.models.sessions.sql import (
     DISTRIBUTED_SESSIONS_TABLE_SQL,
@@ -1160,7 +1161,9 @@ def reset_clickhouse_database() -> None:
             DROP_EVENTS_TABLE_SQL(),
             DROP_PERSON_TABLE_SQL,
             DROP_PROPERTY_DEFINITIONS_TABLE_SQL(),
-            DROP_RAW_SESSION_TABLE_SQL(),
+            DROP_RAW_SESSION_SHARDED_TABLE_SQL(),
+            DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL(),
+            DROP_RAW_SESSION_WRITABLE_TABLE_SQL(),
             DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
             DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
             DROP_SESSION_REPLAY_EVENTS_V2_TEST_TABLE_SQL(),
@@ -1184,6 +1187,7 @@ def reset_clickhouse_database() -> None:
             PERSONS_TABLE_SQL(),
             PROPERTY_DEFINITIONS_TABLE_SQL(),
             RAW_SESSIONS_TABLE_SQL(),
+            WRITABLE_RAW_SESSIONS_TABLE_SQL(),
             SESSIONS_TABLE_SQL(),
             SESSION_RECORDING_EVENTS_TABLE_SQL(),
             SESSION_REPLAY_EVENTS_TABLE_SQL(),

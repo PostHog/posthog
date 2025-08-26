@@ -1,22 +1,24 @@
-import asyncio
-import dataclasses
-import datetime as dt
 import json
-import operator
-import random
 import time
 import uuid
+import random
+import asyncio
+import datetime as dt
+import operator
+import dataclasses
 
-import aiokafka
-import freezegun
 import pytest
-import pytest_asyncio
-import structlog
-import temporalio.activity
-import temporalio.testing
-import temporalio.workflow
+import freezegun
+
 from django.conf import settings
 from django.test import override_settings
+
+import aiokafka
+import structlog
+import pytest_asyncio
+import temporalio.testing
+import temporalio.activity
+import temporalio.workflow
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -29,11 +31,7 @@ from posthog.clickhouse.log_entries import (
     TRUNCATE_LOG_ENTRIES_TABLE_SQL,
 )
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
-from posthog.temporal.common.logger import (
-    BACKGROUND_LOGGER_TASKS,
-    configure_logger,
-    resolve_log_source,
-)
+from posthog.temporal.common.logger import BACKGROUND_LOGGER_TASKS, configure_logger, resolve_log_source
 
 pytestmark = pytest.mark.asyncio
 

@@ -1,17 +1,16 @@
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.context import HogQLContext
-
 from posthog.hogql.database.argmax import argmax_select
 from posthog.hogql.database.models import (
-    LazyTable,
-    IntegerDatabaseField,
-    StringDatabaseField,
     DateTimeDatabaseField,
+    FieldOrTable,
+    IntegerDatabaseField,
+    LazyJoinToAdd,
+    LazyTable,
+    LazyTableToAdd,
+    StringDatabaseField,
     StringJSONDatabaseField,
     Table,
-    FieldOrTable,
-    LazyTableToAdd,
-    LazyJoinToAdd,
 )
 from posthog.hogql.errors import ResolutionError
 

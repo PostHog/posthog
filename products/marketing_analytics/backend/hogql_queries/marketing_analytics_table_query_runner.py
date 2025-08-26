@@ -1,16 +1,11 @@
-from functools import cached_property
 from datetime import datetime
+from functools import cached_property
+from typing import Literal, cast
+
 import structlog
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
-from posthog.models.team.team import DEFAULT_CURRENCY
 from posthog.schema import (
+    CachedMarketingAnalyticsTableQueryResponse,
     ConversionGoalFilter1,
     ConversionGoalFilter2,
     ConversionGoalFilter3,
@@ -20,11 +15,20 @@ from posthog.schema import (
     MarketingAnalyticsItem,
     MarketingAnalyticsTableQuery,
     MarketingAnalyticsTableQueryResponse,
-    CachedMarketingAnalyticsTableQueryResponse,
 )
-from typing import cast, Literal
-from .conversion_goal_processor import ConversionGoalProcessor
 
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
+from posthog.models.team.team import DEFAULT_CURRENCY
+
+from .adapters.base import MarketingSourceAdapter, QueryContext
+from .adapters.factory import MarketingSourceFactory
 from .constants import (
     BASE_COLUMN_MAPPING,
     CAMPAIGN_COST_CTE_NAME,
@@ -35,11 +39,8 @@ from .constants import (
     TOTAL_IMPRESSIONS_FIELD,
     to_marketing_analytics_data,
 )
-from .utils import (
-    convert_team_conversion_goals_to_objects,
-)
-from .adapters.factory import MarketingSourceFactory
-from .adapters.base import QueryContext, MarketingSourceAdapter
+from .conversion_goal_processor import ConversionGoalProcessor
+from .utils import convert_team_conversion_goals_to_objects
 
 logger = structlog.get_logger(__name__)
 

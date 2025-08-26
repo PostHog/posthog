@@ -1,9 +1,9 @@
 from datetime import datetime
 
 import pytest
+
 from braintrust import EvalCase
 
-from ee.hogai.graph.trends.toolkit import TRENDS_SCHEMA
 from posthog.schema import (
     AssistantEventMultipleBreakdownFilterType,
     AssistantGenericMultipleBreakdownFilter,
@@ -14,9 +14,10 @@ from posthog.schema import (
     NodeKind,
 )
 
+from ee.hogai.graph.trends.toolkit import TRENDS_SCHEMA
+
 from .conftest import MaxEval
 from .scorers import PlanAndQueryOutput, PlanCorrectness, QueryAndPlanAlignment, QueryKindSelection, TimeRangeRelevancy
-
 
 TRENDS_CASES = [
     EvalCase(

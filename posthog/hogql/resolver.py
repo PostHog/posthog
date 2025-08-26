@@ -7,12 +7,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import ConstantType, FieldTraverserType
 from posthog.hogql.base import _T_AST
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import (
-    FunctionCallTable,
-    LazyTable,
-    SavedQuery,
-    StringJSONDatabaseField,
-)
+from posthog.hogql.database.models import FunctionCallTable, LazyTable, SavedQuery, StringJSONDatabaseField
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
@@ -21,13 +16,9 @@ from posthog.hogql.escape_sql import safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
 from posthog.hogql.functions.cohort import cohort_query_node
-from posthog.hogql.functions.mapping import (
-    HOGQL_CLICKHOUSE_FUNCTIONS,
-    compare_types,
-    validate_function_args,
-)
-from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.explain_csp_report import explain_csp_report
+from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS, compare_types, validate_function_args
+from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS, convert_to_hx
 from posthog.hogql.parser import parse_select
@@ -39,6 +30,7 @@ from posthog.hogql.resolver_utils import (
     lookup_table_by_name,
 )
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
+
 from posthog.models.utils import UUIDT
 
 # https://github.com/ClickHouse/ClickHouse/issues/23194 - "Describe how identifiers in SELECT queries are resolved"

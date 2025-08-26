@@ -1,12 +1,14 @@
-import asyncio
 import random
+import asyncio
+
+import pytest
+
+from django.conf import settings
 
 import psycopg
-import pytest
 import pytest_asyncio
 import temporalio.worker
 from asgiref.sync import sync_to_async
-from django.conf import settings
 from psycopg import sql
 from temporalio.testing import ActivityEnvironment
 
