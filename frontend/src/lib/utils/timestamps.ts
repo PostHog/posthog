@@ -4,17 +4,17 @@
  * @returns Number of milliseconds, or undefined if invalid
  */
 export function parseTimestampToMs(input?: string | null): number | undefined {
-    if (!input) {
+    if (input == null) {
         return undefined
     }
     const value = String(input).trim()
-    if (!value) {
+    if (!value.length) {
         return undefined
     }
 
     // Handle mm:ss or hh:mm:ss format
-    const parts = value.split(':').map((p) => parseInt(p, 10))
-    if (parts.every((n) => !Number.isNaN(n))) {
+    const parts = value.split(':').map((p) => Number(p))
+    if (parts.length > 1 && parts.length <= 3 && parts.every((n) => !Number.isNaN(n) && n >= 0 && n % 1 === 0)) {
         let seconds = 0
         if (parts.length === 2) {
             const [mm, ss] = parts
@@ -23,9 +23,7 @@ export function parseTimestampToMs(input?: string | null): number | undefined {
             const [hh, mm, ss] = parts
             seconds = hh * 3600 + mm * 60 + ss
         }
-        if (seconds > 0) {
-            return seconds * 1000
-        }
+        return seconds * 1000
     }
     return undefined
 }
