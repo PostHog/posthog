@@ -18,8 +18,8 @@ export function Intro(): JSX.Element {
 
     // Check if user previously had floating Max and hasn't yet closed the rollback banner
     const shouldShowRollbackBanner =
-        featureFlags[FEATURE_FLAGS.ARTIFICIAL_FLOATING_HOG] &&
-        !featureFlags[FEATURE_FLAGS.ARTIFICIAL_FLOATING_HOG_ACKED]
+        featureFlags[FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG] &&
+        !featureFlags[FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG_ACKED]
 
     return (
         <>
@@ -27,11 +27,11 @@ export function Intro(): JSX.Element {
                 <div className="mb-4 w-full max-w-160 px-3">
                     <LemonBanner
                         type="info"
-                        dismissKey={FEATURE_FLAGS.ARTIFICIAL_FLOATING_HOG_ACKED}
+                        dismissKey={FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG_ACKED}
                         onClose={() =>
                             // Person properties-based flag allows for cross-device dismiss
                             posthog.setPersonPropertiesForFlags(
-                                { [FEATURE_FLAGS.ARTIFICIAL_FLOATING_HOG_ACKED]: true },
+                                { [FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG_ACKED]: true },
                                 true
                             )
                         }
