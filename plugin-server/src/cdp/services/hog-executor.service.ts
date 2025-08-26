@@ -11,6 +11,7 @@ import {
 import { FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError, fetch } from '~/utils/request'
 import { tryCatch } from '~/utils/try-catch'
 
+import { instrumented } from '~/common/tracing/tracing-utils'
 import { buildIntegerMatcher } from '../../config/config'
 import { Hub, PluginsServerConfig, ValueMatcher } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
@@ -246,6 +247,7 @@ export class HogExecutorService {
         }
     }
 
+    @instrumented('hog-executor.executeWithAsyncFunctions')
     async executeWithAsyncFunctions(
         invocation: CyclotronJobInvocationHogFunction,
         options?: HogExecutorExecuteAsyncOptions
@@ -296,6 +298,7 @@ export class HogExecutorService {
         return result
     }
 
+    @instrumented('hog-executor.execute')
     async execute(
         invocation: CyclotronJobInvocationHogFunction,
         options: HogExecutorExecuteOptions = {}
@@ -534,6 +537,7 @@ export class HogExecutorService {
         return result
     }
 
+    @instrumented('hog-executor.executeFetch')
     async executeFetch(
         invocation: CyclotronJobInvocationHogFunction
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
