@@ -1,5 +1,4 @@
 import re
-import logging
 import warnings
 from datetime import timedelta
 from typing import Literal
@@ -8,6 +7,7 @@ from uuid import uuid4
 from django.db.models import Max
 from django.utils import timezone
 
+import structlog
 from langchain_core.messages import AIMessageChunk, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
@@ -36,7 +36,7 @@ from .prompts import (
     TOOL_BASED_EVALUATION_SYSTEM_PROMPT,
 )
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 # Silence Pydantic serializer warnings for creation of VisualizationMessage/Query execution
 warnings.filterwarnings("ignore", category=UserWarning, message=".*Pydantic serializer.*")
 
@@ -95,7 +95,7 @@ class InsightSearchNode(AssistantNode):
             writer(("insights_search_node", "messages", message))
 
         except Exception as e:
-            logger.exception("Failed to stream reasoning message", extra={"error": str(e), "content": content})
+            logger.exception("Failed to stream reasoning message", error=str(e), content=content)
 
     def _create_page_reader_tool(self):
         """Create tool for reading insights pages during agentic RAG loop."""
@@ -372,7 +372,7 @@ class InsightSearchNode(AssistantNode):
 
                             page_message = "Finding the most relevant insights"
                             logger.warning(
-                                f"POTENTIAL STALL POINT: Streamed '{page_message}' - about to fetch page content"
+                                f"STALL POINT(?): Streamed 'Finding the most relevant insights' - about to fetch page content"
                             )
                             self._stream_reasoning(content=page_message, writer=writer)
 
@@ -384,7 +384,7 @@ class InsightSearchNode(AssistantNode):
                                 ToolMessage(content=tool_response, tool_call_id=tool_call.get("id", "unknown"))
                             )
 
-                    logger.warning(f"Continuing to next iteration after tool calls")
+                    logger.warning("Continuing to next iteration after tool calls")
                     continue
 
                 # No tool calls, extract insight IDs from the response. Done with the search
