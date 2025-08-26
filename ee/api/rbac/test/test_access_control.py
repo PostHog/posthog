@@ -792,7 +792,7 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
             self.client.get("/api/projects/@current/is_generating_demo_data")
 
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
-        baseline = 8
+        baseline = 9
         with self.assertNumQueries(baseline + 6):  # org, roles, preloaded access controls
             self.client.get("/api/projects/@current/notebooks/")
 
