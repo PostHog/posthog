@@ -315,7 +315,7 @@ function shouldBePreFilteredBasedOnEventName(
         if (!eventMatches) {
             return true
         }
-        // If we get here, we have a match
+        // If we get here, there is at least one event filter and it checks this event type
         return false
     }
     // If we get here, we have no event filters, so we can early exit
