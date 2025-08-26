@@ -3,7 +3,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
 import { IconArchive } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTab, LemonTabs, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTab, LemonTabs, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { QueryCard } from 'lib/components/Cards/InsightCard/QueryCard'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -282,7 +282,14 @@ export function LLMAnalyticsScene(): JSX.Element {
     if (featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_PLAYGROUND]) {
         tabs.push({
             key: 'playground',
-            label: 'Playground',
+            label: (
+                <>
+                    Playground{' '}
+                    <LemonTag className="ml-1" type="warning">
+                        Beta
+                    </LemonTag>
+                </>
+            ),
             content: <LLMAnalyticsPlaygroundScene />,
             link: combineUrl(urls.llmAnalyticsPlayground(), searchParams).url,
         })

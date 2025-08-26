@@ -24,9 +24,8 @@ from products.replay.backend.max_tools import SessionReplayFilterOptionsGraph
 from products.replay.backend.prompts import USER_FILTER_OPTIONS_PROMPT
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
+from ee.hogai.eval.conftest import MaxEval
 from ee.models.assistant import Conversation
-
-from .conftest import MaxEval
 
 logger = logging.getLogger(__name__)
 
@@ -143,76 +142,50 @@ class AskUserForHelp(Scorer):
             return Score(name=self._name(), score=0.0, metadata={"reason": "LLM returned a filter"})
 
 
+class DateTimeFilteringCorrectness(Scorer):
+    """Score the correctness of the date time filtering."""
+
+    def _name(self):
+        return "date_time_filtering_correctness"
+
+    async def _run_eval_async(self, output, expected=None, **kwargs):
+        return self._run_eval_sync(output, expected, **kwargs)
+
+    def _run_eval_sync(self, output, expected=None, **kwargs):
+        try:
+            actual_filters = MaxRecordingUniversalFilters.model_validate(output["output"])
+        except Exception as e:
+            logger.exception(f"Error parsing filters: {e}")
+            return Score(name=self._name(), score=0.0, metadata={"reason": "LLM returned invalid filter structure"})
+
+        if actual_filters.date_from == expected.date_from and actual_filters.date_to == expected.date_to:
+            return Score(name=self._name(), score=1.0, metadata={"reason": "LLM returned valid date time filters"})
+        elif actual_filters.date_from == expected.date_from:
+            return Score(
+                name=self._name(),
+                score=0.5,
+                metadata={"reason": "LLM returned valid date_from but did not return valid date_to"},
+            )
+        elif actual_filters.date_to == expected.date_to:
+            return Score(
+                name=self._name(),
+                score=0.5,
+                metadata={"reason": "LLM returned valid date_to but did not return valid date_from"},
+            )
+        else:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "LLM returned invalid date time filters"})
+
+
 @pytest.mark.django_db
 async def eval_tool_search_session_recordings(call_search_session_recordings, pytestconfig):
     await MaxEval(
         experiment_name="tool_search_session_recordings",
         task=call_search_session_recordings,
-        scores=[FilterGenerationCorrectness()],
+        scores=[FilterGenerationCorrectness(), DateTimeFilteringCorrectness()],
         data=[
             # Test basic filter generation for mobile devices
             EvalCase(
                 input="show me recordings of users that were using a mobile device (use events)",
-                expected=MaxRecordingUniversalFilters(
-                    date_from="-7d",
-                    date_to=None,
-                    duration=[
-                        RecordingDurationFilter(
-                            key=DurationType.DURATION, operator=PropertyOperator.GT, type="recording", value=60.0
-                        )
-                    ],
-                    filter_group=MaxOuterUniversalFiltersGroup(
-                        type=FilterLogicalOperator.AND_,
-                        values=[
-                            MaxInnerUniversalFiltersGroup(
-                                type=FilterLogicalOperator.AND_,
-                                values=[
-                                    EventPropertyFilter(
-                                        key="$device_type",
-                                        type="event",
-                                        value=["Mobile"],
-                                        operator=PropertyOperator.EXACT,
-                                    )
-                                ],
-                            )
-                        ],
-                    ),
-                    filter_test_accounts=True,
-                    order=RecordingOrder.START_TIME,
-                ),
-            ),
-            EvalCase(
-                input="Show me recordings from chrome browsers",
-                expected=MaxRecordingUniversalFilters(
-                    date_from="-7d",
-                    date_to=None,
-                    duration=[
-                        RecordingDurationFilter(
-                            key=DurationType.DURATION, operator=PropertyOperator.GT, type="recording", value=60.0
-                        )
-                    ],
-                    filter_group=MaxOuterUniversalFiltersGroup(
-                        type=FilterLogicalOperator.AND_,
-                        values=[
-                            MaxInnerUniversalFiltersGroup(
-                                type=FilterLogicalOperator.AND_,
-                                values=[
-                                    EventPropertyFilter(
-                                        key="$browser",
-                                        type="event",
-                                        value=["Chrome"],
-                                        operator=PropertyOperator.EXACT,
-                                    )
-                                ],
-                            )
-                        ],
-                    ),
-                    filter_test_accounts=True,
-                    order=RecordingOrder.START_TIME,
-                ),
-            ),
-            EvalCase(
-                input="show me recordings of users who signed up on mobile",
                 expected=MaxRecordingUniversalFilters(
                     date_from="-7d",
                     date_to=None,
@@ -312,6 +285,36 @@ async def eval_tool_search_session_recordings(call_search_session_recordings, py
                                         key="$browser_language",
                                         type="person",
                                         value=["EN-en"],
+                                        operator=PropertyOperator.EXACT,
+                                    )
+                                ],
+                            )
+                        ],
+                    ),
+                    filter_test_accounts=True,
+                    order=RecordingOrder.START_TIME,
+                ),
+            ),
+            EvalCase(
+                input="Show me recordings from chrome browsers",
+                expected=MaxRecordingUniversalFilters(
+                    date_from="-7d",
+                    date_to=None,
+                    duration=[
+                        RecordingDurationFilter(
+                            key=DurationType.DURATION, operator=PropertyOperator.GT, type="recording", value=60.0
+                        )
+                    ],
+                    filter_group=MaxOuterUniversalFiltersGroup(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            MaxInnerUniversalFiltersGroup(
+                                type=FilterLogicalOperator.AND_,
+                                values=[
+                                    EventPropertyFilter(
+                                        key="$browser",
+                                        type="event",
+                                        value=["Chrome"],
                                         operator=PropertyOperator.EXACT,
                                     )
                                 ],
@@ -505,9 +508,33 @@ async def eval_tool_search_session_recordings(call_search_session_recordings, py
             # Test time-based filtering
             EvalCase(
                 input="Show recordings from yesterday",
+                expected=DUMMY_CURRENT_FILTERS.model_copy(update={"date_from": "-1d", "date_to": "-1d"}),
+            ),
+            EvalCase(
+                input="Show me recordings since the 1st of August",
+                expected=DUMMY_CURRENT_FILTERS.model_copy(update={"date_from": "2025-08-01T00:00:00:000"}),
+            ),
+            EvalCase(
+                input="Show me recordings until the 31st of August",
+                expected=DUMMY_CURRENT_FILTERS.model_copy(update={"date_to": "2025-08-31T23:59:59:999"}),
+            ),
+            EvalCase(
+                input="Show me recordings from the 1st of September to the 31st of September",
+                expected=DUMMY_CURRENT_FILTERS.model_copy(
+                    update={"date_from": "2025-09-01T00:00:00:000", "date_to": "2025-09-30T23:59:59:999"}
+                ),
+            ),
+            EvalCase(
+                input="Show me recordings from the 1st of September to the 1st of September",
+                expected=DUMMY_CURRENT_FILTERS.model_copy(
+                    update={"date_from": "2025-09-01T00:00:00:000", "date_to": "2025-09-01T23:59:59:999"}
+                ),
+            ),
+            EvalCase(
+                input="show me recordings of users who signed up on mobile",
                 expected=MaxRecordingUniversalFilters(
-                    date_from="-1d",
-                    date_to="-1d",
+                    date_from="-7d",
+                    date_to=None,
                     duration=[
                         RecordingDurationFilter(
                             key=DurationType.DURATION, operator=PropertyOperator.GT, type="recording", value=60.0
@@ -515,7 +542,19 @@ async def eval_tool_search_session_recordings(call_search_session_recordings, py
                     ],
                     filter_group=MaxOuterUniversalFiltersGroup(
                         type=FilterLogicalOperator.AND_,
-                        values=[MaxInnerUniversalFiltersGroup(type=FilterLogicalOperator.AND_, values=[])],
+                        values=[
+                            MaxInnerUniversalFiltersGroup(
+                                type=FilterLogicalOperator.AND_,
+                                values=[
+                                    EventPropertyFilter(
+                                        key="$device_type",
+                                        type="event",
+                                        value=["Mobile"],
+                                        operator=PropertyOperator.EXACT,
+                                    )
+                                ],
+                            )
+                        ],
                     ),
                     filter_test_accounts=True,
                     order=RecordingOrder.START_TIME,
