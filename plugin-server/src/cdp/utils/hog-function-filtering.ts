@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import { Histogram } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 import RE2 from 're2'
 
 import { ExecResult } from '@posthog/hogvm'
@@ -24,6 +24,12 @@ const hogFunctionFilterDuration = new Histogram({
     // We have a timeout so we don't need to worry about much more than that
     buckets: [0, 10, 20, 50, 100, 200],
     labelNames: ['type'],
+})
+
+const hogFunctionPreFilterCounter = new Counter({
+    name: 'cdp_hog_function_prefilter_result',
+    help: 'Count of pre-filter results (skipped vs executed)',
+    labelNames: ['result'],
 })
 
 interface HogFilterResult {
@@ -293,6 +299,31 @@ export function convertToHogFunctionFilterGlobal(
 }
 
 const HOG_FILTERING_TIMEOUT_MS = 100
+
+function doesEventNameFilterMatch(
+    filters: HogFunctionType['filters'],
+    filterGlobals: HogFunctionFilterGlobals
+): boolean {
+    // If event filter is present check for a match
+    if (filters?.events && filters.events.length > 0) {
+        const eventMatches = filters.events.some((eventFilter) => {
+            if (eventFilter.name) {
+                return eventFilter.name === filterGlobals.event
+            }
+            // if no event id specified, this filter matches all events - need bytecode
+            return true
+        })
+
+        // If none of the event filters match, we can early exit
+        if (!eventMatches) {
+            return false
+        }
+    }
+
+    // Default to running bytecode for all other cases
+    return true
+}
+
 /**
  * Shared utility to check if an event matches the filters of a HogFunction.
  * Used by both the HogExecutorService (for destinations) and HogTransformerService (for transformations).
@@ -321,6 +352,28 @@ export async function filterFunctionInstrumented(options: {
     }
 
     try {
+        // If there are no filters, everything matches no need to execute bytecode (lets save those cpu cycles)
+        if (!filters?.actions && !filters?.events && !filters?.filter_test_accounts) {
+            result.match = true
+            return result
+        }
+        // Quick pre-filter check to avoid running bytecode for obvious non-matches
+        if (!doesEventNameFilterMatch(filters, filterGlobals)) {
+            // Event definitely doesn't match, skip bytecode execution
+            hogFunctionPreFilterCounter.inc({ result: 'skipped' })
+            metrics.push({
+                team_id: fn.team_id,
+                app_source_id: fn.id,
+                metric_kind: 'other',
+                metric_name: 'filtered',
+                count: 1,
+            })
+            return result // match is already false
+        }
+
+        // Pre-filter passed, need to execute bytecode
+        hogFunctionPreFilterCounter.inc({ result: 'executed' })
+
         if (!filters?.bytecode) {
             throw new Error('Filters were not compiled correctly and so could not be executed')
         }
