@@ -1,6 +1,6 @@
 import './ToolbarLaunch.scss'
 
-import { IconFlag, IconPieChart, IconSearch, IconTestTube } from '@posthog/icons'
+import { IconFlag, IconPieChart, IconSearch, IconTestTube, IconToolbar } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
@@ -73,7 +73,9 @@ export function ToolbarLaunch(): JSX.Element {
                     resourceType={{
                         type: 'toolbar',
                         typePlural: 'toolbar',
+                        forceIcon: <IconToolbar />,
                     }}
+                    docsURL="https://posthog.com/docs/toolbar"
                 />
 
                 <SceneDivider />
