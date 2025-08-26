@@ -1,6 +1,7 @@
 import { TeamId } from '../../../../types'
+import { RetentionPeriod } from '../types'
 
-export interface SessionData {
+export interface WriteSessionData {
     /** The serialized session block data */
     buffer: Buffer
 
@@ -14,6 +15,8 @@ export interface WriteSessionResult {
     bytesWritten: number
     /** URL to access this session block, if available */
     url: string | null
+    /** Retention period for this block, if available */
+    retentionPeriod: RetentionPeriod | null
 }
 
 /**
@@ -28,7 +31,7 @@ export interface SessionBatchFileWriter {
      * @returns Promise that resolves with the number of bytes written and URL for the block
      * @throws If there is an error writing the data
      */
-    writeSession(data: SessionData): Promise<WriteSessionResult>
+    writeSession(data: WriteSessionData): Promise<WriteSessionResult>
 
     /**
      * Completes the writing process for the entire batch

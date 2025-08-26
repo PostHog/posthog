@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     message_count Int64,
     snapshot_source LowCardinality(Nullable(String)),
     snapshot_library Nullable(String),
-    retention_period String,
+    retention_period Nullable(String),
 ) ENGINE = {engine}
 """
 
@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     _timestamp SimpleAggregateFunction(max, DateTime),
     -- CH will pick any value of retention_period for the session
     -- the retention period should _always_ be the same across all blocks in a session so any will do
-    retention_period String
+    retention_period Nullable(String)
 ) ENGINE = {engine}
 """
 
@@ -169,7 +169,7 @@ sum(event_count) as event_count,
 argMinState(snapshot_source, first_timestamp) as snapshot_source,
 argMinState(snapshot_library, first_timestamp) as snapshot_library,
 max(_timestamp) as _timestamp,
-any(retention_period) as retention_period
+anyRespectNulls(retention_period) as retention_period
 FROM {database}.kafka_session_replay_events
 group by session_id, team_id
 """.format(

@@ -158,7 +158,7 @@ ADD_LIBRARY_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_L
 # migration to add retention_period column to the session replay table
 ALTER_SESSION_REPLAY_ADD_RETENTION_PERIOD_COLUMN = """
     ALTER TABLE {table_name} on CLUSTER '{cluster}'
-    ADD COLUMN IF NOT EXISTS retention_period String
+    ADD COLUMN IF NOT EXISTS retention_period Nullable(String)
 """
 
 ADD_RETENTION_PERIOD_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = (
