@@ -74,3 +74,6 @@ class PostHogConfig(AppConfig):
         # Skip during tests since we handle this in conftest.py
         if not settings.TEST:
             queue_sync_hog_function_templates()
+
+        # Import signals to ensure they are registered
+        from posthog.models.team import signals  # noqa: F401
