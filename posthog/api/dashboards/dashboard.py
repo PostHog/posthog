@@ -693,7 +693,7 @@ class DashboardsViewSet(
     @action(methods=["GET"], detail=True, url_path="stream_tiles")
     def stream_tiles(self, request: Request, *args: Any, **kwargs: Any) -> StreamingHttpResponse:
         """Stream dashboard metadata and tiles via Server-Sent Events. Sends metadata first, then tiles as they are rendered."""
-        dashboard = self.get_object()
+        dashboard = self.get_object()  # This will raise 404 if not found - let it bubble up normally
 
         def tile_stream_generator() -> Generator[str, None, None]:
             # Create renderer once for all messages
@@ -759,18 +759,6 @@ class DashboardsViewSet(
         response["Cache-Control"] = "no-cache"
         response["X-Accel-Buffering"] = "no"
         return response
-
-    # ******************************************
-    # /projects/:id/dashboard/:id/metadata
-    # ******************************************
-    @action(methods=["GET"], detail=True, url_path="metadata")
-    def metadata(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Get dashboard metadata only - no tiles included for streaming mode."""
-        dashboard = self.get_object()
-        dashboard.last_accessed_at = now()
-        dashboard.save(update_fields=["last_accessed_at"])
-        serializer = DashboardMetadataSerializer(dashboard, context=self.get_serializer_context())
-        return Response(serializer.data)
 
     def _get_layout_size_from_request(self, request: Request) -> str:
         """Extract layout size parameter from request."""
