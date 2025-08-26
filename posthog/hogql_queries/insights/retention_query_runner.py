@@ -33,7 +33,7 @@ from posthog.schema import (
     RetentionEntity,
     EntityType,
 )
-from posthog.schema import RetentionQuery, RetentionType, Breakdown
+from posthog.schema import RetentionQuery, RetentionType, Breakdown, BreakdownType
 from posthog.hogql.constants import get_breakdown_limit_for_context
 from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
 from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
@@ -803,7 +803,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                     temp_query.breakdownFilter.breakdowns = [Breakdown(type="cohort", property=int(cohort_id))]
                     # these are passed to the new runner to correctly construct the query
                     temp_query.breakdownFilter.breakdown = cohort_id
-                    temp_query.breakdownFilter.breakdown_type = "cohort"
+                    temp_query.breakdownFilter.breakdown_type = BreakdownType.COHORT
 
                 runner = RetentionQueryRunner(
                     query=temp_query, team=self.team, timings=self.timings, modifiers=self.modifiers
