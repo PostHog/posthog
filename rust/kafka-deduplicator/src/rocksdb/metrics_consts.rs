@@ -68,3 +68,10 @@ pub const ROCKSDB_SST_FILES_COUNT_GAUGE: &str = "rocksdb_sst_files_count";
 
 /// Counter for RocksDB errors
 pub const ROCKSDB_ERRORS_COUNTER: &str = "rocksdb_errors_total";
+
+// ==== Kafka Consumer metrics ====
+/// Gauge for number of messages currently being processed
+pub const KAFKA_CONSUMER_IN_FLIGHT_MESSAGES: &str = "kafka_consumer_in_flight_messages";
+
+/// Gauge for total memory used by in-flight messages (bytes)
+pub const KAFKA_CONSUMER_IN_FLIGHT_MEMORY_BYTES: &str = "kafka_consumer_in_flight_memory_bytes";

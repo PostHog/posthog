@@ -430,6 +430,19 @@ pub struct TrackerStats {
     pub memory_usage: usize,
 }
 
+impl TrackerStats {
+    /// Publish tracker statistics as global metrics
+    pub fn publish_metrics(&self) {
+        use crate::rocksdb::metrics_consts::*;
+        
+        // Publish in-flight messages gauge
+        metrics::gauge!(KAFKA_CONSUMER_IN_FLIGHT_MESSAGES).set(self.in_flight as f64);
+        
+        // Publish in-flight memory usage gauge  
+        metrics::gauge!(KAFKA_CONSUMER_IN_FLIGHT_MEMORY_BYTES).set(self.memory_usage as f64);
+    }
+}
+
 impl std::fmt::Display for TrackerStats {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(

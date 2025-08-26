@@ -68,6 +68,8 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
         info!("Starting stateful Kafka message consumption");
 
         let mut commit_interval = tokio::time::interval(self.commit_interval);
+        // Publish metrics every 10 seconds for observability
+        let mut metrics_interval = tokio::time::interval(Duration::from_secs(10));
 
         loop {
             tokio::select! {
@@ -92,6 +94,13 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
                             debug!("Consumer poll timeout");
                         }
                     }
+                }
+
+                // Publish metrics every 10 seconds
+                _ = metrics_interval.tick() => {
+                    let stats = self.tracker.get_stats().await;
+                    stats.publish_metrics();
+                    debug!("Published metrics: {}", stats);
                 }
 
                 // Commit offsets periodically
@@ -183,8 +192,10 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
     async fn commit_offsets(&self) -> Result<()> {
         info!("Starting offset commit process");
 
-        // Get tracker statistics
+        // Get tracker statistics and publish metrics
         let stats = self.tracker.get_stats().await;
+        stats.publish_metrics();
+        
         info!(
             "Tracker stats before commit: in_flight={}, completed={}, failed={}",
             stats.in_flight, stats.completed, stats.failed
