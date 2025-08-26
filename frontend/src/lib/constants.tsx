@@ -208,7 +208,7 @@ export const FEATURE_FLAGS = {
     REPLAY_GROUPS_FILTERS: 'replay-groups-filters', // owner: @pauldambra #team-replay
     SUPPORT_MESSAGE_OVERRIDE: 'support-message-override', // owner: @abigail
     BILLING_SKIP_FORECASTING: 'billing-skip-forecasting', // owner: @zach
-    CDP_ACTIVITY_LOG_NOTIFICATIONS: 'cdp-activity-log-notifications', // owner: #team-cdp
+    CDP_ACTIVITY_LOG_NOTIFICATIONS: 'cdp-activity-log-notifications', // owner: #team-messaging-cdp
     COOKIELESS_SERVER_HASH_MODE_SETTING: 'cookieless-server-hash-mode-setting', // owner: @robbie-c #team-web-analytics
     WEB_ANALYTICS_FOR_MOBILE: 'web-analytics-for-mobile', // owner: @robbie-c #team-web-analytics
     LLM_OBSERVABILITY: 'llm-observability', // owner: #team-llm-analytics
@@ -227,7 +227,7 @@ export const FEATURE_FLAGS = {
     CRM_USAGE_METRICS: 'crm-usage-metrics', // owner: @arthurdedeus #team-crm
     TOGGLE_PROPERTY_ARRAYS: 'toggle-property-arrays', // owner: @arthurdedeus #team-crm
     RECORDINGS_SIMILAR_RECORDINGS: 'recordings-similar-recordings', // owner: @veryayskiy #team-replay
-    RECORDINGS_BLOBBY_V2_REPLAY: 'recordings-blobby-v2-replay', // owner: @pl #team-cdp
+    RECORDINGS_BLOBBY_V2_REPLAY: 'recordings-blobby-v2-replay', // owner: @pl #team-ingestion
     RECORDINGS_BLOBBY_V2_LTS_REPLAY: 'use-blob-v2-lts', // owner: @pauldambra #team-replay
     SETTINGS_SESSIONS_V2_JOIN: 'settings-sessions-v2-join', // owner: @robbie-c #team-web-analytics
     SAVE_INSIGHT_TASK: 'save-insight-task', // owner: @joshsny #team-growth
@@ -254,8 +254,9 @@ export const FEATURE_FLAGS = {
     CSP_REPORTING: 'mexicspo', // owner @pauldambra @lricoy @robbiec
     LLM_OBSERVABILITY_PLAYGROUND: 'llm-observability-playground', // owner: #team-llm-analytics
     USAGE_SPEND_DASHBOARDS: 'usage-spend-dashboards', // owner: @pawel-cebula #team-billing
-    CDP_HOG_SOURCES: 'cdp-hog-sources', // owner #team-cdp
-    CDP_PERSON_UPDATES: 'cdp-person-updates', // owner: #team-cdp
+    CDP_HOG_SOURCES: 'cdp-hog-sources', // owner #team-messaging-cdp
+    CDP_PERSON_UPDATES: 'cdp-person-updates', // owner: #team-messaging-cdp
+    CDP_APP_METRICS_NEW: 'cdp-app-metrics-new', // owner: #team-messaging-cdp
     SCREENSHOT_EDITOR: 'screenshot-editor', // owner: @veryayskiy #team-replay
     ACTIVITY_OR_EXPLORE: 'activity-or-explore', // owner: @pauldambra #team-replay
     LINEAGE_DEPENDENCY_VIEW: 'lineage-dependency-view', // owner: @phixMe #team-data-warehouse
