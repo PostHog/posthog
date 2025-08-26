@@ -322,7 +322,7 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
         if self.revenue_subqueries.revenue_item is None:
             return None
 
-        queries = [self.revenue_subqueries.revenue_item]
+        queries: list[ast.Expr] = [self.revenue_subqueries.revenue_item]
 
         # If there's a subscription subquery, then add it to the list of queries
         #
