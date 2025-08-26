@@ -25,7 +25,7 @@ Only return the SQL query, no other text.
 """.strip()
 
 TIME_PERIOD_PROMPT = """
-You must also include a time period in the query.
+You must also include a time period in the query if the user asks for one or if the query is related to the events table.
 <time_period>
 Usually the user will specify a time period in their query. If they don't, use `last 30 days` as a default time period.
 If the user asks for a time period, you must include it in the query.
