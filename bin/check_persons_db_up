@@ -7,7 +7,7 @@ set -euo pipefail
 
 DB_HOST=localhost
 DB_PORT=5434
-DB_NAME=posthog_persons_migration
+DB_NAME=posthog_persons
 DB_USER=posthog
 export PGPASSWORD=posthog
 

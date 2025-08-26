@@ -129,7 +129,7 @@ elif DEBUG or TEST:
     # For local development and testing, configure like the main database so Django can properly handle test database creation
     DATABASES["persons_db_writer"] = {
         "ENGINE": "django.db.backends.postgresql_psycopg2",
-        "NAME": "posthog_persons_migration",
+        "NAME": "posthog_persons",
         "USER": "posthog",
         "PASSWORD": "posthog",
         "HOST": "localhost",
@@ -137,8 +137,7 @@ elif DEBUG or TEST:
         "CONN_MAX_AGE": 0,
         "DISABLE_SERVER_SIDE_CURSORS": DISABLE_SERVER_SIDE_CURSORS,
         "TEST": {
-            # This ensures Django knows to create test_posthog_persons_migration when running tests
-            "NAME": "test_posthog_persons_migration",
+            "NAME": "test_posthog_persons",
         },
     }
     DATABASES["persons_db_reader"] = DATABASES["persons_db_writer"].copy()

@@ -45,7 +45,6 @@ class Command(BaseCommand):
 
         if options["only_postgres"]:
             print("Only setting up Postgres database")  # noqa: T201
-            # Don't tear down databases since we want to keep them for tests
             return
 
         print("\nCreating test ClickHouse database...")  # noqa: T201
