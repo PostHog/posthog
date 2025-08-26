@@ -1,7 +1,9 @@
 import re
-import requests
 import logging
+
 from django.conf import settings
+
+import requests
 from rest_framework import exceptions
 
 logger = logging.getLogger(__name__)

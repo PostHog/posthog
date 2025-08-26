@@ -2,6 +2,7 @@ from typing import Literal
 from uuid import uuid4
 
 from django.conf import settings
+
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
     BaseMessage,
@@ -11,10 +12,11 @@ from langchain_core.messages import (
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 
+from posthog.schema import AssistantMessage, AssistantToolCallMessage
+
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.state import PartialAssistantState
 from ee.hogai.utils.types import AssistantState
-from posthog.schema import AssistantMessage, AssistantToolCallMessage
 
 from ..root.nodes import RootNode
 from .prompts import INKEEP_DATA_CONTINUATION_PHRASE, INKEEP_DOCS_SYSTEM_PROMPT

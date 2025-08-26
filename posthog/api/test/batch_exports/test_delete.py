@@ -2,9 +2,12 @@ import asyncio
 import datetime as dt
 
 import pytest
+from posthog.test.base import _create_event
+
+from django.test.client import Client as HttpClient
+
 import temporalio.client
 from asgiref.sync import async_to_sync
-from django.test.client import Client as HttpClient
 from rest_framework import status
 from temporalio.service import RPCError
 
@@ -21,7 +24,6 @@ from posthog.api.test.batch_exports.operations import (
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.temporal.common.schedule import describe_schedule
-from posthog.test.base import _create_event
 
 pytestmark = [
     pytest.mark.django_db,

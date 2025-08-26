@@ -3,23 +3,11 @@ from collections.abc import Mapping
 from typing import Any, Literal, Optional, cast
 
 import pytest
-from django.test import override_settings
+from posthog.test.base import APIBaseTest, BaseTest, _create_event, clean_varying_query_parts, materialized
 from unittest.mock import patch
 
-from posthog.clickhouse.client.execute import sync_execute
-from posthog.hogql import ast
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLQuerySettings, HogQLGlobalSettings
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
-from posthog.hogql.errors import ExposedHogQLError, QueryError
-from posthog.hogql.parser import parse_select, parse_expr
-from posthog.hogql.printer import print_ast, to_printed_hogql, prepare_ast_for_printing, print_prepared_ast
-from posthog.models import PropertyDefinition
-from posthog.models.cohort.cohort import Cohort
-from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
-from posthog.settings.data_stores import CLICKHOUSE_DATABASE
-from posthog.models.team.team import WeekStartDay
+from django.test import override_settings
+
 from posthog.schema import (
     HogQLQueryModifiers,
     MaterializationMode,
@@ -27,8 +15,23 @@ from posthog.schema import (
     PersonsOnEventsMode,
     PropertyGroupsMode,
 )
-from posthog.test.base import BaseTest, _create_event, materialized, APIBaseTest, clean_varying_query_parts
+
+from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLGlobalSettings, HogQLQuerySettings
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
+from posthog.hogql.errors import ExposedHogQLError, QueryError
+from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.printer import prepare_ast_for_printing, print_ast, print_prepared_ast, to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.client.execute import sync_execute
+from posthog.models import PropertyDefinition
+from posthog.models.cohort.cohort import Cohort
+from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
+from posthog.models.team.team import WeekStartDay
+from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
 
 

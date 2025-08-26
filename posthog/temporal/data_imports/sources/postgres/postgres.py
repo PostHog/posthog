@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import collections
 import math
+import collections
 from collections.abc import Callable, Iterator
 from contextlib import _GeneratorContextManager
 from typing import Any, LiteralString, Optional, cast

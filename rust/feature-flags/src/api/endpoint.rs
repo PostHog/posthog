@@ -2,8 +2,7 @@ use crate::{
     api::{
         errors::FlagError,
         types::{
-            ConfigResponse, FlagsOptionsResponse, FlagsQueryParams, FlagsResponse,
-            FlagsResponseCode, LegacyFlagsResponse, ServiceResponse,
+            ConfigResponse, FlagsQueryParams, FlagsResponse, LegacyFlagsResponse, ServiceResponse,
         },
     },
     handler::{process_request, RequestContext},
@@ -11,7 +10,8 @@ use crate::{
 };
 // TODO: stream this instead
 use axum::extract::{MatchedPath, Query, State};
-use axum::http::{HeaderMap, Method};
+use axum::http::{HeaderMap, Method, StatusCode};
+use axum::response::{IntoResponse, Response};
 use axum::{debug_handler, Json};
 use axum_client_ip::InsecureClientIp;
 use bytes::Bytes;
@@ -89,11 +89,46 @@ pub async fn flags(
     method: Method,
     path: MatchedPath,
     body: Bytes,
-) -> Result<Json<ServiceResponse>, FlagError> {
+) -> Result<Response, FlagError> {
     let request_id = Uuid::new_v4();
 
-    if method != Method::POST {
-        return get_minimal_flags_response(query_params.version.as_deref());
+    // Handle different HTTP methods
+    match method {
+        Method::GET => {
+            // GET requests return minimal flags response
+            return Ok(get_minimal_flags_response(query_params.version.as_deref())?.into_response());
+        }
+        Method::POST => {
+            // POST requests continue with full processing logic below
+        }
+        Method::HEAD => {
+            // HEAD returns the same headers as GET but without body
+            let response = (
+                StatusCode::OK,
+                [("content-type", "application/json")],
+                axum::body::Body::empty(),
+            )
+                .into_response();
+            return Ok(response);
+        }
+        Method::OPTIONS => {
+            // OPTIONS should return allowed methods
+            let response = (
+                StatusCode::NO_CONTENT,
+                [("allow", "GET, POST, OPTIONS, HEAD")],
+            )
+                .into_response();
+            return Ok(response);
+        }
+        _ => {
+            // Return 405 Method Not Allowed for all other methods
+            let response = (
+                StatusCode::METHOD_NOT_ALLOWED,
+                [("allow", "GET, POST, OPTIONS, HEAD")],
+            )
+                .into_response();
+            return Ok(response);
+        }
     }
 
     // Check if this request came through the decide proxy
@@ -171,13 +206,7 @@ pub async fn flags(
         )),
     };
 
-    Ok(Json(versioned_response?))
-}
-
-pub async fn options() -> Result<Json<FlagsOptionsResponse>, FlagError> {
-    Ok(Json(FlagsOptionsResponse {
-        status: FlagsResponseCode::Ok,
-    }))
+    Ok(Json(versioned_response?).into_response())
 }
 
 fn log_request_info(ctx: LogContext) {

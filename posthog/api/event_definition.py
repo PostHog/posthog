@@ -1,10 +1,12 @@
 import json
-from typing import Any, Literal, cast, Optional
+from typing import Any, Literal, Optional, cast
 
 from django.core.cache import cache
 from django.db.models import Manager
+
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, request, response, serializers, status, viewsets
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
@@ -19,8 +21,7 @@ from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
 from posthog.settings import EE_AVAILABLE
-from posthog.utils import relative_date_parse, get_safe_cache
-
+from posthog.utils import get_safe_cache, relative_date_parse
 
 # If EE is enabled, we use ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer
 
