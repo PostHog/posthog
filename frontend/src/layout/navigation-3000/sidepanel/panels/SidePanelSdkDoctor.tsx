@@ -1,3 +1,6 @@
+import { useActions, useValues } from 'kea'
+import React from 'react'
+
 import { IconBolt, IconEllipsis, IconStethoscope, IconWarning } from '@posthog/icons'
 import {
     LemonButton,
@@ -9,9 +12,8 @@ import {
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { IconWithBadge } from 'lib/lemon-ui/icons'
-import React from 'react'
 
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { SdkType, SdkVersionInfo, sidePanelSdkDoctorLogic } from './sidePanelSdkDoctorLogic'
@@ -216,19 +218,29 @@ export function SidePanelSdkDoctor(): JSX.Element {
     // const { multipleInitDetection } = useValues(sidePanelSdkDoctorLogic)
     const { loadRecentEvents } = useActions(sidePanelSdkDoctorLogic)
 
-    // Group the versions by SDK type (each SDK type gets its own table)
+    // NEW: Group by device context first, then by SDK type
     const groupedVersions = sdkVersions.reduce(
         (acc, sdk) => {
+            // Group by device context first
+            const deviceContext = sdk.deviceContext || 'mixed'
+            const categoryName =
+                deviceContext === 'mobile' ? 'Mobile Apps' : deviceContext === 'desktop' ? 'Web & Desktop' : 'Other'
+
+            if (!acc[categoryName]) {
+                acc[categoryName] = {}
+            }
+
+            // Then group by SDK name within each category
             const sdkType = sdk.type
             const sdkName = sdkTypeMapping[sdkType]?.name || 'Other'
 
-            if (!acc[sdkName]) {
-                acc[sdkName] = []
+            if (!acc[categoryName][sdkName]) {
+                acc[categoryName][sdkName] = []
             }
-            acc[sdkName].push(sdk)
+            acc[categoryName][sdkName].push(sdk)
             return acc
         },
-        {} as Record<string, SdkVersionInfo[]>
+        {} as Record<string, Record<string, SdkVersionInfo[]>>
     )
 
     // Create table columns - used for all tables
@@ -267,12 +279,26 @@ export function SidePanelSdkDoctor(): JSX.Element {
                         <code className="text-xs font-mono bg-muted-highlight rounded-sm px-1 py-0.5">
                             {record.version}
                         </code>
-                        {record.isOutdated ? (
+                        {/* NEW: Enhanced age-based status with enhanced context */}
+                        {record.isAgeOutdated && !record.isOutdated ? (
+                            <Tooltip
+                                placement="right"
+                                title={`Version is ${Math.floor((record.daysSinceRelease || 0) / 7)} weeks old. Consider updating.`}
+                            >
+                                <LemonTag type="caution" className="shrink-0">
+                                    Aging
+                                </LemonTag>
+                            </Tooltip>
+                        ) : record.isOutdated ? (
                             <Tooltip
                                 placement="right"
                                 title={
                                     record.latestVersion
-                                        ? `Latest version: ${record.latestVersion}`
+                                        ? `Latest version: ${record.latestVersion}${
+                                              record.daysSinceRelease
+                                                  ? ` (${Math.floor(record.daysSinceRelease / 7)} weeks old)`
+                                                  : ''
+                                          }`
                                         : 'Upgrade recommended'
                                 }
                             >
@@ -288,6 +314,15 @@ export function SidePanelSdkDoctor(): JSX.Element {
                             <LemonTag type="primary" className="shrink-0">
                                 Close enough
                             </LemonTag>
+                        )}
+
+                        {/* NEW: Volume indicator for context */}
+                        {record.eventVolume === 'high' && (
+                            <Tooltip title="High activity SDK">
+                                <LemonTag type="highlight" className="shrink-0 text-xs">
+                                    Active
+                                </LemonTag>
+                            </Tooltip>
                         )}
                         {/* TODO: Multi-init detection temporarily disabled for post-MVP */}
                         {/* {record.multipleInitializations && (
@@ -523,7 +558,7 @@ export function SidePanelSdkDoctor(): JSX.Element {
                                                         {' '}
                                                         (If using our{' '}
                                                         <Link
-                                                            to="https://app.posthog.com/settings/project#snippet"
+                                                            to="/settings/project#snippet"
                                                             target="_blank"
                                                             targetBlankIcon
                                                             className="inline"
@@ -585,16 +620,22 @@ export function SidePanelSdkDoctor(): JSX.Element {
                     )
                 })()}
 
-                {/* Render a section for each SDK category with SDKs */}
-                {Object.entries(groupedVersions).map(([category, categorySDKs]) => {
-                    if (categorySDKs.length === 0) {
+                {/* Render a section for each device context category */}
+                {Object.entries(groupedVersions).map(([contextCategory, sdkGroups]) => {
+                    // Flatten all SDKs in this context category
+                    const allSDKsInCategory = Object.values(sdkGroups).flat()
+
+                    if (allSDKsInCategory.length === 0) {
                         return null
                     }
 
                     return (
-                        <div key={category} className="mb-6">
+                        <div key={contextCategory} className="mb-6">
+                            {/* Context category header */}
+                            <h3 className="text-sm font-semibold text-muted-alt mb-2">{contextCategory}</h3>
+
                             <LemonTable
-                                dataSource={categorySDKs.sort((a, b) => b.count - a.count)}
+                                dataSource={allSDKsInCategory.sort((a, b) => b.count - a.count)}
                                 loading={recentEventsLoading}
                                 columns={createColumns()}
                                 className="ph-no-capture"
@@ -603,9 +644,9 @@ export function SidePanelSdkDoctor(): JSX.Element {
                             />
 
                             {/* Show documentation links for all SDKs in this category */}
-                            {categorySDKs.length > 0 && (
+                            {allSDKsInCategory.length > 0 && (
                                 <div className="mt-2">
-                                    <SdkLinks sdkType={categorySDKs[0].type} />
+                                    <SdkLinks sdkType={allSDKsInCategory[0].type} />
                                 </div>
                             )}
                         </div>

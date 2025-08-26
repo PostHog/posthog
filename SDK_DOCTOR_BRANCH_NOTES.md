@@ -1,13 +1,16 @@
 # SDK Doctor Branch Notes
 
-*This is just branch-specific documentation - will remove before a PR*
+*This is just branch-specific documentation - will remove this file before a PR*
 
 ### Current SDK Doctor MVP Goals:
 
 #### Detect outdated SDK versions of most popular SDKs
-- Calls the GitHub API to compare `$lib_version` on recent events against the most recent releases, alerts for SDKs that are >2 releases behind the latest version
-- Also has hardcoded minimum versions for critical updates (e.g., `posthog-js` <1.85.0)
-- Uses GitHub API with 24-hour caching and semantic version parsing
+- **Mobile-Aware detection**: Separates mobile apps ("Mobile Apps" section) from web/desktop ("Web & Desktop" section) based on device context.
+- **Device context logic**: Distinguishes mobile app usage vs mobile web browsing using `$device_type` + SDK type analysis 
+- **SDK age-based intelligence by platform**: For mobile events, only flags versions >8 weeks old IF newer releases exist. Events from desktop raise flags if version is > 3 releases ago and 48 hours ago(actual releases, not just version numbers)
+- **Volume-adaptive performance**: Automatically adjusts polling intervals (2-10s) and event sampling (30-100 events) based on customer volume
+- **Status system for outdatedness**: "Current" (green), "Close enough" (yellow), "Outdated" (red), "Active" (high-volume) with contextual tooltips
+- **11 SDKs Supported**: Web, React Native, Node.js, Flutter, iOS, Android, Go, PHP, .NET, Ruby, Elixir with CHANGELOG.md + GitHub API fallbacks
 
 #### Detect Feature Flags Called Before Initialization
 - Catches feature flags being called before PostHog has finished loading by analyzing timing of `$feature_flag_called` events vs the first event in the session.

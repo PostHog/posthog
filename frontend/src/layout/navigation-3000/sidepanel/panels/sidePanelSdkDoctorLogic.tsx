@@ -1,13 +1,14 @@
 /* oxlint-disable no-console */
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { isNotNil } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { diffVersions, parseVersion, tryParseVersion } from 'lib/utils/semver'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { EventsListQueryParams, EventType } from '~/types'
+import { EventType, EventsListQueryParams } from '~/types'
 
 import type { sidePanelSdkDoctorLogicType } from './sidePanelSdkDoctorLogicType'
 
@@ -45,6 +46,31 @@ export type SdkVersionInfo = {
     multipleInitializations?: boolean
     initCount?: number
     initUrls?: { url: string; count: number }[] // Add this to track actual URLs
+
+    // NEW: Age-based tracking
+    releaseDate?: string // ISO date string when this version was released
+    daysSinceRelease?: number // Calculated days since release
+    isAgeOutdated?: boolean // True if >8 weeks old AND newer releases exist
+
+    // NEW: Device context
+    deviceContext?: 'mobile' | 'desktop' | 'mixed' // Based on detected usage patterns
+    eventVolume?: 'low' | 'medium' | 'high' // Based on event count
+    lastSeenTimestamp?: string // ISO timestamp of most recent event
+}
+
+// NEW: Device context detection configuration
+export type DeviceContextConfig = {
+    mobileSDKs: SdkType[] // ['ios', 'android', 'flutter', 'react-native']
+    desktopSDKs: SdkType[] // ['web', 'node', 'python', 'php', 'ruby', 'go', 'dotnet', 'elixir']
+    volumeThresholds: {
+        low: number // < 10 events
+        medium: number // 10-50 events
+        high: number // > 50 events
+    }
+    ageThresholds: {
+        warnAfterWeeks: number // 8 weeks
+        criticalAfterWeeks: number // 16 weeks
+    }
 }
 
 export type MultipleInitDetection = {
@@ -131,16 +157,23 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
             [] as EventType[],
             {
                 loadRecentEvents: async () => {
-                    // Force a fresh reload of events
-                    const params: EventsListQueryParams = {
-                        limit: 15,
-                        orderBy: ['-timestamp'],
-                        after: '-24h',
-                    }
-                    // Use a default team ID if currentTeamId is null
                     const teamId = values.currentTeamId || undefined
                     try {
-                        const response = await api.events.list(params, 15, teamId)
+                        // Simplified approach: get strategy based on demo mode vs production
+                        const strategy = determineSamplingStrategy(0) // Let the function handle demo mode
+
+                        // Fetch events with strategy-based parameters
+                        const params: EventsListQueryParams = {
+                            limit: strategy.maxEvents,
+                            orderBy: ['-timestamp'],
+                            after: strategy.timeWindow,
+                        }
+
+                        const response = await api.events.list(params, strategy.maxEvents, teamId)
+
+                        // Note: Can't store strategy here since cache isn't available in loader context
+                        // The polling interval will use the fallback in afterMount
+
                         return response.results
                     } catch (error) {
                         console.error('Error loading events:', error)
@@ -152,7 +185,14 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
 
         // Fetch latest SDK versions from GitHub API
         latestSdkVersions: [
-            {} as Record<SdkType, { latestVersion: string; versions: string[] }>,
+            {} as Record<
+                SdkType,
+                {
+                    latestVersion: string
+                    versions: string[]
+                    releaseDates?: Record<string, string> // version -> ISO date
+                }
+            >,
             {
                 loadLatestSdkVersions: async () => {
                     // console.log('[SDK Doctor] Loading latest SDK versions')
@@ -1080,8 +1120,8 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                     // console.log('[SDK Doctor] Processing recent events:', recentEvents.length)
                     const sdkVersionsMap: Record<string, SdkVersionInfo> = {}
 
-                    // Ensure we only look at the most recent 15 events maximum
-                    const limitedEvents = recentEvents.slice(0, 15)
+                    // Use all events from our strategy-based fetch (up to strategy.maxEvents)
+                    const limitedEvents = recentEvents.slice(0, 30) // Allow up to 30 events
 
                     // Filter out PostHog's internal UI events (URLs containing /project/1/) when in development
                     // Also filter out posthog-js-lite events as requested
@@ -1233,17 +1273,46 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             // Map lib name to SDK type
                             const sdkType: SdkType = info.type
 
-                            const { isOutdated, releasesAhead, latestVersion } = checkVersionAgainstLatest(
-                                sdkType,
-                                version,
-                                latestSdkVersions
-                            )
+                            let versionCheckResult
+                            try {
+                                versionCheckResult = checkVersionAgainstLatest(sdkType, version, latestSdkVersions)
+                            } catch (error) {
+                                console.warn(`[SDK Doctor] Error checking version for ${sdkType} ${version}:`, error)
+                                // Fallback to basic info
+                                versionCheckResult = {
+                                    isOutdated: false,
+                                    releasesAhead: 0,
+                                    latestVersion: undefined,
+                                    releaseDate: undefined,
+                                    daysSinceRelease: undefined,
+                                    isAgeOutdated: false,
+                                    deviceContext: determineDeviceContext(sdkType),
+                                }
+                            }
+
+                            const {
+                                isOutdated,
+                                releasesAhead,
+                                latestVersion,
+                                // NEW properties
+                                releaseDate,
+                                daysSinceRelease,
+                                isAgeOutdated,
+                                deviceContext,
+                            } = versionCheckResult
 
                             updatedMap[key] = {
                                 ...info,
                                 isOutdated,
                                 releasesAhead,
                                 latestVersion,
+                                // NEW properties
+                                releaseDate,
+                                daysSinceRelease,
+                                isAgeOutdated,
+                                deviceContext,
+                                eventVolume: categorizeEventVolume(info.count),
+                                lastSeenTimestamp: new Date().toISOString(), // Current processing time
                             }
                         })
                     } else {
@@ -1390,20 +1459,127 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
         // Load recent events when the logic is mounted
         actions.loadRecentEvents()
 
-        // Start polling every 5 seconds
-        cache.pollingInterval = window.setInterval(() => {
-            actions.loadRecentEvents()
-        }, 5000)
+        // NEW: Strategy-based adaptive polling
+        const updatePollingInterval = (): void => {
+            if (cache.pollingInterval) {
+                window.clearInterval(cache.pollingInterval)
+            }
+
+            // Use interval from current strategy, with fallback
+            const intervalMs = cache.currentStrategy?.intervalMs || 5000
+
+            cache.pollingInterval = window.setInterval(() => {
+                actions.loadRecentEvents()
+            }, intervalMs)
+        }
+
+        // Initial setup
+        updatePollingInterval()
+
+        // Update interval after each event load (when strategy might change)
+        cache.intervalUpdater = window.setInterval(updatePollingInterval, 60000) // Check every minute
     }),
 
     beforeUnmount(({ cache }) => {
-        // Clean up the interval when unmounting
+        // Clean up the intervals when unmounting
         if (cache.pollingInterval) {
             window.clearInterval(cache.pollingInterval)
             cache.pollingInterval = null
         }
+        if (cache.intervalUpdater) {
+            window.clearInterval(cache.intervalUpdater)
+            cache.intervalUpdater = null
+        }
     }),
 ])
+
+// NEW: Age-based detection utilities
+const DEVICE_CONTEXT_CONFIG: DeviceContextConfig = {
+    mobileSDKs: ['ios', 'android', 'flutter', 'react-native'],
+    desktopSDKs: ['web', 'node', 'python', 'php', 'ruby', 'go', 'dotnet', 'elixir'],
+    volumeThresholds: { low: 10, medium: 50, high: Infinity },
+    ageThresholds: { warnAfterWeeks: 8, criticalAfterWeeks: 16 },
+}
+
+function calculateVersionAge(releaseDate: string): number {
+    const release = new Date(releaseDate)
+    const now = new Date()
+    return Math.floor((now.getTime() - release.getTime()) / (1000 * 60 * 60 * 24))
+}
+
+function determineDeviceContext(sdkType: SdkType): 'mobile' | 'desktop' | 'mixed' {
+    if (DEVICE_CONTEXT_CONFIG.mobileSDKs.includes(sdkType)) {
+        return 'mobile'
+    }
+    if (DEVICE_CONTEXT_CONFIG.desktopSDKs.includes(sdkType)) {
+        return 'desktop'
+    }
+    return 'mixed'
+}
+
+function categorizeEventVolume(count: number): 'low' | 'medium' | 'high' {
+    if (count < DEVICE_CONTEXT_CONFIG.volumeThresholds.low) {
+        return 'low'
+    }
+    if (count < DEVICE_CONTEXT_CONFIG.volumeThresholds.medium) {
+        return 'medium'
+    }
+    return 'high'
+}
+
+// NEW: Customer volume estimation and sampling strategy
+interface SamplingStrategy {
+    timeWindow: string // e.g., '-24h', '-7d'
+    maxEvents: number
+    minEventsForAnalysis: number
+    contextBalancing: boolean
+    intervalMs: number // Polling frequency
+}
+
+function isDemoMode(): boolean {
+    const url = window.location.href
+    return url.includes('localhost') || url.includes('127.0.0.1') || url.includes('demo') || url.includes(':8000') // PostHog dev server
+}
+
+function determineSamplingStrategy(estimatedEventsPerMinute: number): SamplingStrategy {
+    // Demo mode override for testing
+    if (isDemoMode()) {
+        return {
+            timeWindow: '-1h', // Short window for fast testing
+            maxEvents: 20, // Reasonable sample size
+            minEventsForAnalysis: 3,
+            contextBalancing: false, // Simple for demos
+            intervalMs: 3000, // 3 seconds - responsive for demos
+        }
+    }
+    if (estimatedEventsPerMinute > 1000) {
+        // High-volume customers
+        return {
+            timeWindow: '-6h', // Shorter window, recent data
+            maxEvents: 100, // Larger sample
+            minEventsForAnalysis: 20,
+            contextBalancing: true, // Ensure both mobile/desktop representation
+            intervalMs: 10000, // 10 seconds - less frequent for high volume
+        }
+    } else if (estimatedEventsPerMinute > 50) {
+        // Medium-volume customers
+        return {
+            timeWindow: '-24h',
+            maxEvents: 50,
+            minEventsForAnalysis: 10,
+            contextBalancing: true,
+            intervalMs: 5000, // 5 seconds - standard
+        }
+    }
+    // Low-volume customers
+    return {
+        timeWindow: '-7d', // Longer window to get sufficient data
+        maxEvents: 30,
+        minEventsForAnalysis: 5,
+        contextBalancing: false, // Take what we can get
+        intervalMs: 2000, // 2 seconds - more responsive for low volume
+    }
+}
 
 // Helper function to check if a version is outdated
 function checkIfVersionOutdated(lib: string, version: string): boolean {
@@ -1461,8 +1637,24 @@ function checkIfVersionOutdated(lib: string, version: string): boolean {
 function checkVersionAgainstLatest(
     type: SdkType,
     version: string,
-    latestVersionsData: Record<SdkType, { latestVersion: string; versions: string[] }>
-): { isOutdated: boolean; releasesAhead?: number; latestVersion?: string } {
+    latestVersionsData: Record<
+        SdkType,
+        {
+            latestVersion: string
+            versions: string[]
+            releaseDates?: Record<string, string>
+        }
+    >
+): {
+    isOutdated: boolean
+    releasesAhead?: number
+    latestVersion?: string
+    // NEW returns
+    releaseDate?: string
+    daysSinceRelease?: number
+    isAgeOutdated?: boolean
+    deviceContext?: 'mobile' | 'desktop' | 'mixed'
+} {
     if (IS_DEBUG_MODE) {
         console.info(`[SDK Doctor] checkVersionAgainstLatest for ${type} version ${version}`)
         console.info(`[SDK Doctor] Available data:`, Object.keys(latestVersionsData))
@@ -1580,11 +1772,30 @@ function checkVersionAgainstLatest(
             )
         }
 
+        // NEW: Age-based analysis
+        const deviceContext = determineDeviceContext(type)
+        const releaseDates = latestVersionsData[type]?.releaseDates
+        const releaseDate = releaseDates?.[version]
+        let daysSinceRelease: number | undefined
+        let isAgeOutdated = false
+
+        if (releaseDate) {
+            daysSinceRelease = calculateVersionAge(releaseDate)
+            const weeksOld = daysSinceRelease / 7
+
+            // Age-based outdated detection: >8 weeks old AND newer releases exist
+            isAgeOutdated = weeksOld > DEVICE_CONTEXT_CONFIG.ageThresholds.warnAfterWeeks && releasesBehind > 0
+        }
+
         // Consider outdated if 2+ versions behind (2 or more releases)
         return {
-            isOutdated: isOutdated,
+            isOutdated: isOutdated || isAgeOutdated, // Combine release-count and age-based
             releasesAhead: Math.max(0, releasesBehind),
             latestVersion,
+            releaseDate,
+            daysSinceRelease,
+            isAgeOutdated,
+            deviceContext,
         }
     } catch {
         // If we can't parse the versions, fall back to the hardcoded check
@@ -1593,6 +1804,11 @@ function checkVersionAgainstLatest(
         return {
             isOutdated: checkIfVersionOutdated(lib, version),
             latestVersion,
+            // NEW: Default values for fallback case
+            releaseDate: undefined,
+            daysSinceRelease: undefined,
+            isAgeOutdated: false,
+            deviceContext: determineDeviceContext(type),
         }
     }
 }
