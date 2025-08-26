@@ -1,3 +1,5 @@
+import { IconApps } from '@posthog/icons'
+
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
@@ -23,6 +25,7 @@ export function MarketingAnalyticsSettings(): JSX.Element {
                     resourceType={{
                         type: 'marketing',
                         typePlural: 'marketing',
+                        forceIcon: <IconApps />,
                     }}
                 />
             )}
