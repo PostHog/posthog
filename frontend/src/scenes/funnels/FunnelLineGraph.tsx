@@ -29,8 +29,15 @@ export function FunnelLineGraph({
     showPersonsModal: showPersonsModalProp = true,
 }: Omit<ChartParams, 'filters'>): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { indexedSteps, aggregationTargetLabel, incompletenessOffsetFromEnd, querySource, interval, insightData } =
-        useValues(funnelDataLogic(insightProps))
+    const {
+        indexedSteps,
+        goalLines,
+        aggregationTargetLabel,
+        incompletenessOffsetFromEnd,
+        querySource,
+        interval,
+        insightData,
+    } = useValues(funnelDataLogic(insightProps))
     const { weekStartDay } = useValues(teamLogic)
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
 
@@ -51,6 +58,7 @@ export function FunnelLineGraph({
                 isInProgress={incompletenessOffsetFromEnd < 0}
                 inSharedMode={!!inSharedMode}
                 showPersonsModal={showPersonsModal}
+                goalLines={goalLines ?? []}
                 tooltip={{
                     showHeader: false,
                     hideColorCol: true,

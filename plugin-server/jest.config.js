@@ -1,11 +1,16 @@
 module.exports = {
     transform: {
-        '^.+\\.(t|j)s$': ['@swc/jest'],
+        '^.+\\.(t|j)s$': [
+            'ts-jest',
+            {
+                tsconfig: './tsconfig.json',
+            },
+        ],
     },
     testEnvironment: 'node',
     clearMocks: true,
     coverageProvider: 'v8',
-    setupFilesAfterEnv: ['./jest.setup.js'],
+    setupFilesAfterEnv: ['./jest.setup.ts'],
     testMatch: ['<rootDir>/tests/**/*.test.ts', '<rootDir>/src/**/*.test.ts'],
     testTimeout: 60000,
     modulePathIgnorePatterns: ['<rootDir>/.tmp/'],

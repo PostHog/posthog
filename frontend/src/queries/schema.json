@@ -5,10 +5,6 @@
             "enum": ["$ai_generation", "$ai_embedding", "$ai_span", "$ai_trace", "$ai_metric", "$ai_feedback"],
             "type": "string"
         },
-        "AccessControlLevel": {
-            "enum": ["none", "member", "admin", "viewer", "editor", "manager"],
-            "type": "string"
-        },
         "ActionConversionGoal": {
             "additionalProperties": false,
             "properties": {
@@ -406,6 +402,40 @@
             "required": ["results"],
             "type": "object"
         },
+        "AnyAssistantGeneratedQuery": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/AssistantTrendsQuery"
+                },
+                {
+                    "$ref": "#/definitions/AssistantFunnelsQuery"
+                },
+                {
+                    "$ref": "#/definitions/AssistantRetentionQuery"
+                },
+                {
+                    "$ref": "#/definitions/AssistantHogQLQuery"
+                }
+            ],
+            "description": "The union type with all cleaned queries for the assistant. Only used for generating the schemas with an LLM."
+        },
+        "AnyAssistantSupportedQuery": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/TrendsQuery"
+                },
+                {
+                    "$ref": "#/definitions/FunnelsQuery"
+                },
+                {
+                    "$ref": "#/definitions/RetentionQuery"
+                },
+                {
+                    "$ref": "#/definitions/HogQLQuery"
+                }
+            ],
+            "description": "The union type with all supported base queries for the assistant."
+        },
         "AnyDataNode": {
             "anyOf": [
                 {
@@ -669,168 +699,6 @@
                 },
                 {
                     "$ref": "#/definitions/LogsQueryResponse"
-                },
-                {
-                    "additionalProperties": false,
-                    "properties": {
-                        "_create_in_folder": {
-                            "description": "Only used when creating objects",
-                            "type": ["string", "null"]
-                        },
-                        "cache_target_age": {
-                            "type": ["string", "null"]
-                        },
-                        "created_at": {
-                            "type": "string"
-                        },
-                        "created_by": {
-                            "anyOf": [
-                                {
-                                    "$ref": "#/definitions/UserBasicType"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ]
-                        },
-                        "dashboard_tiles": {
-                            "anyOf": [
-                                {
-                                    "items": {
-                                        "$ref": "#/definitions/DashboardTileBasicType"
-                                    },
-                                    "type": "array"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ]
-                        },
-                        "dashboards": {
-                            "anyOf": [
-                                {
-                                    "items": {
-                                        "type": "number"
-                                    },
-                                    "type": "array"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "deprecated": "Use `dashboard_tiles` instead"
-                        },
-                        "deleted": {
-                            "type": "boolean"
-                        },
-                        "derived_name": {
-                            "type": ["string", "null"]
-                        },
-                        "description": {
-                            "type": "string"
-                        },
-                        "disable_baseline": {
-                            "description": "Only used in the frontend to toggle showing Baseline in funnels or not",
-                            "type": "boolean"
-                        },
-                        "effective_privilege_level": {
-                            "$ref": "#/definitions/DashboardPrivilegeLevel"
-                        },
-                        "effective_restriction_level": {
-                            "$ref": "#/definitions/DashboardRestrictionLevel"
-                        },
-                        "favorited": {
-                            "type": "boolean"
-                        },
-                        "id": {
-                            "description": "The primary key in the database, used as well in API endpoints",
-                            "type": "number"
-                        },
-                        "is_sample": {
-                            "type": "boolean"
-                        },
-                        "last_modified_at": {
-                            "type": "string"
-                        },
-                        "last_modified_by": {
-                            "anyOf": [
-                                {
-                                    "$ref": "#/definitions/UserBasicType"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ]
-                        },
-                        "last_refresh": {
-                            "type": ["string", "null"]
-                        },
-                        "name": {
-                            "type": "string"
-                        },
-                        "next": {
-                            "description": "Only used in the frontend to store the next breakdown url",
-                            "type": "string"
-                        },
-                        "next_allowed_client_refresh": {
-                            "type": ["string", "null"]
-                        },
-                        "order": {
-                            "type": ["number", "null"]
-                        },
-                        "query": {
-                            "anyOf": [
-                                {
-                                    "additionalProperties": false,
-                                    "description": "Node base class, everything else inherits from here.",
-                                    "properties": {
-                                        "kind": {
-                                            "$ref": "#/definitions/NodeKind"
-                                        },
-                                        "response": {
-                                            "type": "object"
-                                        },
-                                        "version": {
-                                            "description": "version of the node, used for schema migrations",
-                                            "type": "number"
-                                        }
-                                    },
-                                    "required": ["kind"],
-                                    "type": "object"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ]
-                        },
-                        "query_status": {
-                            "$ref": "#/definitions/QueryStatus"
-                        },
-                        "result": {},
-                        "saved": {
-                            "type": "boolean"
-                        },
-                        "short_id": {
-                            "$ref": "#/definitions/InsightShortId",
-                            "description": "The unique key we use when communicating with the user, e.g. in URLs"
-                        },
-                        "tags": {
-                            "items": {
-                                "type": "string"
-                            },
-                            "type": "array"
-                        },
-                        "timezone": {
-                            "type": ["string", "null"]
-                        },
-                        "updated_at": {
-                            "type": "string"
-                        },
-                        "user_access_level": {
-                            "$ref": "#/definitions/AccessControlLevel"
-                        }
-                    },
-                    "type": "object"
                 }
             ]
         },
@@ -4355,7 +4223,12 @@
                     "description": "The date range used for the query"
                 },
                 "results": {
-                    "items": {},
+                    "items": {
+                        "items": {
+                            "$ref": "#/definitions/MarketingAnalyticsItem"
+                        },
+                        "type": "array"
+                    },
                     "type": "array"
                 },
                 "samplingRate": {
@@ -7302,32 +7175,6 @@
             },
             "type": "object"
         },
-        "DashboardPrivilegeLevel": {
-            "description": "Collaboration privilege level (which is a user property). Sync with DashboardRestrictionLevel.",
-            "enum": [21, 37, 888, 999],
-            "type": "number"
-        },
-        "DashboardRestrictionLevel": {
-            "description": "Collaboration restriction level (which is a dashboard setting). Sync with DashboardPrivilegeLevel.",
-            "enum": [21, 37],
-            "type": "number"
-        },
-        "DashboardTileBasicType": {
-            "additionalProperties": false,
-            "properties": {
-                "dashboard_id": {
-                    "type": "number"
-                },
-                "deleted": {
-                    "type": "boolean"
-                },
-                "id": {
-                    "type": "number"
-                }
-            },
-            "required": ["id", "dashboard_id"],
-            "type": "object"
-        },
         "DataColorToken": {
             "enum": [
                 "preset-1",
@@ -8339,7 +8186,12 @@
                                     "description": "The date range used for the query"
                                 },
                                 "results": {
-                                    "items": {},
+                                    "items": {
+                                        "items": {
+                                            "$ref": "#/definitions/MarketingAnalyticsItem"
+                                        },
+                                        "type": "array"
+                                    },
                                     "type": "array"
                                 },
                                 "samplingRate": {
@@ -12729,6 +12581,13 @@
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit",
                     "default": "day"
                 },
+                "goalLines": {
+                    "description": "Goal Lines",
+                    "items": {
+                        "$ref": "#/definitions/GoalLine"
+                    },
+                    "type": "array"
+                },
                 "hiddenLegendBreakdowns": {
                     "items": {
                         "type": "string"
@@ -13779,6 +13638,10 @@
             },
             "required": ["type", "content"],
             "type": "object"
+        },
+        "InfinityValue": {
+            "enum": [999999, -999999],
+            "type": "number"
         },
         "InsightActorsQuery": {
             "additionalProperties": false,
@@ -15180,7 +15043,7 @@
             "type": "object"
         },
         "MarketingAnalyticsBaseColumns": {
-            "enum": ["Campaign", "Source", "Total Cost", "Total Clicks", "Total Impressions", "Cost per Click", "CTR"],
+            "enum": ["Campaign", "Source", "Cost", "Clicks", "Impressions", "CPC", "CTR"],
             "type": "string"
         },
         "MarketingAnalyticsColumnsSchemaNames": {
@@ -15208,6 +15071,34 @@
         "MarketingAnalyticsHelperForColumnNames": {
             "enum": ["Goal", "Cost per"],
             "type": "string"
+        },
+        "MarketingAnalyticsItem": {
+            "additionalProperties": false,
+            "properties": {
+                "changeFromPreviousPct": {
+                    "type": "number"
+                },
+                "hasComparison": {
+                    "type": "boolean"
+                },
+                "isIncreaseBad": {
+                    "type": "boolean"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "kind": {
+                    "$ref": "#/definitions/WebAnalyticsItemKind"
+                },
+                "previous": {
+                    "type": ["number", "string"]
+                },
+                "value": {
+                    "type": ["number", "string"]
+                }
+            },
+            "required": ["key", "kind"],
+            "type": "object"
         },
         "MarketingAnalyticsOrderBy": {
             "items": [
@@ -15375,7 +15266,12 @@
                     "description": "The date range used for the query"
                 },
                 "results": {
-                    "items": {},
+                    "items": {
+                        "items": {
+                            "$ref": "#/definitions/MarketingAnalyticsItem"
+                        },
+                        "type": "array"
+                    },
                     "type": "array"
                 },
                 "samplingRate": {
@@ -18377,7 +18273,12 @@
                             "description": "The date range used for the query"
                         },
                         "results": {
-                            "items": {},
+                            "items": {
+                                "items": {
+                                    "$ref": "#/definitions/MarketingAnalyticsItem"
+                                },
+                                "type": "array"
+                            },
                             "type": "array"
                         },
                         "samplingRate": {
@@ -19338,7 +19239,12 @@
                             "description": "The date range used for the query"
                         },
                         "results": {
-                            "items": {},
+                            "items": {
+                                "items": {
+                                    "$ref": "#/definitions/MarketingAnalyticsItem"
+                                },
+                                "type": "array"
+                            },
                             "type": "array"
                         },
                         "samplingRate": {
@@ -23153,6 +23059,31 @@
                     },
                     "type": "array"
                 },
+                "resultCustomizationBy": {
+                    "$ref": "#/definitions/ResultCustomizationBy",
+                    "default": "value",
+                    "description": "Whether result datasets are associated by their values or by their order."
+                },
+                "resultCustomizations": {
+                    "anyOf": [
+                        {
+                            "additionalProperties": {
+                                "$ref": "#/definitions/ResultCustomizationByValue"
+                            },
+                            "type": "object"
+                        },
+                        {
+                            "additionalProperties": {
+                                "$ref": "#/definitions/ResultCustomizationByPosition"
+                            },
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        }
+                    ],
+                    "description": "Customizations for the appearance of result datasets."
+                },
                 "showLegend": {
                     "type": "boolean"
                 },
@@ -24568,16 +24499,10 @@
                 "answer": {
                     "anyOf": [
                         {
-                            "$ref": "#/definitions/AssistantTrendsQuery"
+                            "$ref": "#/definitions/AnyAssistantGeneratedQuery"
                         },
                         {
-                            "$ref": "#/definitions/AssistantFunnelsQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/AssistantRetentionQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/AssistantHogQLQuery"
+                            "$ref": "#/definitions/AnyAssistantSupportedQuery"
                         }
                     ]
                 },
@@ -24701,6 +24626,60 @@
             },
             "required": ["date_from", "date_to"],
             "type": "object"
+        },
+        "WebAnalyticsItemBase<(number|string)>": {
+            "additionalProperties": false,
+            "properties": {
+                "changeFromPreviousPct": {
+                    "type": "number"
+                },
+                "isIncreaseBad": {
+                    "type": "boolean"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "kind": {
+                    "$ref": "#/definitions/WebAnalyticsItemKind"
+                },
+                "previous": {
+                    "type": ["number", "string"]
+                },
+                "value": {
+                    "type": ["number", "string"]
+                }
+            },
+            "required": ["key", "kind"],
+            "type": "object"
+        },
+        "WebAnalyticsItemBase<number>": {
+            "additionalProperties": false,
+            "properties": {
+                "changeFromPreviousPct": {
+                    "type": "number"
+                },
+                "isIncreaseBad": {
+                    "type": "boolean"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "kind": {
+                    "$ref": "#/definitions/WebAnalyticsItemKind"
+                },
+                "previous": {
+                    "type": "number"
+                },
+                "value": {
+                    "type": "number"
+                }
+            },
+            "required": ["key", "kind"],
+            "type": "object"
+        },
+        "WebAnalyticsItemKind": {
+            "enum": ["unit", "duration_s", "percentage", "currency"],
+            "type": "string"
         },
         "WebAnalyticsOrderBy": {
             "items": [
@@ -25032,7 +25011,7 @@
                     "type": "string"
                 },
                 "kind": {
-                    "$ref": "#/definitions/WebOverviewItemKind"
+                    "$ref": "#/definitions/WebAnalyticsItemKind"
                 },
                 "previous": {
                     "type": "number"
@@ -25046,10 +25025,6 @@
             },
             "required": ["key", "kind"],
             "type": "object"
-        },
-        "WebOverviewItemKind": {
-            "enum": ["unit", "duration_s", "percentage", "currency"],
-            "type": "string"
         },
         "WebOverviewQuery": {
             "additionalProperties": false,

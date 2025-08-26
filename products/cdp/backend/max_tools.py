@@ -1,31 +1,36 @@
-from typing import Optional
 import re
 import json
-from ee.hogai.tool import MaxTool
-from posthog.cdp.validation import compile_hog
+from typing import Optional
+
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_openai import ChatOpenAI
+from pydantic import BaseModel, Field
+
 from posthog.hogql.ai import (
-    HOG_EXAMPLE_MESSAGE,
-    HOG_GRAMMAR_MESSAGE,
-    TRANSFORMATION_LIMITATIONS_MESSAGE,
     DESTINATION_LIMITATIONS_MESSAGE,
-    IDENTITY_MESSAGE_HOG,
+    EVENT_PROPERTY_TAXONOMY_MESSAGE,
+    EVENT_TAXONOMY_MESSAGE,
+    FILTER_TAXONOMY_MESSAGE,
+    HOG_EXAMPLE_MESSAGE,
     HOG_FUNCTION_FILTERS_SYSTEM_PROMPT,
     HOG_FUNCTION_INPUTS_SYSTEM_PROMPT,
+    HOG_GRAMMAR_MESSAGE,
+    IDENTITY_MESSAGE_HOG,
     INPUT_SCHEMA_TYPES_MESSAGE,
-    EVENT_TAXONOMY_MESSAGE,
-    EVENT_PROPERTY_TAXONOMY_MESSAGE,
     PERSON_TAXONOMY_MESSAGE,
-    FILTER_TAXONOMY_MESSAGE,
+    TRANSFORMATION_LIMITATIONS_MESSAGE,
 )
+
+from posthog.cdp.validation import compile_hog
+
 from products.cdp.backend.prompts import (
-    HOG_TRANSFORMATION_ASSISTANT_ROOT_SYSTEM_PROMPT,
     HOG_FUNCTION_FILTERS_ASSISTANT_ROOT_SYSTEM_PROMPT,
     HOG_FUNCTION_INPUTS_ASSISTANT_ROOT_SYSTEM_PROMPT,
+    HOG_TRANSFORMATION_ASSISTANT_ROOT_SYSTEM_PROMPT,
 )
-from pydantic import BaseModel, Field
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage
+
 from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
+from ee.hogai.tool import MaxTool
 
 
 class CreateHogTransformationFunctionArgs(BaseModel):

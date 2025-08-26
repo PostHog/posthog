@@ -1,23 +1,25 @@
 import json
 from typing import Any, Optional
+
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import ANY, MagicMock, patch
 
 from django.db import connection
-from freezegun import freeze_time
+
 from inline_snapshot import snapshot
 from rest_framework import status
 
-from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION, Operation
+from posthog.api.hog_function import MAX_HOG_CODE_SIZE_BYTES, MAX_TRANSFORMATIONS_PER_TEAM
 from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
+from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.constants import AvailableFeature
 from posthog.models.action.action import Action
-from posthog.models.hog_functions.hog_function import DEFAULT_STATE, HogFunction, HogFunctionState
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
-from posthog.cdp.templates.slack.template_slack import template as template_slack
-from posthog.api.hog_function import MAX_HOG_CODE_SIZE_BYTES, MAX_TRANSFORMATIONS_PER_TEAM
 from posthog.models.hog_function_template import HogFunctionTemplate
+from posthog.models.hog_functions.hog_function import DEFAULT_STATE, HogFunction, HogFunctionState
 
+from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION, Operation
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
 geoip_template = MOCK_NODE_TEMPLATES[2]
@@ -857,6 +859,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             },
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
+
         assert response.json()["filters"] == {
             "source": "events",
             "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
@@ -886,22 +889,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 1,
                 1,
                 11,
-                3,
-                2,
-                32,
-                "%@posthog.com%",
-                32,
-                "email",
-                32,
-                "properties",
-                32,
-                "person",
-                1,
-                3,
-                2,
-                "toString",
-                1,
-                20,
                 32,
                 "$pageview",
                 32,
@@ -920,9 +907,9 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 17,
                 3,
                 2,
-                3,
-                2,
                 4,
+                2,
+                3,
                 2,
             ],
         }
@@ -1541,8 +1528,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                             11,
                             3,
                             2,
-                            4,
-                            1,
                         ],
                         "filter_test_accounts": True,
                     },

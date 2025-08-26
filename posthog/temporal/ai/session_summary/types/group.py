@@ -1,8 +1,9 @@
 import dataclasses
 from enum import Enum
 
-from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
+
+from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
 
 
 class SessionSummaryStreamUpdate(Enum):

@@ -1,16 +1,12 @@
-from datetime import timedelta, datetime
-from typing import Any, Union, TypeVar
+from datetime import datetime, timedelta
+from typing import Any, TypeVar, Union
 
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
+
 from pydantic import BaseModel, ConfigDict
 
-from posthog.cache_utils import cache_for
-from posthog.models import Action, Team
 from posthog.schema import (
-    TrendsQuery,
-    InsightVizNode,
-    EventsNode,
     ActionsNode,
     DataWarehouseNode,
     FunnelsQuery,
@@ -21,20 +17,35 @@ from posthog.schema import (
     PathType,
     StickinessQuery,
     LifecycleQuery,
-    DataTableNode,
     ActorsQuery,
-    InsightActorsQuery,
-    FunnelsActorsQuery,
-    FunnelCorrelationActorsQuery,
-    StickinessActorsQuery,
-    FunnelCorrelationQuery,
+    DataTableNode,
+    DataWarehouseNode,
+    EntityType,
+    EventsNode,
     EventsQuery,
-    FunnelExclusionEventsNode,
+    FunnelCorrelationActorsQuery,
+    FunnelCorrelationQuery,
     FunnelExclusionActionsNode,
     CalendarHeatmapQuery,
+    FunnelExclusionEventsNode,
+    FunnelsActorsQuery,
+    FunnelsQuery,
+    InsightActorsQuery,
+    InsightVizNode,
+    LifecycleQuery,
+    PathsQuery,
+    PathType,
+    RetentionEntity,
+    RetentionQuery,
+    StickinessActorsQuery,
+    StickinessQuery,
+    TrendsQuery,
 )
-from posthog.utils import get_from_dict_or_attr
+
+from posthog.cache_utils import cache_for
 from posthog.hogql_queries.query_runner import RunnableQueryNode
+from posthog.models import Action, Team
+from posthog.utils import get_from_dict_or_attr
 
 T = TypeVar("T", bound=BaseModel)
 

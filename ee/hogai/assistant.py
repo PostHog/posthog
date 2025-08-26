@@ -3,8 +3,8 @@ from contextlib import asynccontextmanager
 from typing import Any, Literal, Optional, cast, get_args
 from uuid import UUID, uuid4
 
-import posthoganalytics
 import structlog
+import posthoganalytics
 from asgiref.sync import async_to_sync
 from langchain_core.callbacks.base import BaseCallbackHandler
 from langchain_core.messages import AIMessageChunk
@@ -14,6 +14,25 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StreamMode
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel
+
+from posthog.schema import (
+    AssistantEventType,
+    AssistantGenerationStatusEvent,
+    AssistantGenerationStatusType,
+    AssistantMessage,
+    AssistantMessageType,
+    FailureMessage,
+    HumanMessage,
+    MaxBillingContext,
+    NotebookUpdateMessage,
+    ReasoningMessage,
+    VisualizationMessage,
+)
+
+from posthog.event_usage import report_user_action
+from posthog.exceptions_capture import capture_exception
+from posthog.models import Action, Team, User
+from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph import (
     AssistantGraph,
@@ -58,23 +77,6 @@ from ee.hogai.utils.types import (
 )
 from ee.hogai.utils.types.composed import MaxNodeName
 from ee.models import Conversation
-from posthog.event_usage import report_user_action
-from posthog.exceptions_capture import capture_exception
-from posthog.models import Action, Team, User
-from posthog.schema import (
-    AssistantEventType,
-    AssistantGenerationStatusEvent,
-    AssistantGenerationStatusType,
-    AssistantMessage,
-    AssistantMessageType,
-    FailureMessage,
-    HumanMessage,
-    MaxBillingContext,
-    NotebookUpdateMessage,
-    ReasoningMessage,
-    VisualizationMessage,
-)
-from posthog.sync import database_sync_to_async
 
 VISUALIZATION_NODES: dict[MaxNodeName, type[SchemaGeneratorNode]] = {
     AssistantNodeName.TRENDS_GENERATOR: TrendsGeneratorNode,

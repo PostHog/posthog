@@ -3,10 +3,11 @@ from typing import cast
 
 from pydantic import BaseModel
 
+from posthog.schema import AssistantEventType, AssistantGenerationStatusEvent
+
 from ee.hogai.api.serializers import ConversationMinimalSerializer
 from ee.hogai.utils.types import AssistantMessageUnion, AssistantOutput
 from ee.models.assistant import Conversation
-from posthog.schema import AssistantEventType, AssistantGenerationStatusEvent
 
 
 class AssistantSSESerializer:
