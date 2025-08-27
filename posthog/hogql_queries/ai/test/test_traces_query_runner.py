@@ -1144,3 +1144,71 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(response.results), 1)
         # Should fall back to trace_name from generation events
         self.assertEqual(response.results[0].traceName, "fallback_trace_name")
+
+    def test_trace_name_when_no_names_exist(self):
+        """Test that trace_name is None when no names exist in either trace or generation events."""
+        _create_person(distinct_ids=["person1"], team=self.team)
+        trace_id = "trace_without_names"
+
+        # Create generation events with no trace_name or span_name
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 0),
+        )
+
+        # Create a trace event with no trace_name
+        _create_ai_trace_event(
+            trace_id=trace_id,
+            trace_name=None,
+            input_state={},
+            output_state={},
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 1),
+            distinct_id="person1",
+        )
+
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(
+                traceId=trace_id,
+                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
+            ),
+        ).calculate()
+
+        self.assertEqual(len(response.results), 1)
+        # Should be None when no names exist
+        self.assertIsNone(response.results[0].traceName)
+
+    def test_trace_name_with_only_generation_events(self):
+        """Test that trace_name works when only generation events exist (no trace events at all)."""
+        _create_person(distinct_ids=["person1"], team=self.team)
+        trace_id = "trace_only_generation"
+
+        # Create only generation events with no trace events
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 0),
+        )
+
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 1),
+        )
+
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(
+                traceId=trace_id,
+                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
+            ),
+        ).calculate()
+
+        self.assertEqual(len(response.results), 1)
+        # Should be None when no names exist in any events
+        self.assertIsNone(response.results[0].traceName)
