@@ -311,7 +311,7 @@ function preFilterResult(filters: HogFunctionType['filters'], filterGlobals: Hog
         return false
     }
     // If we get here, there is at least one event filter and it checks this event type
-    // hence our we say its a match and return true
+    // hence we say its a match and return true
     return true
 }
 
