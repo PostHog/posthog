@@ -19,6 +19,9 @@ class ReplicaRouter:
     immediately try and read a model you have just written.
     """
 
+    PERSONS_DB_APP_LABEL = "persons_database"
+    POSTHOG_APP_LABEL = "posthog"
+
     def db_for_read(self, model, **hints):
         """
         Reads go to the replica endpoint, but only if opted in
@@ -44,6 +47,8 @@ class ReplicaRouter:
 
     def allow_migrate(self, db, app_label, model_name=None, **hints):
         """
-        Allow migrations always
+        Do not run migrations for the persons_database app against the default db
         """
+        if app_label == self.PERSONS_DB_APP_LABEL:
+            return db == "persons_db_writer"
         return True

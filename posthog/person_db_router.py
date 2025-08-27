@@ -1,4 +1,7 @@
 # posthog/person_db_router.py
+from django.conf import settings
+
+
 class PersonDBRouter:
     """
     A router to control all database operations on models in the persons database.
@@ -55,10 +58,10 @@ class PersonDBRouter:
         by default, as Django doesn't support cross-database relations natively.
         You might need to adjust this based on specific foreign keys (e.g., Person -> Team).
         """
-        obj1_in_persons_db = obj1._meta.app_label == self.PERSONS_APP_LABEL and self.is_persons_model(
+        obj1_in_persons_db = obj1._meta.app_label == self.PERSONS_DB_APP_LABEL and self.is_persons_model(
             obj1._meta.model_name
         )
-        obj2_in_persons_db = obj2._meta.app_label == self.PERSONS_APP_LABEL and self.is_persons_model(
+        obj2_in_persons_db = obj2._meta.app_label == self.PERSONS_DB_APP_LABEL and self.is_persons_model(
             obj2._meta.model_name
         )
 
@@ -82,7 +85,7 @@ class PersonDBRouter:
         database. All other models migrate normally on 'default'.
         """
         # persons_database app migrations should only migrate against persons_db_writer
-        if app_label == self.PERSONS_DB_APP_LABEL:
+        if app_label == self.PERSONS_DB_APP_LABEL and settings.ENABLE_PERSONS_DB_MIGRATIONS:
             return db == "persons_db_writer"
 
         # explicitly deny all other apps from migrating to persons_db_writer
