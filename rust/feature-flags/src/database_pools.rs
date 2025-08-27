@@ -83,7 +83,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_database_routing_disabled() {
-        let config = Config::default();
+        let config = Config::default_test_config();
 
         assert!(!config.is_persons_db_routing_enabled());
         assert_eq!(
@@ -101,7 +101,7 @@ mod tests {
         let config = Config {
             persons_read_database_url: "postgres://user:pass@persons-reader:5432/db".to_string(),
             persons_write_database_url: "postgres://user:pass@persons-writer:5432/db".to_string(),
-            ..Default::default()
+            ..Config::default_test_config()
         };
 
         assert!(config.is_persons_db_routing_enabled());

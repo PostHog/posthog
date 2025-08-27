@@ -206,12 +206,6 @@ pub struct Config {
     pub otel_log_level: Level,
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Self::default_test_config()
-    }
-}
-
 impl Config {
     pub fn default_test_config() -> Self {
         Self {
