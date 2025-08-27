@@ -15,9 +15,9 @@ describe('twilio template', () => {
     it('should invoke the function', async () => {
         const response = await tester.invoke(
             {
-                twilio_account: {
+                oauth: {
                     account_sid: 'sid_12345',
-                    auth_token: 'auth_12345',
+                    auth_token_raw: 'auth_12345',
                 },
                 from_number: '+1234567891',
             },
