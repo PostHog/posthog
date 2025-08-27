@@ -21,7 +21,7 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
 let res := fetch(f'https://storage.googleapis.com/upload/storage/v1/b/{encodeURLComponent(inputs.bucketName)}/o?uploadType=media&name={encodeURLComponent(inputs.filename)}', {
   'method': 'POST',
   'headers': {
-    'Authorization': f'Bearer {inputs.auth.access_token}',
+    'Authorization': f'Bearer {inputs.oauth.access_token}',
     'Content-Type': 'application/json'
   },
   'body': inputs.payload
@@ -35,7 +35,7 @@ if (res.status >= 200 and res.status < 300) {
 """.strip(),
     inputs_schema=[
         {
-            "key": "auth",
+            "key": "oauth",
             "type": "integration",
             "integration": "google-cloud-storage",
             "label": "Google Cloud service account",

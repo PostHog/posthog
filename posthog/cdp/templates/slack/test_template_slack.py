@@ -11,7 +11,7 @@ class TestTemplateSlack(BaseHogFunctionTemplateTest):
 
     def _inputs(self, **kwargs):
         inputs = {
-            "slack_workspace": {
+            "oauth": {
                 "access_token": "xoxb-1234",
             },
             "icon_emoji": ":hedgehog:",

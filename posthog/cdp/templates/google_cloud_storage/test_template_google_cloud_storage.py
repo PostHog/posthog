@@ -37,7 +37,7 @@ class TestTemplateMigration(BaseTest):
         )
 
         template = TemplateGoogleCloudStorageMigrator.migrate(obj)
-        template["inputs"]["auth"]["value"] = 1  # mock the ID
+        template["inputs"]["oauth"]["value"] = 1  # mock the ID
         assert template["inputs"] == snapshot(
             {
                 "auth": {"value": 1},
@@ -82,7 +82,7 @@ class TestTemplateMigration(BaseTest):
         )
 
         template = TemplateGoogleCloudStorageMigrator.migrate(obj)
-        template["inputs"]["auth"]["value"] = 1  # mock the ID
+        template["inputs"]["oauth"]["value"] = 1  # mock the ID
         assert template["inputs"] == snapshot(
             {
                 "auth": {"value": 1},

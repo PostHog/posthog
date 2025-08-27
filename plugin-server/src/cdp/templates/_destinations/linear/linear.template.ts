@@ -24,7 +24,7 @@ let res := fetch('https://api.linear.app/graphql', {
   },
   'method': 'POST',
   'headers': {
-    'Authorization': f'Bearer {inputs.linear_workspace.access_token}',
+    'Authorization': f'Bearer {inputs.oauth.access_token}',
     'Content-Type': 'application/json'
   }
 });
@@ -34,7 +34,7 @@ if (res.status != 200 or res.body.success == false) {
 }`,
     inputs_schema: [
         {
-            key: 'linear_workspace',
+            key: 'oauth',
             type: 'integration',
             integration: 'linear',
             label: 'Linear workspace',
@@ -45,7 +45,7 @@ if (res.status != 200 or res.body.success == false) {
         {
             key: 'team',
             type: 'integration_field',
-            integration_key: 'linear_workspace',
+            integration_key: 'oauth',
             integration_field: 'linear_team',
             label: 'Team',
             secret: false,

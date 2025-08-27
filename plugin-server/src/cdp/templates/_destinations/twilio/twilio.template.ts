@@ -26,9 +26,9 @@ if (not message) {
 let encodedTo := encodeURLComponent(toNumber)
 let encodedFrom := encodeURLComponent(fromNumber)
 let encodedSmsBody := encodeURLComponent(message)
-let base64EncodedAuth := base64Encode(f'{inputs.twilio_account.account_sid}:{inputs.twilio_account.auth_token}')
+let base64EncodedAuth := base64Encode(f'{inputs.oauth.account_sid}:{inputs.oauth.auth_token_raw}')
 
-let url := f'https://api.twilio.com/2010-04-01/Accounts/{inputs.twilio_account.account_sid}/Messages.json'
+let url := f'https://api.twilio.com/2010-04-01/Accounts/{inputs.oauth.account_sid}/Messages.json'
 let body := f'To={encodedTo}&From={encodedFrom}&Body={encodedSmsBody}'
 
 let payload := {
@@ -57,7 +57,7 @@ if (inputs.debug) {
 `,
     inputs_schema: [
         {
-            key: 'twilio_account',
+            key: 'oauth',
             type: 'integration',
             integration: 'twilio',
             label: 'Twilio account',
@@ -69,7 +69,7 @@ if (inputs.debug) {
         {
             key: 'from_number',
             type: 'integration_field',
-            integration_key: 'twilio_account',
+            integration_key: 'oauth',
             integration_field: 'twilio_phone_number',
             label: 'From Phone Number',
             description: 'Your Twilio phone number',

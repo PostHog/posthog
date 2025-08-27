@@ -19,7 +19,7 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     code_language="hog",
     code="""
 let headers := () -> {
-  'Authorization': f'Bearer {inputs.auth.access_token}',
+  'Authorization': f'Bearer {inputs.oauth.access_token}',
   'Content-Type': 'application/json'
 }
 let message := () -> {
@@ -41,7 +41,7 @@ if (res.status >= 200 and res.status < 300) {
 """.strip(),
     inputs_schema=[
         {
-            "key": "auth",
+            "key": "oauth",
             "type": "integration",
             "integration": "google-pubsub",
             "label": "Google Cloud service account",
