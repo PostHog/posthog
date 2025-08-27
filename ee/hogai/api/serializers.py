@@ -3,10 +3,11 @@ from asgiref.sync import async_to_sync
 from langgraph.graph.state import CompiledStateGraph
 from rest_framework import serializers
 
+from posthog.api.shared import UserBasicSerializer
+
 from ee.hogai.utils.helpers import should_output_assistant_message
 from ee.hogai.utils.types import AssistantState
 from ee.models.assistant import Conversation
-from posthog.api.shared import UserBasicSerializer
 
 _conversation_fields = ["id", "user", "status", "title", "created_at", "updated_at"]
 
