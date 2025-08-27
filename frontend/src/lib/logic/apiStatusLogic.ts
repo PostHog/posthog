@@ -55,12 +55,10 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                     } else if (
                         (responseData.detail === '2FA setup required' ||
                             responseData.detail === '2FA verification required') &&
-                        !values.timeSensitiveAuthenticationRequired
+                        !values.timeSensitiveAuthenticationRequired &&
+                        !twoFactorLogic.findMounted()?.values.isTwoFactorSetupModalOpen
                     ) {
-                        const modalOpen = twoFactorLogic.findMounted()?.values.isTwoFactorSetupModalOpen
-                        if (!modalOpen) {
-                            twoFactorLogic.findMounted()?.actions.openTwoFactorSetupModal(true)
-                        }
+                        twoFactorLogic.findMounted()?.actions.openTwoFactorSetupModal(true)
                     }
                 }
             } catch {
