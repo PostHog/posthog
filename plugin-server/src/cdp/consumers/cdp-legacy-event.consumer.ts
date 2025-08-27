@@ -1,7 +1,8 @@
 import { Message } from 'node-rdkafka'
 
+import { instrumentFn } from '~/common/tracing/tracing-utils'
+
 import { parseKafkaHeaders } from '../../kafka/consumer'
-import { runInstrumentedFunction } from '../../main/utils'
 import { Hub, ISOTimestamp, PostIngestionEvent, ProjectId, RawClickHouseEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
@@ -74,45 +75,40 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
     // This consumer always parses from kafka
     public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
         return await this.runWithHeartbeat(() =>
-            runInstrumentedFunction({
-                statsKey: `cdpConsumer.handleEachBatch.parseKafkaMessages`,
-                func: async () => {
-                    const events: HogFunctionInvocationGlobals[] = []
+            instrumentFn(`cdpConsumer.handleEachBatch.parseKafkaMessages`, async () => {
+                const events: HogFunctionInvocationGlobals[] = []
 
-                    await Promise.all(
-                        messages.map(async (message) => {
-                            try {
-                                const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
+                await Promise.all(
+                    messages.map(async (message) => {
+                        try {
+                            const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
 
-                                const team = await this.hub.teamManager.getTeam(clickHouseEvent.team_id)
+                            const team = await this.hub.teamManager.getTeam(clickHouseEvent.team_id)
 
-                                if (!team) {
-                                    return
-                                }
-
-                                const pluginConfigs = this.hub.pluginConfigsPerTeam.get(team.id) || []
-                                if (pluginConfigs.length === 0) {
-                                    return
-                                }
-
-                                if (this.hub.CDP_LEGACY_EVENT_REDIRECT_TOPIC) {
-                                    void this.promiseScheduler.schedule(this.emitToReplicaTopic([message]))
-
-                                    return
-                                }
-
-                                events.push(
-                                    convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.hub.SITE_URL)
-                                )
-                            } catch (e) {
-                                logger.error('Error parsing message', e)
-                                counterParseError.labels({ error: e.message }).inc()
+                            if (!team) {
+                                return
                             }
-                        })
-                    )
 
-                    return events
-                },
+                            const pluginConfigs = this.hub.pluginConfigsPerTeam.get(team.id) || []
+                            if (pluginConfigs.length === 0) {
+                                return
+                            }
+
+                            if (this.hub.CDP_LEGACY_EVENT_REDIRECT_TOPIC) {
+                                void this.promiseScheduler.schedule(this.emitToReplicaTopic([message]))
+
+                                return
+                            }
+
+                            events.push(convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.hub.SITE_URL))
+                        } catch (e) {
+                            logger.error('Error parsing message', e)
+                            counterParseError.labels({ error: e.message }).inc()
+                        }
+                    })
+                )
+
+                return events
             })
         )
     }
