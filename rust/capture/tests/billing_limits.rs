@@ -1301,7 +1301,7 @@ async fn test_ai_events_quota_limit_filters_only_ai_events() {
     assert_eq!(res.status(), StatusCode::OK);
 
     let events = sink.events();
-    assert_eq!(events.len(), 2);  // Only non-AI events should be kept
+    assert_eq!(events.len(), 2); // Only non-AI events should be kept
 
     // Verify only non-AI events were kept
     let event_names: Vec<String> = events
@@ -1356,7 +1356,7 @@ async fn test_ai_events_quota_allows_ai_events_when_not_limited() {
     assert_eq!(res.status(), StatusCode::OK);
 
     let events = sink.events();
-    assert_eq!(events.len(), 3);  // All events should be kept when not limited
+    assert_eq!(events.len(), 3); // All events should be kept when not limited
 
     let event_names: Vec<String> = events
         .iter()
@@ -1390,7 +1390,7 @@ async fn test_ai_events_quota_ignores_non_ai_events() {
     assert_eq!(res.status(), StatusCode::OK);
 
     let events = sink.events();
-    assert_eq!(events.len(), 3);  // All non-AI events should pass through
+    assert_eq!(events.len(), 3); // All non-AI events should pass through
 }
 
 // Helper function to set up router with AI limiting
@@ -1413,7 +1413,7 @@ async fn setup_router_with_all_limits(
 
     // Set up a single Redis client with all limits configured
     let mut redis_client = MockRedisClient::new();
-    
+
     // Configure billing limits
     let billing_key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, "events");
     if is_billing_limited {
@@ -1421,7 +1421,7 @@ async fn setup_router_with_all_limits(
     } else {
         redis_client = redis_client.zrangebyscore_ret(&billing_key, vec![]);
     }
-    
+
     // Configure survey limits
     let survey_key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, "surveys");
     if is_survey_limited {
@@ -1429,7 +1429,7 @@ async fn setup_router_with_all_limits(
     } else {
         redis_client = redis_client.zrangebyscore_ret(&survey_key, vec![]);
     }
-    
+
     // Configure AI events limits
     let ai_key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, "llm_events");
     if is_ai_limited {
@@ -1437,7 +1437,7 @@ async fn setup_router_with_all_limits(
     } else {
         redis_client = redis_client.zrangebyscore_ret(&ai_key, vec![]);
     }
-    
+
     let redis = Arc::new(redis_client);
 
     let billing_limiter = RedisLimiter::new(
@@ -1512,7 +1512,7 @@ async fn test_both_billing_and_ai_limits_applied() {
     assert_eq!(res.status(), StatusCode::OK);
 
     let events = sink.events();
-    assert_eq!(events.len(), 1);  // Only exception should remain
+    assert_eq!(events.len(), 1); // Only exception should remain
 
     let event_names: Vec<String> = events
         .iter()
@@ -1546,7 +1546,7 @@ async fn test_ai_and_survey_limits_interaction() {
     assert_eq!(res.status(), StatusCode::OK);
 
     let events = sink.events();
-    assert_eq!(events.len(), 2);  // Only regular events should remain
+    assert_eq!(events.len(), 2); // Only regular events should remain
 
     let event_names: Vec<String> = events
         .iter()
@@ -1581,7 +1581,7 @@ async fn test_all_three_limits_applied() {
     assert_eq!(res.status(), StatusCode::OK);
 
     let events = sink.events();
-    assert_eq!(events.len(), 1);  // Only exception should remain
+    assert_eq!(events.len(), 1); // Only exception should remain
 
     let event_names: Vec<String> = events
         .iter()
@@ -1605,17 +1605,17 @@ async fn test_ai_event_name_detection() {
         ("$ai_span", true),
         ("$ai_trace", true),
         ("$ai_custom", true),
-        ("$ai_", true),  // Edge case: exactly "$ai_"
-        ("$ai", false),  // No underscore
-        ("$ainotthis", false),  // No underscore after ai
-        ("ai_generation", false),  // Missing $
+        ("$ai_", true),           // Edge case: exactly "$ai_"
+        ("$ai", false),           // No underscore
+        ("$ainotthis", false),    // No underscore after ai
+        ("ai_generation", false), // Missing $
         ("$pageview", false),
         ("pageview", false),
         ("", false),
     ];
 
     let token = "test_token";
-    
+
     for (event_name, should_be_filtered) in test_cases {
         let (app, sink) = setup_ai_limited_router(token, true).await;
         let client = TestClient::new(app);
@@ -1632,7 +1632,7 @@ async fn test_ai_event_name_detection() {
         assert_eq!(res.status(), StatusCode::OK);
 
         let events = sink.events();
-        
+
         if should_be_filtered {
             // AI event should be filtered, only pageview remains
             assert_eq!(events.len(), 1, "Event '{}' should be filtered", event_name);
@@ -1640,7 +1640,12 @@ async fn test_ai_event_name_detection() {
             assert_eq!(event_data["event"], "pageview");
         } else {
             // Non-AI event should pass through with pageview
-            assert_eq!(events.len(), 2, "Event '{}' should not be filtered", event_name);
+            assert_eq!(
+                events.len(),
+                2,
+                "Event '{}' should not be filtered",
+                event_name
+            );
         }
     }
 }
@@ -1668,10 +1673,10 @@ async fn test_ai_generation_event_limited() {
     });
 
     let res = client.post("/i/v0/e").json(&event).send().await;
-    assert_eq!(res.status(), StatusCode::PAYMENT_REQUIRED);  // Only AI events, so error
+    assert_eq!(res.status(), StatusCode::PAYMENT_REQUIRED); // Only AI events, so error
 
     let events = sink.events();
-    assert_eq!(events.len(), 0);  // AI event should be filtered
+    assert_eq!(events.len(), 0); // AI event should be filtered
 }
 
 #[tokio::test]
@@ -1754,7 +1759,7 @@ async fn test_custom_ai_prefixed_events_limited() {
     assert_eq!(res.status(), StatusCode::OK);
 
     let events = sink.events();
-    assert_eq!(events.len(), 1);  // Only non-AI event should pass
+    assert_eq!(events.len(), 1); // Only non-AI event should pass
     let event_data: Value = serde_json::from_str(&events[0].event.data).unwrap();
     assert_eq!(event_data["event"], "non_ai_event");
 }
@@ -1771,7 +1776,7 @@ async fn test_ai_quota_with_empty_batch() {
     });
 
     let res = client.post("/i/v0/e").json(&empty_event).send().await;
-    assert_eq!(res.status(), StatusCode::OK);  // Empty batch should succeed
+    assert_eq!(res.status(), StatusCode::OK); // Empty batch should succeed
 }
 
 #[tokio::test]
@@ -1790,10 +1795,8 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
 
     // Configure set_nx_ex to return an error (Redis failure) for cross-batch tracking
     let tracking_key = format!("ai-events:{token}:batch_1");
-    redis_client = redis_client.set_nx_ex_ret(
-        &tracking_key,
-        Err(common_redis::CustomRedisError::Timeout),
-    );
+    redis_client =
+        redis_client.set_nx_ex_ret(&tracking_key, Err(common_redis::CustomRedisError::Timeout));
 
     let redis = Arc::new(redis_client);
 
@@ -1901,8 +1904,8 @@ async fn test_ai_quota_cross_batch_consistency() {
 
     // Both batches should have AI events filtered out consistently
     let events = sink.events();
-    assert_eq!(events.len(), 2);  // Only non-AI events
-    
+    assert_eq!(events.len(), 2); // Only non-AI events
+
     let event_names: Vec<String> = events
         .iter()
         .map(|e| {
@@ -1944,7 +1947,7 @@ async fn test_ai_quota_all_ai_event_types_count() {
     let events = sink.events();
     // Only non-AI events should pass: $ainotcounted, ai_generation, pageview
     assert_eq!(events.len(), 3);
-    
+
     let event_names: Vec<String> = events
         .iter()
         .map(|e| {
@@ -1952,10 +1955,10 @@ async fn test_ai_quota_all_ai_event_types_count() {
             event_data["event"].as_str().unwrap().to_string()
         })
         .collect();
-    assert!(event_names.contains(&"$ainotcounted".to_string()));  // No underscore after $ai
-    assert!(event_names.contains(&"ai_generation".to_string()));  // No $ prefix
+    assert!(event_names.contains(&"$ainotcounted".to_string())); // No underscore after $ai
+    assert!(event_names.contains(&"ai_generation".to_string())); // No $ prefix
     assert!(event_names.contains(&"pageview".to_string()));
-    
+
     // All proper $ai_ events should be filtered
     assert!(!event_names.contains(&"$ai_generation".to_string()));
     assert!(!event_names.contains(&"$ai_completion".to_string()));
