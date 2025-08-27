@@ -3,6 +3,7 @@ import '../scenes/authentication/Login.scss'
 import clsx from 'clsx'
 import { actions, kea, path, reducers, useValues } from 'kea'
 import { Form, forms } from 'kea-forms'
+
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -87,7 +88,7 @@ export function ExporterLogin(props: ExporterLoginProps): JSX.Element {
                 <LemonBanner type="error">
                     {generalError.detail || ERROR_MESSAGES[generalError.code] || (
                         <>
-                            Could not complete your login.
+                            Could not unlock the content.
                             <br />
                             Please try again.
                         </>
@@ -124,7 +125,7 @@ export function ExporterLogin(props: ExporterLoginProps): JSX.Element {
                     loading={isLoginSubmitting}
                     size="large"
                 >
-                    Log in
+                    Unlock
                 </LemonButton>
             </Form>
             <div className="text-center mt-4">Don't have a password? Ask the person who shared this with you!</div>

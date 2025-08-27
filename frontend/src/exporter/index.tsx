@@ -19,7 +19,7 @@ import { ErrorBoundary } from '../layout/ErrorBoundary'
 window.JS_POSTHOG_API_KEY = undefined
 
 loadPostHogJS()
-initKea({ replaceInitialPathInWindow: false })
+initKea()
 
 // On Chrome + Windows, the country flag emojis don't render correctly. This is a polyfill for that.
 // It won't be applied on other platforms.
@@ -35,7 +35,7 @@ function renderApp(): void {
     if (root) {
         createRoot(root).render(
             <ErrorBoundary>
-                {exportedData.type === 'login' ? (
+                {exportedData.type === 'unlock' ? (
                     <ExporterLogin whitelabel={exportedData.whitelabel} />
                 ) : (
                     <Exporter {...exportedData} />
