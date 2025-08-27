@@ -52,15 +52,8 @@ class HogQLQuerySyntaxCorrectness(Scorer):
 
     def _evaluate(self, output: PlanAndQueryOutput) -> Score:
         team = Team.objects.latest("created_at")
-        query_obj = output.get("query")
-        if isinstance(query_obj, AssistantHogQLQuery):
-            query = query_obj.query
-        elif hasattr(query_obj, "query"):
-            # Handle other query types that might have a .query attribute
-            query = query_obj.query
-        elif isinstance(query_obj, str):
-            # Handle case where query is passed as a string directly
-            query = query_obj
+        if isinstance(output["query"], AssistantHogQLQuery):
+            query = output["query"].query
         else:
             query = None
         return evaluate_sql_query(self._name(), query, team)
