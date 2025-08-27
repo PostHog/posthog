@@ -552,7 +552,6 @@ class DashboardSerializer(DashboardBasicSerializer):
             group_properties={"organization": {"id": str(team.organization_id)}},
         )
 
-        # Get layout size and limit parameters for progressive loading
         layout_size = "sm"  # default layout size
 
         # Sort tiles by layout to ensure insights are computed in order of appearance on dashboard
