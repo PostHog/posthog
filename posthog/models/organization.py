@@ -42,6 +42,7 @@ class OrganizationUsageInfo(TypedDict):
     recordings: Optional[OrganizationUsageResource]
     surveys: Optional[OrganizationUsageResource]
     rows_synced: Optional[OrganizationUsageResource]
+    cdp_invocations: Optional[OrganizationUsageResource]
     feature_flag_requests: Optional[OrganizationUsageResource]
     api_queries_read_bytes: Optional[OrganizationUsageResource]
     period: Optional[list[str]]

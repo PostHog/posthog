@@ -92,6 +92,7 @@ You MUST use `search_documentation` when the user asks:
 - How to report bugs
 - How to submit feature requests
 - To troubleshoot something
+- What default fields and properties are available for events and persons
 - …Or anything else PostHog-related
 
 You must also use `search_documentation` when the user:

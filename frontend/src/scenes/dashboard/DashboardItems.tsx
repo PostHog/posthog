@@ -33,7 +33,7 @@ export function DashboardItems(): JSX.Element {
         refreshStatus,
         itemsLoading,
         effectiveEditBarFilters,
-        temporaryVariables,
+        urlVariables,
         temporaryBreakdownColors,
         dataColorThemeId,
     } = useValues(dashboardLogic)
@@ -43,7 +43,7 @@ export function DashboardItems(): JSX.Element {
         updateTileColor,
         removeTile,
         duplicateTile,
-        triggerDashboardItemRefresh,
+        refreshDashboardItem,
         moveToDashboard,
     } = useActions(dashboardLogic)
     const { duplicateInsight, renameInsight } = useActions(insightsModel)
@@ -156,7 +156,7 @@ export function DashboardItems(): JSX.Element {
                                     highlighted={highlightedInsightId && insight.short_id === highlightedInsightId}
                                     updateColor={(color) => updateTileColor(tile.id, color)}
                                     ribbonColor={tile.color}
-                                    refresh={() => triggerDashboardItemRefresh({ tile })}
+                                    refresh={() => refreshDashboardItem({ tile })}
                                     refreshEnabled={!itemsLoading}
                                     rename={() => renameInsight(insight)}
                                     duplicate={() => duplicateInsight(insight)}
@@ -167,7 +167,7 @@ export function DashboardItems(): JSX.Element {
                                     placement={placement}
                                     loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
                                     filtersOverride={effectiveEditBarFilters}
-                                    variablesOverride={temporaryVariables}
+                                    variablesOverride={urlVariables}
                                     // :HACKY: The two props below aren't actually used in the component, but are needed to trigger a re-render
                                     breakdownColorOverride={temporaryBreakdownColors}
                                     dataColorThemeId={dataColorThemeId}

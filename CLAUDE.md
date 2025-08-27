@@ -2,17 +2,21 @@
 
 ## Commands
 
+- Environment:
+    - Auto-detect flox environment before running terminal commands
+    - If flox is available: ALWAYS use `flox activate -- bash -c "<command>"` pattern
+    - Never use `flox activate` in interactive sessions (it hangs)
 - Tests:
     - All tests: `pytest`
     - Single test: `pytest path/to/test.py::TestClass::test_method`
-    - Frontend: `pnpm --filter=@poshog/frontend test`
-    - Single frontend test: `pnpm --filter=@poshog/frontend test <test_file>`
+    - Frontend: `pnpm --filter=@posthog/frontend test`
+    - Single frontend test: `pnpm --filter=@posthog/frontend jest <test_file>`
 - Lint:
     - Python: `ruff .`
-    - Frontend: `pnpm --filter=@poshog/frontend format`
-    - TypeScript check: `pnpm --filter=@poshog/frontend typescript:check`
+    - Frontend: `pnpm --filter=@posthog/frontend format`
+    - TypeScript check: `pnpm --filter=@posthog/frontend typescript:check`
 - Build:
-    - Frontend: `pnpm --filter=@poshog/frontend build`
+    - Frontend: `pnpm --filter=@posthog/frontend build`
     - Start dev: `./bin/start`
 
 ## Important rules for Code Style

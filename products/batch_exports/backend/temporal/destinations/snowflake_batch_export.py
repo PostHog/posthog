@@ -513,7 +513,7 @@ class SnowflakeClient:
             else:
                 await self.aremove_internal_stage_files(table_name, table_stage_prefix)
 
-    async def put_file_to_snowflake_table(
+    async def put_file_to_snowflake_table_stage(
         self,
         file: BatchExportTemporaryFile | NamedBytesIO,
         table_stage_prefix: str,
@@ -572,23 +572,57 @@ class SnowflakeClient:
         self,
         table_name: str,
         table_stage_prefix: str,
+        table_fields: list[SnowflakeField],
+        # TODO: remove this once we've migrated to the new pipeline
+        file_format: typing.Literal["Parquet", "JSONLines"],
+        known_json_columns: list[str],
     ) -> None:
-        """Execute a COPY query in Snowflake to load any files PUT into the table.
+        """Execute a COPY query in Snowflake to load any files PUT into the table stage.
 
         The query is executed asynchronously using Snowflake's polling API.
 
         Args:
-            connection: A SnowflakeConnection as returned by snowflake.connector.connect.
             table_name: The table we are COPY-ing files into.
+            table_stage_prefix: The prefix of the table stage.
+            table_fields: The fields of the table.
+            file_format: The format of the files to load.
+            known_json_columns: The columns that are JSON (NOTE: we can't just inspect the schema of the table fields to
+                check for VARIANT columns since not all VARIANT columns will be JSON, eg `elements`).
         """
-        query = f"""
-        COPY INTO "{table_name}"
-        FROM '@%"{table_name}"/{table_stage_prefix}'
-        FILE_FORMAT = (TYPE = 'JSON')
-        MATCH_BY_COLUMN_NAME = CASE_SENSITIVE
-        PURGE = TRUE
-        """
-        result = await self.execute_async_query(query, poll_interval=1.0)
+        if file_format == "Parquet":
+            col_names = [field[0] for field in table_fields]
+            select_fields = ", ".join(
+                f'PARSE_JSON($1:"{field}")' if field in known_json_columns else f'$1:"{field}"' for field in col_names
+            )
+            query = f"""
+            COPY INTO "{table_name}" ({', '.join(f'"{col_name}"' for col_name in col_names)})
+            FROM (
+                SELECT {select_fields} FROM '@%"{table_name}"/{table_stage_prefix}'
+            )
+            FILE_FORMAT = (TYPE = 'PARQUET')
+            PURGE = TRUE
+            """
+        else:
+            query = f"""
+            COPY INTO "{table_name}"
+            FROM '@%"{table_name}"/{table_stage_prefix}'
+            FILE_FORMAT = (TYPE = 'JSON')
+            MATCH_BY_COLUMN_NAME = CASE_SENSITIVE
+            PURGE = TRUE
+            """
+
+        # We need to explicitly catch the exception here because otherwise it seems to be swallowed
+        try:
+            result = await self.execute_async_query(query, poll_interval=1.0)
+        except snowflake.connector.errors.ProgrammingError as e:
+            self.logger.exception(f"Error executing COPY INTO query: {e}")
+            raise SnowflakeFileNotLoadedError(
+                table_name,
+                "NO STATUS",
+                0,
+                e.msg or "NO ERROR MESSAGE",
+            )
+
         assert result is not None
         results, _ = result
 
@@ -750,7 +784,7 @@ class SnowflakeConsumer(Consumer):
             self.snowflake_table,
         )
 
-        await self.snowflake_client.put_file_to_snowflake_table(
+        await self.snowflake_client.put_file_to_snowflake_table_stage(
             batch_export_file,
             self.snowflake_table_stage_prefix,
             self.snowflake_table,
@@ -773,6 +807,7 @@ def _get_snowflake_table_settings(
         [field.with_nullable(True) for field in record_batch_schema if field.name != "_inserted_at"]
     )
 
+    # although `elements` is JSON, it is extremely expensive to parse it as JSON, so we'll just keep it as a string.
     known_variant_columns = ["properties", "people_set", "people_set_once", "person_properties"]
 
     if model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
@@ -849,7 +884,7 @@ class SnowflakeConsumerFromStage(ConsumerFromStage):
         # Simple file management - no concurrent uploads for now
         self.current_file_index = 0
         self.current_buffer = NamedBytesIO(
-            b"", name=f"{self.snowflake_table_stage_prefix}/{self.current_file_index}.jsonl"
+            b"", name=f"{self.snowflake_table_stage_prefix}/{self.current_file_index}.parquet.zst"
         )
 
     async def consume_chunk(self, data: bytes):
@@ -864,7 +899,7 @@ class SnowflakeConsumerFromStage(ConsumerFromStage):
         """Start a new file (reset state for file splitting)."""
         self.current_file_index += 1
         self.current_buffer = NamedBytesIO(
-            b"", name=f"{self.snowflake_table_stage_prefix}/{self.current_file_index}.jsonl"
+            b"", name=f"{self.snowflake_table_stage_prefix}/{self.current_file_index}.parquet.zst"
         )
 
     async def _upload_current_buffer(self):
@@ -873,7 +908,7 @@ class SnowflakeConsumerFromStage(ConsumerFromStage):
         if buffer_size == 0:
             return  # Nothing to upload
 
-        self.logger.debug(
+        self.logger.info(
             "Uploading file %d with %d bytes to Snowflake table '%s'",
             self.current_file_index,
             buffer_size,
@@ -882,7 +917,7 @@ class SnowflakeConsumerFromStage(ConsumerFromStage):
 
         self.current_buffer.seek(0)
 
-        await self.snowflake_client.put_file_to_snowflake_table(
+        await self.snowflake_client.put_file_to_snowflake_table_stage(
             file=self.current_buffer,
             table_stage_prefix=self.snowflake_table_stage_prefix,
             table_name=self.snowflake_table,
@@ -927,7 +962,7 @@ def get_snowflake_fields_from_record_schema(
                 snowflake_type = "STRING"
 
         elif pa.types.is_binary(pa_field.type):
-            snowflake_type = "BYNARY"
+            snowflake_type = "BINARY"
 
         elif pa.types.is_signed_integer(pa_field.type) or pa.types.is_unsigned_integer(pa_field.type):
             snowflake_type = "INTEGER"
@@ -1120,7 +1155,11 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Batch
                 # a heartbeat, we can continue without losing data
                 finally:
                     await snow_client.copy_loaded_files_to_snowflake_table(
-                        snow_stage_table if requires_merge else snow_table, data_interval_end_str
+                        snow_stage_table if requires_merge else snow_table,
+                        data_interval_end_str,
+                        table_fields,
+                        file_format="JSONLines",
+                        known_json_columns=known_variant_columns,
                     )
 
                     if requires_merge:
@@ -1179,7 +1218,7 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
             batch_export_id=inputs.batch_export_id,
             data_interval_start=inputs.data_interval_start,
             data_interval_end=inputs.data_interval_end,
-            max_record_batch_size_bytes=1024 * 1024 * 60,  # 60MB
+            max_record_batch_size_bytes=1024 * 1024 * 10,  # 10MB
         )
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
@@ -1229,9 +1268,8 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
                     consumer=consumer,
                     producer_task=producer_task,
                     schema=record_batch_schema,
-                    # TODO - look into using a different file format, like Parquet to improve performance
-                    file_format="JSONLines",
-                    compression=None,
+                    file_format="Parquet",
+                    compression="zstd",
                     include_inserted_at=False,
                     max_file_size_bytes=settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES,
                     json_columns=known_variant_columns,
@@ -1240,7 +1278,11 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
                 # TODO - maybe move this into the consumer finalize method?
                 # Copy all staged files to the table
                 await snow_client.copy_loaded_files_to_snowflake_table(
-                    snow_stage_table if requires_merge else snow_table, data_interval_end_str
+                    snow_stage_table if requires_merge else snow_table,
+                    data_interval_end_str,
+                    table_fields,
+                    file_format="Parquet",
+                    known_json_columns=known_variant_columns,
                 )
 
                 if requires_merge:
