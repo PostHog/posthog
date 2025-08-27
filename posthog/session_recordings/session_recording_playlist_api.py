@@ -24,6 +24,8 @@ from posthog.models.activity_logging.activity_log import Change, Detail, changes
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.redis import get_client
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylistViewed
 from posthog.session_recordings.session_recording_api import (
@@ -113,7 +115,7 @@ def log_playlist_activity(
         )
 
 
-class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
+class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     recordings_counts = serializers.SerializerMethodField()
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
@@ -253,7 +255,9 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
         return updated_playlist
 
 
-class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class SessionRecordingPlaylistViewSet(
+    TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet
+):
     scope_object = "session_recording_playlist"
     queryset = SessionRecordingPlaylist.objects.all()
     serializer_class = SessionRecordingPlaylistSerializer

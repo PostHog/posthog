@@ -57,6 +57,42 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "session_recording",
 )
 
+# Resource inheritance mapping - child resources inherit access from parent resources
+RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
+    "session_recording_playlist": "session_recording",
+    # Add more inheritance mappings as needed
+}
+
+# Field-level access control mapping
+# Format: {ModelName: {field_name: (resource, required_level)}}
+FIELD_ACCESS_CONTROL_MAP: dict[str, dict[str, tuple[APIScopeObject, AccessControlLevel]]] = {
+    "Team": {
+        "session_recording_opt_in": ("session_recording", "editor"),
+        "session_recording_sample_rate": ("session_recording", "editor"),
+        "session_recording_minimum_duration_milliseconds": ("session_recording", "editor"),
+        "session_recording_linked_flag": ("session_recording", "editor"),
+        "session_recording_network_payload_capture_config": ("session_recording", "editor"),
+        "session_recording_masking_config": ("session_recording", "editor"),
+        "session_recording_url_trigger_config": ("session_recording", "editor"),
+        "session_recording_url_blocklist_config": ("session_recording", "editor"),
+        "session_recording_event_trigger_config": ("session_recording", "editor"),
+        "session_recording_trigger_match_type_config": ("session_recording", "editor"),
+        "session_replay_config": ("session_recording", "editor"),
+        # Add more field mappings as needed
+    },
+    # Add mappings for other models as needed
+}
+
+
+def resource_to_display_name(resource: APIScopeObject) -> str:
+    """Convert resource name to human-readable display name"""
+    # Handle special cases
+    if resource == "organization":
+        return "organization"  # singular
+
+    # Default: replace underscores and add 's' for plural
+    return f"{resource.replace('_', ' ')}s"
+
 
 def ordered_access_levels(resource: APIScopeObject) -> list[AccessControlLevel]:
     if resource in ["project", "organization"]:
@@ -101,6 +137,8 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "plugin"
     if name == "sessionrecording":
         return "session_recording"
+    if name == "sessionrecordingplaylist":
+        return "session_recording_playlist"
 
     if name not in API_SCOPE_OBJECTS:
         return None
@@ -498,6 +536,12 @@ class UserAccessControl:
         We find all relevant access controls and then return the highest value
         """
 
+        # Check if this resource inherits access from a parent resource
+        parent_resource = RESOURCE_INHERITANCE_MAP.get(resource)
+        if parent_resource:
+            # Use parent resource for access control checks
+            return self.access_level_for_resource(parent_resource)
+
         # These are resources which we don't have resource level access controls for
         if resource == "organization" or resource == "project" or resource == "plugin":
             return default_access_level(resource)
@@ -539,10 +583,13 @@ class UserAccessControl:
     def check_access_level_for_resource(self, resource: APIScopeObject, required_level: AccessControlLevel) -> bool:
         access_level = self.access_level_for_resource(resource)
 
+        # For inherited resources, use the parent resource's access levels for comparison
+        comparison_resource = RESOURCE_INHERITANCE_MAP.get(resource, resource)
+
         if not access_level:
             return False
 
-        return access_level_satisfied_for_resource(resource, access_level, required_level)
+        return access_level_satisfied_for_resource(comparison_resource, access_level, required_level)
 
     def has_any_specific_access_for_resource(
         self, resource: APIScopeObject, required_level: AccessControlLevel
@@ -828,3 +875,43 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
             self._preloaded_access_controls = True
 
         return self.user_access_control.get_user_access_level(obj)
+
+    def validate(self, attrs):
+        """
+        Validate field-level access control for model updates.
+        Only checks fields that are being modified and have access control requirements.
+        """
+        attrs = super().validate(attrs)
+
+        # Only perform field access control validation for updates (not creates)
+        if not self.instance:
+            return attrs
+
+        # Get the model name
+        model_name = self.instance.__class__.__name__ if self.instance else None
+        if not model_name or model_name not in FIELD_ACCESS_CONTROL_MAP:
+            return attrs
+
+        # Get field access control mappings for this model
+        field_mappings = FIELD_ACCESS_CONTROL_MAP[model_name]
+
+        # Check access control for each field being modified
+        user_access_control = self.user_access_control
+        if not user_access_control:
+            return attrs
+
+        for field_name, _new_value in attrs.items():
+            if field_name not in field_mappings:
+                continue
+
+            # Get the required resource and access level for this field
+            resource, required_level = field_mappings[field_name]
+
+            # Check if user has the required access level
+            if not user_access_control.check_access_level_for_resource(resource, required_level):
+                display_name = resource_to_display_name(resource)
+                raise serializers.ValidationError(
+                    {field_name: f"You need {required_level} access to {display_name} to modify this field."}
+                )
+
+        return attrs
