@@ -83,10 +83,10 @@ export async function startDownload(
         }
 
         columns = columns.filter((n: string) => !columnDisallowList.includes(n))
-        ;(exportContext as any)['columns'] = columns
+        exportContext['columns'] = columns
     }
     if (fileNameForExport != null) {
-        ;(exportContext as any)['filename'] = fileNameForExport
+        exportContext['filename'] = fileNameForExport
     }
     exportCall({
         export_format: format,
