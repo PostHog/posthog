@@ -393,6 +393,21 @@ export async function filterFunctionInstrumented(options: {
             if (preFilterMatch === false && result.match === true) {
                 // we would have filtered out this event but it actually matched the bytecode filter
                 // this would mean we dropped a valid event
+
+                logger.warn(
+                    '🦔',
+                    `[${fnKind}] Pre-filter mismatch detected - event would have been incorrectly filtered`,
+                    {
+                        functionId: fn.id,
+                        functionName: fn.name,
+                        teamId: fn.team_id,
+                        eventUuid: eventUuid,
+                        eventName: filterGlobals.event,
+                        preFilterMatch,
+                        resultMatch: result.match,
+                    }
+                )
+
                 hogFunctionPreFilterCounter.inc({ result: 'mismatch_unsafe' })
             }
         }
