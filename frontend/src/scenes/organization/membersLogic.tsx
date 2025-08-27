@@ -172,6 +172,10 @@ export const membersLogic = kea<membersLogicType>([
         },
 
         ensureAllMembersLoaded: async () => {
+            // if organization is not available, don't load members (loaded later using afterMountAndOrganization)
+            if (!organizationLogic.values.currentOrganization) {
+                return
+            }
             if (values.membersLoading) {
                 return
             }
