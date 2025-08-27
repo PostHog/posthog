@@ -390,7 +390,7 @@ export function LineGraph_({
     const [lineChart, setLineChart] = useState<Chart<ChartType, any, string>>()
 
     // Generate unique chart ID based on insight ID and data attributes
-    const chartId = useRef(`chart-${insight.id || 'new'}-${Math.random().toString(36).substr(2, 9)}`)
+    const chartId = useRef(`chart-${insight.id || 'new'}-${Math.random().toString(36).substring(2, 11)}`)
 
     // Relying on useResizeObserver instead of Chart's onResize because the latter was not reliable
     const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: canvasRef })
