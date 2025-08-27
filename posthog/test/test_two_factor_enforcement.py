@@ -204,7 +204,7 @@ class TestSessionAuthenticationTwoFactor(TestCase):
 
     @patch("posthog.helpers.two_factor_session.is_domain_sso_enforced", return_value=True)
     @patch("posthog.helpers.two_factor_session.is_two_factor_enforcement_in_effect", return_value=True)
-    def test_authentication_bypasses_two_factor_when_sso_enforced(self, mock_enforcement, mock_sso):
+    def test_authentication_bypasses_two_factor_when_sso_enforced(self, _mock_enforcement, _mock_sso):
         request = self._create_drf_request()
         with patch.object(self.user, "organization", self.organization), patch.object(self.auth, "enforce_csrf"):
             result = self.auth.authenticate(request)
@@ -438,6 +438,39 @@ class TestAPIAuthenticationTwoFactorBypass(TestCase):
 
         result = auth.authenticate(request)
         self.assertIsNone(result)
+
+    def test_sso_authentication_backend_bypasses_two_factor(self):
+        """SSO authentication backends should bypass 2FA enforcement"""
+        auth = SessionAuthentication()
+
+        request_factory = RequestFactory()
+        http_request = request_factory.get("/api/organizations/")
+
+        user = Mock(is_authenticated=True, is_active=True, email="test@example.com")
+        org = Mock(spec=Organization)
+        org.enforce_2fa = True
+        user.organization = org
+        http_request.user = user
+
+        middleware = SessionMiddleware(lambda request: HttpResponse())
+        middleware.process_request(http_request)
+
+        self._set_session_after_enforcement_date(http_request)
+
+        http_request.session["_auth_user_backend"] = "social_core.backends.github.GithubOAuth2"
+        http_request.session.save()
+
+        request = self.factory.get("/api/organizations/")
+        request._request = http_request
+
+        with (
+            patch("posthog.helpers.two_factor_session.is_impersonated_session", return_value=False),
+            patch("posthog.helpers.two_factor_session.default_device", return_value=None),
+            patch("posthog.helpers.two_factor_session.is_domain_sso_enforced", return_value=False),
+            patch.object(auth, "enforce_csrf"),
+        ):
+            result = auth.authenticate(request)
+            self.assertEqual(result, (user, None))
 
 
 class TestUserTwoFactorSessionIntegration(TestCase):
