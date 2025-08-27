@@ -32,7 +32,6 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
     async move {
         let start_time = std::time::Instant::now();
 
-        // Use non_persons_reader for flag service (fetching flags from teams/flags tables)
         let flag_service = FlagService::new(
             context.state.redis_reader.clone(),
             context.state.redis_writer.clone(),
