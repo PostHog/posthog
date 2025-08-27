@@ -215,7 +215,9 @@ def _build_query(
         return sql.SQL(query_str).format(incremental_field=sql.Identifier(incremental_field))
 
 
-def _get_primary_keys(cursor: psycopg.Cursor, schema: str, table_name: str) -> list[str] | None:
+def _get_primary_keys(
+    cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger
+) -> list[str] | None:
     query = sql.SQL("""
         SELECT
             kcu.column_name
@@ -230,6 +232,7 @@ def _get_primary_keys(cursor: psycopg.Cursor, schema: str, table_name: str) -> l
             AND tc.table_name = {table}
             AND tc.constraint_type = 'PRIMARY KEY'""").format(schema=sql.Literal(schema), table=sql.Literal(table_name))
 
+    logger.debug(f"Running query: {query.as_string()}")
     cursor.execute(query)
     rows = cursor.fetchall()
     if len(rows) > 0:
@@ -239,7 +242,7 @@ def _get_primary_keys(cursor: psycopg.Cursor, schema: str, table_name: str) -> l
 
 
 def _has_duplicate_primary_keys(
-    cursor: psycopg.Cursor, schema: str, table_name: str, primary_keys: list[str] | None
+    cursor: psycopg.Cursor, schema: str, table_name: str, primary_keys: list[str] | None, logger: FilteringBoundLogger
 ) -> bool:
     if not primary_keys or len(primary_keys) == 0:
         return False
@@ -258,6 +261,7 @@ def _has_duplicate_primary_keys(
         query = sql.SQL(sql_query).format(
             *[sql.Identifier(key) for key in primary_keys], sql.Identifier(schema), sql.Identifier(table_name)
         )
+        logger.debug(f"Running query: {query.as_string()}")
         cursor.execute(query)
         row = cursor.fetchone()
 
@@ -275,6 +279,7 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
             SELECT SUM(pg_column_size(t)) / COUNT(*) FROM ({}) as t
         """).format(inner_query)
 
+        logger.debug(f"Running query: {query.as_string()}")
         cursor.execute(query)
         row = cursor.fetchone()
 
@@ -307,6 +312,7 @@ def _get_rows_to_sync(cursor: psycopg.Cursor, inner_query: sql.Composed, logger:
             SELECT COUNT(*) FROM ({}) as t
         """).format(inner_query)
 
+        logger.debug(f"Running query: {query.as_string()}")
         cursor.execute(query)
         row = cursor.fetchone()
 
@@ -350,6 +356,7 @@ def _get_partition_settings(
     )
 
     try:
+        logger.debug(f"Running query: {query.as_string()}")
         cursor.execute(query)
     except psycopg.errors.QueryCanceled:
         raise
@@ -591,7 +598,7 @@ def postgres_source(
                 )
                 try:
                     logger.debug("Getting primary keys...")
-                    primary_keys = _get_primary_keys(cursor, schema, table_name)
+                    primary_keys = _get_primary_keys(cursor, schema, table_name, logger)
                     logger.debug("Getting table types...")
                     table = _get_table(cursor, schema, table_name)
                     logger.debug("Getting table chunk size...")
@@ -611,7 +618,7 @@ def postgres_source(
                         primary_keys = ["id"]
                         logger.debug("Checking duplicate primary keys...")
                         has_duplicate_primary_keys = _has_duplicate_primary_keys(
-                            cursor, schema, table_name, primary_keys
+                            cursor, schema, table_name, primary_keys, logger
                         )
                 except psycopg.errors.QueryCanceled:
                     if should_use_incremental_field:
