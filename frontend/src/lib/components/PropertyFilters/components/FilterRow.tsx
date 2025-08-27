@@ -67,10 +67,13 @@ export const FilterRow = React.memo(function FilterRow({
     return (
         <>
             <div
-                className={clsx('property-filter-row flex flex-nowrap deprecated-space-x-2 max-w-full grow', {
-                    'sm:grow-0': isValid,
-                    'wrap-filters': !disablePopover,
-                })}
+                className={clsx(
+                    'property-filter-row flex items-center flex-nowrap deprecated-space-x-2 max-w-full grow',
+                    {
+                        'sm:grow-0': isValid,
+                        'wrap-filters': !disablePopover,
+                    }
+                )}
                 data-attr={'property-filter-' + index}
             >
                 {disablePopover ? (
@@ -80,7 +83,7 @@ export const FilterRow = React.memo(function FilterRow({
                             <LemonButton
                                 icon={orFiltering ? <IconTrash /> : <IconX />}
                                 onClick={() => onRemove(index)}
-                                size="small"
+                                size={size}
                                 className="ml-2"
                                 noPadding
                             />
