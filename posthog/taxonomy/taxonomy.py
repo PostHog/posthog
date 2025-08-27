@@ -2007,6 +2007,13 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "String",
             "virtual": True,
         },
+        "$virt_path_cleaned_pathname": {
+            "label": "Path cleaned pathname",
+            "description": "The pathname with path cleaning rules applied. Path cleaning allows you to clean up URL paths by applying regex replacements to group similar paths together.",
+            "examples": ["/products", "/about", "/dashboard"],
+            "type": "String",
+            "virtual": True,
+        },
         "$virt_initial_referring_domain_type": {
             "description": "What type of referring domain this user initially came from.",
             "examples": ["Search", "Video", "Direct"],

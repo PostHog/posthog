@@ -66,6 +66,7 @@ from posthog.hogql.database.schema.log_entries import (
 )
 from posthog.hogql.database.schema.logs import LogsTable
 from posthog.hogql.database.schema.numbers import NumbersTable
+from posthog.hogql.database.schema.path_cleaning import create_path_cleaned_pathname
 from posthog.hogql.database.schema.person_distinct_id_overrides import (
     PersonDistinctIdOverridesTable,
     RawPersonDistinctIdOverridesTable,
@@ -402,7 +403,7 @@ def _setup_group_key_fields(database: Database, team: "Team") -> None:
             )
 
 
-def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timings: HogQLTimings) -> None:
+def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timings: HogQLTimings, team: "Team") -> None:
     poe = cast(VirtualTable, database.events.fields["poe"])
 
     with timings.measure("initial_referring_domain_type"):
@@ -436,6 +437,15 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
 
                 database.persons.fields[field_name] = ast.FieldTraverser(chain=chain)
                 poe.fields[field_name] = ast.FieldTraverser(chain=chain)
+
+    # Add path cleaning virtual field for events
+    with timings.measure("path_cleaned_pathname"):
+        field_name = "$virt_path_cleaned_pathname"
+        database.events.fields[field_name] = create_path_cleaned_pathname(
+            name=field_name,
+            team=team,
+            properties_path=["properties"]
+        )
 
 
 TableStore = dict[str, Table | TableGroup]
@@ -535,7 +545,7 @@ def create_hogql_database(
             cast(LazyJoin, raw_replay_events.fields["events"]).join_table = events
 
     with timings.measure("virtual_fields"):
-        _use_virtual_fields(database, modifiers, timings)
+        _use_virtual_fields(database, modifiers, timings, team)
 
     with timings.measure("group_type_mapping"):
         _setup_group_key_fields(database, team)
