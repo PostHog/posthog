@@ -277,6 +277,12 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 raise NotFound()
 
             if sharing_configuration and sharing_configuration.enabled:
+                # Additional validation: if user is JWT authenticated, ensure the JWT is for this specific share
+                if isinstance(self.request.successful_authenticator, SharingPasswordProtectedAuthentication):
+                    jwt_sharing_config = self.request.successful_authenticator.sharing_configuration
+                    if jwt_sharing_config.access_token != access_token:
+                        raise NotFound()  # JWT is valid but for a different share
+
                 return sharing_configuration
 
         return None
@@ -312,8 +318,6 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
 
         if isinstance(resource, SharingConfiguration) and resource.password_required:
             # Check if user is already authenticated via JWT token (Bearer or cookie)
-            from posthog.auth import SharingPasswordProtectedAuthentication
-
             is_jwt_authenticated = isinstance(request.successful_authenticator, SharingPasswordProtectedAuthentication)
 
             if request.method == "GET" and not is_jwt_authenticated:
@@ -437,8 +441,6 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             exported_data["type"] = request.GET.get("force_type")
 
         # Check if this is a JWT authenticated request with JSON Accept header
-        from posthog.auth import SharingPasswordProtectedAuthentication
-
         if (
             isinstance(resource, SharingConfiguration)
             and resource.password_required

@@ -361,13 +361,6 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
     sharing_configuration: SharingConfiguration
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, Any]]:
-        # Only allow JWT authentication for specific endpoints
-        is_shared_endpoint = request.path.startswith("/shared/")
-        is_insight_endpoint = "/insights/" in request.path and request.path.startswith("/api/environments/")
-
-        if not (is_shared_endpoint or is_insight_endpoint):
-            return None
-
         # Look for JWT token in Authorization header first (for API calls)
         sharing_jwt_token = None
         auth_header = request.META.get("HTTP_AUTHORIZATION", "")
@@ -394,15 +387,8 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
             if sharing_configuration.access_token != payload.get("access_token"):
                 raise AuthenticationFailed(detail="Invalid sharing token.")
 
-            # For /shared/ endpoints, ensure JWT can only be used for the specific shared dashboard in the URL
-            if is_shared_endpoint:
-                path_parts = request.path.strip("/").split("/")
-                if len(path_parts) >= 2:
-                    url_access_token = path_parts[1].split(".")[0]  # Remove any file extension
-                    if sharing_configuration.access_token != url_access_token:
-                        raise AuthenticationFailed(detail="JWT token is not valid for this shared resource.")
-                else:
-                    return None
+            # Note: URL-specific validation (ensuring JWT matches the specific share in the URL)
+            # is handled in SharingViewerPageViewSet.get_object() where we already parse the URL
 
         except (jwt.InvalidTokenError, SharingConfiguration.DoesNotExist, KeyError):
             raise AuthenticationFailed(detail="Invalid or expired sharing token.")
