@@ -21,6 +21,7 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardsFilters, DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
+import { MaxTool } from 'scenes/max/MaxTool'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -223,67 +224,84 @@ export function DashboardsTable({
     ]
 
     return (
-        <>
-            <div className="flex justify-between gap-2 flex-wrap mb-4">
-                <LemonInput
-                    type="search"
-                    placeholder="Search for dashboards"
-                    onChange={(x) => setFilters({ search: x })}
-                    value={filters.search}
-                />
-                <div className="flex items-center gap-4 flex-wrap">
-                    <div className="flex items-center gap-2">
-                        <span>Filter to:</span>
-                        {currentTab !== DashboardsTab.Pinned && (
+        <MaxTool
+            identifier="create_dashboard"
+            context={{
+                dashboards: dashboards.map((d) => ({
+                    id: d.id,
+                    name: d.name,
+                    description: d.description,
+                    created_at: d.created_at,
+                    created_by: d.created_by,
+                    pinned: d.pinned,
+                    is_shared: d.is_shared,
+                })),
+                currentFilters: filters,
+                totalCount: dashboards.length,
+            }}
+        >
+            <div className="flex flex-col">
+                <div className="flex justify-between gap-2 flex-wrap mb-4">
+                    <LemonInput
+                        type="search"
+                        placeholder="Search for dashboards"
+                        onChange={(x) => setFilters({ search: x })}
+                        value={filters.search}
+                    />
+                    <div className="flex items-center gap-4 flex-wrap">
+                        <div className="flex items-center gap-2">
+                            <span>Filter to:</span>
+                            {currentTab !== DashboardsTab.Pinned && (
+                                <div className="flex items-center gap-2">
+                                    <LemonButton
+                                        active={filters.pinned}
+                                        type="secondary"
+                                        size="small"
+                                        onClick={() => setFilters({ pinned: !filters.pinned })}
+                                        icon={<IconPin />}
+                                    >
+                                        Pinned
+                                    </LemonButton>
+                                </div>
+                            )}
                             <div className="flex items-center gap-2">
                                 <LemonButton
-                                    active={filters.pinned}
+                                    active={filters.shared}
                                     type="secondary"
                                     size="small"
-                                    onClick={() => setFilters({ pinned: !filters.pinned })}
-                                    icon={<IconPin />}
+                                    onClick={() => setFilters({ shared: !filters.shared })}
+                                    icon={<IconShare />}
                                 >
-                                    Pinned
+                                    Shared
                                 </LemonButton>
                             </div>
+                        </div>
+                        {currentTab !== DashboardsTab.Yours && (
+                            <div className="flex items-center gap-2">
+                                <span>Created by:</span>
+                                <MemberSelect
+                                    value={filters.createdBy === 'All users' ? null : filters.createdBy}
+                                    onChange={(user) => setFilters({ createdBy: user?.uuid || 'All users' })}
+                                />
+                            </div>
                         )}
-                        <div className="flex items-center gap-2">
-                            <LemonButton
-                                active={filters.shared}
-                                type="secondary"
-                                size="small"
-                                onClick={() => setFilters({ shared: !filters.shared })}
-                                icon={<IconShare />}
-                            >
-                                Shared
-                            </LemonButton>
-                        </div>
+                        {extraActions}
                     </div>
-                    {currentTab !== DashboardsTab.Yours && (
-                        <div className="flex items-center gap-2">
-                            <span>Created by:</span>
-                            <MemberSelect
-                                value={filters.createdBy === 'All users' ? null : filters.createdBy}
-                                onChange={(user) => setFilters({ createdBy: user?.uuid || 'All users' })}
-                            />
-                        </div>
-                    )}
-                    {extraActions}
                 </div>
+                <LemonTable
+                    data-attr="dashboards-table"
+                    pagination={{ pageSize: 100 }}
+                    dataSource={dashboards as DashboardType[]}
+                    rowKey="id"
+                    rowClassName={(record) => (record._highlight ? 'highlighted' : null)}
+                    columns={columns}
+                    loading={dashboardsLoading}
+                    defaultSorting={tableSorting}
+                    onSort={tableSortingChanged}
+                    emptyState="No dashboards matching your filters!"
+                    nouns={['dashboard', 'dashboards']}
+                />
             </div>
-            <LemonTable
-                data-attr="dashboards-table"
-                pagination={{ pageSize: 100 }}
-                dataSource={dashboards as DashboardType[]}
-                rowKey="id"
-                rowClassName={(record) => (record._highlight ? 'highlighted' : null)}
-                columns={columns}
-                loading={dashboardsLoading}
-                defaultSorting={tableSorting}
-                onSort={tableSortingChanged}
-                emptyState="No dashboards matching your filters!"
-                nouns={['dashboard', 'dashboards']}
-            />
-        </>
+        </MaxTool>
     )
 }

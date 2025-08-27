@@ -777,7 +777,8 @@
                 "create_survey",
                 "search_docs",
                 "search_insights",
-                "session_summarization"
+                "session_summarization",
+                "create_dashboard"
             ],
             "type": "string"
         },

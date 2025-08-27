@@ -202,6 +202,22 @@ class _SharedAssistantState(BaseState):
     """
     The ID of the notebook being used.
     """
+    dashboard_name: Optional[str] = Field(default=None)
+    """
+    The name of the dashboard being created.
+    """
+    dashboard_description: Optional[str] = Field(default=None)
+    """
+    The description of the dashboard being created.
+    """
+    dashboard_creation_instructions: Optional[str] = Field(default=None)
+    """
+    The original instructions for creating the dashboard.
+    """
+    dashboard_id: Optional[int] = Field(default=None)
+    """
+    The ID of the created dashboard.
+    """
 
 
 class AssistantState(_SharedAssistantState):
@@ -249,6 +265,8 @@ class AssistantNodeName(StrEnum):
     TITLE_GENERATOR = "title_generator"
     INSIGHTS_SEARCH = "insights_search"
     SESSION_SUMMARIZATION = "session_summarization"
+    DASHBOARD_PLANNER = "dashboard_planner"
+    DASHBOARD_CREATOR = "dashboard_creator"
 
 
 class AssistantMode(StrEnum):
