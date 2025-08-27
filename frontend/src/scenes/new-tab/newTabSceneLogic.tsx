@@ -17,6 +17,11 @@ export interface ItemsGridItem {
     types: { name: string; icon?: JSX.Element; href?: string }[]
 }
 
+export interface ItemsGridItemSingle {
+    category: string
+    type: { name: string; icon?: JSX.Element; href?: string }
+}
+
 export const newTabSceneLogic = kea<newTabSceneLogicType>([
     path(['scenes', 'new-tab', 'newTabSceneLogic']),
     props({} as { tabId?: string }),
@@ -141,7 +146,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         ],
         filteredItemsList: [
             (s) => [s.filteredItemsGrid],
-            (filteredItemsGrid): { category: string; type: { name: string; icon?: JSX.Element; href?: string } }[] =>
+            (filteredItemsGrid): ItemsGridItemSingle[] =>
                 filteredItemsGrid.flatMap(({ category, types }) =>
                     types.map((type) => ({
                         category,
