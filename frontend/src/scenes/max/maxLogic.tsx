@@ -1,4 +1,4 @@
-import { actions, connect, defaults, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, defaults, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, decodeParams, router, urlToAction } from 'kea-router'
 
@@ -395,7 +395,7 @@ export const maxLogic = kea<maxLogicType>([
         },
     })),
 
-    afterMountAndOrganization(({ actions, values }) => {
+    afterMount(({ actions, values }) => {
         // If there is a prefill question from side panel state (from opening Max within the app), use it
         if (
             !values.question &&
@@ -409,8 +409,10 @@ export const maxLogic = kea<maxLogicType>([
                 actions.setAutoRun(true)
             }
         }
+    }),
 
-        // Load conversation history on mount
+    // Load conversation history only when organization is available
+    afterMountAndOrganization(({ actions }) => {
         actions.loadConversationHistory()
     }),
 
