@@ -1,11 +1,9 @@
 import { cva } from 'cva'
-import { useActions, useValues } from 'kea'
-import { forwardRef, useCallback, useEffect, useMemo, useRef } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 
 import { Link, Spinner } from '@posthog/lemon-ui'
 
-import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
-import { dayjs } from 'lib/dayjs'
+import { Dayjs } from 'lib/dayjs'
 import { useScrollObserver } from 'lib/hooks/useScrollObserver'
 import { IconVerticalAlignCenter } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
@@ -13,36 +11,56 @@ import { cn } from 'lib/utils/css-classes'
 
 import { useAsyncCallback } from 'products/error_tracking/frontend/hooks/use-async-callback'
 
-import { sessionTabLogic } from '../sessionTabLogic'
-import { ItemCollector, ItemRenderer, RendererProps, TimelineItem } from './timeline'
+import { ItemCategory, ItemCollector, ItemRenderer, RendererProps, TimelineItem } from './timeline'
 
 const LOADING_DEBOUNCE_OPTIONS = { leading: true, delay: 500 }
 
-export interface SessionTimelineProps {
-    className?: string
+export interface SessionTimelineHandle {
+    scrollToItem: (itemId: string) => void
 }
 
-export function SessionTimeline({ className }: SessionTimelineProps): JSX.Element {
-    const { items, timestamp, sessionId, currentCategories } = useValues(sessionTabLogic)
-    const { setItems, toggleCategory } = useActions(sessionTabLogic)
-    const { uuid } = useValues(errorPropertiesLogic)
+export interface SessionTimelineProps {
+    ref: React.RefObject<SessionTimelineHandle>
+    collector: ItemCollector
+    selectedItemId?: string
+    className?: string
+    onTimeClick?: (time: Dayjs) => void
+}
 
-    const collector = useMemo(() => {
-        // Add jitter to catch event at exact timestamp
-        return new ItemCollector(sessionId, dayjs(timestamp).add(1, 'millisecond'))
-    }, [sessionId, timestamp])
+export function SessionTimeline({
+    ref,
+    collector,
+    selectedItemId,
+    className,
+    onTimeClick,
+}: SessionTimelineProps): JSX.Element {
+    const [items, setItems] = useState<TimelineItem[]>([])
+    const [categories, setCategories] = useState<ItemCategory[]>(() => collector.getAllCategories())
+
+    function toggleCategory(category: ItemCategory): void {
+        setCategories((prevCategories) => {
+            const index = prevCategories.indexOf(category)
+            if (index === -1) {
+                return [...prevCategories, category]
+            }
+            return [...prevCategories.slice(0, index), ...prevCategories.slice(index + 1)]
+        })
+    }
+
     const containerRef = useRef<HTMLDivElement | null>(null)
 
     const scrollToItem = useCallback((uuid: string) => {
         const item = containerRef.current?.querySelector(`[data-item-id="${uuid}"]`)
         if (item) {
-            item.scrollIntoView({ behavior: 'instant', block: 'center' })
+            requestAnimationFrame(() => {
+                item.scrollIntoView({ behavior: 'instant', block: 'center' })
+            })
         }
     }, [])
 
     const [loadBefore, beforeLoading] = useAsyncCallback(
         () =>
-            collector.loadBefore(currentCategories, 25).then(() => {
+            collector.loadBefore(categories, 25).then(() => {
                 const items = collector.collectItems()
                 const containerEl = containerRef.current
                 const scrollTop = containerEl?.scrollTop || 0
@@ -56,16 +74,16 @@ export function SessionTimeline({ className }: SessionTimelineProps): JSX.Elemen
                     }
                 })
             }),
-        [collector, currentCategories],
+        [collector, categories],
         LOADING_DEBOUNCE_OPTIONS
     )
 
     const [loadAfter, afterLoading] = useAsyncCallback(
         () =>
-            collector.loadAfter(currentCategories, 25).then(() => {
+            collector.loadAfter(categories, 25).then(() => {
                 setItems(collector.collectItems())
             }),
-        [collector, currentCategories],
+        [collector, categories],
         LOADING_DEBOUNCE_OPTIONS
     )
 
@@ -74,29 +92,26 @@ export function SessionTimeline({ className }: SessionTimelineProps): JSX.Elemen
         Promise.all([loadBefore(), loadAfter()]).then(() => {
             const items = collector.collectItems()
             setItems(items)
-            scrollToItem(uuid)
+            selectedItemId && scrollToItem(selectedItemId)
         })
-    }, [collector, loadBefore, loadAfter, setItems, scrollToItem, uuid])
+    }, [collector, loadBefore, loadAfter, setItems, scrollToItem, selectedItemId])
 
     const scrollRefCb = useScrollObserver({
         onScrollTop: () => {
-            if (collector.hasBefore(currentCategories)) {
+            if (collector.hasBefore(categories)) {
                 return loadBefore()
             }
         },
         onScrollBottom: () => {
-            if (collector.hasAfter(currentCategories)) {
+            if (collector.hasAfter(categories)) {
                 return loadAfter()
             }
         },
     })
 
-    useEffect(() => {
-        requestAnimationFrame(() => {
-            // Scroll to item on tab change
-            scrollToItem(uuid)
-        })
-    }, [uuid, scrollToItem])
+    useImperativeHandle(ref, () => ({
+        scrollToItem,
+    }))
 
     return (
         <div className={cn('flex', className)}>
@@ -104,7 +119,7 @@ export function SessionTimeline({ className }: SessionTimelineProps): JSX.Elemen
                 <div className="flex flex-col items-center gap-2">
                     {collector.getCategories().map((cat) => (
                         <SessionGroupToggle
-                            active={currentCategories.includes(cat)}
+                            active={categories.includes(cat)}
                             key={cat}
                             onClick={() => toggleCategory(cat)}
                         >
@@ -112,8 +127,8 @@ export function SessionTimeline({ className }: SessionTimelineProps): JSX.Elemen
                         </SessionGroupToggle>
                     ))}
                 </div>
-                {items.find((item) => item.id === uuid) && (
-                    <ButtonPrimitive iconOnly onClick={() => scrollToItem(uuid)}>
+                {items.find((item) => item.id === selectedItemId) && (
+                    <ButtonPrimitive iconOnly onClick={() => selectedItemId && scrollToItem(selectedItemId)}>
                         <IconVerticalAlignCenter />
                     </ButtonPrimitive>
                 )}
@@ -142,7 +157,8 @@ export function SessionTimeline({ className }: SessionTimelineProps): JSX.Elemen
                             renderer={renderer}
                             key={item.id}
                             item={item}
-                            selected={item.id === uuid}
+                            selected={item.id === selectedItemId}
+                            onTimeClick={onTimeClick}
                         />
                     )
                 })}
@@ -170,29 +186,22 @@ const itemContainer = cva({
 type SessionTimelineItemContainerProps = RendererProps<TimelineItem> & {
     renderer: ItemRenderer<TimelineItem>
     selected: boolean
+    onTimeClick?: (timestamp: Dayjs) => void
 }
 
 const SessionTimelineItemContainer = forwardRef<HTMLDivElement, SessionTimelineItemContainerProps>(
     function SessionTimelineItemContainer(
-        { renderer, item, selected }: SessionTimelineItemContainerProps,
+        { renderer, item, selected, onTimeClick }: SessionTimelineItemContainerProps,
         ref
     ): JSX.Element {
-        const { setRecordingTimestamp } = useActions(sessionTabLogic)
-        const { setCurrentSessionTab } = useActions(exceptionCardLogic)
         return (
             <div ref={ref} className={itemContainer({ selected })} data-item-id={item.id}>
                 <span className="text-xs text-tertiary w-[20px] shrink-0 text-center">
                     <renderer.sourceIcon item={item} />
                 </span>
                 <span className="text-xs text-tertiary w-[50px] shrink-0 text-center">
-                    <Link
-                        className="text-tertiary hover:text-accent"
-                        onClick={() => {
-                            setRecordingTimestamp(item.timestamp, 1000)
-                            setCurrentSessionTab('recording')
-                        }}
-                    >
-                        {dayjs(item.timestamp).format('HH:mm:ss')}
+                    <Link className="text-tertiary hover:text-accent" onClick={() => onTimeClick?.(item.timestamp)}>
+                        {item.timestamp.format('HH:mm:ss')}
                     </Link>
                 </span>
                 <div className="shrink-0 w-[20px] text-center">{renderer.categoryIcon}</div>
