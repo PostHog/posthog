@@ -288,7 +288,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         defaultDocsPath: '/docs/product-analytics',
     },
     [Scene.SessionAttributionExplorer]: { projectBased: true, name: 'Session attribution explorer (beta)' },
-    [Scene.Settings]: { projectBased: true, name: 'Settings' },
+    [Scene.Settings]: { name: 'Settings', organizationBased: true },
     [Scene.Signup]: { onlyUnauthenticated: true },
     [Scene.Site]: { projectBased: true, hideProjectNotice: true, layout: 'app-raw' },
     [Scene.StartupProgram]: { name: 'PostHog for Startups', organizationBased: true, layout: 'app-container' },

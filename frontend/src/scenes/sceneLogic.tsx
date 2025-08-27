@@ -663,7 +663,11 @@ export const sceneLogic = kea<sceneLogicType>([
                             user.organization.membership_level &&
                             user.organization.membership_level >= TeamMembershipLevel.Admin
                         ) {
-                            if (location.pathname !== urls.projectCreateFirst()) {
+                            // Allow org and account settings to be opened, otherwise route to project creation
+                            if (
+                                location.pathname !== urls.projectCreateFirst() &&
+                                !location.pathname.startsWith('/settings')
+                            ) {
                                 console.warn(
                                     'Project not available and no other projects, redirecting to project creation'
                                 )
