@@ -54,6 +54,8 @@ from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.comment import Comment
 from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle, PersonalApiKeyRateThrottle
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.renderers import ServerSentEventRenderer
 from posthog.session_recordings.ai_data.ai_regex_prompts import AI_REGEX_PROMPTS
 from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
@@ -213,7 +215,7 @@ class SurrogatePairSafeJSONRenderer(JSONRenderer):
     encoder_class = SurrogatePairSafeJSONEncoder
 
 
-class SessionRecordingSerializer(serializers.ModelSerializer):
+class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     id = serializers.CharField(source="session_id", read_only=True)
     recording_duration = serializers.IntegerField(source="duration", read_only=True)
     person = MinimalPersonSerializer(required=False)
@@ -544,7 +546,9 @@ def clean_referer_url(current_url: str | None) -> str:
 
 
 # NOTE: Could we put the sharing stuff in the shared mixin :thinking:
-class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, UpdateModelMixin):
+class SessionRecordingViewSet(
+    TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet, UpdateModelMixin
+):
     scope_object = "session_recording"
     scope_object_read_actions = ["list", "retrieve", "snapshots"]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]

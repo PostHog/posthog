@@ -54,6 +54,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "dashboard",
     "insight",
     "notebook",
+    "session_recording",
 )
 
 
@@ -98,6 +99,8 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "feature_flag"
     if name == "plugin_config":
         return "plugin"
+    if name == "sessionrecording":
+        return "session_recording"
 
     if name not in API_SCOPE_OBJECTS:
         return None
