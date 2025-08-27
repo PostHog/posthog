@@ -93,7 +93,7 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
             "template_id": template_slack.id,
             "type": "destination",
             "inputs": {
-                "slack_workspace": {"value": 1},
+                "oauth": {"value": 1},
                 "channel": {"value": "#general"},
             },
         }
@@ -193,7 +193,7 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
                 "type": "internal_destination",
                 "template_id": "template-slack",
                 "inputs": {
-                    "slack_workspace": {"value": 1},
+                    "oauth": {"value": 1},
                     "channel": {"value": "#general"},
                 },
             },
@@ -1544,7 +1544,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "name": "First Transformation",
                 "template_id": template_slack.id,
                 "inputs": {
-                    "slack_workspace": {"value": 1},
+                    "oauth": {"value": 1},
                     "channel": {"value": "#general"},
                 },
             },
@@ -1560,7 +1560,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "name": "Second Transformation",
                 "template_id": template_slack.id,
                 "inputs": {
-                    "slack_workspace": {"value": 1},
+                    "oauth": {"value": 1},
                     "channel": {"value": "#general"},
                 },
             },
@@ -1859,7 +1859,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "type": "transformation",
                 "template_id": template_slack.id,
                 "inputs": {
-                    "slack_workspace": {"value": 1},
+                    "oauth": {"value": 1},
                     "channel": {"value": "#general"},
                 },
             },
@@ -1873,7 +1873,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "type": "transformation",
                 "template_id": template_slack.id,
                 "inputs": {
-                    "slack_workspace": {"value": 1},
+                    "oauth": {"value": 1},
                     "channel": {"value": "#general"},
                 },
             },
@@ -1896,7 +1896,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "type": "transformation",
                 "template_id": template_slack.id,
                 "inputs": {
-                    "slack_workspace": {"value": 1},
+                    "oauth": {"value": 1},
                     "channel": {"value": "#general"},
                 },
             },
@@ -1943,7 +1943,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "template_id": template_slack.id,
                 "enabled": True,
                 "inputs": {
-                    "slack_workspace": {"value": 1},
+                    "oauth": {"value": 1},
                     "channel": {"value": "#general"},
                 },
             },
@@ -1958,7 +1958,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "template_id": template_slack.id,
                 "enabled": True,
                 "inputs": {
-                    "slack_workspace": {"value": 1},
+                    "oauth": {"value": 1},
                     "channel": {"value": "#general"},
                 },
             },
@@ -1982,7 +1982,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "template_id": template_slack.id,
                 "enabled": True,
                 "inputs": {
-                    "slack_workspace": {"value": 1},
+                    "oauth": {"value": 1},
                     "channel": {"value": "#general"},
                 },
             },
@@ -2032,7 +2032,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "type": "transformation",
                 "template_id": template_slack.id,
                 "inputs": {
-                    "slack_workspace": {"value": 1},
+                    "oauth": {"value": 1},
                     "channel": {"value": "#general"},
                 },
             },
@@ -2046,7 +2046,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "type": "transformation",
                 "template_id": template_slack.id,
                 "inputs": {
-                    "slack_workspace": {"value": 1},
+                    "oauth": {"value": 1},
                     "channel": {"value": "#general"},
                 },
             },
@@ -2061,7 +2061,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "type": "transformation",
                 "template_id": template_slack.id,
                 "inputs": {
-                    "slack_workspace": {"value": 1},
+                    "oauth": {"value": 1},
                     "channel": {"value": "#general"},
                 },
             },
