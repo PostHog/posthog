@@ -162,10 +162,15 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
             dataIndex: 'pinned',
             render: function Render(pinned, { short_id }) {
                 return (
-                    <LemonButton
+                    <AccessControlledLemonButton
                         size="small"
                         onClick={() => updatePlaylist(short_id, { pinned: !pinned })}
                         icon={pinned ? <IconPinFilled /> : <IconPin />}
+                        minAccessLevel={AccessControlLevel.Editor}
+                        resourceType={AccessControlResourceType.SessionRecording}
+                        userAccessLevel={
+                            getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
+                        }
                     />
                 )
             },
