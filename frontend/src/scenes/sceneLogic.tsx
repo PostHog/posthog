@@ -965,7 +965,9 @@ export const sceneLogic = kea<sceneLogicType>([
     })),
     afterMount(({ actions, cache, values }) => {
         cache.onKeyDown = (event: KeyboardEvent) => {
-            if ((event.ctrlKey || event.metaKey) && (event.key === 'b' || event.key === 'B')) {
+            if ((event.ctrlKey || event.metaKey) && event.key === 'b') {
+                event.preventDefault()
+                event.stopPropagation()
                 if (event.shiftKey) {
                     if (values.activeTab) {
                         actions.removeTab(values.activeTab)
