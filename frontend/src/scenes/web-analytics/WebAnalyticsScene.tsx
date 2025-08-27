@@ -17,7 +17,7 @@ export function WebAnalyticsScene(): JSX.Element {
             <SceneContent>
                 <SceneTitleSection
                     name="Web analytics"
-                    description="Analyze and understand your web analytics data to understand your website performance and user behavior."
+                    description="Analyze your web analytics data to understand website performance and user behavior."
                     resourceType={{
                         type: 'web',
                         typePlural: 'Web analytics',
