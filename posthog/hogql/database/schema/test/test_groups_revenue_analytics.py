@@ -2,22 +2,6 @@ from decimal import Decimal
 from pathlib import Path
 
 from freezegun import freeze_time
-
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
-from posthog.models.group.util import create_group
-from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.schema import (
-    CurrencyCode,
-    HogQLQueryModifiers,
-    RevenueAnalyticsEventItem,
-    RevenueCurrencyPropertyConfig,
-)
-from posthog.temporal.data_imports.sources.stripe.constants import (
-    CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
-    INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
-)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -25,8 +9,22 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
 )
+
+from posthog.schema import CurrencyCode, HogQLQueryModifiers, RevenueAnalyticsEventItem, RevenueCurrencyPropertyConfig
+
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.models.group.util import create_group
+from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.temporal.data_imports.sources.stripe.constants import (
+    CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
+    INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
+)
 from posthog.warehouse.models import DataWarehouseJoin, ExternalDataSchema
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
+
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
     STRIPE_CUSTOMER_COLUMNS,
     STRIPE_INVOICE_COLUMNS,
