@@ -40,6 +40,9 @@
                           $session_id: {
                             hidden: False
                           },
+                          $virt_path_cleaned_pathname: {
+                            hidden: False
+                          },
                           $window_id: {
                             hidden: False
                           },
@@ -178,6 +181,21 @@
                   type: {
                     name: "$session_id"
                     table_type: <recursion ...>
+                  }
+                },
+                $virt_path_cleaned_pathname: {
+                  alias: "$virt_path_cleaned_pathname"
+                  type: {
+                    alias: "$pathname"
+                    type: {
+                      chain: [
+                        "$pathname"
+                      ]
+                      field_type: {
+                        name: "properties"
+                        table_type: <recursion ...>
+                      }
+                    }
                   }
                 },
                 $window_id: {
@@ -704,6 +722,23 @@
         hidden: True
         type: {
           alias: "issue_id"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "$virt_path_cleaned_pathname"
+        expr: {
+          chain: [
+            "$virt_path_cleaned_pathname"
+          ]
+          type: {
+            name: "$virt_path_cleaned_pathname"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "$virt_path_cleaned_pathname"
           type: <recursion ...>
         }
       }
@@ -1292,6 +1327,23 @@
             }
             hidden: True
             type: <recursion ...>
+          },
+          {
+            alias: "$virt_path_cleaned_pathname"
+            expr: {
+              alias: "$pathname"
+              expr: {
+                chain: [
+                  "properties",
+                  "$pathname"
+                ]
+                type: <recursion ...>
+              }
+              hidden: True
+              type: <recursion ...>
+            }
+            hidden: True
+            type: <recursion ...>
           }
         ]
         select_from: {
@@ -1319,6 +1371,7 @@
         $group_3: <recursion ...>,
         $group_4: <recursion ...>,
         $session_id: <recursion ...>,
+        $virt_path_cleaned_pathname: <recursion ...>,
         $window_id: <recursion ...>,
         created_at: <recursion ...>,
         distinct_id: <recursion ...>,
@@ -1374,6 +1427,9 @@
                     hidden: False
                   },
                   $session_id: {
+                    hidden: False
+                  },
+                  $virt_path_cleaned_pathname: {
                     hidden: False
                   },
                   $window_id: {
@@ -2229,6 +2285,37 @@
           alias: "issue_id"
           type: <recursion ...>
         }
+      },
+      {
+        alias: "$virt_path_cleaned_pathname"
+        expr: {
+          alias: "$pathname"
+          expr: {
+            chain: [
+              "properties",
+              "$pathname"
+            ]
+            type: {
+              chain: [
+                "$pathname"
+              ]
+              field_type: {
+                name: "properties"
+                table_type: <recursion ...>
+              }
+            }
+          }
+          hidden: True
+          type: {
+            alias: "$pathname"
+            type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "$virt_path_cleaned_pathname"
+          type: <recursion ...>
+        }
       }
     ]
     select_from: {
@@ -2250,6 +2337,7 @@
         $group_3: <recursion ...>,
         $group_4: <recursion ...>,
         $session_id: <recursion ...>,
+        $virt_path_cleaned_pathname: <recursion ...>,
         $window_id: <recursion ...>,
         created_at: <recursion ...>,
         distinct_id: <recursion ...>,
@@ -3182,6 +3270,9 @@
                           $session_id: {
                             hidden: False
                           },
+                          $virt_path_cleaned_pathname: {
+                            hidden: False
+                          },
                           $window_id: {
                             hidden: False
                           },
@@ -3320,6 +3411,21 @@
                   type: {
                     name: "$session_id"
                     table_type: <recursion ...>
+                  }
+                },
+                $virt_path_cleaned_pathname: {
+                  alias: "$virt_path_cleaned_pathname"
+                  type: {
+                    alias: "$pathname"
+                    type: {
+                      chain: [
+                        "$pathname"
+                      ]
+                      field_type: {
+                        name: "properties"
+                        table_type: <recursion ...>
+                      }
+                    }
                   }
                 },
                 $window_id: {
@@ -3846,6 +3952,23 @@
         hidden: True
         type: {
           alias: "issue_id"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "$virt_path_cleaned_pathname"
+        expr: {
+          chain: [
+            "$virt_path_cleaned_pathname"
+          ]
+          type: {
+            name: "$virt_path_cleaned_pathname"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "$virt_path_cleaned_pathname"
           type: <recursion ...>
         }
       }
@@ -4435,6 +4558,23 @@
               }
               hidden: True
               type: <recursion ...>
+            },
+            {
+              alias: "$virt_path_cleaned_pathname"
+              expr: {
+                alias: "$pathname"
+                expr: {
+                  chain: [
+                    "properties",
+                    "$pathname"
+                  ]
+                  type: <recursion ...>
+                }
+                hidden: True
+                type: <recursion ...>
+              }
+              hidden: True
+              type: <recursion ...>
             }
           ]
           select_from: {
@@ -4479,6 +4619,9 @@
                               hidden: False
                             },
                             $session_id: {
+                              hidden: False
+                            },
+                            $virt_path_cleaned_pathname: {
                               hidden: False
                             },
                             $window_id: {
@@ -5331,6 +5474,37 @@
                     alias: "issue_id"
                     type: <recursion ...>
                   }
+                },
+                {
+                  alias: "$virt_path_cleaned_pathname"
+                  expr: {
+                    alias: "$pathname"
+                    expr: {
+                      chain: [
+                        "properties",
+                        "$pathname"
+                      ]
+                      type: {
+                        chain: [
+                          "$pathname"
+                        ]
+                        field_type: {
+                          name: "properties"
+                          table_type: <recursion ...>
+                        }
+                      }
+                    }
+                    hidden: True
+                    type: {
+                      alias: "$pathname"
+                      type: <recursion ...>
+                    }
+                  }
+                  hidden: True
+                  type: {
+                    alias: "$virt_path_cleaned_pathname"
+                    type: <recursion ...>
+                  }
                 }
               ]
               select_from: {
@@ -5352,6 +5526,7 @@
                   $group_3: <recursion ...>,
                   $group_4: <recursion ...>,
                   $session_id: <recursion ...>,
+                  $virt_path_cleaned_pathname: <recursion ...>,
                   $window_id: <recursion ...>,
                   created_at: <recursion ...>,
                   distinct_id: <recursion ...>,
@@ -5400,6 +5575,7 @@
         $group_3: <recursion ...>,
         $group_4: <recursion ...>,
         $session_id: <recursion ...>,
+        $virt_path_cleaned_pathname: <recursion ...>,
         $window_id: <recursion ...>,
         created_at: <recursion ...>,
         distinct_id: <recursion ...>,
@@ -5673,6 +5849,9 @@
                     hidden: False
                   },
                   $session_id: {
+                    hidden: False
+                  },
+                  $virt_path_cleaned_pathname: {
                     hidden: False
                   },
                   $window_id: {
@@ -6525,6 +6704,37 @@
           alias: "issue_id"
           type: <recursion ...>
         }
+      },
+      {
+        alias: "$virt_path_cleaned_pathname"
+        expr: {
+          alias: "$pathname"
+          expr: {
+            chain: [
+              "properties",
+              "$pathname"
+            ]
+            type: {
+              chain: [
+                "$pathname"
+              ]
+              field_type: {
+                name: "properties"
+                table_type: <recursion ...>
+              }
+            }
+          }
+          hidden: True
+          type: {
+            alias: "$pathname"
+            type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "$virt_path_cleaned_pathname"
+          type: <recursion ...>
+        }
       }
     ]
     select_from: {
@@ -6546,6 +6756,7 @@
         $group_3: <recursion ...>,
         $group_4: <recursion ...>,
         $session_id: <recursion ...>,
+        $virt_path_cleaned_pathname: <recursion ...>,
         $window_id: <recursion ...>,
         created_at: <recursion ...>,
         distinct_id: <recursion ...>,
@@ -6605,6 +6816,9 @@
                       hidden: False
                     },
                     $session_id: {
+                      hidden: False
+                    },
+                    $virt_path_cleaned_pathname: {
                       hidden: False
                     },
                     $window_id: {
@@ -7458,6 +7672,37 @@
           alias: "issue_id"
           type: <recursion ...>
         }
+      },
+      {
+        alias: "$virt_path_cleaned_pathname"
+        expr: {
+          alias: "$pathname"
+          expr: {
+            chain: [
+              "properties",
+              "$pathname"
+            ]
+            type: {
+              chain: [
+                "$pathname"
+              ]
+              field_type: {
+                name: "properties"
+                table_type: <recursion ...>
+              }
+            }
+          }
+          hidden: True
+          type: {
+            alias: "$pathname"
+            type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "$virt_path_cleaned_pathname"
+          type: <recursion ...>
+        }
       }
     ]
     select_from: {
@@ -7480,6 +7725,7 @@
         $group_3: <recursion ...>,
         $group_4: <recursion ...>,
         $session_id: <recursion ...>,
+        $virt_path_cleaned_pathname: <recursion ...>,
         $window_id: <recursion ...>,
         created_at: <recursion ...>,
         distinct_id: <recursion ...>,
@@ -7539,6 +7785,9 @@
                         hidden: False
                       },
                       $session_id: {
+                        hidden: False
+                      },
+                      $virt_path_cleaned_pathname: {
                         hidden: False
                       },
                       $window_id: {
@@ -7729,6 +7978,9 @@
                         hidden: False
                       },
                       $session_id: {
+                        hidden: False
+                      },
+                      $virt_path_cleaned_pathname: {
                         hidden: False
                       },
                       $window_id: {
@@ -8231,6 +8483,9 @@
                   $session_id: {
                     hidden: False
                   },
+                  $virt_path_cleaned_pathname: {
+                    hidden: False
+                  },
                   $window_id: {
                     hidden: False
                   },
@@ -8451,6 +8706,9 @@
                       hidden: False
                     },
                     $session_id: {
+                      hidden: False
+                    },
+                    $virt_path_cleaned_pathname: {
                       hidden: False
                     },
                     $window_id: {
@@ -8677,6 +8935,9 @@
                         hidden: False
                       },
                       $session_id: {
+                        hidden: False
+                      },
+                      $virt_path_cleaned_pathname: {
                         hidden: False
                       },
                       $window_id: {
@@ -8939,6 +9200,9 @@
                                 hidden: False
                               },
                               $session_id: {
+                                hidden: False
+                              },
+                              $virt_path_cleaned_pathname: {
                                 hidden: False
                               },
                               $window_id: {
@@ -9209,6 +9473,9 @@
                   $session_id: {
                     hidden: False
                   },
+                  $virt_path_cleaned_pathname: {
+                    hidden: False
+                  },
                   $window_id: {
                     hidden: False
                   },
@@ -9438,6 +9705,9 @@
                       hidden: False
                     },
                     $session_id: {
+                      hidden: False
+                    },
+                    $virt_path_cleaned_pathname: {
                       hidden: False
                     },
                     $window_id: {
@@ -9672,6 +9942,9 @@
                   $session_id: {
                     hidden: False
                   },
+                  $virt_path_cleaned_pathname: {
+                    hidden: False
+                  },
                   $window_id: {
                     hidden: False
                   },
@@ -9888,6 +10161,9 @@
                       hidden: False
                     },
                     $session_id: {
+                      hidden: False
+                    },
+                    $virt_path_cleaned_pathname: {
                       hidden: False
                     },
                     $window_id: {
@@ -10205,6 +10481,9 @@
                     $session_id: {
                       hidden: False
                     },
+                    $virt_path_cleaned_pathname: {
+                      hidden: False
+                    },
                     $window_id: {
                       hidden: False
                     },
@@ -10388,6 +10667,9 @@
                           hidden: False
                         },
                         $session_id: {
+                          hidden: False
+                        },
+                        $virt_path_cleaned_pathname: {
                           hidden: False
                         },
                         $window_id: {
@@ -10585,6 +10867,9 @@
                     hidden: False
                   },
                   $session_id: {
+                    hidden: False
+                  },
+                  $virt_path_cleaned_pathname: {
                     hidden: False
                   },
                   $window_id: {
