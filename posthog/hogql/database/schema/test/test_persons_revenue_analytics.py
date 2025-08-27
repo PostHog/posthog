@@ -292,7 +292,7 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                 ],
             )
 
-    def test_get_revenue_for_schema_source_for_customer_with_multiple_distinct_ids_persons(self):
+    def test_get_revenue_for_schema_source_for_customer_with_multiple_distinct_ids(self):
         self.setup_schema_sources()
         self.join.source_table_key = "email"
         self.join.save()
@@ -341,7 +341,7 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             )
 
     @parameterized.expand([e.value for e in PersonsOnEventsMode])
-    def test_virtual_property_in_trend_persons(self, mode):
+    def test_virtual_property_in_trend(self, mode):
         self.setup_events()
 
         self.team.revenue_analytics_config.events = [
