@@ -1515,7 +1515,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     })
                 }
 
-                eventUsageLogic.actions.reportDashboardRefreshed(dashboardId, values.lastDashboardRefresh)
+                eventUsageLogic.actions.reportDashboardRefreshed(
+                    dashboardId,
+                    values.lastDashboardRefresh,
+                    action,
+                    forceRefresh
+                )
             }
         },
         saveEditModeChanges: () => {
