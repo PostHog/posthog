@@ -48,10 +48,7 @@ impl DatabasePools {
                 )
                 .await
                 .map_err(|e| {
-                    FlagError::DatabaseError(format!(
-                        "Failed to create persons reader pool: {}",
-                        e
-                    ))
+                    FlagError::DatabaseError(format!("Failed to create persons reader pool: {}", e))
                 })?,
             )
         } else {
@@ -66,10 +63,7 @@ impl DatabasePools {
                 )
                 .await
                 .map_err(|e| {
-                    FlagError::DatabaseError(format!(
-                        "Failed to create persons writer pool: {}",
-                        e
-                    ))
+                    FlagError::DatabaseError(format!("Failed to create persons writer pool: {}", e))
                 })?,
             )
         } else {
@@ -107,8 +101,10 @@ mod tests {
     #[tokio::test]
     async fn test_database_routing_enabled() {
         let mut config = Config::default();
-        config.persons_read_database_url = "postgres://user:pass@persons-reader:5432/db".to_string();
-        config.persons_write_database_url = "postgres://user:pass@persons-writer:5432/db".to_string();
+        config.persons_read_database_url =
+            "postgres://user:pass@persons-reader:5432/db".to_string();
+        config.persons_write_database_url =
+            "postgres://user:pass@persons-writer:5432/db".to_string();
 
         assert!(config.is_persons_db_routing_enabled());
         assert_eq!(
