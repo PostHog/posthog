@@ -22,6 +22,14 @@ const instrumentedFunctionDuration = new Histogram({
     buckets: exponentialBuckets(0.025, 4, 7),
 })
 
+const logTime = (startTime: number, statsKey: string, error?: any): void => {
+    logger.info('⏱️', `${statsKey} took ${Math.round(performance.now() - startTime)}ms`, {
+        error,
+        statsKey,
+        type: 'instrumented_function_time_log',
+    })
+}
+
 /**
  * Wraps a function in an OpenTelemetry tracing span.
  */
@@ -70,15 +78,7 @@ export function withSpan<T>(
     }
 }
 
-const logTime = (startTime: number, statsKey: string, error?: any) => {
-    logger.info('⏱️', `${statsKey} took ${Math.round(performance.now() - startTime)}ms`, {
-        error,
-        statsKey,
-        type: 'instrumented_function_time_log',
-    })
-}
-
-interface FunctionInstrumentationV2Options {
+interface FunctionInstrumentationOptions {
     key: string
     timeoutMs?: number
     timeoutMessage?: string
@@ -91,7 +91,7 @@ interface FunctionInstrumentationV2Options {
  * Wraps a function in a timeout guard and a prometheus metric.
  */
 export async function instrumentFn<T>(
-    options: string | FunctionInstrumentationV2Options,
+    options: string | FunctionInstrumentationOptions,
     func: () => Promise<T>
 ): Promise<T> {
     const key = typeof options === 'string' ? options : options.key
@@ -125,5 +125,56 @@ export async function instrumentFn<T>(
         throw error
     } finally {
         clearTimeout(t)
+    }
+}
+
+/**
+ * Decorator that can be applied to class methods or standalone functions to add tracing and instrumentation.
+ *
+ * @param options - Either a string key or FunctionInstrumentationOptions object
+ * @returns A decorator function that wraps the original method/function
+ *
+ * @example
+ * // For class methods:
+ * class MyService {
+ *   @instrumented('my-service-method')
+ *   async myMethod() {
+ *     // method implementation
+ *   }
+ * }
+ *
+ * // For standalone functions:
+ * const myFunction = instrumented('my-function')(async () => {
+ *   // function implementation
+ * })
+ */
+export function instrumented(options: string | FunctionInstrumentationOptions) {
+    return function <T extends (...args: any[]) => Promise<any>>(
+        target: any,
+        propertyKey?: string | symbol,
+        descriptor?: TypedPropertyDescriptor<T>
+    ): any {
+        // If used as a method decorator (class method)
+        if (descriptor && propertyKey) {
+            const originalMethod = descriptor.value
+            if (!originalMethod) {
+                throw new Error('Cannot apply instrumented decorator to non-function property')
+            }
+
+            descriptor.value = async function (this: any, ...args: any[]): Promise<any> {
+                return instrumentFn(options, () => originalMethod.apply(this, args))
+            } as T
+
+            return descriptor
+        }
+
+        // If used as a function decorator (standalone function)
+        if (typeof target === 'function') {
+            return async function (this: any, ...args: any[]): Promise<any> {
+                return instrumentFn(options, () => target.apply(this, args))
+            }
+        }
+
+        throw new Error('instrumented decorator can only be applied to functions or methods')
     }
 }

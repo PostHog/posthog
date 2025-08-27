@@ -211,7 +211,7 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
                 size: messages.length,
             })
 
-            return await this.runInstrumented('handleEachBatch', async () => {
+            return await instrumentFn('cdpConsumer.handleEachBatch', async () => {
                 const parsedBatch = await this._parseKafkaBatch(messages)
 
                 // Process the batch (aggregate and write to postgres)
