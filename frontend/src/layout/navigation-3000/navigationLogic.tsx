@@ -39,6 +39,7 @@ import { editorSceneLogic } from 'scenes/data-warehouse/editor/editorSceneLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -68,6 +69,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             ['groupTypes', 'groupsAccessStatus'],
             sceneLogic,
             ['sceneConfig'],
+            teamLogic,
+            ['isCurrentTeamUnavailable'],
             navigationLogic,
             ['mobileLayout'],
             savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Home }),
@@ -740,6 +743,11 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             }
             document.removeEventListener('mousemove', cache.onMouseMove)
             document.removeEventListener('mouseup', cache.onMouseUp)
+        },
+        isCurrentTeamUnavailable: (isUnavailable: boolean) => {
+            if (isUnavailable) {
+                lemonToast.error("You don't have any projects", { toastId: 'no-projects' })
+            }
         },
         sidebarContentsFlattened: (sidebarContentsFlattened) => {
             for (const item of sidebarContentsFlattened) {

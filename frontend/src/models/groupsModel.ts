@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import { connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
@@ -6,6 +6,7 @@ import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { wordPluralize } from 'lib/utils'
+import { afterMountAndTeam } from 'lib/utils/kea-logic-builders'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { GroupType, GroupTypeIndex } from '~/types'
@@ -150,7 +151,7 @@ export const groupsModel = kea<groupsModelType>([
             actions.loadAllGroupTypes()
         },
     })),
-    afterMount(({ actions }) => {
+    afterMountAndTeam(({ actions }) => {
         if (window.POSTHOG_APP_CONTEXT?.current_team?.group_types) {
             actions.loadAllGroupTypesSuccess(window.POSTHOG_APP_CONTEXT.current_team.group_types)
         } else {

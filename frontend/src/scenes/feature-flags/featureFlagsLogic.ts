@@ -1,4 +1,4 @@
-import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
@@ -6,6 +6,7 @@ import { PaginationManual } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { objectsEqual, toParams } from 'lib/utils'
+import { afterMountAndTeam } from 'lib/utils/kea-logic-builders'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -249,9 +250,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             actions.setFeatureFlagsFilters({ ...DEFAULT_FILTERS, ...pageFiltersFromUrl })
         },
     })),
-    events(({ actions }) => ({
-        afterMount: () => {
-            actions.loadFeatureFlags()
-        },
-    })),
+    afterMountAndTeam(({ actions }) => {
+        actions.loadFeatureFlags()
+    }),
 ])
