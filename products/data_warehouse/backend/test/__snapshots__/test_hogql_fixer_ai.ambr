@@ -42,6 +42,7 @@
   - event_issue_id (expression)
   - exception_issue_override (lazy_table)
   - issue_id (expression)
+  - $virt_path_cleaned_pathname (string)
   '''
 # ---
 # name: test_get_system_prompt
@@ -154,6 +155,7 @@
   - event_issue_id (expression)
   - exception_issue_override (lazy_table)
   - issue_id (expression)
+  - $virt_path_cleaned_pathname (string)
   
   Below is the current HogQL query and the error message
   
