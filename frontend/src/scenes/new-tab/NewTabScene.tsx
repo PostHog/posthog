@@ -11,11 +11,12 @@ import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/Sea
 
 export const scene: SceneExport = {
     component: NewTabScene,
+    logic: newTabSceneLogic,
 }
 
-export function NewTabScene(): JSX.Element {
-    const { filteredItemsGrid, search } = useValues(newTabSceneLogic)
-    const { setSearch } = useActions(newTabSceneLogic)
+export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
+    const { filteredItemsGrid, search } = useValues(newTabSceneLogic({ tabId }))
+    const { setSearch } = useActions(newTabSceneLogic({ tabId }))
 
     const handleSubmit = (): void => {
         if (filteredItemsGrid.length > 0 && filteredItemsGrid[0].types.length > 0) {

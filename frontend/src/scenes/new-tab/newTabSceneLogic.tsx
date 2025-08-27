@@ -1,4 +1,4 @@
-import { actions, kea, path, reducers, selectors } from 'kea'
+import { actions, kea, key, path, props, reducers, selectors } from 'kea'
 
 import { IconDatabase, IconHogQL } from '@posthog/icons'
 
@@ -18,6 +18,8 @@ export interface ItemsGridItem {
 
 export const newTabSceneLogic = kea<newTabSceneLogicType>([
     path(['scenes', 'new-tab', 'newTabSceneLogic']),
+    props({} as { tabId?: string }),
+    key((props) => props.tabId || 'default'),
     actions({
         setSearch: (search: string) => ({ search }),
     }),
