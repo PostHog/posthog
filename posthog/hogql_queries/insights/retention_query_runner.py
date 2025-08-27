@@ -31,7 +31,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
-from posthog.constants import TREND_FILTER_TYPE_EVENTS, RetentionQueryType
+from posthog.constants import TREND_FILTER_TYPE_EVENTS
 from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRangeWithIntervals
@@ -166,7 +166,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             return action.get_step_events()
         return [entity.id] if isinstance(entity.id, str) else [None]
 
-    def events_where_clause(self, event_query_type: RetentionQueryType):
+    def events_where_clause(self, is_first_time_retention: bool):
         """
         Event filters to apply to both start and return events
         """
@@ -183,7 +183,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             for prop in self.team.test_account_filters:
                 events_where.append(property_to_expr(prop, self.team))
 
-        if event_query_type == RetentionQueryType.TARGET:
+        if not is_first_time_retention:
             # when it's recurring, we only have to grab events for the period, rather than events for all time
             events_where.append(self.events_timestamp_filter)
 
@@ -256,15 +256,11 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             source=ast.Field(chain=["events", "timestamp"])
         )
 
-        event_query_type = (
-            RetentionQueryType.TARGET_FIRST_TIME
-            if self.query.retentionFilter.retentionType == RetentionType.RETENTION_FIRST_TIME
-            else RetentionQueryType.TARGET
-        )
+        is_first_time_retention = self.query.retentionFilter.retentionType == RetentionType.RETENTION_FIRST_TIME
 
         start_entity_expr = entity_to_expr(self.start_event, self.team)
         return_entity_expr = entity_to_expr(self.return_event, self.team)
-        global_event_filters = self.events_where_clause(event_query_type)
+        global_event_filters = self.events_where_clause(is_first_time_retention)
 
         if (
             self.query.breakdownFilter
@@ -316,7 +312,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             return_entity_expr=return_entity_expr,
         )
 
-        if event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
+        if is_first_time_retention:
             start_event_timestamps = parse_expr(
                 """
                     if(
@@ -941,14 +937,10 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             actor_subquery.where = ast.And(exprs=where_clauses)
 
             # Create query that gets all relevant events for the matching actors
-            event_query_type = (
-                RetentionQueryType.TARGET_FIRST_TIME
-                if self.query.retentionFilter.retentionType == RetentionType.RETENTION_FIRST_TIME
-                else RetentionQueryType.TARGET
-            )
+            is_first_time_retention = self.query.retentionFilter.retentionType == RetentionType.RETENTION_FIRST_TIME
 
             # Common conditions from events_where_clause
-            event_filters = self.events_where_clause(event_query_type)
+            event_filters = self.events_where_clause(is_first_time_retention)
 
             # The event query will join actors with their events
             events_query = cast(
