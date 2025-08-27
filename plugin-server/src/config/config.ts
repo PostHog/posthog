@@ -21,6 +21,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         OTEL_EXPORTER_OTLP_ENDPOINT: isDevEnv() ? 'http://localhost:4317' : '',
         OTEL_SDK_DISABLED: isDevEnv() ? false : true,
         OTEL_TRACES_SAMPLER_ARG: 1,
+        OTEL_MAX_SPANS_PER_GROUP: 2,
+        OTEL_MIN_SPAN_DURATION_MS: 50,
         DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_posthog'
             : isDevEnv()

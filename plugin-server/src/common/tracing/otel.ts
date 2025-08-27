@@ -15,9 +15,8 @@ const baseExporter = new OTLPTraceExporter({
 })
 
 const traceExporter = new CappedSiblingsExporter(baseExporter, {
-    maxPerGroup: 2, // keep 2 siblings per (traceId,parent,name)
-    minDurationMs: 50, // always keep >=50ms
-    ttlMs: 60000, // state GC window
+    maxPerGroup: defaultConfig.OTEL_MAX_SPANS_PER_GROUP, // keep 2 siblings per (traceId,parent,name)
+    minDurationMs: defaultConfig.OTEL_MIN_SPAN_DURATION_MS, // always keep >=50ms
 })
 
 // W3C is default; keep it for header interop

@@ -1,4 +1,3 @@
-// CappedSiblingsExporter.ts
 import { ReadableSpan, SpanExporter } from '@opentelemetry/sdk-trace-node'
 
 function durationMs(s: ReadableSpan): number {
@@ -13,22 +12,19 @@ function hasError(s: ReadableSpan): boolean {
 
 type Key = string // `${traceId}:${parentSpanId}:${name}`
 
+/**
+ * This exporter is used to cap the number of spans exported to the backend.
+ * It keeps the last N siblings per (traceId,parentSpanId,name) and discards the rest.
+ * It also keeps spans with an error or a duration >= minDurationMs.
+ */
 export class CappedSiblingsExporter implements SpanExporter {
-    private counts = new Map<Key, number>()
-    private lastFlush = Date.now()
-
     constructor(
         private delegate: SpanExporter,
-        private opts: { maxPerGroup: number; minDurationMs?: number; ttlMs?: number } = { maxPerGroup: 2 }
+        private opts: { maxPerGroup: number; minDurationMs?: number } = { maxPerGroup: 2 }
     ) {}
 
     export(spans: ReadableSpan[], done: (r: { code: any }) => void): void {
-        const now = Date.now()
-        const ttl = this.opts.ttlMs ?? 30_000
-        if (now - this.lastFlush > ttl) {
-            this.counts.clear()
-            this.lastFlush = now
-        }
+        const counts = new Map<Key, number>()
 
         const keep: ReadableSpan[] = []
 
@@ -46,11 +42,11 @@ export class CappedSiblingsExporter implements SpanExporter {
             }
 
             const key: Key = `${s.spanContext().traceId}:${s.parentSpanContext?.spanId}:${s.name}`
-            const n = (this.counts.get(key) ?? 0) + 1
+            const n = (counts.get(key) ?? 0) + 1
             if (n <= this.opts.maxPerGroup) {
                 keep.push(s)
             }
-            this.counts.set(key, n)
+            counts.set(key, n)
         }
 
         if (keep.length === 0) {
