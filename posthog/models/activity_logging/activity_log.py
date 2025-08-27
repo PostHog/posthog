@@ -456,6 +456,7 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "are_tables_created",
     ],
     "ExternalDataSchema": [
+        "status",
         "sync_type_config",
         "latest_error",
         "last_synced_at",
