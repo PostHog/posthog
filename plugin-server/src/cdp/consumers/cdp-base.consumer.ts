@@ -1,6 +1,6 @@
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { runInstrumentedFunction } from '../../main/utils'
-import { Hub, PluginServerService, TeamId } from '../../types'
+import { HealthCheckResult, Hub, PluginServerService, TeamId } from '../../types'
 import { logger } from '../../utils/logger'
 import { CdpRedis, createCdpRedisPool } from '../redis'
 import { HogExecutorService } from '../services/hog-executor.service'
@@ -81,7 +81,7 @@ export abstract class CdpConsumerBase {
         return {
             id: this.name,
             onShutdown: async () => await this.stop(),
-            healthcheck: () => this.isHealthy() ?? false,
+            healthcheck: () => this.isHealthy(),
         }
     }
 
@@ -117,5 +117,5 @@ export abstract class CdpConsumerBase {
         logger.info('👍', `${this.name} - stopped!`)
     }
 
-    public abstract isHealthy(): boolean
+    public abstract isHealthy(): boolean | HealthCheckResult
 }
