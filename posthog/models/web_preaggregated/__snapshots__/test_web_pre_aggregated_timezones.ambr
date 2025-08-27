@@ -1,4 +1,58 @@
 # serializer version: 1
+# name: TestTimezonePreAggregatedIntegration.test_can_use_date_range_timezone_integration
+  '''
+  SELECT min(toTimeZone(toTimeZone(web_stats_combined.period_bucket, 'UTC'), 'UTC')) AS min_date,
+         max(toTimeZone(toTimeZone(web_stats_combined.period_bucket, 'UTC'), 'UTC')) AS max_date
+  FROM web_stats_combined
+  WHERE and(equals(web_stats_combined.team_id, 99999), equals(web_stats_combined.team_id, 99999))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestTimezonePreAggregatedIntegration.test_can_use_date_range_timezone_integration.1
+  '''
+  SELECT min(toTimeZone(toTimeZone(web_stats_combined.period_bucket, 'America/Los_Angeles'), 'UTC')) AS min_date,
+         max(toTimeZone(toTimeZone(web_stats_combined.period_bucket, 'America/Los_Angeles'), 'UTC')) AS max_date
+  FROM web_stats_combined
+  WHERE and(equals(web_stats_combined.team_id, 99999), equals(web_stats_combined.team_id, 99999))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestTimezonePreAggregatedIntegration.test_can_use_date_range_timezone_integration.2
+  '''
+  SELECT min(toTimeZone(toTimeZone(web_stats_combined.period_bucket, 'Asia/Tokyo'), 'UTC')) AS min_date,
+         max(toTimeZone(toTimeZone(web_stats_combined.period_bucket, 'Asia/Tokyo'), 'UTC')) AS max_date
+  FROM web_stats_combined
+  WHERE and(equals(web_stats_combined.team_id, 99999), equals(web_stats_combined.team_id, 99999))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
 # name: TestTimezonePreAggregatedIntegration.test_can_use_date_range_v2_tables_integration
   '''
   SELECT min(toTimeZone(toTimeZone(web_pre_aggregated_stats.period_bucket, 'Europe/Berlin'), 'UTC')) AS min_date,
