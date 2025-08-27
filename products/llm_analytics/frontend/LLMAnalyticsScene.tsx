@@ -7,7 +7,6 @@ import { LemonBanner, LemonButton, LemonTab, LemonTabs, LemonTag, Link } from '@
 
 import { QueryCard } from 'lib/components/Cards/InsightCard/QueryCard'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { FeedbackNotice } from 'lib/components/FeedbackNotice'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -311,11 +310,7 @@ export function LLMAnalyticsScene(): JSX.Element {
                 }
             />
 
-            {hasSentAiGenerationEventLoading ? null : hasSentAiGenerationEvent ? (
-                <FeedbackNotice text="LLM analytics is currently in beta. Thanks for taking part! We'd love to hear what you think." />
-            ) : (
-                <IngestionStatusCheck />
-            )}
+            {!hasSentAiGenerationEventLoading && !hasSentAiGenerationEvent && <IngestionStatusCheck />}
             <LemonTabs activeKey={activeTab} data-attr="llm-analytics-tabs" tabs={tabs} />
         </BindLogic>
     )

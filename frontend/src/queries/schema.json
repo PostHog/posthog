@@ -2459,6 +2459,9 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "query_metadata": {
+                    "type": "object"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -2554,6 +2557,9 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "query_metadata": {
+                    "type": "object"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -2641,6 +2647,9 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "query_metadata": {
+                    "type": "object"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -2724,6 +2733,9 @@
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
+                },
+                "query_metadata": {
+                    "type": "object"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -2812,6 +2824,9 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "query_metadata": {
+                    "type": "object"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -2883,6 +2898,9 @@
                 "next_allowed_client_refresh": {
                     "format": "date-time",
                     "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -2966,6 +2984,9 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "query_metadata": {
+                    "type": "object"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -3042,6 +3063,9 @@
                 "next_allowed_client_refresh": {
                     "format": "date-time",
                     "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -3135,6 +3159,9 @@
                     "additionalProperties": {
                         "type": "number"
                     },
+                    "type": "object"
+                },
+                "query_metadata": {
                     "type": "object"
                 },
                 "query_status": {
@@ -3236,6 +3263,9 @@
                     "additionalProperties": {
                         "type": "number"
                     },
+                    "type": "object"
+                },
+                "query_metadata": {
                     "type": "object"
                 },
                 "query_status": {
@@ -3351,6 +3381,9 @@
                     },
                     "type": "object"
                 },
+                "query_metadata": {
+                    "type": "object"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -3441,6 +3474,9 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "query_metadata": {
+                    "type": "object"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -3516,6 +3552,9 @@
                 "next_allowed_client_refresh": {
                     "format": "date-time",
                     "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -3600,6 +3639,9 @@
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
+                },
+                "query_metadata": {
+                    "type": "object"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -3718,6 +3760,9 @@
                 "query": {
                     "description": "Input query string",
                     "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -3853,6 +3898,9 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "query_metadata": {
+                    "type": "object"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -3954,6 +4002,9 @@
                     },
                     "type": "object"
                 },
+                "query_metadata": {
+                    "type": "object"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -4042,6 +4093,9 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "query_metadata": {
+                    "type": "object"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -4129,6 +4183,9 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "query_metadata": {
+                    "type": "object"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -4209,6 +4266,9 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "query_metadata": {
+                    "type": "object"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -4218,7 +4278,12 @@
                     "description": "The date range used for the query"
                 },
                 "results": {
-                    "items": {},
+                    "items": {
+                        "items": {
+                            "$ref": "#/definitions/MarketingAnalyticsItem"
+                        },
+                        "type": "array"
+                    },
                     "type": "array"
                 },
                 "samplingRate": {
@@ -4276,6 +4341,9 @@
                 "next_allowed_client_refresh": {
                     "format": "date-time",
                     "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -4349,6 +4417,9 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "query_metadata": {
+                    "type": "object"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -4420,6 +4491,9 @@
                 "next_allowed_client_refresh": {
                     "format": "date-time",
                     "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -4499,6 +4573,9 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "query_metadata": {
+                    "type": "object"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -4572,6 +4649,9 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "query_metadata": {
+                    "type": "object"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -4638,6 +4718,9 @@
                 "next_allowed_client_refresh": {
                     "format": "date-time",
                     "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -4717,6 +4800,9 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "query_metadata": {
+                    "type": "object"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -4791,6 +4877,9 @@
                 "next_allowed_client_refresh": {
                     "format": "date-time",
                     "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -4871,6 +4960,9 @@
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
+                },
+                "query_metadata": {
+                    "type": "object"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -4956,6 +5048,9 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "query_metadata": {
+                    "type": "object"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -5040,6 +5135,9 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "query_metadata": {
+                    "type": "object"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -5123,6 +5221,9 @@
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
+                },
+                "query_metadata": {
+                    "type": "object"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -5223,6 +5324,9 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "query_metadata": {
+                    "type": "object"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -5295,6 +5399,9 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "query_metadata": {
+                    "type": "object"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -5354,6 +5461,9 @@
                 "next_allowed_client_refresh": {
                     "format": "date-time",
                     "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -5415,6 +5525,9 @@
                 "next_allowed_client_refresh": {
                     "format": "date-time",
                     "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -5500,6 +5613,9 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "query_metadata": {
+                    "type": "object"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -5576,6 +5692,9 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "query_metadata": {
+                    "type": "object"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -5647,6 +5766,9 @@
                 "next_allowed_client_refresh": {
                     "format": "date-time",
                     "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -5729,6 +5851,9 @@
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
+                },
+                "query_metadata": {
+                    "type": "object"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -5820,6 +5945,9 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "query_metadata": {
+                    "type": "object"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -5902,6 +6030,9 @@
                 "next_allowed_client_refresh": {
                     "format": "date-time",
                     "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -5986,6 +6117,9 @@
                 "next_allowed_client_refresh": {
                     "format": "date-time",
                     "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -6072,6 +6206,9 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "query_metadata": {
+                    "type": "object"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -6152,6 +6289,9 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "query_metadata": {
+                    "type": "object"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -6225,6 +6365,9 @@
                 "next_allowed_client_refresh": {
                     "format": "date-time",
                     "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -8175,7 +8318,12 @@
                                     "description": "The date range used for the query"
                                 },
                                 "results": {
-                                    "items": {},
+                                    "items": {
+                                        "items": {
+                                            "$ref": "#/definitions/MarketingAnalyticsItem"
+                                        },
+                                        "type": "array"
+                                    },
                                     "type": "array"
                                 },
                                 "samplingRate": {
@@ -12808,6 +12956,9 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "query_metadata": {
+                    "type": "object"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -13623,6 +13774,10 @@
             },
             "required": ["type", "content"],
             "type": "object"
+        },
+        "InfinityValue": {
+            "enum": [999999, -999999],
+            "type": "number"
         },
         "InsightActorsQuery": {
             "additionalProperties": false,
@@ -15028,7 +15183,7 @@
             "type": "object"
         },
         "MarketingAnalyticsBaseColumns": {
-            "enum": ["Campaign", "Source", "Total Cost", "Total Clicks", "Total Impressions", "Cost per Click", "CTR"],
+            "enum": ["Campaign", "Source", "Cost", "Clicks", "Impressions", "CPC", "CTR"],
             "type": "string"
         },
         "MarketingAnalyticsColumnsSchemaNames": {
@@ -15056,6 +15211,34 @@
         "MarketingAnalyticsHelperForColumnNames": {
             "enum": ["Goal", "Cost per"],
             "type": "string"
+        },
+        "MarketingAnalyticsItem": {
+            "additionalProperties": false,
+            "properties": {
+                "changeFromPreviousPct": {
+                    "type": "number"
+                },
+                "hasComparison": {
+                    "type": "boolean"
+                },
+                "isIncreaseBad": {
+                    "type": "boolean"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "kind": {
+                    "$ref": "#/definitions/WebAnalyticsItemKind"
+                },
+                "previous": {
+                    "type": ["number", "string"]
+                },
+                "value": {
+                    "type": ["number", "string"]
+                }
+            },
+            "required": ["key", "kind"],
+            "type": "object"
         },
         "MarketingAnalyticsOrderBy": {
             "items": [
@@ -15223,7 +15406,12 @@
                     "description": "The date range used for the query"
                 },
                 "results": {
-                    "items": {},
+                    "items": {
+                        "items": {
+                            "$ref": "#/definitions/MarketingAnalyticsItem"
+                        },
+                        "type": "array"
+                    },
                     "type": "array"
                 },
                 "samplingRate": {
@@ -18225,7 +18413,12 @@
                             "description": "The date range used for the query"
                         },
                         "results": {
-                            "items": {},
+                            "items": {
+                                "items": {
+                                    "$ref": "#/definitions/MarketingAnalyticsItem"
+                                },
+                                "type": "array"
+                            },
                             "type": "array"
                         },
                         "samplingRate": {
@@ -19186,7 +19379,12 @@
                             "description": "The date range used for the query"
                         },
                         "results": {
-                            "items": {},
+                            "items": {
+                                "items": {
+                                    "$ref": "#/definitions/MarketingAnalyticsItem"
+                                },
+                                "type": "array"
+                            },
                             "type": "array"
                         },
                         "samplingRate": {
@@ -23816,6 +24014,9 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "query_metadata": {
+                    "type": "object"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -24613,6 +24814,60 @@
             "required": ["date_from", "date_to"],
             "type": "object"
         },
+        "WebAnalyticsItemBase<(number|string)>": {
+            "additionalProperties": false,
+            "properties": {
+                "changeFromPreviousPct": {
+                    "type": "number"
+                },
+                "isIncreaseBad": {
+                    "type": "boolean"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "kind": {
+                    "$ref": "#/definitions/WebAnalyticsItemKind"
+                },
+                "previous": {
+                    "type": ["number", "string"]
+                },
+                "value": {
+                    "type": ["number", "string"]
+                }
+            },
+            "required": ["key", "kind"],
+            "type": "object"
+        },
+        "WebAnalyticsItemBase<number>": {
+            "additionalProperties": false,
+            "properties": {
+                "changeFromPreviousPct": {
+                    "type": "number"
+                },
+                "isIncreaseBad": {
+                    "type": "boolean"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "kind": {
+                    "$ref": "#/definitions/WebAnalyticsItemKind"
+                },
+                "previous": {
+                    "type": "number"
+                },
+                "value": {
+                    "type": "number"
+                }
+            },
+            "required": ["key", "kind"],
+            "type": "object"
+        },
+        "WebAnalyticsItemKind": {
+            "enum": ["unit", "duration_s", "percentage", "currency"],
+            "type": "string"
+        },
         "WebAnalyticsOrderBy": {
             "items": [
                 {
@@ -24943,7 +25198,7 @@
                     "type": "string"
                 },
                 "kind": {
-                    "$ref": "#/definitions/WebOverviewItemKind"
+                    "$ref": "#/definitions/WebAnalyticsItemKind"
                 },
                 "previous": {
                     "type": "number"
@@ -24957,10 +25212,6 @@
             },
             "required": ["key", "kind"],
             "type": "object"
-        },
-        "WebOverviewItemKind": {
-            "enum": ["unit", "duration_s", "percentage", "currency"],
-            "type": "string"
         },
         "WebOverviewQuery": {
             "additionalProperties": false,

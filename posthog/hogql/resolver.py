@@ -902,6 +902,11 @@ class Resolver(CloningVisitor):
                 return isinstance(node.type.table_type.table_type.table, EventsTable)
             if isinstance(node.type.table_type, ast.TableType):
                 return isinstance(node.type.table_type.table, EventsTable)
+        elif isinstance(node, ast.Field) and isinstance(node.type, ast.PropertyType):
+            if isinstance(node.type.field_type.table_type, ast.TableAliasType):
+                return isinstance(node.type.field_type.table_type.table_type.table, EventsTable)
+            if isinstance(node.type.field_type.table_type, ast.TableType):
+                return isinstance(node.type.field_type.table_type.table, EventsTable)
         return False
 
     def _is_s3_cluster(self, node: ast.Expr) -> bool:
