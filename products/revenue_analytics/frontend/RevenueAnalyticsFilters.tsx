@@ -100,6 +100,12 @@ export const RevenueAnalyticsFilters = (): JSX.Element => {
             }
             right={
                 <>
+                    <LemonSegmentedButton
+                        value={insightsDisplayMode}
+                        onChange={setInsightsDisplayMode}
+                        options={DISPLAY_MODE_OPTIONS}
+                    />
+
                     <DateFilter
                         dateFrom={dateFrom}
                         dateTo={dateTo}
@@ -108,14 +114,7 @@ export const RevenueAnalyticsFilters = (): JSX.Element => {
                     />
 
                     <RevenueAnalyticsPropertyFilters />
-
                     <RevenueAnalyticsBreakdownBy />
-
-                    <LemonSegmentedButton
-                        value={insightsDisplayMode}
-                        onChange={setInsightsDisplayMode}
-                        options={DISPLAY_MODE_OPTIONS}
-                    />
                 </>
             }
         />
