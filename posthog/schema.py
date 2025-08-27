@@ -22,15 +22,6 @@ class AIEventType(StrEnum):
     FIELD_AI_FEEDBACK = "$ai_feedback"
 
 
-class AccessControlLevel(StrEnum):
-    NONE = "none"
-    MEMBER = "member"
-    ADMIN = "admin"
-    VIEWER = "viewer"
-    EDITOR = "editor"
-    MANAGER = "manager"
-
-
 class MathGroupTypeIndex(float, Enum):
     NUMBER_0 = 0
     NUMBER_1 = 1
@@ -800,27 +791,6 @@ class CustomEventConversionGoal(BaseModel):
     customEventName: str
 
 
-class DashboardPrivilegeLevel(float, Enum):
-    NUMBER_21 = 21
-    NUMBER_37 = 37
-    NUMBER_888 = 888
-    NUMBER_999 = 999
-
-
-class DashboardRestrictionLevel(float, Enum):
-    NUMBER_21 = 21
-    NUMBER_37 = 37
-
-
-class DashboardTileBasicType(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    dashboard_id: float
-    deleted: Optional[bool] = None
-    id: float
-
-
 class DataColorToken(StrEnum):
     PRESET_1 = "preset-1"
     PRESET_2 = "preset-2"
@@ -1572,6 +1542,11 @@ class HogQueryResponse(BaseModel):
     stdout: Optional[str] = None
 
 
+class InfinityValue(float, Enum):
+    NUMBER_999999 = 999999
+    NUMBER__999999 = -999999
+
+
 class Compare(StrEnum):
     CURRENT = "current"
     PREVIOUS = "previous"
@@ -1681,10 +1656,10 @@ class OrderBy2(StrEnum):
 class MarketingAnalyticsBaseColumns(StrEnum):
     CAMPAIGN = "Campaign"
     SOURCE = "Source"
-    TOTAL_COST = "Total Cost"
-    TOTAL_CLICKS = "Total Clicks"
-    TOTAL_IMPRESSIONS = "Total Impressions"
-    COST_PER_CLICK = "Cost per Click"
+    COST = "Cost"
+    CLICKS = "Clicks"
+    IMPRESSIONS = "Impressions"
+    CPC = "CPC"
     CTR = "CTR"
 
 
@@ -2723,6 +2698,13 @@ class WebAnalyticsExternalSummaryRequest(BaseModel):
     explicit_date: Optional[bool] = None
 
 
+class WebAnalyticsItemKind(StrEnum):
+    UNIT = "unit"
+    DURATION_S = "duration_s"
+    PERCENTAGE = "percentage"
+    CURRENCY = "currency"
+
+
 class WebAnalyticsOrderByDirection(StrEnum):
     ASC = "ASC"
     DESC = "DESC"
@@ -2752,11 +2734,17 @@ class WebAnalyticsSampling(BaseModel):
     forceSamplingRate: Optional[SamplingRate] = None
 
 
-class WebOverviewItemKind(StrEnum):
-    UNIT = "unit"
-    DURATION_S = "duration_s"
-    PERCENTAGE = "percentage"
-    CURRENCY = "currency"
+class WebOverviewItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    changeFromPreviousPct: Optional[float] = None
+    isIncreaseBad: Optional[bool] = None
+    key: str
+    kind: WebAnalyticsItemKind
+    previous: Optional[float] = None
+    usedPreAggregatedTables: Optional[bool] = None
+    value: Optional[float] = None
 
 
 class WebStatsBreakdown(StrEnum):
@@ -2879,15 +2867,6 @@ class AlertCondition(BaseModel):
         extra="forbid",
     )
     type: AlertConditionType
-
-
-class Query(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    kind: NodeKind
-    response: Optional[dict[str, Any]] = None
-    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class AssistantArrayPropertyFilter(BaseModel):
@@ -4004,6 +3983,19 @@ class LogPropertyFilter(BaseModel):
     value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
+class MarketingAnalyticsItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    changeFromPreviousPct: Optional[float] = None
+    hasComparison: Optional[bool] = None
+    isIncreaseBad: Optional[bool] = None
+    key: str
+    kind: WebAnalyticsItemKind
+    previous: Optional[Union[float, str]] = None
+    value: Optional[Union[float, str]] = None
+
+
 class MarketingAnalyticsSchemaField(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4810,6 +4802,7 @@ class TestCachedBasicQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -4935,6 +4928,30 @@ class WebAnalyticsExternalSummaryQueryResponse(BaseModel):
     status: ExternalQueryStatus
 
 
+class WebAnalyticsItemBaseNumberString(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    changeFromPreviousPct: Optional[float] = None
+    isIncreaseBad: Optional[bool] = None
+    key: str
+    kind: WebAnalyticsItemKind
+    previous: Optional[Union[float, str]] = None
+    value: Optional[Union[float, str]] = None
+
+
+class WebAnalyticsItemBaseNumber(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    changeFromPreviousPct: Optional[float] = None
+    isIncreaseBad: Optional[bool] = None
+    key: str
+    kind: WebAnalyticsItemKind
+    previous: Optional[float] = None
+    value: Optional[float] = None
+
+
 class WebExternalClicksTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4993,19 +5010,6 @@ class WebGoalsQueryResponse(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: Optional[list] = None
-
-
-class WebOverviewItem(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    changeFromPreviousPct: Optional[float] = None
-    isIncreaseBad: Optional[bool] = None
-    key: str
-    kind: WebOverviewItemKind
-    previous: Optional[float] = None
-    usedPreAggregatedTables: Optional[bool] = None
-    value: Optional[float] = None
 
 
 class WebOverviewQueryResponse(BaseModel):
@@ -5186,51 +5190,6 @@ class AnalyticsQueryResponseBase(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-
-
-class AnyResponseType1(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    field_create_in_folder: Optional[str] = Field(
-        default=None, alias="_create_in_folder", description="Only used when creating objects"
-    )
-    cache_target_age: Optional[str] = None
-    created_at: Optional[str] = None
-    created_by: Optional[UserBasicType] = None
-    dashboard_tiles: Optional[list[DashboardTileBasicType]] = None
-    dashboards: Optional[list[float]] = None
-    deleted: Optional[bool] = None
-    derived_name: Optional[str] = None
-    description: Optional[str] = None
-    disable_baseline: Optional[bool] = Field(
-        default=None, description="Only used in the frontend to toggle showing Baseline in funnels or not"
-    )
-    effective_privilege_level: Optional[DashboardPrivilegeLevel] = None
-    effective_restriction_level: Optional[DashboardRestrictionLevel] = None
-    favorited: Optional[bool] = None
-    id: Optional[float] = Field(
-        default=None, description="The primary key in the database, used as well in API endpoints"
-    )
-    is_sample: Optional[bool] = None
-    last_modified_at: Optional[str] = None
-    last_modified_by: Optional[UserBasicType] = None
-    last_refresh: Optional[str] = None
-    name: Optional[str] = None
-    next: Optional[str] = Field(default=None, description="Only used in the frontend to store the next breakdown url")
-    next_allowed_client_refresh: Optional[str] = None
-    order: Optional[float] = None
-    query: Optional[Query] = None
-    query_status: Optional[QueryStatus] = None
-    result: Optional[Any] = None
-    saved: Optional[bool] = None
-    short_id: Optional[str] = Field(
-        default=None, description="The unique key we use when communicating with the user, e.g. in URLs"
-    )
-    tags: Optional[list[str]] = None
-    timezone: Optional[str] = None
-    updated_at: Optional[str] = None
-    user_access_level: Optional[AccessControlLevel] = None
 
 
 class AssistantFunnelNodeShared(BaseModel):
@@ -5737,6 +5696,7 @@ class CachedActorsPropertyTaxonomyQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -5775,6 +5735,7 @@ class CachedActorsQueryResponse(BaseModel):
     )
     next_allowed_client_refresh: datetime
     offset: int
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -5810,6 +5771,7 @@ class CachedCalendarHeatmapQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -5843,6 +5805,7 @@ class CachedEventTaxonomyQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -5880,6 +5843,7 @@ class CachedEventsQueryResponse(BaseModel):
     )
     next_allowed_client_refresh: datetime
     offset: Optional[int] = None
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -5908,6 +5872,7 @@ class CachedExperimentExposureQueryResponse(BaseModel):
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     last_refresh: datetime
     next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -5940,6 +5905,7 @@ class CachedFunnelCorrelationResponse(BaseModel):
     )
     next_allowed_client_refresh: datetime
     offset: Optional[int] = None
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -5975,6 +5941,7 @@ class CachedFunnelsQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -6013,6 +5980,7 @@ class CachedGroupsQueryResponse(BaseModel):
     )
     next_allowed_client_refresh: datetime
     offset: int
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -6047,6 +6015,7 @@ class CachedLifecycleQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -6084,6 +6053,7 @@ class CachedLogsQueryResponse(BaseModel):
     )
     next_allowed_client_refresh: datetime
     offset: Optional[int] = None
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -6121,13 +6091,14 @@ class CachedMarketingAnalyticsTableQueryResponse(BaseModel):
     )
     next_allowed_client_refresh: datetime
     offset: Optional[int] = None
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
     resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[list[MarketingAnalyticsItem]]
     samplingRate: Optional[SamplingRate] = None
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
@@ -6149,6 +6120,7 @@ class CachedNewExperimentQueryResponse(BaseModel):
     is_cached: bool
     last_refresh: datetime
     next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -6176,6 +6148,7 @@ class CachedPathsQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -6210,6 +6183,7 @@ class CachedRevenueAnalyticsGrowthRateQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -6244,6 +6218,7 @@ class CachedRevenueAnalyticsMetricsQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -6277,6 +6252,7 @@ class CachedRevenueAnalyticsOverviewQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -6311,6 +6287,7 @@ class CachedRevenueAnalyticsRevenueQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -6345,6 +6322,7 @@ class CachedRevenueAnalyticsTopCustomersQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -6382,6 +6360,7 @@ class CachedRevenueExampleDataWarehouseTablesQueryResponse(BaseModel):
     )
     next_allowed_client_refresh: datetime
     offset: Optional[int] = None
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -6420,6 +6399,7 @@ class CachedRevenueExampleEventsQueryResponse(BaseModel):
     )
     next_allowed_client_refresh: datetime
     offset: Optional[int] = None
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -6458,6 +6438,7 @@ class CachedSessionAttributionExplorerQueryResponse(BaseModel):
     )
     next_allowed_client_refresh: datetime
     offset: Optional[int] = None
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -6496,6 +6477,7 @@ class CachedSessionBatchEventsQueryResponse(BaseModel):
     )
     next_allowed_client_refresh: datetime
     offset: Optional[int] = None
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -6537,6 +6519,7 @@ class CachedSessionsTimelineQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -6570,6 +6553,7 @@ class CachedStickinessQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -6595,6 +6579,7 @@ class CachedSuggestedQuestionsQueryResponse(BaseModel):
     is_cached: bool
     last_refresh: datetime
     next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -6622,6 +6607,7 @@ class CachedTeamTaxonomyQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -6659,6 +6645,7 @@ class CachedTracesQueryResponse(BaseModel):
     )
     next_allowed_client_refresh: datetime
     offset: Optional[int] = None
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -6693,6 +6680,7 @@ class CachedTrendsQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -6726,6 +6714,7 @@ class CachedVectorSearchQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -6763,6 +6752,7 @@ class CachedWebExternalClicksTableQueryResponse(BaseModel):
     )
     next_allowed_client_refresh: datetime
     offset: Optional[int] = None
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -6802,6 +6792,7 @@ class CachedWebGoalsQueryResponse(BaseModel):
     )
     next_allowed_client_refresh: datetime
     offset: Optional[int] = None
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -6839,6 +6830,7 @@ class CachedWebOverviewQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -6876,6 +6868,7 @@ class CachedWebPageURLSearchQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -6913,6 +6906,7 @@ class CachedWebStatsTableQueryResponse(BaseModel):
     )
     next_allowed_client_refresh: datetime
     offset: Optional[int] = None
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -6949,6 +6943,7 @@ class CachedWebVitalsPathBreakdownQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -7660,7 +7655,7 @@ class Response17(BaseModel):
     resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[list[MarketingAnalyticsItem]]
     samplingRate: Optional[SamplingRate] = None
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -8505,6 +8500,7 @@ class GenericCachedQueryResponse(BaseModel):
     is_cached: bool
     last_refresh: datetime
     next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -8752,7 +8748,7 @@ class MarketingAnalyticsTableQueryResponse(BaseModel):
     resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[list[MarketingAnalyticsItem]]
     samplingRate: Optional[SamplingRate] = None
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -9392,7 +9388,7 @@ class QueryResponseAlternative31(BaseModel):
     resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[list[MarketingAnalyticsItem]]
     samplingRate: Optional[SamplingRate] = None
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -9814,7 +9810,7 @@ class QueryResponseAlternative49(BaseModel):
     resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[list[MarketingAnalyticsItem]]
     samplingRate: Optional[SamplingRate] = None
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -10952,7 +10948,6 @@ class AnyResponseType(
             EventsQueryResponse,
             ErrorTrackingQueryResponse,
             LogsQueryResponse,
-            AnyResponseType1,
         ]
     ]
 ):
@@ -10966,7 +10961,6 @@ class AnyResponseType(
         EventsQueryResponse,
         ErrorTrackingQueryResponse,
         LogsQueryResponse,
-        AnyResponseType1,
     ]
 
 
@@ -11018,6 +11012,7 @@ class CachedErrorTrackingQueryResponse(BaseModel):
     )
     next_allowed_client_refresh: datetime
     offset: Optional[int] = None
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -11059,6 +11054,7 @@ class CachedHogQLQueryResponse(BaseModel):
     next_allowed_client_refresh: datetime
     offset: Optional[int] = None
     query: Optional[str] = Field(default=None, description="Input query string")
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -11090,6 +11086,7 @@ class CachedInsightActorsQueryOptionsResponse(BaseModel):
     is_cached: bool
     last_refresh: datetime
     next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -11118,6 +11115,7 @@ class CachedRetentionQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -11195,6 +11193,7 @@ class CachedWebVitalsQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -11384,6 +11383,7 @@ class FunnelsFilter(BaseModel):
     funnelVizType: Optional[FunnelVizType] = FunnelVizType.STEPS
     funnelWindowInterval: Optional[int] = 14
     funnelWindowIntervalUnit: Optional[FunnelConversionWindowTimeUnit] = FunnelConversionWindowTimeUnit.DAY
+    goalLines: Optional[list[GoalLine]] = Field(default=None, description="Goal Lines")
     hiddenLegendBreakdowns: Optional[list[str]] = None
     layout: Optional[FunnelLayout] = FunnelLayout.VERTICAL
     resultCustomizations: Optional[dict[str, ResultCustomizationByValue]] = Field(
@@ -11991,6 +11991,7 @@ class CachedErrorTrackingIssueCorrelationQueryResponse(BaseModel):
     )
     next_allowed_client_refresh: datetime
     offset: Optional[int] = None
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -12023,6 +12024,7 @@ class CachedExperimentTrendsQueryResponse(BaseModel):
     next_allowed_client_refresh: datetime
     p_value: float
     probability: dict[str, float]
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -12946,6 +12948,7 @@ class CachedExperimentFunnelsQueryResponse(BaseModel):
     last_refresh: datetime
     next_allowed_client_refresh: datetime
     probability: dict[str, float]
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -12975,6 +12978,7 @@ class CachedExperimentQueryResponse(BaseModel):
     next_allowed_client_refresh: datetime
     p_value: Optional[float] = None
     probability: Optional[dict[str, float]] = None
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -13006,6 +13010,7 @@ class CachedLegacyExperimentQueryResponse(BaseModel):
     next_allowed_client_refresh: datetime
     p_value: float
     probability: dict[str, float]
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )

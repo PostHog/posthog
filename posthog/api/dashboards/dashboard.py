@@ -9,7 +9,7 @@ import structlog
 import pydantic_core
 import posthoganalytics
 from opentelemetry import trace
-from rest_framework import exceptions, serializers, status, viewsets
+from rest_framework import exceptions, serializers, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -30,6 +30,7 @@ from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template
 from posthog.models import Dashboard, DashboardTile, Insight, Text
+from posthog.models.alert import AlertConfiguration
 from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.insight_variable import InsightVariable
@@ -477,7 +478,12 @@ class DashboardSerializer(DashboardBasicSerializer):
                 "insight__tagged_items",
                 queryset=TaggedItem.objects.select_related("tag"),
                 to_attr="prefetched_tags",
-            )
+            ),
+            Prefetch(
+                "insight__alertconfiguration_set",
+                queryset=AlertConfiguration.objects.select_related("created_by"),
+                to_attr="_prefetched_alerts",
+            ),
         )
         self.user_permissions.set_preloaded_dashboard_tiles(list(tiles))
 
@@ -623,25 +629,6 @@ class DashboardsViewSet(
         dashboard.save(update_fields=["last_accessed_at"])
         serializer = DashboardSerializer(dashboard, context=self.get_serializer_context())
         return Response(serializer.data)
-
-    # ******************************************
-    # /projects/:id/dashboard/:id/viewed
-    # ******************************************
-    @action(methods=["POST"], detail=True)
-    def viewed(self, *args: Any, **kwargs: Any) -> Response:
-        from posthog.hogql_queries.utils.event_usage import log_event_usage_from_insight
-
-        insights = (
-            Insight.objects.filter(dashboard_tiles__dashboard=self.get_object()).distinct().only("query_metadata")
-        )
-        for insight in insights.iterator(chunk_size=100):
-            log_event_usage_from_insight(
-                insight,
-                team_id=self.team_id,
-                user_id=self.request.user.pk,
-            )
-
-        return Response(status=status.HTTP_201_CREATED)
 
     @action(methods=["PATCH"], detail=True)
     def move_tile(self, request: Request, *args: Any, **kwargs: Any) -> Response:

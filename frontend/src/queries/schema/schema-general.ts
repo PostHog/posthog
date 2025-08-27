@@ -39,7 +39,6 @@ import {
     PropertyGroupFilterValue,
     PropertyMathType,
     PropertyOperator,
-    QueryBasedInsightModel,
     RecordingPropertyFilter,
     RetentionDashboardDisplayType,
     RetentionFilterType,
@@ -305,7 +304,6 @@ export type AnyResponseType =
     | EventsQueryResponse
     | ErrorTrackingQueryResponse
     | LogsQueryResponse
-    | Partial<QueryBasedInsightModel>
 
 /** Tags that will be added to the Query log comment  **/
 export interface QueryLogTags {
@@ -1266,6 +1264,8 @@ export type FunnelsFilter = {
     useUdf?: boolean
     /** Customizations for the appearance of result datasets. */
     resultCustomizations?: Record<string, ResultCustomizationByValue>
+    /** Goal Lines */
+    goalLines?: GoalLine[]
 }
 
 export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
@@ -1577,6 +1577,7 @@ interface CachedQueryResponseMixin {
     query_status?: QueryStatus
     /** What triggered the calculation of the query, leave empty if user/immediate */
     calculation_trigger?: string
+    query_metadata?: object
 }
 
 type CachedQueryResponse<T> = T & CachedQueryResponseMixin
@@ -1796,14 +1797,16 @@ export interface WebOverviewQuery extends WebAnalyticsQueryBase<WebOverviewQuery
     kind: NodeKind.WebOverviewQuery
 }
 
-export type WebOverviewItemKind = 'unit' | 'duration_s' | 'percentage' | 'currency'
-export interface WebOverviewItem {
+export type WebAnalyticsItemKind = 'unit' | 'duration_s' | 'percentage' | 'currency'
+export interface WebAnalyticsItemBase<T> {
     key: string
-    value?: number
-    previous?: number
-    kind: WebOverviewItemKind
+    value?: T
+    previous?: T
+    kind: WebAnalyticsItemKind
     changeFromPreviousPct?: number
     isIncreaseBad?: boolean
+}
+export interface WebOverviewItem extends WebAnalyticsItemBase<number> {
     usedPreAggregatedTables?: boolean
 }
 
@@ -3592,8 +3595,12 @@ export interface MarketingAnalyticsTableQuery
     compareFilter?: CompareFilter
 }
 
+export interface MarketingAnalyticsItem extends WebAnalyticsItemBase<number | string> {
+    hasComparison?: boolean
+}
+
 export interface MarketingAnalyticsTableQueryResponse extends AnalyticsQueryResponseBase {
-    results: unknown[]
+    results: MarketingAnalyticsItem[][]
     types?: unknown[]
     columns?: unknown[]
     hogql?: string
@@ -3714,10 +3721,10 @@ export interface MarketingAnalyticsConfig {
 export enum MarketingAnalyticsBaseColumns {
     Campaign = 'Campaign',
     Source = 'Source',
-    TotalCost = 'Total Cost',
-    TotalClicks = 'Total Clicks',
-    TotalImpressions = 'Total Impressions',
-    CostPerClick = 'Cost per Click',
+    Cost = 'Cost',
+    Clicks = 'Clicks',
+    Impressions = 'Impressions',
+    CPC = 'CPC',
     CTR = 'CTR',
 }
 
@@ -3837,3 +3844,8 @@ export const externalDataSources = [
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
+
+export enum InfinityValue {
+    INFINITY_VALUE = 999999,
+    NEGATIVE_INFINITY_VALUE = -999999,
+}

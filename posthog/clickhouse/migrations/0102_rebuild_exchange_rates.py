@@ -15,15 +15,10 @@ from posthog.models.exchange_rate.sql import (
 operations = [
     # Drop tables/dictionaries to allow this to rerun
     # Dict first because it depends on the table
-    run_sql_with_exceptions(DROP_EXCHANGE_RATE_DICTIONARY_SQL()),
-    run_sql_with_exceptions(DROP_EXCHANGE_RATE_DICTIONARY_SQL(on_cluster=False), node_role=NodeRole.COORDINATOR),
-    run_sql_with_exceptions(DROP_EXCHANGE_RATE_TABLE_SQL()),
-    run_sql_with_exceptions(DROP_EXCHANGE_RATE_TABLE_SQL(on_cluster=False), node_role=NodeRole.COORDINATOR),
+    run_sql_with_exceptions(DROP_EXCHANGE_RATE_DICTIONARY_SQL(on_cluster=False), node_role=NodeRole.ALL),
+    run_sql_with_exceptions(DROP_EXCHANGE_RATE_TABLE_SQL(on_cluster=False), node_role=NodeRole.ALL),
     # Recreate them all
-    run_sql_with_exceptions(EXCHANGE_RATE_TABLE_SQL()),
-    run_sql_with_exceptions(EXCHANGE_RATE_TABLE_SQL(on_cluster=False), node_role=NodeRole.COORDINATOR),
-    run_sql_with_exceptions(EXCHANGE_RATE_DATA_BACKFILL_SQL()),
-    run_sql_with_exceptions(EXCHANGE_RATE_DATA_BACKFILL_SQL(), node_role=NodeRole.COORDINATOR),
-    run_sql_with_exceptions(EXCHANGE_RATE_DICTIONARY_SQL()),
-    run_sql_with_exceptions(EXCHANGE_RATE_DICTIONARY_SQL(on_cluster=False), node_role=NodeRole.COORDINATOR),
+    run_sql_with_exceptions(EXCHANGE_RATE_TABLE_SQL(on_cluster=False), node_role=NodeRole.ALL),
+    run_sql_with_exceptions(EXCHANGE_RATE_DATA_BACKFILL_SQL(), node_role=NodeRole.ALL),
+    run_sql_with_exceptions(EXCHANGE_RATE_DICTIONARY_SQL(on_cluster=False), node_role=NodeRole.ALL),
 ]
