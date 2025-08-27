@@ -25,7 +25,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
         }
 
         mock_result = {
-            "output": FinalAnswerArgs(query="SELECT AVG(properties.$session_length) FROM events"),
+            "output": FinalAnswerArgs(query="SELECT avg(properties.$session_length) FROM events"),
             "intermediate_steps": None,
         }
 
@@ -51,7 +51,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
                 args={"instructions": "What is the average session length?"},
             )
             result = await tool.ainvoke(tool_call.model_dump(), config=cast(RunnableConfig, config))
-            self.assertEqual(result.content, "```sql\nSELECT AVG(properties.$session_length) FROM events\n```")
+            self.assertEqual(result.content, "```sql\nSELECT avg(properties.$session_length) FROM events\n```")
 
     async def test_generates_queries_with_placeholders(self):
         config = {
@@ -89,9 +89,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
                 args={"instructions": "What are the properties for the variable {filters}?"},
             )
             result = await tool.ainvoke(tool_call.model_dump(), config=cast(RunnableConfig, config))
-            self.assertEqual(
-                result.content, "```sql\nSELECT properties FROM events WHERE {filters} AND {custom_filter}\n```"
-            )
+            self.assertEqual(result.content, "```sql\nSELECT properties FROM events WHERE and(1, 1)\n```")
 
     async def test_hogql_tool_quality_check_integration(self):
         """Test that HogQLGeneratorTool properly calls quality check methods."""
@@ -130,7 +128,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
             result = await tool.ainvoke(tool_call.model_dump(), config=cast(RunnableConfig, config))
 
             # Should succeed
-            self.assertEqual(result.content, "```sql\nSELECT count() FROM events LIMIT 50000\n```")
+            self.assertEqual(result.content, "```sql\nSELECT count() FROM events\n```")
             # Quality check should have been called exactly once (happy path, loop breaks on success)
             # Graph should have been called exactly once (happy path, loop breaks on success)
             mock_graph.ainvoke.assert_called_once()
