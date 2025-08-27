@@ -1,25 +1,27 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
-import { IconGraph, IconLineGraph } from '@posthog/icons'
+import { IconFilter, IconGraph, IconLineGraph } from '@posthog/icons'
 import {
+    LemonButton,
     LemonInputSelect,
     LemonInputSelectOption,
     LemonSegmentedButton,
     LemonSegmentedButtonOption,
+    Popover,
     Tooltip,
 } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
+import { FilterBar } from 'lib/components/FilterBar'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isRevenueAnalyticsPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
-import { IconAreaChart } from 'lib/lemon-ui/icons'
+import { IconAreaChart, IconWithCount } from 'lib/lemon-ui/icons'
 import { DATE_FORMAT, formatDateRange } from 'lib/utils'
-import { cn } from 'lib/utils/css-classes'
 
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 import { RevenueAnalyticsGroupBy } from '~/queries/schema/schema-general'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
@@ -82,28 +84,22 @@ const DISPLAY_MODE_OPTIONS: LemonSegmentedButtonOption<DisplayMode>[] = [
 ]
 
 export const RevenueAnalyticsFilters = (): JSX.Element => {
-    const { mobileLayout } = useValues(navigationLogic)
     const {
-        revenueAnalyticsFilter,
         dateFilter: { dateTo, dateFrom },
         insightsDisplayMode,
     } = useValues(revenueAnalyticsLogic)
 
-    const { setDates, setRevenueAnalyticsFilters, setInsightsDisplayMode } = useActions(revenueAnalyticsLogic)
+    const { setDates, setInsightsDisplayMode } = useActions(revenueAnalyticsLogic)
 
     return (
-        <div
-            className={cn(
-                'sticky z-20 bg-primary border-b py-2',
-                mobileLayout ? 'top-[var(--breadcrumbs-height-full)]' : 'top-[var(--breadcrumbs-height-compact)]'
-            )}
-        >
-            <div className="flex flex-row w-full justify-between gap-1">
-                <div className="flex flex-row gap-1">
-                    <Tooltip title="Refresh data">
-                        <ReloadAll iconOnly />
-                    </Tooltip>
-
+        <FilterBar
+            left={
+                <Tooltip title="Refresh data">
+                    <ReloadAll iconOnly />
+                </Tooltip>
+            }
+            right={
+                <>
                     <DateFilter
                         dateFrom={dateFrom}
                         dateTo={dateTo}
@@ -111,7 +107,37 @@ export const RevenueAnalyticsFilters = (): JSX.Element => {
                         dateOptions={DATE_FILTER_DATE_OPTIONS}
                     />
 
+                    <RevenueAnalyticsPropertyFilters />
+
+                    <RevenueAnalyticsBreakdownBy />
+
+                    <LemonSegmentedButton
+                        value={insightsDisplayMode}
+                        onChange={setInsightsDisplayMode}
+                        options={DISPLAY_MODE_OPTIONS}
+                    />
+                </>
+            }
+        />
+    )
+}
+
+const RevenueAnalyticsPropertyFilters = (): JSX.Element => {
+    const { revenueAnalyticsFilter } = useValues(revenueAnalyticsLogic)
+    const { setRevenueAnalyticsFilters } = useActions(revenueAnalyticsLogic)
+
+    const [displayFilters, setDisplayFilters] = useState(false)
+
+    return (
+        <Popover
+            visible={displayFilters}
+            onClickOutside={() => setDisplayFilters(false)}
+            placement="bottom"
+            className="max-w-200"
+            overlay={
+                <div className="p-2">
                     <PropertyFilters
+                        disablePopover
                         taxonomicGroupTypes={[TaxonomicFilterGroupType.RevenueAnalyticsProperties]}
                         onChange={(filters) =>
                             setRevenueAnalyticsFilters(filters.filter(isRevenueAnalyticsPropertyFilter))
@@ -120,18 +146,21 @@ export const RevenueAnalyticsFilters = (): JSX.Element => {
                         pageKey="revenue-analytics"
                     />
                 </div>
-
-                <div className="flex flex-row gap-1">
-                    <RevenueAnalyticsBreakdownBy />
-
-                    <LemonSegmentedButton
-                        value={insightsDisplayMode}
-                        onChange={setInsightsDisplayMode}
-                        options={DISPLAY_MODE_OPTIONS}
-                    />
-                </div>
-            </div>
-        </div>
+            }
+        >
+            <LemonButton
+                icon={
+                    <IconWithCount count={revenueAnalyticsFilter.length} showZero={false}>
+                        <IconFilter />
+                    </IconWithCount>
+                }
+                type="secondary"
+                data-attr="show-revenue-analytics-filters"
+                onClick={() => setDisplayFilters((displayFilters) => !displayFilters)}
+            >
+                Filters
+            </LemonButton>
+        </Popover>
     )
 }
 
