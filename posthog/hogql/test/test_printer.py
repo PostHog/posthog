@@ -2566,12 +2566,17 @@ class TestPrinter(BaseTest):
 
     def test_loose_syntax_function_normalization(self):
         """Test function name normalization with loose_syntax parameter."""
-        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        loose_context = HogQLContext(
+            team_id=self.team.pk, enable_select_queries=True, modifiers=HogQLQueryModifiers(looseSyntax=True)
+        )
+        strict_context = HogQLContext(
+            team_id=self.team.pk, enable_select_queries=True, modifiers=HogQLQueryModifiers(looseSyntax=False)
+        )
 
         # Test basic function normalization - aggregation functions
         query_ast = parse_select("SELECT COUNT() FROM events")
-        strict_result = print_ast(query_ast, context, "hogql", loose_syntax=False)
-        loose_result = print_ast(query_ast, context, "hogql", loose_syntax=True)
+        strict_result = print_ast(query_ast, strict_context, "hogql")
+        loose_result = print_ast(query_ast, loose_context, "hogql")
 
         self.assertIn("COUNT()", strict_result)
         self.assertIn("count()", loose_result)
@@ -2579,8 +2584,8 @@ class TestPrinter(BaseTest):
 
         # Test multiple aggregation functions
         query_ast = parse_select("SELECT SUM(value), AVG(score), MAX(age) FROM events")
-        strict_result = print_ast(query_ast, context, "hogql", loose_syntax=False)
-        loose_result = print_ast(query_ast, context, "hogql", loose_syntax=True)
+        strict_result = print_ast(query_ast, strict_context, "hogql")
+        loose_result = print_ast(query_ast, loose_context, "hogql")
 
         self.assertIn("SUM(", strict_result)
         self.assertIn("AVG(", strict_result)
@@ -2590,7 +2595,7 @@ class TestPrinter(BaseTest):
         self.assertIn("max(", loose_result)
 
         query_ast = parse_select("SELECT countIF(active = 1) FROM events")
-        result = print_ast(query_ast, context, "hogql", loose_syntax=True)
+        result = print_ast(query_ast, loose_context, "hogql")
         self.assertIn("countIf(", result)
 
     @pytest.mark.usefixtures("unittest_snapshot")

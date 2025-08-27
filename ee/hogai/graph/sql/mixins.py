@@ -3,7 +3,7 @@ from typing import cast
 
 from langchain_core.prompts import ChatPromptTemplate
 
-from posthog.schema import AssistantHogQLQuery
+from posthog.schema import AssistantHogQLQuery, HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -45,7 +45,11 @@ class HogQLGeneratorMixin(AssistantContextMixin):
 
     def _get_default_hogql_context(self, database: Database):
         hogql_context = HogQLContext(
-            team=self._team, database=database, enable_select_queries=True, limit_top_select=False
+            team=self._team,
+            database=database,
+            enable_select_queries=True,
+            limit_top_select=False,
+            modifiers=HogQLQueryModifiers(looseSyntax=True),
         )
         return hogql_context
 
@@ -97,7 +101,7 @@ class HogQLGeneratorMixin(AssistantContextMixin):
                 if finder.has_filters:
                     dummy_placeholders["filters"] = ast.Constant(value=1)
                 parsed_query = cast(ast.SelectQuery, replace_placeholders(parsed_query, dummy_placeholders))
-            return print_ast(parsed_query, context=hogql_context, dialect="hogql", loose_syntax=True)
+            return print_ast(parsed_query, context=hogql_context, dialect="hogql")
         except (ExposedHogQLError, HogQLNotImplementedError, ResolutionError) as err:
             err_msg = str(err)
             if err_msg.startswith("no viable alternative"):

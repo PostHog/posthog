@@ -108,11 +108,8 @@ def print_ast(
     stack: Optional[list[ast.SelectQuery]] = None,
     settings: Optional[HogQLGlobalSettings] = None,
     pretty: bool = False,
-    loose_syntax: bool = False,
 ) -> str:
-    prepared_ast = prepare_ast_for_printing(
-        node=node, context=context, dialect=dialect, stack=stack, settings=settings, loose_syntax=loose_syntax
-    )
+    prepared_ast = prepare_ast_for_printing(node=node, context=context, dialect=dialect, stack=stack, settings=settings)
     if prepared_ast is None:
         return ""
     return print_prepared_ast(
@@ -122,7 +119,6 @@ def print_ast(
         stack=stack,
         settings=settings,
         pretty=pretty,
-        loose_syntax=loose_syntax,
     )
 
 
@@ -132,7 +128,6 @@ def prepare_ast_for_printing(
     dialect: Literal["hogql", "clickhouse"],
     stack: Optional[list[ast.SelectQuery]] = None,
     settings: Optional[HogQLGlobalSettings] = None,
-    loose_syntax: bool = False,
 ) -> _T_AST | None:
     if context.database is None:
         with context.timings.measure("create_hogql_database"):
@@ -155,7 +150,6 @@ def prepare_ast_for_printing(
             context,
             dialect=dialect,
             scopes=[node.type for node in stack] if stack else None,
-            loose_syntax=loose_syntax,
         )
 
     if dialect == "clickhouse":
@@ -214,7 +208,6 @@ def print_prepared_ast(
     stack: Optional[list[ast.SelectQuery]] = None,
     settings: Optional[HogQLGlobalSettings] = None,
     pretty: bool = False,
-    loose_syntax: bool = False,
 ) -> str:
     with context.timings.measure("printer"):
         # _Printer also adds a team_id guard if printing clickhouse
@@ -224,7 +217,6 @@ def print_prepared_ast(
             stack=stack or [],
             settings=settings,
             pretty=pretty,
-            loose_syntax=loose_syntax,
         ).visit(node)
 
 
@@ -289,14 +281,12 @@ class _Printer(Visitor[str]):
         stack: Optional[list[AST]] = None,
         settings: Optional[HogQLGlobalSettings] = None,
         pretty: bool = False,
-        loose_syntax: bool = False,
     ):
         self.context = context
         self.dialect = dialect
         self.stack: list[AST] = stack or []  # Keep track of all traversed nodes.
         self.settings = settings
         self.pretty = pretty
-        self.loose_syntax = loose_syntax
         self._indent = -1
         self.tab_size = 4
 
@@ -1081,7 +1071,7 @@ class _Printer(Visitor[str]):
         return None  # nothing to optimize
 
     def visit_call(self, node: ast.Call):
-        if self.loose_syntax:
+        if self.context.modifiers.looseSyntax:
             corrected_name = find_correct_function_name(node.name)
             if corrected_name != node.name:
                 node.name = corrected_name

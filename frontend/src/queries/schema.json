@@ -13561,6 +13561,9 @@
                     "enum": ["auto", "leftjoin", "subquery", "leftjoin_conjoined"],
                     "type": "string"
                 },
+                "looseSyntax": {
+                    "type": "boolean"
+                },
                 "materializationMode": {
                     "enum": ["auto", "legacy_null_as_string", "legacy_null_as_null", "disabled"],
                     "type": "string"
