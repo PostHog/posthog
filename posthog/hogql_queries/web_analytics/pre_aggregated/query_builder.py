@@ -1,9 +1,12 @@
+from datetime import datetime
 from typing import Optional
 
 from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
 from posthog.hogql.property import property_to_expr
 
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.web_analytics.pre_aggregated.date_range import WebAnalyticsPreAggregatedDateRange
 from posthog.hogql_queries.web_analytics.pre_aggregated.property_transformer import (
     ChannelTypeReplacer,
     PreAggregatedPropertyTransformer,
@@ -36,7 +39,41 @@ class WebAnalyticsPreAggregatedQueryBuilder:
         if query.conversionGoal:
             return False
 
+        if not self.can_use_date_range():
+            return False
+
         return True
+
+    def can_use_date_range(self) -> bool:
+        # Parse the query's requested date range
+        # Some queries (like WebOverviewQuery) don't have an interval property, so we default to None
+        interval = getattr(self.runner.query, "interval", None)
+        requested_date_range = QueryDateRange(
+            date_range=self.runner.query.dateRange,
+            team=self.runner.team,
+            interval=interval,
+            now=datetime.now(),
+        )
+
+        requested_start = requested_date_range.date_from()
+        requested_end = requested_date_range.date_to()
+
+        # Convert requested dates to UTC for comparison with table data (which is stored in UTC)
+        if hasattr(requested_start, "astimezone"):
+            from zoneinfo import ZoneInfo
+
+            requested_start_utc = requested_start.astimezone(ZoneInfo("UTC"))
+            requested_end_utc = requested_end.astimezone(ZoneInfo("UTC"))
+        else:
+            # If dates are already timezone-naive, assume they're UTC
+            requested_start_utc = requested_start
+            requested_end_utc = requested_end
+
+        # Check if the requested range is available in pre-aggregated tables
+        use_v2_tables = getattr(self.runner, "use_v2_tables", False)
+        date_range_checker = WebAnalyticsPreAggregatedDateRange(team=self.runner.team, use_v2_tables=use_v2_tables)
+
+        return date_range_checker.is_date_range_pre_aggregated(requested_start_utc, requested_end_utc)
 
     def _get_channel_type_expr(self) -> ast.Expr:
         def _wrap_with_null_if_empty(expr: ast.Expr) -> ast.Expr:

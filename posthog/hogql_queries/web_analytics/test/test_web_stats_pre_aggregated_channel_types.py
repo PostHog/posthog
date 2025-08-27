@@ -1,5 +1,6 @@
 from freezegun import freeze_time
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events
+from unittest.mock import patch
 
 from posthog.schema import DateRange, HogQLQueryModifiers, SessionPropertyFilter, WebStatsBreakdown, WebStatsTableQuery
 
@@ -13,6 +14,20 @@ from posthog.models.web_preaggregated.sql import WEB_STATS_INSERT_SQL
 
 
 class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
+    def setUp(self):
+        super().setUp()
+        # Mock the date range validation to return True for easier testing
+        # (In reality, teams can be enabled through multiple strategies - see team_selection_strategies.py)
+        self._date_range_patcher = patch(
+            "posthog.hogql_queries.web_analytics.pre_aggregated.query_builder.WebAnalyticsPreAggregatedQueryBuilder.can_use_date_range",
+            return_value=True,
+        )
+        self._date_range_patcher.start()
+
+    def tearDown(self):
+        self._date_range_patcher.stop()
+        super().tearDown()
+
     def _setup_test_data(self):
         with freeze_time("2024-01-01T09:00:00Z"):
             sessions = [str(uuid7("2024-01-01")) for _ in range(20)]
