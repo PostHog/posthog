@@ -868,6 +868,9 @@ importers:
       lodash.sortby:
         specifier: ^4.7.0
         version: 4.7.0
+      lodash.throttle:
+        specifier: ^4.1.1
+        version: 4.1.1
       lodash.uniqby:
         specifier: ^4.7.0
         version: 4.7.0
@@ -1086,6 +1089,9 @@ importers:
       '@types/lodash.sortby':
         specifier: ^4.7.9
         version: 4.7.9
+      '@types/lodash.throttle':
+        specifier: ^4.1.1
+        version: 4.1.9
       '@types/lodash.uniqby':
         specifier: ^4.7.9
         version: 4.7.9
@@ -1798,9 +1804,6 @@ importers:
       kea-subscriptions:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
-      lodash.throttle:
-        specifier: ^4.1.1
-        version: 4.1.1
       posthog-js:
         specifier: 1.261.0
         version: 1.261.0(@rrweb/types@2.0.0-alpha.17)
@@ -1819,10 +1822,6 @@ importers:
       use-resize-observer:
         specifier: '*'
         version: 8.0.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-    devDependencies:
-      '@types/lodash.throttle':
-        specifier: ^4.1.9
-        version: 4.1.9
 
   products/experiments:
     dependencies:
@@ -36442,7 +36441,7 @@ snapshots:
 
   require-in-the-middle@7.5.2:
     dependencies:
-      debug: 4.4.0(supports-color@8.1.1)
+      debug: 4.4.0(supports-color@5.5.0)
       module-details-from-path: 1.0.4
       resolve: 1.22.8
     transitivePeerDependencies:

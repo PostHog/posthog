@@ -4,12 +4,11 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useSta
 import { Link, Spinner } from '@posthog/lemon-ui'
 
 import { Dayjs } from 'lib/dayjs'
+import { useAsyncCallback } from 'lib/hooks/useAsyncCallback'
 import { useScrollObserver } from 'lib/hooks/useScrollObserver'
 import { IconVerticalAlignCenter } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
-
-import { useAsyncCallback } from 'products/error_tracking/frontend/hooks/use-async-callback'
 
 import { ItemCategory, ItemCollector, ItemRenderer, RendererProps, TimelineItem } from './timeline'
 
