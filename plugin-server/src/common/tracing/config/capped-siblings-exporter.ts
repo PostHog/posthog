@@ -1,3 +1,4 @@
+import { SpanStatusCode } from '@opentelemetry/api'
 import { ReadableSpan, SpanExporter } from '@opentelemetry/sdk-trace-node'
 
 function durationMs(s: ReadableSpan): number {
@@ -7,7 +8,7 @@ function durationMs(s: ReadableSpan): number {
 }
 
 function hasError(s: ReadableSpan): boolean {
-    return s.status?.code === 2 /* SpanStatusCode.ERROR */
+    return s.status?.code === SpanStatusCode.ERROR
 }
 
 type Key = string // `${traceId}:${parentSpanId}:${name}`
