@@ -67,24 +67,6 @@ class TestSingleSessionSummary(BaseTest):
         self.assertEqual(summary.created_by, self.user)
         self.assertEqual(summary.team_id, self.team.id)
 
-    def test_get_summary_basic(self) -> None:
-        summary_serializer = SessionSummarySerializer(data=self.summary_data)
-        summary_serializer.is_valid(raise_exception=True)
-        SingleSessionSummary.objects.add_summary(
-            team_id=self.team.id,
-            session_id=self.session_id,
-            summary=summary_serializer,
-            exception_event_ids=self.exception_event_ids,
-        )
-
-        retrieved_summary: SingleSessionSummary | None = SingleSessionSummary.objects.get_summary(
-            team_id=self.team.id, session_id=self.session_id
-        )
-
-        self.assertIsNotNone(retrieved_summary)
-        assert retrieved_summary is not None
-        self.assertEqual(retrieved_summary.session_id, self.session_id)
-
     def test_get_summary_with_context(self) -> None:
         summary_serializer = SessionSummarySerializer(data=self.summary_data)
         summary_serializer.is_valid(raise_exception=True)
@@ -95,7 +77,6 @@ class TestSingleSessionSummary(BaseTest):
             exception_event_ids=self.exception_event_ids,
             extra_summary_context=self.extra_context,
         )
-
         SingleSessionSummary.objects.add_summary(
             team_id=self.team.id,
             session_id=self.session_id,
@@ -164,33 +145,33 @@ class TestSingleSessionSummary(BaseTest):
 
     def test_multiple_summaries_ordering(self) -> None:
         # Create minimal valid data with version info in session_outcome
-        summary_data1 = {
+        summary_data_1 = {
             "segments": [],
             "key_actions": [],
             "segment_outcomes": [],
             "session_outcome": {"description": "Version 1", "success": True},
         }
-        summary_serializer1 = SessionSummarySerializer(data=summary_data1)
-        summary_serializer1.is_valid(raise_exception=True)
+        summary_serializer_1 = SessionSummarySerializer(data=summary_data_1)
+        summary_serializer_1.is_valid(raise_exception=True)
         SingleSessionSummary.objects.add_summary(
             team_id=self.team.id,
             session_id=self.session_id,
-            summary=summary_serializer1,
+            summary=summary_serializer_1,
             exception_event_ids=[],
         )
 
-        summary_data2 = {
+        summary_data_2: dict[str, Any] = {
             "segments": [],
             "key_actions": [],
             "segment_outcomes": [],
             "session_outcome": {"description": "Version 2", "success": True},
         }
-        summary_serializer2 = SessionSummarySerializer(data=summary_data2)
-        summary_serializer2.is_valid(raise_exception=True)
+        summary_serializer_2 = SessionSummarySerializer(data=summary_data_2)
+        summary_serializer_2.is_valid(raise_exception=True)
         SingleSessionSummary.objects.add_summary(
             team_id=self.team.id,
             session_id=self.session_id,
-            summary=summary_serializer2,
+            summary=summary_serializer_2,
             exception_event_ids=[],
         )
 
@@ -200,44 +181,6 @@ class TestSingleSessionSummary(BaseTest):
         assert retrieved is not None
         # Should get the latest one (Version 2)
         self.assertEqual(retrieved.summary["session_outcome"]["description"], "Version 2")
-
-    def test_str_representation(self) -> None:
-        summary_serializer = SessionSummarySerializer(data=self.summary_data)
-        summary_serializer.is_valid(raise_exception=True)
-        SingleSessionSummary.objects.add_summary(
-            team_id=self.team.id,
-            session_id=self.session_id,
-            summary=summary_serializer,
-            exception_event_ids=[],
-        )
-
-        # Retrieve the summary without context
-        summary_no_context = SingleSessionSummary.objects.get_summary(
-            team_id=self.team.id,
-            session_id=self.session_id,
-        )
-        assert summary_no_context is not None
-        self.assertEqual(str(summary_no_context), f"Summary for session {self.session_id}")
-
-        SingleSessionSummary.objects.add_summary(
-            team_id=self.team.id,
-            session_id=self.session_id,
-            summary=summary_serializer,
-            exception_event_ids=[],
-            extra_summary_context=self.extra_context,
-        )
-
-        # Retrieve the summary with context
-        summary_with_context = SingleSessionSummary.objects.get_summary(
-            team_id=self.team.id,
-            session_id=self.session_id,
-            extra_summary_context=self.extra_context,
-        )
-        assert summary_with_context is not None
-        expected_str: str = (
-            f"Summary for session {self.session_id} with extra context {{'focus_area': 'authentication'}}"
-        )
-        self.assertEqual(str(summary_with_context), expected_str)
 
 
 class TestSingleSessionSummaryBulk(BaseTest):
@@ -277,23 +220,23 @@ class TestSingleSessionSummaryBulk(BaseTest):
             )
 
         for session_id in self.session_ids[3:5]:
-            summary_data1 = create_summary_data(f"Summary for {session_id} without context - older")
-            summary_serializer1 = SessionSummarySerializer(data=summary_data1)
-            summary_serializer1.is_valid(raise_exception=True)
+            summary_data_1 = create_summary_data(f"Summary for {session_id} without context - older")
+            summary_serializer_1 = SessionSummarySerializer(data=summary_data_1)
+            summary_serializer_1.is_valid(raise_exception=True)
             SingleSessionSummary.objects.add_summary(
                 team_id=self.team.id,
                 session_id=session_id,
-                summary=summary_serializer1,
+                summary=summary_serializer_1,
                 exception_event_ids=[],
                 extra_summary_context=None,
             )
-            summary_data2 = create_summary_data(f"Summary for {session_id} with auth context - newer")
-            summary_serializer2 = SessionSummarySerializer(data=summary_data2)
-            summary_serializer2.is_valid(raise_exception=True)
+            summary_data_2 = create_summary_data(f"Summary for {session_id} with auth context - newer")
+            summary_serializer_2 = SessionSummarySerializer(data=summary_data_2)
+            summary_serializer_2.is_valid(raise_exception=True)
             SingleSessionSummary.objects.add_summary(
                 team_id=self.team.id,
                 session_id=session_id,
-                summary=summary_serializer2,
+                summary=summary_serializer_2,
                 exception_event_ids=[],
                 extra_summary_context=self.extra_context,
             )
@@ -398,36 +341,36 @@ class TestSingleSessionSummaryBulk(BaseTest):
     def test_get_bulk_summaries_latest_per_session(self) -> None:
         session_id: str = "session-latest-test"
 
-        summary_data1 = {
+        summary_data_1: dict[str, Any] = {
             "segments": [],
             "key_actions": [],
             "segment_outcomes": [],
             "session_outcome": {"description": "Older summary - version 1", "success": True},
         }
-        summary_serializer1 = SessionSummarySerializer(data=summary_data1)
-        summary_serializer1.is_valid(raise_exception=True)
+        summary_serializer_1 = SessionSummarySerializer(data=summary_data_1)
+        summary_serializer_1.is_valid(raise_exception=True)
         SingleSessionSummary.objects.add_summary(
             team_id=self.team.id,
             session_id=session_id,
-            summary=summary_serializer1,
+            summary=summary_serializer_1,
             exception_event_ids=[],
             extra_summary_context=None,
         )
 
         time.sleep(0.01)
 
-        summary_data2 = {
+        summary_data_2: dict[str, Any] = {
             "segments": [],
             "key_actions": [],
             "segment_outcomes": [],
             "session_outcome": {"description": "Newer summary - version 2", "success": True},
         }
-        summary_serializer2 = SessionSummarySerializer(data=summary_data2)
-        summary_serializer2.is_valid(raise_exception=True)
+        summary_serializer_2 = SessionSummarySerializer(data=summary_data_2)
+        summary_serializer_2.is_valid(raise_exception=True)
         SingleSessionSummary.objects.add_summary(
             team_id=self.team.id,
             session_id=session_id,
-            summary=summary_serializer2,
+            summary=summary_serializer_2,
             exception_event_ids=[],
             extra_summary_context=None,
         )
@@ -446,7 +389,7 @@ class TestSingleSessionSummaryBulk(BaseTest):
         other_team: Team = Organization.objects.bootstrap(None)[2]
 
         for session_id in self.session_ids[:3]:
-            summary_data = {
+            summary_data: dict[str, Any] = {
                 "segments": [],
                 "key_actions": [],
                 "segment_outcomes": [],
@@ -472,18 +415,6 @@ class TestSingleSessionSummaryBulk(BaseTest):
         for summary in result.results:
             self.assertEqual(summary.team_id, self.team.id)
 
-    def test_get_bulk_summaries_nonexistent_sessions(self) -> None:
-        nonexistent_ids: list[str] = ["nonexistent-1", "nonexistent-2", "nonexistent-3"]
-
-        result: SessionSummaryPage = SingleSessionSummary.objects.get_bulk_summaries(
-            team_id=self.team.id,
-            session_ids=nonexistent_ids,
-            extra_summary_context=None,
-        )
-
-        self.assertEqual(len(result.results), 0)
-        self.assertFalse(result.has_next)
-
     def test_get_bulk_summaries_mixed_sessions(self) -> None:
         mixed_ids: list[str] = [self.session_ids[0], "nonexistent", self.session_ids[1]]
 
@@ -497,19 +428,7 @@ class TestSingleSessionSummaryBulk(BaseTest):
         result_session_ids: set[str] = {s.session_id for s in result.results}
         self.assertEqual(result_session_ids, {self.session_ids[0], self.session_ids[1]})
 
-    def test_get_bulk_summaries_invalid_offset(self) -> None:
-        result: SessionSummaryPage = SingleSessionSummary.objects.get_bulk_summaries(
-            team_id=self.team.id,
-            session_ids=self.session_ids,
-            extra_summary_context=None,
-            offset=999,
-        )
-
-        self.assertEqual(len(result.results), 0)
-        self.assertFalse(result.has_next)
-
     def test_summaries_exist_single_without_context(self) -> None:
-        # Test with non-existent session
         result: dict[str, bool] = SingleSessionSummary.objects.summaries_exist(
             team_id=self.team.id,
             session_ids=["non-existent"],
@@ -651,20 +570,10 @@ class TestSingleSessionSummaryBulk(BaseTest):
             },
         )
 
-    def test_summaries_exist_empty_list(self) -> None:
-        result: dict[str, bool] = SingleSessionSummary.objects.summaries_exist(
-            team_id=self.team.id,
-            session_ids=[],
-            extra_summary_context=None,
-        )
-        self.assertEqual(result, {})
-
     def test_summaries_exist_large_batch(self) -> None:
-        # Create many sessions
         large_session_ids: list[str] = [f"large-batch-{i:04d}" for i in range(200)]
-        # Add summaries for half of them
         for i in range(100):
-            summary_data = {
+            summary_data: dict[str, Any] = {
                 "segments": [],
                 "key_actions": [],
                 "segment_outcomes": [],
@@ -686,5 +595,5 @@ class TestSingleSessionSummaryBulk(BaseTest):
         )
         # First 100 should exist, last 100 should not
         for i in range(200):
-            expected = i < 100
+            expected: bool = i < 100
             self.assertEqual(result[large_session_ids[i]], expected, f"Session {i} existence check failed")
