@@ -57,8 +57,8 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                             responseData.detail === '2FA verification required') &&
                         !values.timeSensitiveAuthenticationRequired
                     ) {
-                        const setupCallState = twoFactorLogic.findMounted()?.values.setupCallState
-                        if (!setupCallState?.isOngoing) {
+                        const modalOpen = twoFactorLogic.findMounted()?.values.isTwoFactorSetupModalOpen
+                        if (!modalOpen) {
                             twoFactorLogic.findMounted()?.actions.openTwoFactorSetupModal(true)
                         }
                     }

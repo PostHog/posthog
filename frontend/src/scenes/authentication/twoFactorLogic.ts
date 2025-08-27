@@ -109,7 +109,7 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
         is2FAEnabled: [(s) => [s.status], (status): boolean => !!status?.is_enabled],
         canSwitchOrg: [(s) => [s.user], (user): boolean => (user?.organizations || []).length > 1],
     }),
-    loaders(({ values, actions }) => ({
+    loaders(({ values, actions, asyncActions }) => ({
         startSetup: [
             null as { secret: string; success: boolean } | null,
             {
@@ -120,6 +120,16 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
                         return values.startSetup
                     }
 
+                    await asyncActions.loadStatus()
+                    breakpoint()
+
+                    if (values.is2FAEnabled) {
+                        // If the user already has 2FA enabled, we don't need to start the setup
+                        // We return success: true to pop up a verification modal instead
+                        return { success: true, secret: null }
+                    }
+
+                    // We need this to prevent triggering the setup API call multiple times, which breaks the flow
                     actions.setSetupCallOngoing(true)
 
                     breakpoint()
