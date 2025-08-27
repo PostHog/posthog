@@ -73,11 +73,15 @@ def enforce_two_factor(request, user):
     if is_path_whitelisted(request.path):
         return
 
+    # We currently don't enforce 2FA for any SSO-authenticated users, as we depend on the SSO provider to handle 2FA
+    # TODO: This will soon be made configurable
     if is_sso_authentication_backend(request._request):
         return
 
     organization = getattr(user, "organization", None)
     if organization and organization.enforce_2fa:
+        # Same as above, we don't enforce 2FA on SSO-enforced domains, we depend on the SSO provider to handle 2FA
+        # TODO: This will soon be made configurable
         if is_domain_sso_enforced(request._request):
             return
 
