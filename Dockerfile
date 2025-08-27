@@ -150,9 +150,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN /python-runtime/bin/python -m playwright install --with-deps chromium
 
 # Validate installations to catch issues early
-RUN ffmpeg -version && \
-    /python-runtime/bin/python -c "import playwright; print(f'Playwright {playwright.__version__} installed')" && \
-    /python-runtime/bin/python -c "from playwright.sync_api import sync_playwright; print('Playwright sync API available')"
+RUN ffmpeg -version
+RUN /python-runtime/bin/python -c "import playwright; print('Playwright package imported successfully')"
+RUN /python-runtime/bin/python -c "from playwright.sync_api import sync_playwright; print('Playwright sync API available')"
+RUN /python-runtime/bin/python -m playwright --version
 
 #
 # ---------------------------------------------------------
