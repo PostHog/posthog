@@ -85,6 +85,15 @@ struct PartitionTracker {
     _processor_handle: JoinHandle<()>,
 }
 
+impl Drop for PartitionTracker {
+    fn drop(&mut self) {
+        // The JoinHandle will be dropped, which aborts the task
+        // The channel will be closed when completion_tx is dropped
+        // Log for debugging
+        debug!("Dropping PartitionTracker - completion processor task will be aborted");
+    }
+}
+
 impl PartitionTracker {
     fn new(topic: String, partition: i32, global_stats: Arc<GlobalStats>) -> Self {
         let (completion_tx, mut completion_rx) = mpsc::unbounded_channel::<MessageCompletion>();
@@ -144,7 +153,7 @@ impl PartitionTracker {
                     // Emit metrics for successful commit
                     metrics::gauge!(PARTITION_LAST_COMMITTED_OFFSET, 
                         "topic" => topic.clone(), 
-                        "partition" => partition.to_string()
+                    "partition" => partition.to_string()
                     ).set(*last_committed as f64);
                     
                     debug!(
@@ -519,6 +528,7 @@ impl InFlightTracker {
     pub async fn finalize_revocation(&self, partitions: &[(String, i32)]) {
         let mut revoked = self.revoked_partitions.write().await;
         let mut fenced = self.fenced_partitions.write().await;
+        let mut partition_trackers = self.partitions.write().await;
 
         for (topic, partition) in partitions {
             info!(
@@ -528,6 +538,15 @@ impl InFlightTracker {
             revoked.insert((topic.clone(), *partition));
             // Remove from fenced map as it's now fully revoked
             fenced.remove(&(topic.clone(), *partition));
+            
+            // IMPORTANT: Remove the PartitionTracker to clean up resources
+            // This will drop the tracker and its completion processor task
+            if partition_trackers.remove(&(topic.clone(), *partition)).is_some() {
+                info!(
+                    "Removed PartitionTracker for revoked partition {}:{}",
+                    topic, partition
+                );
+            }
         }
     }
 
@@ -535,12 +554,22 @@ impl InFlightTracker {
     pub async fn mark_partitions_active(&self, partitions: &[(String, i32)]) {
         let mut revoked = self.revoked_partitions.write().await;
         let mut fenced = self.fenced_partitions.write().await;
+        let mut partition_trackers = self.partitions.write().await;
 
         for (topic, partition) in partitions {
             info!("Marking partition {}:{} as active", topic, partition);
             revoked.remove(&(topic.clone(), *partition));
             // Remove any fencing
             fenced.remove(&(topic.clone(), *partition));
+            
+            // Remove any old tracker to ensure clean state when partition is reassigned
+            // The new tracker will be created when the first message arrives
+            if partition_trackers.remove(&(topic.clone(), *partition)).is_some() {
+                info!(
+                    "Removed old PartitionTracker for newly assigned partition {}:{} to ensure clean state",
+                    topic, partition
+                );
+            }
         }
     }
 

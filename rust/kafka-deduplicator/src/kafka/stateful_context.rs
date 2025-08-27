@@ -185,8 +185,15 @@ impl ConsumerContext for StatefulConsumerContext {
                 let partition_infos: Vec<(String, i32)> = partitions
                     .elements()
                     .into_iter()
-                    .map(|elem| (elem.topic().to_string(), elem.partition()))
+                    .map(|elem| {
+                        let topic = elem.topic().to_string();
+                        let partition = elem.partition();
+                        info!("🎯 Assigned partition: {}-{}", topic, partition);
+                        (topic, partition)
+                    })
                     .collect();
+                
+                info!("📋 Total partitions assigned: {:?}", partition_infos);
 
                 // Send assignment event to async worker
                 if let Err(e) = self
