@@ -1,13 +1,8 @@
 import clsx from 'clsx'
-import { useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconFilter } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-
-import { cn } from 'lib/utils/css-classes'
-
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
 
 export interface FilterBarProps {
     top?: React.ReactNode
@@ -17,15 +12,9 @@ export interface FilterBarProps {
 
 export const FilterBar = ({ top, left, right }: FilterBarProps): JSX.Element => {
     const [expanded, setExpanded] = useState(false)
-    const { mobileLayout } = useValues(navigationLogic)
 
     return (
-        <div
-            className={cn(
-                'sticky z-20 bg-primary border-b py-2',
-                mobileLayout ? 'top-[var(--breadcrumbs-height-full)]' : 'top-[var(--breadcrumbs-height-compact)]'
-            )}
-        >
+        <div className="sticky z-20 bg-primary border-b py-2 top-[var(--breadcrumbs-height-compact)]">
             {top}
 
             <div className="flex flex-col md:flex-row md:justify-between gap-2">
