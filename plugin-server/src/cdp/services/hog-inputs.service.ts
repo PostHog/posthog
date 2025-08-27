@@ -1,5 +1,6 @@
 import { convertHogToJS } from '@posthog/hogvm'
 
+import { ACCESS_TOKEN_PLACEHOLDER } from '~/config/constants'
 import { Hub } from '~/types'
 
 import { HogFunctionInvocationGlobals, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
@@ -99,6 +100,12 @@ export class HogInputsService {
                     value: {
                         ...integration.config,
                         ...integration.sensitive_config,
+                        ...(key === 'oauth'
+                            ? {
+                                  access_token: ACCESS_TOKEN_PLACEHOLDER + integration.id,
+                                  access_token_raw: integration.sensitive_config.access_token,
+                              }
+                            : {}),
                     },
                 }
             }
