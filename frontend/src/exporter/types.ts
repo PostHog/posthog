@@ -12,12 +12,18 @@ export interface ExportOptions {
     noHeader?: boolean
     legend?: boolean
     detailed?: boolean
+    hideExtraDetails?: boolean
     // Recording options
     showInspector?: boolean
+    mode?: any // SessionRecordingPlayerMode
+    autoplay?: boolean
+    noBorder?: boolean
 }
 
 export interface ExportedData extends ExportOptions {
     accessToken?: string
+    shareToken?: string // JWT token for password-protected shares
+    exportToken?: string
     type: ExportType
     dashboard?: DashboardType
     insight?: InsightModel

@@ -7,8 +7,16 @@ import posthog from 'posthog-js'
 import { ReactNode, useEffect, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconCollapse, IconExpand, IconInfo, IconLock } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDivider, LemonModal, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+import { IconCollapse, IconCopy, IconExpand, IconInfo, IconLock } from '@posthog/icons'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonDivider,
+    LemonInput,
+    LemonModal,
+    LemonSkeleton,
+    LemonSwitch,
+} from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TemplateLinkSection } from 'lib/components/Sharing/TemplateLinkSection'

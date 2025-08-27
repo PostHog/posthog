@@ -2,7 +2,7 @@
 @import '../styles/global';
 
 body {
-    @include light-mode-3000-variables;
+    // CSS variables would go here if needed for the exporter
 }
 
 body.ExporterBody {

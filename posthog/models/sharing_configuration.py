@@ -8,6 +8,7 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.insight import Insight
 
 logger = structlog.get_logger(__name__)
@@ -75,6 +76,24 @@ class SharingConfiguration(models.Model):
         )
 
         return new_config
+
+    def generate_password_protected_token(self) -> str:
+        """
+        Generate a JWT token for password-protected sharing access.
+        This token is time-limited and scoped to this specific sharing configuration.
+        """
+        if not self.password_required:
+            raise ValueError("Cannot generate password-protected token for non-password-protected sharing")
+
+        return encode_jwt(
+            payload={
+                "sharing_config_id": self.id,
+                "team_id": self.team_id,
+                "access_token": self.access_token,  # Include for validation
+            },
+            expiry_delta=timedelta(hours=24),  # 24-hour session duration
+            audience=PosthogJwtAudience.SHARING_PASSWORD_PROTECTED,
+        )
 
     def can_access_object(self, obj: models.Model):
         if obj.team_id != self.team_id:  # type: ignore

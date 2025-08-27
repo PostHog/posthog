@@ -25,7 +25,9 @@ import { exporterViewLogic } from './exporterViewLogic'
 export function Exporter(props: ExportedData): JSX.Element {
     // NOTE: Mounting the logic is important as it is used by sub-logics
     const { exportedData } = useValues(exporterViewLogic(props))
-    const { type, dashboard, insight, recording, themes, accessToken, exportToken, ...exportOptions } = exportedData
+
+    const { type, dashboard, insight, recording, themes, accessToken, shareToken, exportToken, ...exportOptions } =
+        exportedData
     const { whitelabel, showInspector = false } = exportOptions
 
     const { currentTeam } = useValues(teamLogic)
@@ -93,7 +95,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                     autoPlay={exportedData.autoplay ?? false}
                     noInspector={!showInspector}
                     noBorder={exportedData.noBorder ?? false}
-                    accessToken={exportToken}
+                    accessToken={exportToken || shareToken}
                 />
             ) : (
                 <h1 className="text-center p-4">Something went wrong...</h1>

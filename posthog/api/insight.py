@@ -850,7 +850,12 @@ class InsightViewSet(
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
-        context["is_shared"] = isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication)
+        from posthog.auth import SharingPasswordProtectedAuthentication
+
+        context["is_shared"] = isinstance(
+            self.request.successful_authenticator,
+            SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication,
+        )
         context["insight_variables"] = InsightVariable.objects.filter(team=self.team).all()
 
         return context
@@ -863,7 +868,12 @@ class InsightViewSet(
 
         include_deleted = False
 
-        if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
+        from posthog.auth import SharingPasswordProtectedAuthentication
+
+        if isinstance(
+            self.request.successful_authenticator,
+            SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication,
+        ):
             queryset = queryset.filter(
                 id__in=self.request.successful_authenticator.sharing_configuration.get_connected_insight_ids()
             )

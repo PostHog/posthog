@@ -337,12 +337,70 @@ class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
                 sharing_configuration = SharingConfiguration.objects.get(
                     access_token=sharing_access_token, enabled=True
                 )
+
+                # If password is required, deny access via direct access_token
+                if sharing_configuration.password_required:
+                    raise AuthenticationFailed(detail="Password-protected shares require JWT token authentication.")
+
             except SharingConfiguration.DoesNotExist:
                 raise AuthenticationFailed(detail="Sharing access token is invalid.")
             else:
                 self.sharing_configuration = sharing_configuration
                 return (AnonymousUser(), None)
         return None
+
+
+class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
+    """
+    JWT-based authentication for password-protected shared resources
+    """
+
+    sharing_configuration: SharingConfiguration
+
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, Any]]:
+        # Only allow JWT authentication for specific endpoints
+        is_shared_endpoint = request.path.startswith("/shared/")
+        is_insight_endpoint = "/insights/" in request.path and request.path.startswith("/api/environments/")
+
+        if not (is_shared_endpoint or is_insight_endpoint):
+            return None
+
+        # Look for JWT token in Authorization header
+        auth_header = request.META.get("HTTP_AUTHORIZATION", "")
+        if not auth_header.startswith("Bearer "):
+            return None
+
+        sharing_jwt_token = auth_header[7:]  # Remove 'Bearer ' prefix
+
+        if request.method not in ["GET", "HEAD"]:
+            raise AuthenticationFailed(detail="Sharing JWT token can only be used for GET requests.")
+
+        try:
+            payload = decode_jwt(sharing_jwt_token, PosthogJwtAudience.SHARING_PASSWORD_PROTECTED)
+
+            sharing_configuration = SharingConfiguration.objects.get(
+                id=payload["sharing_config_id"], team_id=payload["team_id"], enabled=True, password_required=True
+            )
+
+            # Verify the access token matches (prevents token reuse across different shares)
+            if sharing_configuration.access_token != payload.get("access_token"):
+                raise AuthenticationFailed(detail="Invalid sharing token.")
+
+            # For /shared/ endpoints, ensure JWT can only be used for the specific shared dashboard in the URL
+            if is_shared_endpoint:
+                path_parts = request.path.strip("/").split("/")
+                if len(path_parts) >= 2:
+                    url_access_token = path_parts[1].split(".")[0]  # Remove any file extension
+                    if sharing_configuration.access_token != url_access_token:
+                        raise AuthenticationFailed(detail="JWT token is not valid for this shared resource.")
+                else:
+                    return None
+
+        except (jwt.InvalidTokenError, SharingConfiguration.DoesNotExist, KeyError):
+            raise AuthenticationFailed(detail="Invalid or expired sharing token.")
+        else:
+            self.sharing_configuration = sharing_configuration
+            return (AnonymousUser(), None)
 
 
 class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):

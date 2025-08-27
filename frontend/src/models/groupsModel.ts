@@ -153,7 +153,8 @@ export const groupsModel = kea<groupsModelType>([
     afterMount(({ actions }) => {
         if (window.POSTHOG_APP_CONTEXT?.current_team?.group_types) {
             actions.loadAllGroupTypesSuccess(window.POSTHOG_APP_CONTEXT.current_team.group_types)
-        } else {
+        } else if (!window.POSTHOG_EXPORTED_DATA) {
+            // Don't load in shared/exporter mode
             actions.loadAllGroupTypes()
         }
     }),

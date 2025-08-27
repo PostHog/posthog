@@ -209,6 +209,10 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
         ],
     }),
     afterMount(({ actions }) => {
-        actions.loadDatabase()
+        // Don't load database in shared/exporter mode
+        // Check if we're in an exported/shared context
+        if (!window.POSTHOG_EXPORTED_DATA) {
+            actions.loadDatabase()
+        }
     }),
 ])

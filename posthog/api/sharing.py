@@ -21,6 +21,7 @@ from posthog.api.exports import ExportedAssetSerializer
 from posthog.api.insight import InsightSerializer
 from posthog.api.insight_variable import InsightVariable
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import AvailableFeature
 from posthog.models import InsightViewed, SessionRecording, SharingConfiguration, Team
@@ -227,7 +228,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
     4. Export downloading - used to download the actual content of an export if requested with the correct extension
     """
 
-    authentication_classes = []
+    authentication_classes = [SharingPasswordProtectedAuthentication, SharingAccessTokenAuthentication]
     permission_classes = []
 
     def get_object(self) -> Optional[SharingConfiguration | ExportedAsset]:
@@ -284,7 +285,12 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             exported_data.update({"whitelabel": True})
 
         if isinstance(resource, SharingConfiguration) and resource.password_required:
-            if request.method == "GET":
+            # Check if user is already authenticated via JWT token
+            from posthog.auth import SharingPasswordProtectedAuthentication
+
+            is_jwt_authenticated = isinstance(request.successful_authenticator, SharingPasswordProtectedAuthentication)
+
+            if request.method == "GET" and not is_jwt_authenticated:
                 exported_data["type"] = "unlock"
                 return render_template(
                     "exporter.html",
@@ -294,8 +300,22 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                         "add_og_tags": None,
                     },
                 )
-            if "password" not in request.data or request.data["password"] != resource.password:
+            elif (
+                request.method == "GET" and is_jwt_authenticated and request.headers.get("Accept") == "application/json"
+            ):
+                # JWT authenticated GET request with JSON Accept header - return dashboard data as JSON
+                exported_data["shareToken"] = request.META.get("HTTP_AUTHORIZATION", "").replace("Bearer ", "")
+                exported_data.pop("accessToken", None)  # Remove access_token to prevent direct API access
+                # Continue processing to add dashboard/insight data to exported_data
+                pass
+            elif request.method == "POST" and (
+                "password" not in request.data or request.data["password"] != resource.password
+            ):
                 return response.Response({"error": "Incorrect password"}, status=401)
+            elif request.method == "POST":
+                # Password is correct - generate JWT token and return ONLY the token
+                jwt_token = resource.generate_password_protected_token()
+                return response.Response({"shareToken": jwt_token})
 
         if isinstance(resource, SharingConfiguration) and request.path.endswith(f".png"):
             exported_data["accessToken"] = resource.access_token
@@ -304,7 +324,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 raise NotFound()
             return get_content_response(exported_asset, False)
         elif isinstance(resource, SharingConfiguration):
-            exported_data["accessToken"] = resource.access_token
+            # Only add accessToken for non-password-protected shares
+            if not resource.password_required:
+                exported_data["accessToken"] = resource.access_token
         elif isinstance(resource, ExportedAsset):
             if request.path.endswith(f".{resource.file_ext}"):
                 return get_content_response(resource, request.query_params.get("download") == "true")
@@ -350,11 +372,44 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         if "detailed" in request.GET:
             exported_data.update({"detailed": True})
 
-        if request.path.endswith(f".json") or request.method == "POST":
+        # Return JSON if requested via .json extension, Accept header, or POST method
+        wants_json = (
+            request.path.endswith(f".json")
+            or request.method == "POST"
+            or request.headers.get("Accept") == "application/json"
+        )
+
+        if wants_json:
+            # For password-protected POST requests, only return basic metadata and JWT token
+            if request.method == "POST" and isinstance(resource, SharingConfiguration) and resource.password_required:
+                # Return only the essentials for the frontend to work
+                minimal_data = {
+                    "type": exported_data.get("type", "scene"),
+                    "shareToken": exported_data.get("shareToken"),
+                    "whitelabel": exported_data.get("whitelabel", False),
+                    "noHeader": exported_data.get("noHeader", False),
+                    "showInspector": exported_data.get("showInspector", False),
+                    "legend": exported_data.get("legend", False),
+                    "detailed": exported_data.get("detailed", False),
+                }
+                return response.Response(minimal_data)
+
             return response.Response(exported_data)
 
         if request.GET.get("force_type"):
             exported_data["type"] = request.GET.get("force_type")
+
+        # Check if this is a JWT authenticated request with JSON Accept header
+        from posthog.auth import SharingPasswordProtectedAuthentication
+
+        if (
+            isinstance(resource, SharingConfiguration)
+            and resource.password_required
+            and isinstance(request.successful_authenticator, SharingPasswordProtectedAuthentication)
+            and request.headers.get("Accept") == "application/json"
+        ):
+            # Return dashboard data as JSON for XHR requests
+            return response.Response(exported_data)
 
         context = {
             "exported_data": json.dumps(exported_data, cls=DjangoJSONEncoder),

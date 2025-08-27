@@ -258,6 +258,11 @@ export const cohortsModel = kea<cohortsModelType>([
         clearTimeout(values.pollTimeout || undefined)
     }),
     afterMount(({ actions, values }) => {
+        // Don't load in shared/exporter mode
+        if (window.POSTHOG_EXPORTED_DATA) {
+            return
+        }
+
         if (isAuthenticatedTeam(values.currentTeam)) {
             // Don't load on shared insights/dashboards
             actions.loadAllCohorts()

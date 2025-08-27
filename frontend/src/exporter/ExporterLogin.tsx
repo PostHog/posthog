@@ -61,6 +61,32 @@ export const loginLogic = kea<loginLogicType>([
                 })
                 if (response.status == 200) {
                     const data = await response.json()
+
+                    // If we have a shareToken, make XHR request with JWT to get dashboard data
+                    if (data.shareToken) {
+                        try {
+                            const dashboardResponse = await fetch(window.location.href, {
+                                method: 'GET',
+                                headers: {
+                                    Authorization: `Bearer ${data.shareToken}`,
+                                    Accept: 'application/json',
+                                },
+                            })
+
+                            if (dashboardResponse.ok) {
+                                const dashboardData = await dashboardResponse.json()
+                                actions.setData(dashboardData)
+                            } else {
+                                actions.setGeneralError(
+                                    'Failed to load dashboard',
+                                    'Unable to access dashboard with provided token'
+                                )
+                            }
+                        } catch {
+                            actions.setGeneralError('Network error', 'Unable to load dashboard data')
+                        }
+                        return
+                    }
                     actions.setData(data)
                 } else {
                     actions.setGeneralError(response.statusText, (await response.json()).error)
