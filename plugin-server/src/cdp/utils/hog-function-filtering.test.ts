@@ -1,6 +1,10 @@
 import { ClickHouseTimestamp, ProjectId, RawClickHouseEvent } from '../../types'
-import { HogFunctionInvocationGlobals } from '../types'
-import { convertClickhouseRawEventToFilterGlobals, convertToHogFunctionFilterGlobal } from './hog-function-filtering'
+import { HogFunctionFilterGlobals, HogFunctionInvocationGlobals, HogFunctionType } from '../types'
+import {
+    convertClickhouseRawEventToFilterGlobals,
+    convertToHogFunctionFilterGlobal,
+    filterFunctionInstrumented,
+} from './hog-function-filtering'
 
 describe('hog-function-filtering', () => {
     describe('convertToHogFunctionFilterGlobal', () => {
@@ -227,6 +231,101 @@ describe('hog-function-filtering', () => {
             expect(result.elements_chain_texts).toEqual(['Click me'])
             expect(result.elements_chain_ids).toEqual(['button1'])
             expect(result.elements_chain_elements).toEqual(['a', 'button'])
+        })
+    })
+
+    describe('Pre-filtering on event name', () => {
+        let mockHogFunction: HogFunctionType
+        let mockFilterGlobals: HogFunctionFilterGlobals
+
+        beforeEach(() => {
+            mockHogFunction = {
+                id: 'test-function',
+                team_id: 1,
+                name: 'Test Function',
+            } as unknown as HogFunctionType
+
+            mockFilterGlobals = {
+                event: '$pageview',
+                distinct_id: 'user_123',
+                timestamp: '2025-01-01T00:00:00.000Z',
+            } as HogFunctionFilterGlobals
+        })
+
+        it('should return false and skip bytecode when event does not match specific events', async () => {
+            // Filter with only specific event names
+            mockHogFunction.filters = {
+                events: [{ id: 'change_order_generated', name: 'change_order_generated', type: 'events', order: 0 }],
+            }
+
+            // Test with an event that doesn't match any specific event names
+            mockFilterGlobals.event = '$pageview'
+            const result = await filterFunctionInstrumented({
+                fn: mockHogFunction,
+                filters: mockHogFunction.filters,
+                filterGlobals: mockFilterGlobals,
+            })
+
+            expect(result.match).toBe(false)
+        })
+
+        it('should return true and execute bytecode when event matches specific event name', async () => {
+            mockHogFunction.filters = {
+                events: [
+                    { id: 'change_order_generated', name: 'change_order_generated', type: 'events', order: 0 },
+                    {
+                        id: 'project_create_change_order_clicked',
+                        name: 'project_create_change_order_clicked',
+                        type: 'events',
+                        order: 1,
+                    },
+                ],
+                bytecode: ['_H', 1, 29], // Simple bytecode that returns true
+            }
+
+            // Test with an event that matches one of the specific events
+            mockFilterGlobals.event = 'change_order_generated'
+            const result = await filterFunctionInstrumented({
+                fn: mockHogFunction,
+                filters: mockHogFunction.filters,
+                filterGlobals: mockFilterGlobals,
+            })
+            expect(result.match).toBe(true)
+        })
+
+        it('should return true and skip bytecode when no filters are configured', async () => {
+            // This is what we actually get in the database when no filters are configured
+            mockHogFunction.filters = {
+                bytecode: ['_H', 1, 29], // Minimal bytecode that returns true for all events
+            }
+
+            const result = await filterFunctionInstrumented({
+                fn: mockHogFunction,
+                filters: mockHogFunction.filters,
+                filterGlobals: mockFilterGlobals,
+            })
+
+            // Should return true immediately without executing bytecode (optimization instead of running bytecode)
+            expect(result.match).toBe(true)
+        })
+
+        it('should execute bytecode when properties filters are present', async () => {
+            // Real database scenario with properties filters
+            mockHogFunction.filters = {
+                events: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }],
+                properties: [{ key: '$browser', type: 'event', value: 'is_set', operator: 'is_set' }],
+                filter_test_accounts: true,
+                bytecode: ['_H', 1, 29], // Simple bytecode that returns true
+            }
+
+            const result = await filterFunctionInstrumented({
+                fn: mockHogFunction,
+                filters: mockHogFunction.filters,
+                filterGlobals: mockFilterGlobals,
+            })
+
+            // Should execute bytecode because properties filters are present
+            expect(result.match).toBe(true)
         })
     })
 })

@@ -50,6 +50,10 @@ WEB_OVERVIEW_SPECIFIC_PROPERTIES = {
     "$pathname": "entry_pathname",
 }
 
+WEB_TRENDS_SPECIFIC_PROPERTIES = {
+    "$pathname": "pathname",
+}
+
 STATS_TABLE_SUPPORTED_FILTERS = {
     **BASE_SUPPORTED_PROPERTIES,
     **ATTRIBUTION_PROPERTIES,
@@ -88,7 +92,6 @@ SESSION_PROPERTY_TO_FIELD = {
     "$end_pathname": "end_pathname",
 }
 
-
 def get_all_preaggregated_table_supported_properties() -> set[str]:
     """
     Returns a set of all property names supported by preaggregated tables from the web analytics module
@@ -104,3 +107,11 @@ def get_all_preaggregated_table_supported_properties() -> set[str]:
         EVENT_PROPERTY_TO_FIELD.keys(),
         SESSION_PROPERTY_TO_FIELD.keys(),
     )
+
+WEB_ANALYTICS_TRENDS_SUPPORTED_FILTERS = {
+    **BASE_SUPPORTED_PROPERTIES,
+    **ATTRIBUTION_PROPERTIES,
+    **PATH_PROPERTIES,
+    **VIRTUAL_PROPERTIES,
+    **WEB_TRENDS_SPECIFIC_PROPERTIES,
+}
