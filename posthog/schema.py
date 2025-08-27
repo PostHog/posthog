@@ -8619,7 +8619,7 @@ class HogQLQueryResponse(BaseModel):
     types: Optional[list] = Field(default=None, description="Types of returned columns")
 
 
-class HogQLQueryResponseDefInterface9741497531108731109829741497530118834(BaseModel):
+class HogQLQueryResponseDefInterface9741497531107881108979741497530118749(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
