@@ -670,7 +670,7 @@ SELECT
     JSONExtractString(log_comment, 'client_query_id') as lc_client_query_id,
 
     JSONExtractString(log_comment, 'org_id') as lc_org_id,
-    JSONExtractInt(log_comment, 'team_id') as lc_team_id,
+    JSONExtractInt(log_comment, 'team_id') as team_id,
     JSONExtractInt(log_comment, 'user_id') as lc_user_id,
     JSONExtractString(log_comment, 'session_id') as lc_session_id,
 
@@ -680,6 +680,14 @@ SELECT
     JSONExtractString(log_comment, 'batch_export_id') as lc_batch_export_id,
     JSONExtractInt(log_comment, 'experiment_id') as lc_experiment_id,
     JSONExtractString(log_comment, 'experiment_feature_flag_key') as lc_experiment_feature_flag_key,
+
+    JSONExtractString(log_comment, 'alert_config_id') as lc_alert_config_id,
+    JSONExtractString(log_comment, 'feature') as lc_feature,
+    JSONExtractString(log_comment, 'table_id') as lc_table_id,
+    JSONExtractInt(log_comment, 'warehouse_query') == 1 as lc_warehouse_query,
+    JSONExtractString(log_comment, 'person_on_events_mode') as lc_person_on_events_mode,
+    JSONExtractString(log_comment, 'service_name') as lc_service_name,
+    JSONExtractString(log_comment, 'workload') as lc_workload,
 
     -- for entries with 'query' tag, some queries have source, we should use this
     if(JSONHas(log_comment, 'query', 'source'),
@@ -704,4 +712,4 @@ FROM system.query_log
 WHERE
     type != 'QueryStart'
     AND is_initial_query
-    """
+"""
