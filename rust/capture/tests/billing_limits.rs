@@ -134,7 +134,7 @@ async fn setup_router_with_limits(
         ServiceName::Capture,
     )
     .unwrap();
-    
+
     let app = router(
         timesource,
         liveness,
@@ -419,7 +419,13 @@ async fn test_billing_limit_retains_ai_events_on_i_endpoint() {
     let (router, sink) = setup_billing_limited_router(token, true).await; // Only billing limited, not AI limited
     let client = TestClient::new(router);
 
-    let events = ["$ai_generation", "pageview", "$ai_span", "click", "$ai_trace"];
+    let events = [
+        "$ai_generation",
+        "pageview",
+        "$ai_span",
+        "click",
+        "$ai_trace",
+    ];
     let payload = create_batch_payload_with_token(&events, token);
 
     let response = client
@@ -1545,13 +1551,13 @@ async fn test_ai_and_survey_limits_interaction() {
         .await;
     let status = res.status();
     eprintln!("[DEBUG TEST] Response status: {}", status);
-    
+
     // If we got an error, let's see what it is
     if status != StatusCode::OK {
         let body = res.text().await;
         eprintln!("[DEBUG TEST] Response body: {}", body);
     }
-    
+
     assert_eq!(status, StatusCode::OK);
 
     let events = sink.events();
