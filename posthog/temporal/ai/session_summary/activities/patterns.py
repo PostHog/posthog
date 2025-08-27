@@ -14,7 +14,6 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.state import (
     StateActivitiesEnum,
     generate_state_id_from_session_ids,
-    generate_state_key,
     get_data_class_from_redis,
     get_ready_summaries_from_db,
     get_redis_state_client,
@@ -38,16 +37,16 @@ from ee.hogai.session_summaries.llm.consume import (
     get_llm_session_group_patterns_combination,
     get_llm_session_group_patterns_extraction,
 )
-from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext, SingleSessionSummaryLlmInputs
+from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
 from ee.hogai.session_summaries.session_group.patterns import (
     EnrichedSessionGroupSummaryPatternsList,
     RawSessionGroupPatternAssignmentsList,
     RawSessionGroupSummaryPattern,
     RawSessionGroupSummaryPatternsList,
-    combine_event_ids_mappings_from_single_session_summaries,
     combine_patterns_assignments_from_single_session_summaries,
     combine_patterns_ids_with_events_context,
     combine_patterns_with_events_context,
+    create_event_ids_mapping_from_ready_summaries,
     serialize_session_summary,
 )
 from ee.hogai.session_summaries.session_group.summarize_session_group import (
@@ -59,33 +58,6 @@ from ee.hogai.session_summaries.session_group.summarize_session_group import (
 from ee.hogai.session_summaries.utils import estimate_tokens_from_strings, logging_session_ids
 
 logger = structlog.get_logger(__name__)
-
-
-async def _get_session_group_single_session_summaries_inputs_from_redis(
-    redis_client: aioredis.Redis,
-    redis_input_keys: list[str],
-) -> list[SingleSessionSummaryLlmInputs]:
-    """Load input used for single-session-summaries generation, stored under given keys."""
-    inputs = []
-    for redis_input_key in redis_input_keys:
-        llm_input_raw = await get_data_class_from_redis(
-            redis_client=redis_client,
-            redis_key=redis_input_key,
-            label=StateActivitiesEnum.SESSION_DB_DATA,
-            target_class=SingleSessionSummaryLlmInputs,
-        )
-        if llm_input_raw is None:
-            # No reason to retry activity, as the input data is not in Redis
-            raise ApplicationError(
-                f"No LLM input found for session {redis_input_key} when summarizing",
-                non_retryable=True,
-            )
-        llm_input = cast(
-            SingleSessionSummaryLlmInputs,
-            llm_input_raw,
-        )
-        inputs.append(llm_input)
-    return inputs
 
 
 def _get_session_ids_from_inputs(inputs: SessionGroupSummaryOfSummariesInputs) -> list[str]:
@@ -418,24 +390,10 @@ async def assign_events_to_patterns_activity(
         extra_summary_context=inputs.extra_summary_context,
         trace_id=temporalio.activity.info().workflow_id,
     )
-    # Get single session summaries LLM inputs from Redis to be able to enrich the patterns collected
-    single_session_summaries_llm_inputs = await _get_session_group_single_session_summaries_inputs_from_redis(
-        redis_client=redis_client,
-        redis_input_keys=[
-            generate_state_key(
-                key_base=single_session_input.redis_key_base,
-                label=StateActivitiesEnum.SESSION_DB_DATA,
-                state_id=single_session_input.session_id,
-            )
-            for single_session_input in inputs.single_session_summaries_inputs
-        ],
-    )
     # Convert session summaries strings to objects to extract event-related data
     session_summaries = [serialize_session_summary(summary.summary) for summary in ready_summaries]
-    # Combine event ids mappings from all the sessions to identify events and sessions assigned to patterns
-    combined_event_ids_mappings = combine_event_ids_mappings_from_single_session_summaries(
-        single_session_summaries_inputs=single_session_summaries_llm_inputs
-    )
+    # Create event ids mappings from ready summaries to identify events and sessions assigned to patterns
+    combined_event_ids_mappings = create_event_ids_mapping_from_ready_summaries(session_summaries=session_summaries)
     # Combine patterns assignments to have a single pattern-to-events list
     combined_patterns_assignments = combine_patterns_assignments_from_single_session_summaries(
         patterns_assignments_list_of_lists=patterns_assignments_list_of_lists
