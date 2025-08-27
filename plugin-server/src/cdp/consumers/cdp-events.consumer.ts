@@ -1,10 +1,11 @@
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
+import { instrumentFn } from '~/common/tracing/tracing-utils'
+
 import { convertToHogFunctionInvocationGlobals } from '../../cdp/utils'
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
-import { runInstrumentedFunction } from '../../main/utils'
 import { Hub, RawClickHouseEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
@@ -301,41 +302,33 @@ export class CdpEventsConsumer extends CdpConsumerBase {
     // This consumer always parses from kafka
     public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
         return await this.runWithHeartbeat(() =>
-            runInstrumentedFunction({
-                statsKey: `cdpConsumer.handleEachBatch.parseKafkaMessages`,
-                func: async () => {
-                    const events: HogFunctionInvocationGlobals[] = []
+            instrumentFn(`cdpConsumer.handleEachBatch.parseKafkaMessages`, async () => {
+                const events: HogFunctionInvocationGlobals[] = []
 
-                    await Promise.all(
-                        messages.map(async (message) => {
-                            try {
-                                const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
+                await Promise.all(
+                    messages.map(async (message) => {
+                        try {
+                            const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
 
-                                const [teamHogFunctions, teamHogFlows, team] = await Promise.all([
-                                    this.hogFunctionManager.getHogFunctionsForTeam(
-                                        clickHouseEvent.team_id,
-                                        this.hogTypes
-                                    ),
-                                    this.hogFlowManager.getHogFlowsForTeam(clickHouseEvent.team_id),
-                                    this.hub.teamManager.getTeam(clickHouseEvent.team_id),
-                                ])
+                            const [teamHogFunctions, teamHogFlows, team] = await Promise.all([
+                                this.hogFunctionManager.getHogFunctionsForTeam(clickHouseEvent.team_id, this.hogTypes),
+                                this.hogFlowManager.getHogFlowsForTeam(clickHouseEvent.team_id),
+                                this.hub.teamManager.getTeam(clickHouseEvent.team_id),
+                            ])
 
-                                if ((!teamHogFunctions.length && !teamHogFlows.length) || !team) {
-                                    return
-                                }
-
-                                events.push(
-                                    convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.hub.SITE_URL)
-                                )
-                            } catch (e) {
-                                logger.error('Error parsing message', e)
-                                counterParseError.labels({ error: e.message }).inc()
+                            if ((!teamHogFunctions.length && !teamHogFlows.length) || !team) {
+                                return
                             }
-                        })
-                    )
 
-                    return events
-                },
+                            events.push(convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.hub.SITE_URL))
+                        } catch (e) {
+                            logger.error('Error parsing message', e)
+                            counterParseError.labels({ error: e.message }).inc()
+                        }
+                    })
+                )
+
+                return events
             })
         )
     }
