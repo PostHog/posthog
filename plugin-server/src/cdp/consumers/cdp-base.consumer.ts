@@ -1,5 +1,6 @@
+import { instrumentFn } from '~/common/tracing/tracing-utils'
+
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { runInstrumentedFunction } from '../../main/utils'
 import { Hub, PluginServerService, TeamId } from '../../types'
 import { logger } from '../../utils/logger'
 import { CdpRedis, createCdpRedisPool } from '../redis'
@@ -86,7 +87,7 @@ export abstract class CdpConsumerBase {
     }
 
     protected runInstrumented<T>(name: string, func: () => Promise<T>): Promise<T> {
-        return runInstrumentedFunction<T>({ statsKey: `cdpConsumer.${name}`, func })
+        return instrumentFn<T>(`cdpConsumer.${name}`, func)
     }
 
     protected async runWithHeartbeat<T>(func: () => Promise<T> | T): Promise<T> {
