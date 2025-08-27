@@ -98,11 +98,20 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 if (!search.trim()) {
                     return itemsGrid
                 }
-                const lowerSearch = search.toLowerCase()
+                const lowerSearchChunks = search
+                    .toLowerCase()
+                    .split(' ')
+                    .map((s) => s.trim())
+                    .filter((s) => s)
                 return itemsGrid
                     .map(({ category, types }) => ({
                         category,
-                        types: types.filter((t) => t.name.toLowerCase().includes(lowerSearch)),
+                        types: types.filter(
+                            (t) =>
+                                lowerSearchChunks.filter(
+                                    (lowerSearch) => !`${category} ${t.name}`.toLowerCase().includes(lowerSearch)
+                                ).length === 0
+                        ),
                     }))
                     .filter(({ types }) => types.length > 0)
             },

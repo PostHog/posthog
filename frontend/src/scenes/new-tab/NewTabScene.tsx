@@ -7,7 +7,7 @@ import { cn } from 'lib/utils/css-classes'
 import { newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { SearchHighlight } from 'products/llm_analytics/frontend/SearchHighlight'
+import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 
 export const scene: SceneExport = {
     component: NewTabScene,
@@ -78,7 +78,9 @@ export function NewTabScene(): JSX.Element {
 
             {filteredItemsGrid.map(({ category, types }, catIndex) => (
                 <div className="w-full overflow-auto p-4 px-12 max-w-[880px] m-auto" key={catIndex}>
-                    <div className="px-2 py-8 text-center">{category}</div>
+                    <div className="px-2 py-8 text-center">
+                        {search ? <SearchHighlightMultiple string={category} substring={search} /> : category}
+                    </div>
                     <div
                         className="grid gap-12"
                         style={{
@@ -104,7 +106,11 @@ export function NewTabScene(): JSX.Element {
                                         <span className="text-2xl font-semibold">{qt.icon ?? qt.name[0]}</span>
                                     </div>
                                     <span className="mt-2 w-full text-xs font-medium truncate px-1 text-primary">
-                                        {search ? <SearchHighlight string={qt.name} substring={search} /> : qt.name}
+                                        {search ? (
+                                            <SearchHighlightMultiple string={qt.name} substring={search} />
+                                        ) : (
+                                            qt.name
+                                        )}
                                     </span>
                                 </Link>
                             </div>
