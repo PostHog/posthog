@@ -248,8 +248,8 @@ The newly updated query gave us this error:
         # We also ensure the generated SQL is valid
         assert result.query is not None
         try:
-            parsed_query = parse_select(result.query)
-            result.query = print_ast(parsed_query, context=hogql_context, dialect="clickhouse")
+            result.query = result.query.rstrip(";").strip()
+            print_ast(parse_select(result.query), context=hogql_context, dialect="clickhouse", loose_syntax=True)
         except (ExposedHogQLError, ResolutionError) as err:
             err_msg = str(err)
             if err_msg.startswith("no viable alternative"):

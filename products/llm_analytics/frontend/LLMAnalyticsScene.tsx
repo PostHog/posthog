@@ -3,11 +3,10 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
 import { IconArchive } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTab, LemonTabs, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTab, LemonTabs, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { QueryCard } from 'lib/components/Cards/InsightCard/QueryCard'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { FeedbackNotice } from 'lib/components/FeedbackNotice'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -91,7 +90,7 @@ const IngestionStatusCheck = (): JSX.Element | null => {
             </p>
             <p>
                 To use the LLM Analytics product, please{' '}
-                <Link to="https://posthog.com/docs/ai-engineering/observability">
+                <Link to="https://posthog.com/docs/llm-analytics/installation">
                     instrument your LLM calls with the PostHog SDK
                 </Link>{' '}
                 (otherwise it'll be a little empty!)
@@ -238,7 +237,7 @@ function LLMAnalyticsNoEvents(): JSX.Element {
                 <h2 className="text-xl leading-tight">We haven't detected any LLM generations yet</h2>
                 <p className="text-sm text-center text-balance">
                     To use the LLM Analytics product, please{' '}
-                    <Link to="https://posthog.com/docs/ai-engineering/observability">
+                    <Link to="https://posthog.com/docs/llm-analytics/installation">
                         instrument your LLM calls with the PostHog SDK
                     </Link>{' '}
                 </p>
@@ -282,7 +281,14 @@ export function LLMAnalyticsScene(): JSX.Element {
     if (featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_PLAYGROUND]) {
         tabs.push({
             key: 'playground',
-            label: 'Playground',
+            label: (
+                <>
+                    Playground{' '}
+                    <LemonTag className="ml-1" type="warning">
+                        Beta
+                    </LemonTag>
+                </>
+            ),
             content: <LLMAnalyticsPlaygroundScene />,
             link: combineUrl(urls.llmAnalyticsPlayground(), searchParams).url,
         })
@@ -294,7 +300,7 @@ export function LLMAnalyticsScene(): JSX.Element {
                 buttons={
                     <div className="flex gap-2">
                         <LemonButton
-                            to="https://posthog.com/docs/ai-engineering/observability"
+                            to="https://posthog.com/docs/llm-analytics/installation"
                             type="secondary"
                             targetBlank
                         >
@@ -304,11 +310,7 @@ export function LLMAnalyticsScene(): JSX.Element {
                 }
             />
 
-            {hasSentAiGenerationEventLoading ? null : hasSentAiGenerationEvent ? (
-                <FeedbackNotice text="LLM analytics is currently in beta. Thanks for taking part! We'd love to hear what you think." />
-            ) : (
-                <IngestionStatusCheck />
-            )}
+            {!hasSentAiGenerationEventLoading && !hasSentAiGenerationEvent && <IngestionStatusCheck />}
             <LemonTabs activeKey={activeTab} data-attr="llm-analytics-tabs" tabs={tabs} />
         </BindLogic>
     )
