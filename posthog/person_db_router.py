@@ -33,8 +33,10 @@ class PersonDBRouter:
         if model._meta.app_label == self.PERSONS_DB_APP_LABEL:
             return "persons_db_writer"
         # For backward compatibility, check if it's a person model in posthog app
+        """
         if model._meta.app_label == self.POSTHOG_APP_LABEL and self.is_persons_model(model._meta.model_name):
             return "persons_db_writer"
+        """
         return None  # Allow default db selection
 
     def db_for_write(self, model, **hints):
@@ -45,8 +47,10 @@ class PersonDBRouter:
         if model._meta.app_label == self.PERSONS_DB_APP_LABEL:
             return "persons_db_writer"
         # For backward compatibility, check if it's a person model in posthog app
+        """
         if model._meta.app_label == self.POSTHOG_APP_LABEL and self.is_persons_model(model._meta.model_name):
             return "persons_db_writer"
+        """
         return None  # Allow default db selection
 
     def allow_relation(self, obj1, obj2, **hints):
