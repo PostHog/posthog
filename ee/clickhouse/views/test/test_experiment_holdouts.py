@@ -1,8 +1,9 @@
 from rest_framework import status
 
-from ee.api.test.base import APILicensedTest
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
+
+from ee.api.test.base import APILicensedTest
 
 
 class TestExperimentHoldoutCRUD(APILicensedTest):

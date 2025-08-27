@@ -1,23 +1,11 @@
-import json
 import re
-from datetime import datetime, timedelta, UTC
-from typing import Any
-from unittest.mock import ANY, patch
+import json
 import uuid
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
-from django.core.cache import cache
-from django.test.client import Client
 from freezegun.api import freeze_time
-from nanoid import generate
-from rest_framework import status
-
-from posthog.api.survey import nh3_clean_with_allow_list
-from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
-from posthog.constants import AvailableFeature
-from posthog.models import Action, FeatureFlag, Team, Person
-from posthog.models.cohort.cohort import Cohort
-from posthog.models.surveys.survey import Survey, MAX_ITERATION_COUNT
 from posthog.test.base import (
     APIBaseTest,
     BaseTest,
@@ -28,6 +16,20 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
     snapshot_postgres_queries,
 )
+from unittest.mock import ANY, patch
+
+from django.core.cache import cache
+from django.test.client import Client
+
+from nanoid import generate
+from rest_framework import status
+
+from posthog.api.survey import nh3_clean_with_allow_list
+from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
+from posthog.constants import AvailableFeature
+from posthog.models import Action, FeatureFlag, Person, Team
+from posthog.models.cohort.cohort import Cohort
+from posthog.models.surveys.survey import MAX_ITERATION_COUNT, Survey
 
 
 class TestSurvey(APIBaseTest):

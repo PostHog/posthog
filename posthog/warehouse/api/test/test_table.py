@@ -1,13 +1,14 @@
 from typing import Any
-from unittest.mock import patch, MagicMock, ANY
-
-from clickhouse_driver.errors import ServerException
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import ANY, MagicMock, patch
+
+import boto3
+from clickhouse_driver.errors import ServerException
+
+from posthog.settings import settings
 from posthog.warehouse.models import DataWarehouseTable
 from posthog.warehouse.models.external_data_source import ExternalDataSource
-import boto3
-from posthog.settings import settings
 
 
 class TestTable(APIBaseTest):

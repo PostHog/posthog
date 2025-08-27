@@ -1,6 +1,5 @@
 from ee.hogai.graph.root.prompts import MAX_PERSONALITY_PROMPT
 
-
 INITIALIZE_CORE_MEMORY_WITH_URL_PROMPT = """
 Your goal is to describe what the startup with the given URL does.
 """.strip()

@@ -8,6 +8,7 @@ import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
 import { TeamMembershipLevel } from 'lib/constants'
 import { getRelativeNextPath, identifierToHuman } from 'lib/utils'
+import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { withForwardedSearchParams } from 'lib/utils/sceneLogicUtils'
 import {
@@ -43,10 +44,12 @@ import { userLogic } from './userLogic'
 
 const TAB_STATE_KEY = 'scene-tabs-state'
 const persistTabs = (tabs: SceneTab[]): void => {
-    sessionStorage.setItem(TAB_STATE_KEY, JSON.stringify(tabs))
+    const teamId = getCurrentTeamIdOrNone()
+    sessionStorage.setItem(`${TAB_STATE_KEY}-${teamId}`, JSON.stringify(tabs))
 }
 const getPersistedTabs: () => SceneTab[] | null = () => {
-    const savedTabs = sessionStorage.getItem(TAB_STATE_KEY)
+    const teamId = getCurrentTeamIdOrNone()
+    const savedTabs = sessionStorage.getItem(`${TAB_STATE_KEY}-${teamId}`)
     if (savedTabs) {
         try {
             return JSON.parse(savedTabs)
@@ -168,7 +171,7 @@ export const sceneLogic = kea<sceneLogicType>([
         setLoadedSceneLogic: (logic: BuiltLogic) => ({ logic }),
         reloadBrowserDueToImportError: true,
 
-        newTab: true,
+        newTab: (href?: string | null) => ({ href }),
         setTabs: (tabs: SceneTab[]) => ({ tabs }),
         removeTab: (tab: SceneTab) => ({ tab }),
         activateTab: (tab: SceneTab) => ({ tab }),
@@ -183,15 +186,16 @@ export const sceneLogic = kea<sceneLogicType>([
             [] as SceneTab[],
             {
                 setTabs: (_, { tabs }) => tabs,
-                newTab: (state) => {
+                newTab: (state, { href }) => {
+                    const { pathname, search, hash } = combineUrl(href || '/new')
                     return [
                         ...state.map((tab) => (tab.active ? { ...tab, active: false } : tab)),
                         {
                             id: generateTabId(),
                             active: true,
-                            pathname: addProjectIdIfMissing('/new'),
-                            search: '',
-                            hash: '',
+                            pathname: addProjectIdIfMissing(pathname),
+                            search,
+                            hash,
                             title: 'New tab',
                         },
                     ]
@@ -488,9 +492,9 @@ export const sceneLogic = kea<sceneLogicType>([
         ],
     }),
     listeners(({ values, actions, cache, props, selectors }) => ({
-        newTab: () => {
+        newTab: ({ href }) => {
             persistTabs(values.tabs)
-            router.actions.push(urls.newTab())
+            router.actions.push(href || urls.newTab())
         },
         setTabs: () => persistTabs(values.tabs),
         activateTab: () => persistTabs(values.tabs),

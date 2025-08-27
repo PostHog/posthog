@@ -146,7 +146,7 @@ export const buttonPrimitiveVariants = cva({
             fit: 'px-0',
         },
         autoHeight: {
-            true: 'button-primitive--height-auto',
+            true: 'button-primitive--height-auto h-auto',
             false: '',
         },
         iconOnly: {

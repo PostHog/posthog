@@ -1,14 +1,9 @@
 from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
+
+from posthog.schema import ErrorTrackingIssueCorrelationQuery
 
 from posthog.hogql_queries.error_tracking_issue_correlation_query_runner import ErrorTrackingIssueCorrelationQueryRunner
-from posthog.schema import (
-    ErrorTrackingIssueCorrelationQuery,
-)
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-)
-from posthog.test.base import snapshot_clickhouse_queries
 
 
 class TestErrorTrackingIssueCorrelationQueryRunner(ClickhouseTestMixin, APIBaseTest):

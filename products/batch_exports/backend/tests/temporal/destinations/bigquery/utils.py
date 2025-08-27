@@ -1,28 +1,19 @@
-import datetime as dt
-import json
-import operator
 import os
+import json
+import datetime as dt
+import operator
 
 import pytest
+
 from google.cloud import bigquery
 
-from posthog.batch_exports.service import (
-    BackfillDetails,
-    BatchExportModel,
-    BatchExportSchema,
-)
+from posthog.batch_exports.service import BackfillDetails, BatchExportModel, BatchExportSchema
 from posthog.temporal.common.clickhouse import ClickHouseClient
-from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
-    bigquery_default_fields,
-)
+
+from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import bigquery_default_fields
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
-from products.batch_exports.backend.temporal.spmc import (
-    Producer,
-    RecordBatchQueue,
-)
-from products.batch_exports.backend.tests.temporal.utils import (
-    get_record_batch_from_queue,
-)
+from products.batch_exports.backend.temporal.spmc import Producer, RecordBatchQueue
+from products.batch_exports.backend.tests.temporal.utils import get_record_batch_from_queue
 
 SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS = pytest.mark.skipif(
     "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ,

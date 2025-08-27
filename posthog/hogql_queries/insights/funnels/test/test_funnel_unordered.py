@@ -1,28 +1,6 @@
 from datetime import datetime, timedelta
 from typing import cast
 
-from rest_framework.exceptions import ValidationError
-
-from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
-from posthog.hogql_queries.insights.funnels import FunnelUDF
-from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
-from posthog.hogql_queries.insights.funnels.test.test_funnel import PseudoFunnelActors
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-
-from posthog.models.action import Action
-from posthog.models.filters import Filter
-from posthog.models.property_definition import PropertyDefinition
-from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import (
-    funnel_conversion_time_test_factory,
-)
-from posthog.schema import FunnelsQuery, IntervalType
-
-from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
-    funnel_breakdown_test_factory,
-    funnel_breakdown_group_test_factory,
-    assert_funnel_results_equal,
-    FunnelStepResult,
-)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -31,6 +9,25 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
+from rest_framework.exceptions import ValidationError
+
+from posthog.schema import FunnelsQuery, IntervalType
+
+from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
+from posthog.hogql_queries.insights.funnels import FunnelUDF
+from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
+from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
+    FunnelStepResult,
+    assert_funnel_results_equal,
+    funnel_breakdown_group_test_factory,
+    funnel_breakdown_test_factory,
+)
+from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
+from posthog.hogql_queries.insights.funnels.test.test_funnel import PseudoFunnelActors
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
+from posthog.models.action import Action
+from posthog.models.filters import Filter
+from posthog.models.property_definition import PropertyDefinition
 from posthog.test.test_journeys import journeys_for
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"

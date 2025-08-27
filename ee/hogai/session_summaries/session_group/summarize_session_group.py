@@ -1,17 +1,20 @@
 import json
 from datetime import datetime
 from pathlib import Path
+
+from rest_framework import exceptions
+
+from posthog.models import Team
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+
 from ee.hogai.session_summaries.session.output_data import IntermediateSessionSummarySerializer
-from ee.hogai.session_summaries.session_group.patterns import RawSessionGroupSummaryPatternsList
 from ee.hogai.session_summaries.session.summarize_session import (
     ExtraSummaryContext,
     PatternsPrompt,
     SessionSummaryPrompt,
 )
+from ee.hogai.session_summaries.session_group.patterns import RawSessionGroupSummaryPatternsList
 from ee.hogai.session_summaries.utils import load_custom_template
-from posthog.models import Team
-from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
-from rest_framework import exceptions
 
 
 def remove_excessive_content_from_session_summary_for_llm(
