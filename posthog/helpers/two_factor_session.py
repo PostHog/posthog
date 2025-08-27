@@ -9,7 +9,7 @@ from rest_framework.exceptions import PermissionDenied
 from two_factor.utils import default_device
 
 # Enforce Two-Factor Authentication only on sessions created after this date
-TWO_FACTOR_ENFORCEMENT_FROM_DATE = datetime.datetime(2025, 8, 25)
+TWO_FACTOR_ENFORCEMENT_FROM_DATE = datetime.datetime(2025, 8, day=27)
 
 TWO_FACTOR_VERIFIED_SESSION_KEY = "two_factor_verified"
 
