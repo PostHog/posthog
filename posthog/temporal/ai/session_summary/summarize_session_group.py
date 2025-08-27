@@ -503,7 +503,6 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         db_session_inputs = await self._fetch_session_group_data(inputs)
         # Generate single-session summaries for each session
         self._current_status = (SessionSummaryStep.WATCHING_SESSIONS, f"Watching sessions (0/{self._total_sessions})")
-        # TODO: Ensure to include already cached summaries in the input to use in the next steps
         summaries_session_inputs = await self._run_summaries(db_session_inputs)
         # Extract patterns from session summaries (with chunking if needed)
         self._current_status = (

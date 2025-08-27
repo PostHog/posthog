@@ -117,12 +117,6 @@ async def get_llm_single_session_summary_activity(
     inputs: SingleSessionSummaryInputs,
 ) -> None:
     """Summarize a single session in one call and store/cache in Redis (to avoid hitting Temporal memory limits)"""
-    # Base key includes session ids, so when summarizing this session again, but with different inputs (or order) - we don't use cache
-    redis_client, redis_input_key, _ = get_redis_state_client(
-        key_base=inputs.redis_key_base,
-        input_label=StateActivitiesEnum.SESSION_DB_DATA,
-        state_id=inputs.session_id,
-    )
     # Check if summary is already in the DB (in case of race conditions/multiple group summaries running in parallel/etc.)
     summary_exists = await database_sync_to_async(SingleSessionSummary.objects.summaries_exist)(
         team_id=inputs.team_id,
@@ -132,6 +126,12 @@ async def get_llm_single_session_summary_activity(
     if summary_exists.get(inputs.session_id):
         # Stored successfully, no need to summarize again
         return None
+    # Base key includes session ids, so when summarizing this session again, but with different inputs (or order) - we don't use cache
+    redis_client, redis_input_key, _ = get_redis_state_client(
+        key_base=inputs.redis_key_base,
+        input_label=StateActivitiesEnum.SESSION_DB_DATA,
+        state_id=inputs.session_id,
+    )
     # If not yet - generate the summary with LLM
     llm_input_raw = await get_data_class_from_redis(
         redis_client=redis_client,

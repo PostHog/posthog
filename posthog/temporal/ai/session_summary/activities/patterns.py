@@ -130,6 +130,7 @@ async def split_session_summaries_into_chunks_for_patterns_extraction_activity(
     """
     if not inputs.single_session_summaries_inputs:
         return []
+    session_ids = _get_session_ids_from_inputs(inputs)
     # Calculate token count for the prompt templates, providing empty context
     prompt = generate_session_group_patterns_extraction_prompt(
         session_summaries_str=[""], extra_summary_context=inputs.extra_summary_context
@@ -141,7 +142,7 @@ async def split_session_summaries_into_chunks_for_patterns_extraction_activity(
     # Get ready session summaries from DB
     ready_summaries = await database_sync_to_async(get_ready_summaries_from_db)(
         team_id=inputs.team_id,
-        session_ids=inputs.session_ids,
+        session_ids=session_ids,
         extra_summary_context=inputs.extra_summary_context,
     )
     # Ensure we got all the summaries, as it's crucial to keep the order of sessions to match them with ids
@@ -232,7 +233,7 @@ async def extract_session_group_patterns_activity(inputs: SessionGroupSummaryOfS
     # Get ready session summaries from DB
     ready_summaries = await database_sync_to_async(get_ready_summaries_from_db)(
         team_id=inputs.team_id,
-        session_ids=inputs.session_ids,
+        session_ids=session_ids,
         extra_summary_context=inputs.extra_summary_context,
     )
     # Remove excessive content (like UUIDs) from session summaries when using them as a context for group summaries (and not a final step)
@@ -375,7 +376,7 @@ async def assign_events_to_patterns_activity(
     # Get ready session summaries from DB
     ready_summaries = await database_sync_to_async(get_ready_summaries_from_db)(
         team_id=inputs.team_id,
-        session_ids=inputs.session_ids,
+        session_ids=session_ids,
         extra_summary_context=inputs.extra_summary_context,
     )
     # Remove excessive content (like UUIDs) from session summaries when using them as a context for group summaries (and not a final step)
