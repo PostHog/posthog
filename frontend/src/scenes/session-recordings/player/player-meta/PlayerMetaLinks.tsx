@@ -4,7 +4,7 @@ import { useMemo } from 'react'
 import { IconDownload, IconEllipsis, IconMinusSmall, IconNotebook, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 
-import { getAccessControlDisabledReason } from 'lib/components/AccessControlAction'
+import { AccessControlAction, getAccessControlDisabledReason } from 'lib/components/AccessControlAction'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
@@ -47,14 +47,23 @@ function PinToPlaylistButton(): JSX.Element {
             icon={<IconPlusSmall />}
         />
     ) : (
-        <PlaylistPopoverButton
-            tooltip={tooltip}
-            setPinnedInCurrentPlaylist={logicProps.setPinned}
-            icon={logicProps.pinned ? <IconMinusSmall /> : <IconPlusSmall />}
-            size="xsmall"
+        <AccessControlAction
+            resourceType={AccessControlResourceType.SessionRecording}
+            minAccessLevel={AccessControlLevel.Editor}
+            userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]}
         >
-            {description}
-        </PlaylistPopoverButton>
+            {({ disabledReason }) => (
+                <PlaylistPopoverButton
+                    tooltip={tooltip}
+                    setPinnedInCurrentPlaylist={logicProps.setPinned}
+                    icon={logicProps.pinned ? <IconMinusSmall /> : <IconPlusSmall />}
+                    size="xsmall"
+                    disabledReason={disabledReason}
+                >
+                    {description}
+                </PlaylistPopoverButton>
+            )}
+        </AccessControlAction>
     )
 }
 

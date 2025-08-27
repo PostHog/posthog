@@ -99,14 +99,21 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                                 <More
                                     overlay={
                                         <>
-                                            <LemonButton
+                                            <AccessControlledLemonButton
                                                 onClick={() => duplicatePlaylist()}
                                                 fullWidth
                                                 data-attr="duplicate-playlist"
+                                                minAccessLevel={AccessControlLevel.Editor}
+                                                resourceType={AccessControlResourceType.SessionRecording}
+                                                userAccessLevel={
+                                                    getAppContext()?.resource_access_control?.[
+                                                        AccessControlResourceType.SessionRecording
+                                                    ]
+                                                }
                                             >
                                                 Duplicate
-                                            </LemonButton>
-                                            <LemonButton
+                                            </AccessControlledLemonButton>
+                                            <AccessControlledLemonButton
                                                 onClick={() =>
                                                     updatePlaylist({
                                                         short_id: playlist.short_id,
@@ -114,9 +121,16 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                                                     })
                                                 }
                                                 fullWidth
+                                                minAccessLevel={AccessControlLevel.Editor}
+                                                resourceType={AccessControlResourceType.SessionRecording}
+                                                userAccessLevel={
+                                                    getAppContext()?.resource_access_control?.[
+                                                        AccessControlResourceType.SessionRecording
+                                                    ]
+                                                }
                                             >
                                                 {playlist.pinned ? 'Unpin collection' : 'Pin collection'}
-                                            </LemonButton>
+                                            </AccessControlledLemonButton>
                                             <LemonDivider />
 
                                             <AccessControlledLemonButton
