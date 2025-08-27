@@ -22,7 +22,7 @@ const hogFunctionFilterDuration = new Histogram({
     name: 'cdp_hog_function_filter_duration_ms',
     help: 'Processing time for filtering a function',
     // We have a timeout so we don't need to worry about much more than that
-    buckets: [0, 10, 20, 50, 100, 200, 500, 1000],
+    buckets: [0, 10, 20, 50, 100, 200, 300, 500, 1000],
     labelNames: ['type'],
 })
 
