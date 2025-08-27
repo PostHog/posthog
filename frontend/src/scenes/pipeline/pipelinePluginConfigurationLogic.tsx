@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
@@ -7,6 +7,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { afterMountAndOrganization } from 'lib/utils/kea-logic-builders'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -275,7 +276,7 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
             actions.resetConfiguration()
         },
     })),
-    afterMount(({ props, actions }) => {
+    afterMountAndOrganization(({ props, actions }) => {
         if (props.pluginConfigId) {
             actions.loadPluginConfig() // comes with plugin info
         } else if (props.pluginId) {

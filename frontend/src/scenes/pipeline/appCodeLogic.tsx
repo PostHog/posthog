@@ -1,7 +1,8 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers } from 'kea'
 import { forms } from 'kea-forms'
 
 import api from 'lib/api'
+import { afterMountAndOrganization } from 'lib/utils/kea-logic-builders'
 
 import type { appsCodeLogicType } from './appCodeLogicType'
 
@@ -107,7 +108,7 @@ export const appsCodeLogic = kea<appsCodeLogicType>([
             },
         },
     })),
-    afterMount(({ actions }) => {
+    afterMountAndOrganization(({ actions }) => {
         actions.fetchPluginSource()
     }),
 ])

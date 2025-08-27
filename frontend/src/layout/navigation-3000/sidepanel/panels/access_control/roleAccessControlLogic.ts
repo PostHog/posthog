@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router } from 'kea-router'
@@ -6,6 +6,7 @@ import { actionToUrl, router } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { afterMountAndOrganization } from 'lib/utils/kea-logic-builders'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -180,7 +181,7 @@ export const roleAccessControlLogic = kea<roleAccessControlLogicType>([
         },
     })),
 
-    afterMount(({ actions }) => {
+    afterMountAndOrganization(({ actions }) => {
         actions.loadRoles()
         actions.ensureAllMembersLoaded()
         actions.loadResourceAccessControls()

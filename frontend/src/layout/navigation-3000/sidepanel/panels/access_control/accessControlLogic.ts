@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -8,6 +8,7 @@ import api from 'lib/api'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { toSentenceCase } from 'lib/utils'
+import { afterMountAndOrganization } from 'lib/utils/kea-logic-builders'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -313,7 +314,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
             },
         ],
     }),
-    afterMount(({ actions }) => {
+    afterMountAndOrganization(({ actions }) => {
         actions.ensureAllMembersLoaded()
         actions.loadAccessControls()
     }),

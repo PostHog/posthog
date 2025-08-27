@@ -1,5 +1,5 @@
 import FuseClass from 'fuse.js'
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -8,6 +8,7 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { afterMountAndOrganization } from 'lib/utils/kea-logic-builders'
 import { shouldShowHogFunction } from 'scenes/hog-functions/list/hogFunctionsListLogic'
 import { hogFunctionTypeToPipelineStage } from 'scenes/hog-functions/misc/urls'
 import { projectLogic } from 'scenes/projectLogic'
@@ -410,7 +411,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         },
     })),
 
-    afterMount(({ actions, props }) => {
+    afterMountAndOrganization(({ actions, props }) => {
         if (props.types.includes('destination')) {
             actions.loadPlugins()
             actions.loadPluginConfigs()

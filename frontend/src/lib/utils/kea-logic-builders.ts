@@ -21,20 +21,20 @@ export function permanentlyMount(): (logic: BuiltLogic) => void {
  * This abstracts the common pattern of checking for organizationLogic.values.currentOrganization before executing logic.
  */
 export function afterMountAndOrganization(
-    callback: (props: { actions: any; values: any }) => void
+    callback: (props: { actions: any; values: any; props: any }) => void
 ): (logic: BuiltLogic) => void {
     return (logic) => {
         listeners(() => ({
             [organizationLogic.actionTypes.loadCurrentOrganizationSuccess]: ({ currentOrganization }) => {
                 if (currentOrganization) {
-                    callback({ actions: logic.actions, values: logic.values })
+                    callback({ actions: logic.actions, values: logic.values, props: logic.props })
                 }
             },
         }))(logic)
 
-        afterMount(({ actions, values }) => {
+        afterMount(({ actions, values, props }) => {
             if (organizationLogic.values.currentOrganization) {
-                callback({ actions, values })
+                callback({ actions, values, props })
             }
         })(logic)
     }

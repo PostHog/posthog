@@ -1,7 +1,8 @@
-import { actions, afterMount, connect, kea, path, selectors } from 'kea'
+import { actions, connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { afterMountAndOrganization } from 'lib/utils/kea-logic-builders'
 import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -81,7 +82,7 @@ export const frontendAppsLogic = kea<frontendAppsLogicType>([
             },
         ],
     }),
-    afterMount(({ actions }) => {
+    afterMountAndOrganization(({ actions }) => {
         actions.loadPlugins()
         actions.loadPluginConfigs()
     }),
