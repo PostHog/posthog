@@ -125,7 +125,7 @@ export function ChartFilter(): JSX.Element {
             ],
         },
         {
-            title: 'Space & time',
+            title: 'Visualizations',
             options: [
                 {
                     value: ChartDisplayType.WorldMap,
