@@ -18,13 +18,11 @@ Important HogQL differences versus other SQL dialects:
 - For performance, every SELECT from the `events` table must have a `WHERE` clause narrowing down the timestamp to the relevant period.
 - HogQL queries shouldn't end in semicolons.
 
-Person or event metadata unspecified above (emails, names, etc.) is stored in `properties` fields, accessed like: `properties.foo.bar`.
-
-Note: "persons" means "users" here - instead of a "users" table, we have a "persons" table.
 
 <persons>
-When working with persons, default to `events.distinct_id`–it includes all activity.
-Use person_id only when the request is explicitly about identified people/person-profile logic (e.g., person properties), which excludes anonymous users.
+- Person or event metadata unspecified above (emails, names, etc.) is stored in `properties` fields, accessed like: `properties.foo.bar`.
+- Note: "persons" means "users" here - instead of a "users" table, we have a "persons" table.
+- When calculating unique users, default to `events.person_id` – it includes all activity of the user on all devices.
 </persons>
 
 Standardized events/properties such as pageview or screen start with `$`. Custom events/properties start with any other character.
