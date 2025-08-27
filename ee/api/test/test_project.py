@@ -1,10 +1,12 @@
-from ee.api.test.test_team import team_enterprise_api_test_factory
+from posthog.test.base import FuzzyInt
+
 from posthog.api.test.test_team import EnvironmentToProjectRewriteClient
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project import Project
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.test.base import FuzzyInt
+
+from ee.api.test.test_team import team_enterprise_api_test_factory
 
 
 class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):

@@ -1,28 +1,22 @@
 import datetime
-from unittest.mock import MagicMock, patch, call
 
 from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
+from unittest.mock import MagicMock, call, patch
+
+from django.utils.timezone import now
+
+from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Person, SessionRecording, PersonalAPIKey
+from posthog.models import Person, PersonalAPIKey, SessionRecording
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal, uuid7
-from posthog.session_recordings.models.session_recording_event import (
-    SessionRecordingViewed,
-)
-from posthog.session_recordings.queries.test.session_replay_sql import (
-    produce_replay_summary,
-)
+from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    QueryMatchingTest,
-)
-from dateutil.relativedelta import relativedelta
-from django.utils.timezone import now
 
 
 class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest):

@@ -19,6 +19,7 @@ const HIDDEN_ACTIVITY_SCOPES: ActivityScope[] = [
     ActivityScope.TAGGED_ITEM, // Handled under ActivityScope.TAG
     ActivityScope.ORGANIZATION_MEMBERSHIP, // Handled under ActivityScope.ORGANIZATION
     ActivityScope.ORGANIZATION_INVITE, // Handled under ActivityScope.ORGANIZATION
+    ActivityScope.EXTERNAL_DATA_SCHEMA, // Handled under ActivityScope.EXTERNAL_DATA_SOURCE
 ]
 
 const getVisibleActivityScopes = (): ActivityScope[] => {

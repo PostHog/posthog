@@ -1,23 +1,26 @@
 # Marketing Source Adapter Factory
 
 from typing import Optional
+
 import structlog
+
 from posthog.schema import SourceMap
-from posthog.warehouse.models import ExternalDataSource, DataWarehouseTable
+
 from posthog.hogql.database.database import create_hogql_database
 
-from .base import ExternalConfig, GoogleAdsConfig, MarketingSourceAdapter, QueryContext
-from .google_ads import GoogleAdsAdapter
-from .bigquery import BigQueryAdapter
-from .self_managed import AWSAdapter, GoogleCloudAdapter, CloudflareR2Adapter, AzureAdapter
+from posthog.warehouse.models import DataWarehouseTable, ExternalDataSource
 
 from ..constants import (
-    VALID_NATIVE_MARKETING_SOURCES,
-    VALID_NON_NATIVE_MARKETING_SOURCES,
     FALLBACK_EMPTY_QUERY,
     TABLE_PATTERNS,
+    VALID_NATIVE_MARKETING_SOURCES,
+    VALID_NON_NATIVE_MARKETING_SOURCES,
 )
 from ..utils import map_url_to_provider
+from .base import ExternalConfig, GoogleAdsConfig, MarketingSourceAdapter, QueryContext
+from .bigquery import BigQueryAdapter
+from .google_ads import GoogleAdsAdapter
+from .self_managed import AWSAdapter, AzureAdapter, CloudflareR2Adapter, GoogleCloudAdapter
 
 logger = structlog.get_logger(__name__)
 

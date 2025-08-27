@@ -1,27 +1,27 @@
-from typing import Any
 import re
+from typing import Any
 
-from rest_framework import filters, request, response, serializers, status, viewsets, parsers
-from posthog.api.utils import action
 from django.conf import settings
-from posthog.warehouse.models.credential import get_or_create_datawarehouse_credential
 
 import boto3
-from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.shared import UserBasicSerializer
+import posthoganalytics
+from rest_framework import filters, parsers, request, response, serializers, status, viewsets
+
+from posthog.schema import DatabaseSerializedFieldType
+
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import SerializedField, create_hogql_database, serialize_fields
-from posthog.schema import DatabaseSerializedFieldType
-from posthog.tasks.warehouse import validate_data_warehouse_table_columns
-from posthog.warehouse.models import (
-    DataWarehouseCredential,
-    DataWarehouseTable,
-)
-from posthog.warehouse.api.external_data_source import SimpleExternalDataSourceSerializers
-from posthog.warehouse.models.table import CLICKHOUSE_HOGQL_MAPPING, SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING
-import posthoganalytics
-from posthog.models import Team
+
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.shared import UserBasicSerializer
+from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
+from posthog.models import Team
+from posthog.tasks.warehouse import validate_data_warehouse_table_columns
+from posthog.warehouse.api.external_data_source import SimpleExternalDataSourceSerializers
+from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
+from posthog.warehouse.models.credential import get_or_create_datawarehouse_credential
+from posthog.warehouse.models.table import CLICKHOUSE_HOGQL_MAPPING, SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING
 
 
 class CredentialSerializer(serializers.ModelSerializer):

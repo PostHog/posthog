@@ -1,26 +1,25 @@
 from typing import TYPE_CHECKING, cast
 
-
 from rest_framework import exceptions, serializers, status
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
-from posthog.api.documentation import extend_schema
 
-from ee.models.rbac.access_control import AccessControl
-from posthog.scopes import API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
-from posthog.models.team.team import Team
+from posthog.api.documentation import extend_schema
 from posthog.models.organization import OrganizationMembership
+from posthog.models.team.team import Team
 from posthog.rbac.user_access_control import (
     ACCESS_CONTROL_LEVELS_RESOURCE,
-    UserAccessControl,
     AccessSource,
+    UserAccessControl,
     default_access_level,
     highest_access_level,
     ordered_access_levels,
 )
+from posthog.scopes import API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
 
+from ee.models.rbac.access_control import AccessControl
 
 if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet

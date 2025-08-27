@@ -1,16 +1,19 @@
 import enum
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from django.conf import settings
 from django.db import models
 from django.db.models import QuerySet
-from django.db.models.signals import post_save, post_delete
+from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
+
 import structlog
 
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.action.action import Action
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.models.plugin import sync_team_inject_web_apps
 from posthog.models.signals import mutable_receiver
 from posthog.models.team.team import Team
@@ -21,8 +24,6 @@ from posthog.plugins.plugin_server_api import (
     reload_hog_functions_on_workers,
 )
 from posthog.utils import absolute_uri
-from posthog.models.file_system.file_system_representation import FileSystemRepresentation
-from posthog.models.hog_function_template import HogFunctionTemplate
 
 if TYPE_CHECKING:
     from posthog.models.team import Team

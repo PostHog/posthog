@@ -1,32 +1,29 @@
-from datetime import UTC
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from secrets import token_urlsafe
-from unittest.mock import patch, MagicMock
 from uuid import uuid4
+
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import MagicMock, patch
+
+from django.utils import timezone
 
 from boto3 import resource
 from botocore.config import Config
-from django.utils import timezone
-from freezegun import freeze_time
 
-from ee.session_recordings.session_recording_extensions import (
-    persist_recording,
-)
-from ee.session_recordings.session_recording_extensions import persist_recording_v2
 from posthog.session_recordings.models.session_recording import SessionRecording
-from posthog.session_recordings.queries.test.session_replay_sql import (
-    produce_replay_summary,
-)
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock
 from posthog.settings import (
-    OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_ACCESS_KEY_ID,
-    OBJECT_STORAGE_SECRET_ACCESS_KEY,
     OBJECT_STORAGE_BUCKET,
+    OBJECT_STORAGE_ENDPOINT,
+    OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
-from posthog.storage.object_storage import write, list_objects, object_storage_client
+from posthog.storage.object_storage import list_objects, object_storage_client, write
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+
+from ee.session_recordings.session_recording_extensions import persist_recording, persist_recording_v2
 
 BLOCK1_EVENTS = (
     '{"timestamp":1,"type":2,"data":{"href":"http://localhost:3000/","width":2560,"height":1304}}\n'

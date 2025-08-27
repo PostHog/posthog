@@ -19,6 +19,7 @@ import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { AppMetrics } from '../../worker/ingestion/app-metrics'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { ClickhouseGroupRepository } from '../../worker/ingestion/groups/repositories/clickhouse-group-repository'
+import { PostgresDualWriteGroupRepository } from '../../worker/ingestion/groups/repositories/postgres-dualwrite-group-repository'
 import { PostgresGroupRepository } from '../../worker/ingestion/groups/repositories/postgres-group-repository'
 import { RustyHook } from '../../worker/rusty-hook'
 import { ActionManagerCDP } from '../action-manager-cdp'
@@ -84,6 +85,14 @@ export async function createHub(
     logger.info('👍', `Kafka ready`)
 
     const postgres = new PostgresRouter(serverConfig)
+
+    // Instantiate a second router for the Persons database migration
+    const postgresPersonMigration = new PostgresRouter({
+        ...serverConfig,
+        PERSONS_DATABASE_URL: serverConfig.PERSONS_MIGRATION_DATABASE_URL || serverConfig.PERSONS_DATABASE_URL,
+        PERSONS_READONLY_DATABASE_URL:
+            serverConfig.PERSONS_MIGRATION_READONLY_DATABASE_URL || serverConfig.PERSONS_READONLY_DATABASE_URL,
+    })
     // TODO: assert tables are reachable (async calls that cannot be in a constructor)
     logger.info('👍', `Postgres Router ready`)
 
@@ -106,6 +115,7 @@ export async function createHub(
 
     const db = new DB(
         postgres,
+        postgresPersonMigration,
         redisPool,
         cookielessRedisPool,
         kafkaProducer,
@@ -122,7 +132,11 @@ export async function createHub(
     const actionManagerCDP = new ActionManagerCDP(postgres)
     const actionMatcher = new ActionMatcher(postgres, actionManager)
     const groupTypeManager = new GroupTypeManager(postgres, teamManager)
-    const groupRepository = new PostgresGroupRepository(postgres)
+    const groupRepository = serverConfig.GROUPS_DUAL_WRITE_ENABLED
+        ? new PostgresDualWriteGroupRepository(postgres, postgresPersonMigration, {
+              comparisonEnabled: serverConfig.GROUPS_DUAL_WRITE_COMPARISON_ENABLED,
+          })
+        : new PostgresGroupRepository(postgres)
     const clickhouseGroupRepository = new ClickhouseGroupRepository(kafkaProducer)
     const cookielessManager = new CookielessManager(serverConfig, cookielessRedisPool, teamManager)
     const geoipService = new GeoIPService(serverConfig)
@@ -137,6 +151,7 @@ export async function createHub(
         capabilities,
         db,
         postgres,
+        postgresPersonMigration,
         redisPool,
         cookielessRedisPool,
         kafka,
@@ -186,7 +201,12 @@ export const closeHub = async (hub: Hub): Promise<void> => {
     }
     logger.info('💤', 'Closing kafka, redis, postgres...')
     await hub.pubSub.stop()
-    await Promise.allSettled([hub.kafkaProducer.disconnect(), hub.redisPool.drain(), hub.postgres?.end()])
+    await Promise.allSettled([
+        hub.kafkaProducer.disconnect(),
+        hub.redisPool.drain(),
+        hub.postgres?.end(),
+        hub.postgresPersonMigration?.end(),
+    ])
     await hub.redisPool.clear()
     await hub.cookielessRedisPool.clear()
     logger.info('💤', 'Closing cookieless manager...')
