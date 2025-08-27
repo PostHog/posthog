@@ -301,7 +301,6 @@ export function convertToHogFunctionFilterGlobal(
 const HOG_FILTERING_TIMEOUT_MS = 100
 
 function preFilterResult(filters: HogFunctionType['filters'], filterGlobals: HogFunctionFilterGlobals): boolean {
-    // If event filter is present check for a match
     const eventMatches = filters?.events?.some((eventFilter) => {
         // We need to test if the id is null (all events) or if it is in the list of event matchers
         return eventFilter.id === null || eventFilter.id === filterGlobals.event
