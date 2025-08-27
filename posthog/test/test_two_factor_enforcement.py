@@ -440,7 +440,7 @@ class TestAPIAuthenticationTwoFactorBypass(TestCase):
         self.assertIsNone(result)
 
     def test_sso_authentication_backend_bypasses_two_factor(self):
-        """SSO authentication backends should bypass 2FA enforcement"""
+        """Integration test: SSO authentication backends should bypass 2FA enforcement"""
         auth = SessionAuthentication()
 
         request_factory = RequestFactory()
@@ -454,11 +454,7 @@ class TestAPIAuthenticationTwoFactorBypass(TestCase):
 
         middleware = SessionMiddleware(lambda request: HttpResponse())
         middleware.process_request(http_request)
-
         self._set_session_after_enforcement_date(http_request)
-
-        http_request.session["_auth_user_backend"] = "social_core.backends.github.GithubOAuth2"
-        http_request.session.save()
 
         request = self.factory.get("/api/organizations/")
         request._request = http_request
@@ -466,7 +462,7 @@ class TestAPIAuthenticationTwoFactorBypass(TestCase):
         with (
             patch("posthog.helpers.two_factor_session.is_impersonated_session", return_value=False),
             patch("posthog.helpers.two_factor_session.default_device", return_value=None),
-            patch("posthog.helpers.two_factor_session.is_domain_sso_enforced", return_value=False),
+            patch("posthog.helpers.two_factor_session.is_sso_authentication_backend", return_value=True),
             patch.object(auth, "enforce_csrf"),
         ):
             result = auth.authenticate(request)
