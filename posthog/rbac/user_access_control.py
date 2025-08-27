@@ -60,7 +60,6 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
 # Resource inheritance mapping - child resources inherit access from parent resources
 RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "session_recording_playlist": "session_recording",
-    # Add more inheritance mappings as needed
 }
 
 # Field-level access control mapping
@@ -78,9 +77,7 @@ FIELD_ACCESS_CONTROL_MAP: dict[str, dict[str, tuple[APIScopeObject, AccessContro
         "session_recording_event_trigger_config": ("session_recording", "editor"),
         "session_recording_trigger_match_type_config": ("session_recording", "editor"),
         "session_replay_config": ("session_recording", "editor"),
-        # Add more field mappings as needed
     },
-    # Add mappings for other models as needed
 }
 
 
