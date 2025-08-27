@@ -22,8 +22,7 @@ impl DatabasePools {
                 .await
                 .map_err(|e| {
                     FlagError::DatabaseError(format!(
-                        "Failed to create flag matching reader pool: {}",
-                        e
+                        "Failed to create flag matching reader pool: {e}"
                     ))
                 })?,
         );
@@ -33,8 +32,7 @@ impl DatabasePools {
                 .await
                 .map_err(|e| {
                     FlagError::DatabaseError(format!(
-                        "Failed to create flag matching writer pool: {}",
-                        e
+                        "Failed to create flag matching writer pool: {e}"
                     ))
                 })?,
         );
@@ -48,7 +46,7 @@ impl DatabasePools {
                 )
                 .await
                 .map_err(|e| {
-                    FlagError::DatabaseError(format!("Failed to create persons reader pool: {}", e))
+                    FlagError::DatabaseError(format!("Failed to create persons reader pool: {e}"))
                 })?,
             )
         } else {
@@ -63,7 +61,7 @@ impl DatabasePools {
                 )
                 .await
                 .map_err(|e| {
-                    FlagError::DatabaseError(format!("Failed to create persons writer pool: {}", e))
+                    FlagError::DatabaseError(format!("Failed to create persons writer pool: {e}"))
                 })?,
             )
         } else {
