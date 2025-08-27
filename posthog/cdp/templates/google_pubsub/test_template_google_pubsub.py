@@ -40,7 +40,7 @@ class TestTemplateMigration(BaseTest):
         template["inputs"]["oauth"]["value"] = 1  # mock the ID
         assert template["inputs"] == snapshot(
             {
-                "auth": {"value": 1},
+                "oauth": {"value": 1},
                 "topicId": {"value": "TOPIC_ID"},
                 "payload": {
                     "value": {
@@ -91,7 +91,7 @@ class TestTemplateMigration(BaseTest):
         template["inputs"]["oauth"]["value"] = 1  # mock the ID
         assert template["inputs"] == snapshot(
             {
-                "auth": {"value": 1},
+                "oauth": {"value": 1},
                 "topicId": {"value": "TOPIC_ID"},
                 "payload": {
                     "value": {

@@ -126,7 +126,7 @@ class TemplateGooglePubSubMigrator(HogFunctionTemplateMigrator):
                     "person_properties": "{person.properties}",
                 }
             },
-            "auth": {"value": integration.id},
+            "oauth": {"value": integration.id},
             "attributes": {"value": {}},
         }
 

@@ -115,7 +115,7 @@ class TemplateGoogleCloudStorageMigrator(HogFunctionTemplateMigrator):
             "filename": {
                 "value": "{toDate(event.timestamp)}/{replaceAll(replaceAll(replaceAll(toString(event.timestamp), '-', ''), ':', ''), 'T', '-')}-{event.uuid}.csv"
             },
-            "auth": {"value": integration.id},
+            "oauth": {"value": integration.id},
         }
 
         return hf
