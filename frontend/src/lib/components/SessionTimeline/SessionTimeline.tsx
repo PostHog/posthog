@@ -118,17 +118,23 @@ export function SessionTimeline({
             <div className="flex flex-col justify-between items-center p-1 border-r border-gray-3">
                 <div className="flex flex-col items-center gap-2">
                     {collector.getCategories().map((cat) => (
-                        <SessionGroupToggle
+                        <ItemCategoryToggle
                             active={categories.includes(cat)}
                             key={cat}
+                            category={cat}
                             onClick={() => toggleCategory(cat)}
                         >
                             {collector.getRenderer(cat)?.categoryIcon}
-                        </SessionGroupToggle>
+                        </ItemCategoryToggle>
                     ))}
                 </div>
                 {items.find((item) => item.id === selectedItemId) && (
-                    <ButtonPrimitive iconOnly onClick={() => selectedItemId && scrollToItem(selectedItemId)}>
+                    <ButtonPrimitive
+                        tooltip="Scroll to item"
+                        tooltipPlacement="right"
+                        iconOnly
+                        onClick={() => selectedItemId && scrollToItem(selectedItemId)}
+                    >
                         <IconVerticalAlignCenter />
                     </ButtonPrimitive>
                 )}
@@ -213,7 +219,7 @@ const SessionTimelineItemContainer = forwardRef<HTMLDivElement, SessionTimelineI
     }
 )
 
-const sessionGroupToggle = cva({
+const itemCategoryToggle = cva({
     base: 'shrink-0',
     variants: {
         active: {
@@ -222,6 +228,18 @@ const sessionGroupToggle = cva({
     },
 })
 
-export function SessionGroupToggle({ active, ...props }: ButtonPrimitiveProps): JSX.Element {
-    return <ButtonPrimitive iconOnly className={sessionGroupToggle({ active })} {...props} />
+export function ItemCategoryToggle({
+    active,
+    category,
+    ...props
+}: ButtonPrimitiveProps & { category: ItemCategory }): JSX.Element {
+    return (
+        <ButtonPrimitive
+            iconOnly
+            tooltip={active ? `Hide ${category}` : `Show ${category}`}
+            tooltipPlacement="right"
+            className={itemCategoryToggle({ active })}
+            {...props}
+        />
+    )
 }

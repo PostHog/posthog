@@ -1,9 +1,9 @@
 import { Dayjs } from 'lib/dayjs'
 
 export enum ItemCategory {
-    ERROR_TRACKING = 'error-tracking',
-    CUSTOM_EVENTS = 'custom-events',
-    PAGE_VIEWS = 'page-views',
+    ERROR_TRACKING = 'exceptions',
+    CUSTOM_EVENTS = 'custom events',
+    PAGE_VIEWS = 'pageviews',
 }
 
 export interface TimelineItem {
