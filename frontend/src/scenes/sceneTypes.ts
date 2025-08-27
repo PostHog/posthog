@@ -9,7 +9,7 @@ import { SettingSectionId } from './settings/types'
 
 export enum Scene {
     Action = 'Action',
-    Activity = 'Activity',
+    Actions = 'Actions',
     AsyncMigrations = 'AsyncMigrations',
     BatchExport = 'BatchExport',
     BatchExportNew = 'BatchExportNew',
@@ -47,6 +47,7 @@ export enum Scene {
     Experiments = 'Experiments',
     ExperimentsSharedMetric = 'ExperimentsSharedMetric',
     ExperimentsSharedMetrics = 'ExperimentsSharedMetrics',
+    ExploreEvents = 'ExploreEvents',
     FeatureFlag = 'FeatureFlag',
     FeatureFlags = 'FeatureFlags',
     Game368 = 'Game368',
@@ -61,6 +62,7 @@ export enum Scene {
     LegacyPlugin = 'LegacyPlugin',
     Link = 'Link',
     Links = 'Links',
+    LiveEvents = 'LiveEvents',
     Login = 'Login',
     Login2FA = 'Login2FA',
     Max = 'Max',
@@ -116,26 +118,43 @@ export enum Scene {
     Wizard = 'Wizard',
 }
 
-export type SceneProps = Record<string, any>
+export type SceneComponent<T> = (props: T) => JSX.Element | null
 
-export type SceneComponent = (params?: SceneProps) => JSX.Element | null
-
-export interface SceneExport {
+export interface SceneExport<T = {}> {
     /** component to render for this scene */
-    component: SceneComponent
+    component: SceneComponent<T>
     /** logic to mount for this scene */
     logic?: LogicWrapper
     /** setting section id to open when clicking the settings button */
     settingSectionId?: SettingSectionId
     /** convert URL parameters from scenes.ts into logic props */
-    paramsToProps?: (params: SceneParams) => SceneProps
+    paramsToProps?: (params: SceneParams) => T
     /** when was the scene last touched, unix timestamp for sortability */
     lastTouch?: number
 }
 
-export interface LoadedScene extends SceneExport {
+type SceneProps = Record<string, any>
+
+// KLUDGE: LoadedScene is used in a logic and therefore cannot accept generics
+// we use an untyped SceneProps to satisfy the types
+export interface LoadedScene extends SceneExport<SceneProps> {
     id: string
+    tabId?: string
     sceneParams: SceneParams
+}
+
+export interface SceneTab {
+    id: string
+    pathname: string
+    search: string
+    hash: string
+    title: string
+    active: boolean
+    customTitle?: string
+
+    sceneId?: string
+    sceneKey?: string
+    sceneParams?: SceneParams
 }
 
 export interface SceneParams {

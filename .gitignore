@@ -32,6 +32,7 @@ __pycache__/
 *.swp
 **/*.tsbuildinfo
 *Type.ts
+CLAUDE.local.md
 /env
 /playwright-report/
 /test-results/
@@ -114,3 +115,9 @@ posthog/management/commands/clear_demo_data.py
 
 # Ignore Claude Code settings
 .claude/settings.local.json
+
+# Ignore local mprocs configs
+bin/mprocs*.local.yaml
+
+# Debug output of our session summaries product
+.session-summaries

@@ -2,10 +2,10 @@ import { DateTime } from 'luxon'
 
 import {
     ConsoleLogEntry,
+    SummarizedSessionRecordingEvent,
     createSessionReplayEvent,
     gatherConsoleLogEvents,
     getTimestampsFrom,
-    SummarizedSessionRecordingEvent,
 } from '../../../../src/main/ingestion-queues/session-recording/process-event'
 import { RRWebEvent, TimestampFormat } from '../../../../src/types'
 import { castTimestampToClickhouseFormat } from '../../../../src/utils/utils'

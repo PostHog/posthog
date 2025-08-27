@@ -1,30 +1,37 @@
 import time
 from datetime import datetime
-from typing import Any, Literal, Optional, Union, cast, TYPE_CHECKING
+from enum import StrEnum
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 
-import structlog
 from django.conf import settings
 from django.db import connection, models
 from django.db.models import Q, QuerySet
 from django.db.models.expressions import F
-
 from django.utils import timezone
-from posthog.exceptions_capture import capture_exception
+
+import structlog
 
 from posthog.constants import PropertyOperatorType
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.batch_iterators import ArrayBatchIterator, BatchIterator, FunctionBatchIterator
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.filters.filter import Filter
-from posthog.models.person import Person
+from posthog.models.person import Person, PersonDistinctId
 from posthog.models.person.person import READ_DB_FOR_PERSONS
-from posthog.models.property import BehavioralPropertyType, Property, PropertyGroup
+from posthog.models.property import Property, PropertyGroup
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.settings.base_variables import TEST
-from posthog.models.file_system.file_system_representation import FileSystemRepresentation
-from posthog.models.person import PersonDistinctId
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
+
+
+class CohortType(StrEnum):
+    STATIC = "static"
+    PERSON_PROPERTY = "person_property"
+    BEHAVIORAL = "behavioral"
+    ANALYTICAL = "analytical"
 
 
 # The empty string literal helps us determine when the cohort is invalid/deleted, when
@@ -164,6 +171,14 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     is_static = models.BooleanField(default=False)
 
+    cohort_type = models.CharField(
+        max_length=50,
+        null=True,
+        blank=True,
+        choices=[(cohort_type.value, cohort_type.value) for cohort_type in CohortType],
+        help_text="Type of cohort based on filter complexity",
+    )
+
     # deprecated in favor of filters
     groups = models.JSONField(default=list)
 
@@ -255,19 +270,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             return PropertyGroup(PropertyOperatorType.OR, property_groups)
 
         return PropertyGroup(PropertyOperatorType.AND, cast(list[Property], []))
-
-    @property
-    def has_complex_behavioral_filter(self) -> bool:
-        for prop in self.properties.flat:
-            if prop.type == "behavioral" and prop.value in [
-                BehavioralPropertyType.PERFORMED_EVENT_FIRST_TIME,
-                BehavioralPropertyType.PERFORMED_EVENT_REGULARLY,
-                BehavioralPropertyType.PERFORMED_EVENT_SEQUENCE,
-                BehavioralPropertyType.STOPPED_PERFORMING_EVENT,
-                BehavioralPropertyType.RESTARTED_PERFORMING_EVENT,
-            ]:
-                return True
-        return False
 
     def get_analytics_metadata(self):
         return {
@@ -497,7 +499,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             for person in self.people.all()
         ]
 
-        from posthog.models.activity_logging.activity_log import field_exclusions, common_field_exclusions
+        from posthog.models.activity_logging.activity_log import common_field_exclusions, field_exclusions
 
         excluded_fields = field_exclusions.get("Cohort", []) + common_field_exclusions
         base_dict = {
@@ -510,6 +512,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             "query": self.query,
             "groups": self.groups,
             "is_static": self.is_static,
+            "cohort_type": self.cohort_type,
             "created_by_id": self.created_by_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "last_error_at": self.last_error_at.isoformat() if self.last_error_at else None,

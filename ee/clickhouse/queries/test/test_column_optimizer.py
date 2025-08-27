@@ -1,12 +1,10 @@
-from ee.clickhouse.materialized_columns.columns import materialize
-from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, cleanup_materialized_columns
+
 from posthog.models import Action
 from posthog.models.filters import Filter, RetentionFilter
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    cleanup_materialized_columns,
-)
+
+from ee.clickhouse.materialized_columns.columns import materialize
+from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
 
 PROPERTIES_OF_ALL_TYPES = [
     {"key": "event_prop", "value": ["foo", "bar"], "type": "event"},

@@ -3,19 +3,20 @@ import './DashboardItems.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useRef, useState } from 'react'
+import { Responsive as ReactGridLayout } from 'react-grid-layout'
+
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { useRef, useState } from 'react'
-import { Responsive as ReactGridLayout } from 'react-grid-layout'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { BREAKPOINT_COLUMN_COUNTS, BREAKPOINTS } from 'scenes/dashboard/dashboardUtils'
+import { BREAKPOINTS, BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
 import { urls } from 'scenes/urls'
 
-import { dashboardsModel } from '~/models/dashboardsModel'
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 
@@ -31,10 +32,10 @@ export function DashboardItems(): JSX.Element {
         highlightedInsightId,
         refreshStatus,
         itemsLoading,
-        temporaryVariables,
+        effectiveEditBarFilters,
+        urlVariables,
         temporaryBreakdownColors,
         dataColorThemeId,
-        noCache,
     } = useValues(dashboardLogic)
     const {
         updateLayouts,
@@ -42,7 +43,7 @@ export function DashboardItems(): JSX.Element {
         updateTileColor,
         removeTile,
         duplicateTile,
-        triggerDashboardItemRefresh,
+        refreshDashboardItem,
         moveToDashboard,
     } = useActions(dashboardLogic)
     const { duplicateInsight, renameInsight } = useActions(insightsModel)
@@ -155,7 +156,7 @@ export function DashboardItems(): JSX.Element {
                                     highlighted={highlightedInsightId && insight.short_id === highlightedInsightId}
                                     updateColor={(color) => updateTileColor(tile.id, color)}
                                     ribbonColor={tile.color}
-                                    refresh={() => triggerDashboardItemRefresh({ tile })}
+                                    refresh={() => refreshDashboardItem({ tile })}
                                     refreshEnabled={!itemsLoading}
                                     rename={() => renameInsight(insight)}
                                     duplicate={() => duplicateInsight(insight)}
@@ -165,11 +166,11 @@ export function DashboardItems(): JSX.Element {
                                     }
                                     placement={placement}
                                     loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
-                                    variablesOverride={temporaryVariables}
+                                    filtersOverride={effectiveEditBarFilters}
+                                    variablesOverride={urlVariables}
                                     // :HACKY: The two props below aren't actually used in the component, but are needed to trigger a re-render
                                     breakdownColorOverride={temporaryBreakdownColors}
                                     dataColorThemeId={dataColorThemeId}
-                                    noCache={noCache}
                                     {...commonTileProps}
                                     // NOTE: ReactGridLayout additionally injects its resize handles as `children`!
                                 />

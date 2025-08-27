@@ -69,7 +69,7 @@ const build_inputs = (): HogFunctionInputSchemaType[] => {
 
 export const template: HogFunctionTemplate = {
     free: false,
-    status: 'hidden',
+    status: 'alpha',
     type: 'destination',
     id: 'template-google-ads',
     name: 'Google Ads Conversions',

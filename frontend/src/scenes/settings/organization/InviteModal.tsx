@@ -1,8 +1,10 @@
 import './InviteModal.scss'
 
+import { useActions, useValues } from 'kea'
+
 import { IconInfo, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonInput, LemonSelect, LemonTextArea, Link, Tooltip } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { RestrictionScope } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -11,12 +13,13 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { capitalizeFirstLetter, isEmail, pluralize } from 'lib/utils'
 import { organizationMembershipLevelIntegers } from 'lib/utils/permissioning'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { inviteLogic } from './inviteLogic'
 import { AccessControlLevel, AvailableFeature } from '~/types'
+
+import { inviteLogic } from './inviteLogic'
 
 /** Shuffled placeholder names */
 const PLACEHOLDER_NAMES: string[] = [...Array(10).fill('Jane'), ...Array(10).fill('John'), 'Sonic'].sort(
@@ -24,7 +27,7 @@ const PLACEHOLDER_NAMES: string[] = [...Array(10).fill('Jane'), ...Array(10).fil
 )
 export const MAX_INVITES_AT_ONCE = 20
 
-export function EmailUnavailableMessage(): JSX.Element {
+export function EmailUnavailableForInvitesBanner(): JSX.Element {
     return (
         <LemonBanner type="info" className="my-2">
             <>

@@ -1,9 +1,9 @@
 // Postgres
-
 import { Client, Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow } from 'pg'
 
+import { withSpan } from '~/common/tracing/tracing-utils'
+
 import { PluginsServerConfig } from '../../types'
-import { instrumentQuery } from '../../utils/metrics'
 import { logger } from '../logger'
 import { createPostgresPool } from '../utils'
 import { POSTGRES_UNAVAILABLE_ERROR_MESSAGES } from './db'
@@ -139,7 +139,7 @@ export class PostgresRouter {
     ): Promise<ReturnType> {
         const wrappedTag = `${PostgresUse[usage]}:Tx<${tag}>`
 
-        return instrumentQuery('query.postgres_transaction', wrappedTag, async () => {
+        return withSpan('postgres', 'query.postgres_transaction', { tag: wrappedTag }, async () => {
             const timeout = timeoutGuard(`Postgres slow transaction warning after 30 sec!`)
             const client = await this.pools.get(usage)!.connect()
             try {
@@ -163,6 +163,10 @@ export class PostgresRouter {
         })
     }
 
+    public async connect(usage: PostgresUse): Promise<PoolClient> {
+        return await this.pools.get(usage)!.connect()
+    }
+
     async end(): Promise<void> {
         // Close all the connection pools
         const uniquePools: Set<Pool> = new Set(this.pools.values())
@@ -180,7 +184,7 @@ function postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
     tag: string,
     queryFailureLogLevel: 'error' | 'warn' = 'error'
 ): Promise<QueryResult<R>> {
-    return instrumentQuery('query.postgres', tag, async () => {
+    return withSpan('postgres', 'query.postgres', { tag: tag ?? 'unknown' }, async () => {
         const queryConfig =
             typeof queryString === 'string'
                 ? {

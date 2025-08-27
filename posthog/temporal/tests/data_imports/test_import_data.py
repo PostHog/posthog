@@ -1,8 +1,9 @@
 from typing import Any
+
+import pytest
 from unittest import mock
 
 from flaky import flaky
-import pytest
 
 from posthog.models.team.team import Team
 from posthog.temporal.data_imports.settings import import_data_activity_sync
@@ -13,6 +14,7 @@ from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 from posthog.warehouse.models.table import DataWarehouseTable
+from posthog.warehouse.types import ExternalDataSourceType
 
 
 def _setup(team: Team, job_inputs: dict[Any, Any]) -> ImportDataActivityInputs:
@@ -21,7 +23,7 @@ def _setup(team: Team, job_inputs: dict[Any, Any]) -> ImportDataActivityInputs:
         source_id="source_id",
         connection_id="connection_id",
         status=ExternalDataSource.Status.COMPLETED,
-        source_type=ExternalDataSource.Type.POSTGRES,
+        source_type=ExternalDataSourceType.POSTGRES,
         job_inputs=job_inputs,
     )
     credentials = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=team)

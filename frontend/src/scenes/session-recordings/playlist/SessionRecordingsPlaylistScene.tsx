@@ -1,24 +1,25 @@
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
+
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
-import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import { dayjs } from 'lib/dayjs'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { SceneExport } from 'scenes/sceneTypes'
-import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
-
 import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
-import { SceneTextarea } from 'lib/components/Scenes/SceneTextarea'
-import { SceneTextInput } from 'lib/components/Scenes/SceneTextInput'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
+import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { SceneExport } from 'scenes/sceneTypes'
+import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+
 import {
     ScenePanel,
     ScenePanelActions,
@@ -26,18 +27,23 @@ import {
     ScenePanelDivider,
     ScenePanelMetaInfo,
 } from '~/layout/scenes/SceneLayout'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+
 import { isUniversalFilters } from '../utils'
 import { SessionRecordingsPlaylist } from './SessionRecordingsPlaylist'
 import { convertLegacyFiltersToUniversalFilters } from './sessionRecordingsPlaylistLogic'
-import { sessionRecordingsPlaylistSceneLogic } from './sessionRecordingsPlaylistSceneLogic'
+import {
+    SessionRecordingsPlaylistLogicProps,
+    sessionRecordingsPlaylistSceneLogic,
+} from './sessionRecordingsPlaylistSceneLogic'
 
 const RESOURCE_TYPE = 'replay-collection'
-export const scene: SceneExport = {
+export const scene: SceneExport<SessionRecordingsPlaylistLogicProps> = {
     component: SessionRecordingsPlaylistScene,
     logic: sessionRecordingsPlaylistSceneLogic,
-    paramsToProps: ({ params: { id } }) => {
-        return { shortId: id as string }
-    },
+    paramsToProps: ({ params: { id } }) => ({ shortId: id }),
     settingSectionId: 'environment-replay',
 }
 
@@ -51,6 +57,14 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
     const { setShowFilters } = useActions(playerSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+
+    const isNewPlaylist = useMemo(() => {
+        if (!playlist || playlistLoading) {
+            return false
+        }
+
+        return !playlist.name
+    }, [playlist, playlistLoading])
 
     if (playlistLoading) {
         return (
@@ -174,21 +188,6 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                     />
                 </ScenePanelCommonActions>
                 <ScenePanelMetaInfo>
-                    <SceneTextInput
-                        name="name"
-                        defaultValue={playlist.name || ''}
-                        onSave={(value) => updatePlaylist({ name: value })}
-                        dataAttrKey={RESOURCE_TYPE}
-                    />
-
-                    <SceneTextarea
-                        name="description"
-                        defaultValue={playlist.description || ''}
-                        onSave={(value) => updatePlaylist({ description: value })}
-                        dataAttrKey={RESOURCE_TYPE}
-                        optional
-                        markdown
-                    />
                     <SceneFile dataAttrKey={RESOURCE_TYPE} />
                     <SceneActivityIndicator
                         at={playlist.last_modified_at}
@@ -205,7 +204,26 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                 </ScenePanelActions>
             </ScenePanel>
 
-            <div className="SessionRecordingPlaylistHeightWrapper">
+            <SceneContent className="SessionRecordingPlaylistHeightWrapper">
+                <SceneTitleSection
+                    name={playlist.name || ''}
+                    description={playlist.description || ''}
+                    resourceType={{
+                        type: 'session_recording_playlist',
+                        typePlural: 'Session Recordings',
+                    }}
+                    onNameChange={(name) => {
+                        updatePlaylist({ name })
+                    }}
+                    onDescriptionChange={(description) => {
+                        updatePlaylist({ description })
+                    }}
+                    canEdit
+                    forceEdit={isNewPlaylist}
+                    renameDebounceMs={1000}
+                />
+                <SceneDivider />
+
                 <SessionRecordingsPlaylist
                     logicKey={playlist.short_id}
                     // backwards compatibilty for legacy filters
@@ -221,7 +239,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                     updateSearchParams={true}
                     type="collection"
                 />
-            </div>
+            </SceneContent>
         </div>
     )
 }

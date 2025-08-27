@@ -1,22 +1,27 @@
-import { IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { MicrophoneHog } from 'lib/components/hedgehogs'
+import { useEffect } from 'react'
+
+import { IconNotification, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { TZLabel } from 'lib/components/TZLabel'
+import { MicrophoneHog } from 'lib/components/hedgehogs'
+import { dayjs } from 'lib/dayjs'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { userLogic } from 'scenes/userLogic'
-import { useEffect } from 'react'
-
-import { CommentType, ProductKey } from '~/types'
-import { dayjs } from 'lib/dayjs'
-
-import { commentsLogic, openURLFor, SCOPE_OPTIONS } from './commentsLogic'
-import { MemberSelect } from 'lib/components/MemberSelect'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
-import { TZLabel } from 'lib/components/TZLabel'
+import { userLogic } from 'scenes/userLogic'
+
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { CommentType, ProductKey } from '~/types'
+
+import { SCOPE_OPTIONS, commentsLogic, openURLFor } from './commentsLogic'
 
 export function Comments(): JSX.Element {
     const { user } = useValues(userLogic)
@@ -121,7 +126,17 @@ export function Comments(): JSX.Element {
     ]
 
     return (
-        <div data-attr="comments-management-scene">
+        <SceneContent data-attr="comments-management-scene">
+            <SceneTitleSection
+                name="Comments"
+                description="Comments allow you to provide context and discussions on various elements in PostHog."
+                resourceType={{
+                    type: 'comment',
+                    typePlural: 'comments',
+                    forceIcon: <IconNotification />,
+                }}
+            />
+            <SceneDivider />
             <div className="flex flex-row gap-4 justify-between">
                 <div className="flex flex-row items-center gap-2">
                     <LemonInput
@@ -180,6 +195,6 @@ export function Comments(): JSX.Element {
                     />
                 )}
             </div>
-        </div>
+        </SceneContent>
     )
 }

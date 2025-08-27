@@ -1,12 +1,12 @@
+from enum import Enum
+from typing import Self
+
 from django.db import models
 
-from posthog.models.utils import UUIDModel
-from posthog.models.team import Team
-
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
-
-from typing import Self
-from enum import Enum
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.team import Team
+from posthog.models.utils import UUIDTModel
 
 
 class DateRangeExportSource(str, Enum):
@@ -23,7 +23,7 @@ class ContentType(str, Enum):
         return {"type": self.value}
 
 
-class BatchImport(UUIDModel):
+class BatchImport(ModelActivityMixin, UUIDTModel):
     class Status(models.TextChoices):
         COMPLETED = "completed", "Completed"
         FAILED = "failed", "Failed"
@@ -45,6 +45,9 @@ class BatchImport(UUIDModel):
     state = models.JSONField(null=True, blank=True)
     import_config = models.JSONField()
     secrets = EncryptedJSONStringField()
+    # Exponential backoff state (used by rust worker). Mirrors columns used by the worker.
+    backoff_attempt = models.IntegerField(default=0)
+    backoff_until = models.DateTimeField(null=True, blank=True)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

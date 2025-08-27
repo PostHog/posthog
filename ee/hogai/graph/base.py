@@ -3,22 +3,19 @@ from typing import Any, Generic
 from uuid import UUID
 
 from langchain_core.runnables import RunnableConfig
+
+from posthog.schema import AssistantMessage, AssistantToolCall, MaxBillingContext, MaxUIContext
+
+from posthog.models import Team
+from posthog.models.user import User
+from posthog.sync import database_sync_to_async
+
 from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import find_last_ui_context
 from ee.models import Conversation
-from posthog.models import Team
-from posthog.models.user import User
-from posthog.schema import AssistantMessage, AssistantToolCall, MaxUIContext, MaxBillingContext
-from posthog.sync import database_sync_to_async
 
-from ..utils.types import (
-    AssistantMessageUnion,
-    AssistantState,
-    PartialAssistantState,
-    PartialStateType,
-    StateType,
-)
+from ..utils.types import AssistantMessageUnion, AssistantState, PartialAssistantState, PartialStateType, StateType
 
 
 class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMixin):

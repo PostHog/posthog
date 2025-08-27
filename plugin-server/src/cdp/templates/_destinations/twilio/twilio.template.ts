@@ -72,7 +72,7 @@ if (inputs.debug) {
             integration_key: 'twilio_account',
             integration_field: 'twilio_phone_number',
             label: 'From Phone Number',
-            description: 'Your Twilio phone number (e.g. +12292109687)',
+            description: 'Your Twilio phone number',
             secret: false,
             hidden: false,
             required: true,

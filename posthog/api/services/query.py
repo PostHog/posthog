@@ -1,39 +1,40 @@
-import pydantic_core
-
-from posthog.schema_migrations.upgrade import upgrade
-import structlog
 from typing import Optional
-from posthog.exceptions_capture import capture_exception
 
+import structlog
+import pydantic_core
 from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
-from common.hogvm.python.debugger import color_bytecode
-from posthog.hogql_queries.query_runner import QueryResponse
-from posthog.clickhouse.query_tagging import tag_queries
-from posthog.cloud_utils import is_cloud
+from posthog.schema import (
+    DashboardFilter,
+    DatabaseSchemaQuery,
+    DatabaseSchemaQueryResponse,
+    DataWarehouseViewLink,
+    HogQLAutocomplete,
+    HogQLMetadata,
+    HogQLVariable,
+    HogQuery,
+    HogQueryResponse,
+    QuerySchemaRoot,
+)
+
+from posthog.hogql.autocomplete import get_hogql_autocomplete
 from posthog.hogql.compiler.bytecode import execute_hog
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database, serialize_database
-from posthog.hogql.autocomplete import get_hogql_autocomplete
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql_queries.query_runner import CacheMissResponse, ExecutionMode, get_query_runner
+
+from posthog.clickhouse.query_tagging import tag_queries
+from posthog.cloud_utils import is_cloud
+from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.query_runner import CacheMissResponse, ExecutionMode, QueryResponse, get_query_runner
 from posthog.models import Team, User
+from posthog.schema_migrations.upgrade import upgrade
 from posthog.warehouse.models import DataWarehouseJoin
-from posthog.schema import (
-    DataWarehouseViewLink,
-    DatabaseSchemaQueryResponse,
-    HogQLVariable,
-    HogQuery,
-    DashboardFilter,
-    HogQLAutocomplete,
-    HogQLMetadata,
-    QuerySchemaRoot,
-    DatabaseSchemaQuery,
-    HogQueryResponse,
-)
+
+from common.hogvm.python.debugger import color_bytecode
 
 logger = structlog.get_logger(__name__)
 

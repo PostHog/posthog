@@ -1,9 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { TableHeader } from './TableHeader'
-import { MetricRowGroup } from './MetricRowGroup'
-import { getVariantInterval, type ExperimentVariantResult } from '../shared/utils'
-import { experimentLogic } from '../../experimentLogic'
+
 import { EXPERIMENT_MAX_PRIMARY_METRICS, EXPERIMENT_MAX_SECONDARY_METRICS } from 'scenes/experiments/constants'
+
 import {
     ExperimentFunnelsQuery,
     ExperimentMetric,
@@ -12,12 +10,18 @@ import {
 } from '~/queries/schema/schema-general'
 import { InsightType } from '~/types'
 
+import { experimentLogic } from '../../experimentLogic'
+import { type ExperimentVariantResult, getVariantInterval } from '../shared/utils'
+import { MetricRowGroup } from './MetricRowGroup'
+import { TableHeader } from './TableHeader'
+
 interface MetricsTableProps {
     metrics: ExperimentMetric[]
     results: NewExperimentQueryResponse[]
     errors: any[]
     isSecondary: boolean
     getInsightType: (metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery) => InsightType
+    showDetailsModal?: boolean
 }
 
 export function MetricsTable({
@@ -26,6 +30,7 @@ export function MetricsTable({
     errors,
     isSecondary,
     getInsightType,
+    showDetailsModal = true,
 }: MetricsTableProps): JSX.Element {
     const {
         experiment,
@@ -103,6 +108,7 @@ export function MetricsTable({
                                 error={error}
                                 isLoading={isLoading}
                                 hasMinimumExposureForResults={hasMinimumExposureForResults}
+                                showDetailsModal={showDetailsModal}
                             />
                         )
                     })}

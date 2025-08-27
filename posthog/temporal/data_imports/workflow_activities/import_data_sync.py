@@ -1,24 +1,28 @@
-import dataclasses
 import uuid
+import dataclasses
 from typing import Any, Optional
 
 from django.db import close_old_connections
 from django.db.models import Prefetch
+
+from structlog.contextvars import bind_contextvars
 from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
-from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
+from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
 from posthog.temporal.data_imports.row_tracking import setup_row_tracking
+from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema, process_incremental_value
+from posthog.warehouse.types import ExternalDataSourceType
 
-from posthog.temporal.data_imports.sources import SourceRegistry
+LOGGER = get_logger(__name__)
 
 
 @dataclasses.dataclass
@@ -57,7 +61,8 @@ def _trim_source_job_inputs(source: ExternalDataSource) -> None:
 
 @activity.defn
 def import_data_activity_sync(inputs: ImportDataActivityInputs):
-    logger = bind_temporal_worker_logger_sync(team_id=inputs.team_id)
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
     tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature=Feature.IMPORT_PIPELINE)
 
     with HeartbeaterSync(factor=30, logger=logger), ShutdownMonitor() as shutdown_monitor:
@@ -70,7 +75,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
 
         logger.debug("Running *SYNC* import_data")
 
-        source_type = ExternalDataSource.Type(model.pipeline.source_type)
+        source_type = ExternalDataSourceType(model.pipeline.source_type)
 
         job_inputs = PipelineInputs(
             source_id=inputs.source_id,
@@ -160,4 +165,5 @@ def _run(
 ):
     pipeline = PipelineNonDLT(source, logger, job_inputs.run_id, reset_pipeline, shutdown_monitor)
     pipeline.run()
+    logger.debug("Finished running pipeline")
     del pipeline

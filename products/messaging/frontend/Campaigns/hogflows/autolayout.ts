@@ -1,7 +1,7 @@
 import { Edge, Position } from '@xyflow/react'
 import ELK, { ElkExtendedEdge, ElkNode } from 'elkjs/lib/elk.bundled.js'
 
-import { NODE_GAP, NODE_LAYER_GAP, NODE_HEIGHT, NODE_WIDTH, NODE_EDGE_GAP } from './constants'
+import { NODE_EDGE_GAP, NODE_GAP, NODE_HEIGHT, NODE_LAYER_GAP, NODE_WIDTH } from './constants'
 import type { HogFlowActionNode } from './types'
 
 /**
@@ -45,12 +45,14 @@ export const getFormattedNodes = async (nodes: HogFlowActionNode[], edges: Edge[
         layoutOptions: elkOptions,
         children: nodes.map((node) => {
             const handles =
-                node.handles?.map((h) => ({
-                    id: h.id || `${node.id}_${h.type}`,
-                    properties: {
-                        side: getElkPortSide(h.position),
-                    },
-                })) || []
+                node.handles
+                    ?.sort((a, b) => (a.id || '').localeCompare(b.id || ''))
+                    .map((h) => ({
+                        id: h.id || `${node.id}_${h.type}`,
+                        properties: {
+                            side: getElkPortSide(h.position),
+                        },
+                    })) || []
 
             return {
                 ...node,

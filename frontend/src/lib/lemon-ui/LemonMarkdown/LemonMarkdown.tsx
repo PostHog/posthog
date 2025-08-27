@@ -1,9 +1,10 @@
 import './LemonMarkdown.scss'
 
 import clsx from 'clsx'
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import React, { memo, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
+
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
 import { Link } from '../Link'
 

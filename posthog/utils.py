@@ -1,20 +1,18 @@
-import asyncio
-import base64
-import dataclasses
-import datetime
-import datetime as dt
-import gzip
-import hashlib
-import json
-from django.urls import URLPattern, re_path
-import orjson
 import os
 import re
-import secrets
-import string
+import gzip
+import json
 import time
 import uuid
 import zlib
+import base64
+import string
+import asyncio
+import hashlib
+import secrets
+import datetime
+import datetime as dt
+import dataclasses
 from collections.abc import Callable, Generator, Mapping
 from contextlib import contextmanager
 from enum import Enum
@@ -24,15 +22,6 @@ from typing import TYPE_CHECKING, Any, Optional, Union, cast
 from urllib.parse import unquote, urljoin, urlparse
 from zoneinfo import ZoneInfo
 
-import lzstring
-import posthoganalytics
-import pytz
-import structlog
-from asgiref.sync import async_to_sync
-from celery.result import AsyncResult
-from celery.schedules import crontab
-from dateutil import parser
-from dateutil.relativedelta import relativedelta
 from django.apps import apps
 from django.conf import settings
 from django.core.cache import cache
@@ -40,18 +29,28 @@ from django.db import ProgrammingError
 from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
+from django.urls import URLPattern, re_path
 from django.utils import timezone
 from django.utils.cache import patch_cache_control
+
+import pytz
+import orjson
+import lzstring
+import structlog
+import posthoganalytics
+from asgiref.sync import async_to_sync
+from celery.result import AsyncResult
+from celery.schedules import crontab
+from dateutil import parser
+from dateutil.relativedelta import relativedelta
 from rest_framework import serializers
 from rest_framework.request import Request
 from rest_framework.utils.encoders import JSONEncoder
+from user_agents import parse
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
-from posthog.exceptions import (
-    RequestParsingError,
-    UnspecifiedCompressionFallbackParsingError,
-)
+from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
 from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.metrics import KLUDGES_COUNTER
@@ -60,7 +59,7 @@ from posthog.redis import get_client
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 
-    from posthog.models import Team, User, Dashboard, InsightVariable
+    from posthog.models import Dashboard, InsightVariable, Team, User
 
 DATERANGE_MAP = {
     "second": datetime.timedelta(seconds=1),
@@ -366,7 +365,7 @@ def render_template(
     if settings.E2E_TESTING:
         context["e2e_testing"] = True
         context["js_posthog_api_key"] = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"
-        context["js_posthog_host"] = "https://internal-t.posthog.com"
+        context["js_posthog_host"] = "https://internal-j.posthog.com"
         context["js_posthog_ui_host"] = "https://us.posthog.com"
 
     elif settings.SELF_CAPTURE:
@@ -375,7 +374,7 @@ def render_template(
             context["js_posthog_host"] = ""  # Becomes location.origin in the frontend
     else:
         context["js_posthog_api_key"] = "sTMFPsFhdP1Ssg"
-        context["js_posthog_host"] = "https://internal-t.posthog.com"
+        context["js_posthog_host"] = "https://internal-j.posthog.com"
         context["js_posthog_ui_host"] = "https://us.posthog.com"
 
     context["js_capture_time_to_see_data"] = settings.CAPTURE_TIME_TO_SEE_DATA
@@ -396,7 +395,7 @@ def render_template(
         from posthog.api.shared import TeamPublicSerializer
         from posthog.api.team import TeamSerializer
         from posthog.api.user import UserSerializer
-        from posthog.rbac.user_access_control import UserAccessControl, ACCESS_CONTROL_RESOURCES
+        from posthog.rbac.user_access_control import ACCESS_CONTROL_RESOURCES, UserAccessControl
         from posthog.user_permissions import UserPermissions
         from posthog.views import preflight_check
 
@@ -525,8 +524,8 @@ async def initialize_self_capture_api_token():
         if user and getattr(user, "current_team", None):
             team = user.current_team
         else:
-            team = await Team.objects.only("api_token").aget()
-        local_api_key = team.api_token
+            team = await Team.objects.only("api_token").afirst()
+        local_api_key = team.api_token if team else None
     except (User.DoesNotExist, Team.DoesNotExist, ProgrammingError):
         local_api_key = None
 
@@ -615,6 +614,21 @@ def get_ip_address(request: HttpRequest) -> str:
         ip = ip.split(":")[0]
 
     return ip
+
+
+def get_short_user_agent(request: HttpRequest) -> str:
+    """Returns browser and OS info from user agent, eg: 'Chrome 135.0.0 on macOS 10.15'"""
+    user_agent_str = request.META.get("HTTP_USER_AGENT")
+    if not user_agent_str:
+        return ""
+
+    user_agent = parse(user_agent_str)
+
+    # strip the last (patch/build) number from the version, it can change frequently
+    browser_version = ".".join(str(x) for x in user_agent.browser.version[:3])
+    os_version = ".".join(str(x) for x in user_agent.os.version[:2])
+
+    return f"{user_agent.browser.family} {browser_version} on {user_agent.os.family} {os_version}"
 
 
 def dict_from_cursor_fetchall(cursor):
@@ -1139,16 +1153,19 @@ def cache_requested_by_client(request: Request) -> bool | str:
     return _request_has_key_set("use_cache", request)
 
 
-def filters_override_requested_by_client(request: Request) -> Optional[dict]:
-    raw_filters = request.query_params.get("filters_override")
+def filters_override_requested_by_client(request: Request, dashboard: Optional["Dashboard"]) -> dict:
+    raw_filters_override_param = request.query_params.get("filters_override")
 
-    if raw_filters is not None:
+    request_filters = {}
+    dashboard_filters = dashboard.filters if dashboard else {}
+
+    if raw_filters_override_param is not None:
         try:
-            return json.loads(raw_filters)
+            request_filters = json.loads(raw_filters_override_param)
         except Exception:
             raise serializers.ValidationError({"filters_override": "Invalid JSON passed in filters_override parameter"})
 
-    return None
+    return {**dashboard_filters, **request_filters}
 
 
 def variables_override_requested_by_client(

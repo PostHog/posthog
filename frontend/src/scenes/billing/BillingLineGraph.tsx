@@ -1,21 +1,23 @@
 import './BillingLineGraph.scss'
-import 'chartjs-adapter-dayjs-3'
 
+import 'chartjs-adapter-dayjs-3'
 import annotationPlugin from 'chartjs-plugin-annotation'
 import { useValues } from 'kea'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Root, createRoot } from 'react-dom/client'
+
+import { IconInfo } from '@posthog/icons'
+
 import { Chart, ChartDataset, ChartOptions, TooltipModel } from 'lib/Chart'
 import { getSeriesColor } from 'lib/colors'
 import { getGraphColors } from 'lib/colors'
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { createRoot, Root } from 'react-dom/client'
 import { Dayjs } from 'lib/dayjs'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconInfo } from '@posthog/icons'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { BillingLineGraphTooltip } from './BillingLineGraphTooltip'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useBillingMarkersPositioning } from './useBillingMarkersPositioning'
 
 Chart.register(annotationPlugin)
@@ -208,7 +210,9 @@ export function BillingLineGraph({
                                 .map((point) => {
                                     // Add checks for dataset existence
                                     const dataset =
-                                        point.datasetIndex < series.length ? series[point.datasetIndex] : null
+                                        point.datasetIndex < visibleSeries.length
+                                            ? visibleSeries[point.datasetIndex]
+                                            : null
                                     if (!dataset) {
                                         return null
                                     } // Skip if dataset index is out of bounds
@@ -369,8 +373,8 @@ export function BillingLineGraph({
                             '--billing-markers-chart-area-left': `${chartAreaLeft}px`,
                             '--billing-markers-chart-area-top': `${chartAreaTop}px`,
                             '--billing-marker-text-color': axisLabelColor,
-                            '--billing-marker-bg-color': isDarkModeOn ? 'var(--bg-light)' : 'white',
-                            '--billing-marker-border-color': 'rgba(0, 0, 0, 0.1)',
+                            '--billing-marker-bg-color': 'var(--color-bg-surface-primary)',
+                            '--billing-marker-border-color': 'var(--color-border-primary)',
                         } as React.CSSProperties & Record<string, string>
                     }
                 >

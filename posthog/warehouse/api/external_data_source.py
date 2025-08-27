@@ -1,25 +1,33 @@
 import uuid
+import dataclasses
 from typing import Any
+
+from django.db.models import Prefetch, Q
+from django.dispatch import receiver
 
 import structlog
 import temporalio
 from dateutil import parser
-from django.db.models import Prefetch, Q
 from rest_framework import filters, serializers, status, viewsets
+from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.exceptions import ValidationError
+
+from posthog.hogql.database.database import create_hogql_database
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.hogql.database.database import create_hogql_database
-from posthog.models.user import User
-from posthog.temporal.data_imports.sources.common.config import Config
-from posthog.temporal.data_imports.sources import SourceRegistry
-from posthog.warehouse.api.external_data_schema import (
-    ExternalDataSchemaSerializer,
-    SimpleExternalDataSchemaSerializer,
+from posthog.exceptions_capture import capture_exception
+from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
+from posthog.models.activity_logging.external_data_utils import (
+    get_external_data_source_created_by_info,
+    get_external_data_source_detail_name,
 )
+from posthog.models.signals import model_activity_signal
+from posthog.models.user import User
+from posthog.temporal.data_imports.sources import SourceRegistry
+from posthog.temporal.data_imports.sources.common.config import Config
+from posthog.warehouse.api.external_data_schema import ExternalDataSchemaSerializer, SimpleExternalDataSchemaSerializer
 from posthog.warehouse.data_load.service import (
     cancel_external_data_workflow,
     delete_data_import_folder,
@@ -28,11 +36,8 @@ from posthog.warehouse.data_load.service import (
     sync_external_data_job_workflow,
     trigger_external_data_source_workflow,
 )
-from posthog.warehouse.models import (
-    ExternalDataJob,
-    ExternalDataSchema,
-    ExternalDataSource,
-)
+from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from posthog.warehouse.types import ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
 
@@ -236,7 +241,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         """Update source ensuring we merge with existing job inputs to allow partial updates."""
         existing_job_inputs = instance.job_inputs
 
-        source_type_model = ExternalDataSource.Type(instance.source_type)
+        source_type_model = ExternalDataSourceType(instance.source_type)
         source = SourceRegistry.get_source(source_type_model)
 
         if existing_job_inputs:
@@ -346,7 +351,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 if isinstance(value, str):
                     payload[key] = value.strip()
 
-        source_type_model = ExternalDataSource.Type(source_type)
+        source_type_model = ExternalDataSourceType(source_type)
         source = SourceRegistry.get_source(source_type_model)
         is_valid, errors = source.validate_config(payload)
         if not is_valid:
@@ -525,7 +530,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 data={"message": "Missing required parameter: source_type"},
             )
 
-        source_type_model = ExternalDataSource.Type(source_type)
+        source_type_model = ExternalDataSourceType(source_type)
         source = SourceRegistry.get_source(source_type_model)
         is_valid, errors = source.validate_config(request.data)
         if not is_valid:
@@ -542,7 +547,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 data={"message": credentials_error or "Invalid credentials"},
             )
 
-        schemas = source.get_schemas(source_config, self.team_id)
+        try:
+            schemas = source.get_schemas(source_config, self.team_id)
+        except Exception as e:
+            capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": str(e)},
+            )
 
         data = [
             {
@@ -610,3 +622,51 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             status=status.HTTP_200_OK,
             data={str(key): value.model_dump() for key, value in configs.items()},
         )
+
+
+@dataclasses.dataclass(frozen=True)
+class ExternalDataSourceContext(ActivityContextBase):
+    source_type: str
+    prefix: str | None
+    created_by_user_id: str | None
+    created_by_user_email: str | None
+    created_by_user_name: str | None
+
+
+@receiver(model_activity_signal, sender=ExternalDataSource)
+def handle_external_data_source_change(
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+):
+    # Use after_update for create/update, before_update for delete
+    external_data_source = after_update or before_update
+
+    if not external_data_source:
+        return
+
+    created_by_user_id, created_by_user_email, created_by_user_name = get_external_data_source_created_by_info(
+        external_data_source
+    )
+    detail_name = get_external_data_source_detail_name(external_data_source)
+
+    context = ExternalDataSourceContext(
+        source_type=external_data_source.source_type or "",
+        prefix=external_data_source.prefix,
+        created_by_user_id=created_by_user_id,
+        created_by_user_email=created_by_user_email,
+        created_by_user_name=created_by_user_name,
+    )
+
+    log_activity(
+        organization_id=external_data_source.team.organization_id,
+        team_id=external_data_source.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=external_data_source.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update),
+            name=detail_name,
+            context=context,
+        ),
+    )

@@ -1220,6 +1220,7 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_4_cohort_dynamic.1
   '''
+  /* cohort_calculation: */
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
          sum(metric_events.value) AS total_sum,
@@ -1292,6 +1293,7 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_4_cohort_dynamic.2
   '''
+  /* cohort_calculation: */
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
          sum(metric_events.value) AS total_sum,
@@ -1679,7 +1681,7 @@
                1 AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_stripe_subscriptions/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`subscription_id` String, `subscription_amount` Int64, `subscription_created_at` DateTime, `subscription_customer_id` String')) AS posthog_test_stripe_subscriptions
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_stripe_subscriptions/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`subscription_id` String, `subscription_amount` Int64, `subscription_created_at` DateTime, `subscription_customer_id` String')) AS posthog_test_stripe_subscriptions GLOBAL
         LEFT JOIN
           (SELECT posthog_test_stripe_customers.customer_email AS customer_email,
                   posthog_test_stripe_customers.customer_id AS posthog_test_stripe_subscriptions__subscription_customer___customer_id

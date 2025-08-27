@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
 import { RETENTION_FIRST_TIME } from 'lib/constants'
 import { alphabet, capitalizeFirstLetter } from 'lib/utils'
@@ -8,7 +9,7 @@ import {
     humanizePathsEventTypes,
 } from 'scenes/insights/utils'
 import { retentionOptions } from 'scenes/retention/constants'
-import { apiValueToMathType, MathCategory, MathDefinition, mathsLogic } from 'scenes/trends/mathsLogic'
+import { MathCategory, MathDefinition, apiValueToMathType, mathsLogic } from 'scenes/trends/mathsLogic'
 import { mathsLogicType } from 'scenes/trends/mathsLogicType'
 
 import { cohortsModel } from '~/models/cohortsModel'

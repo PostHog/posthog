@@ -1,18 +1,20 @@
+import { BuiltLogic, useActions, useValues } from 'kea'
+import { ReactChild, ReactElement, useEffect } from 'react'
+
 import { IconNotebook, IconPlus } from '@posthog/icons'
 import { LemonDivider, LemonDropdown, ProfilePicture } from '@posthog/lemon-ui'
-import { BuiltLogic, useActions, useValues } from 'kea'
+
 import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { dayjs } from 'lib/dayjs'
-import { IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { PopoverProps } from 'lib/lemon-ui/Popover'
+import { IconWithCount } from 'lib/lemon-ui/icons'
 import { getAppContext } from 'lib/utils/getAppContext'
-import { ReactChild, ReactElement, useEffect } from 'react'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import {
-    notebookSelectButtonLogic,
     NotebookSelectButtonLogicProps,
+    notebookSelectButtonLogic,
 } from 'scenes/notebooks/NotebookSelectButton/notebookSelectButtonLogic'
 
 import { notebooksModel, openNotebook } from '~/models/notebooksModel'

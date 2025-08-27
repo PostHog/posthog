@@ -1,35 +1,37 @@
-from dataclasses import dataclass
-import hashlib
 import hmac
-import time
-import jwt
 import json
-from datetime import timedelta, datetime
+import time
+import hashlib
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Any, Literal, Optional
 from urllib.parse import urlencode
 
+from django.conf import settings
 from django.db import models
-from prometheus_client import Counter
+
+import jwt
 import requests
+import structlog
+from google.auth.transport.requests import Request as GoogleRequest
+from google.oauth2 import service_account
+from prometheus_client import Counter
+from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
-from rest_framework import status
-from posthog.exceptions_capture import capture_exception
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
-from google.oauth2 import service_account
-from google.auth.transport.requests import Request as GoogleRequest
+from slack_sdk.web.async_client import AsyncWebClient
 
-from django.conf import settings
 from posthog.cache_utils import cache_for
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.user import User
-from products.messaging.backend.providers import MailjetProvider, TwilioProvider
-import structlog
-
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.sync import database_sync_to_async
+
+from products.messaging.backend.providers import MailjetProvider, TwilioProvider
 
 logger = structlog.get_logger(__name__)
 
@@ -107,6 +109,8 @@ class Integration(models.Model):
             return self.integration_id or "unknown ID"
         if self.kind == "github":
             return dot_get(self.config, "account.name", self.integration_id)
+        if self.kind == "email":
+            return self.config.get("email", self.integration_id)
 
         return f"ID: {self.integration_id}"
 
@@ -564,6 +568,10 @@ class SlackIntegration:
     def client(self) -> WebClient:
         return WebClient(self.integration.sensitive_config["access_token"])
 
+    @property
+    def async_client(self) -> AsyncWebClient:
+        return AsyncWebClient(self.integration.sensitive_config["access_token"])
+
     def list_channels(self, should_include_private_channels: bool, authed_user: str) -> list[dict]:
         # NOTE: Annoyingly the Slack API has no search so we have to load all channels...
         # We load public and private channels separately as when mixed, the Slack API pagination is buggy
@@ -1001,17 +1009,25 @@ class EmailIntegration:
         return MailjetProvider()
 
     @classmethod
-    def integration_from_domain(cls, domain: str, team_id: int, created_by: Optional[User] = None) -> Integration:
+    def create_native_integration(cls, config: dict, team_id: int, created_by: Optional[User] = None) -> Integration:
+        email_address: str = config["email"]
+        name: str = config["name"]
+        domain: str = email_address.split("@")[1]
+
         mailjet = MailjetProvider()
+
+        # TODO: Look for integration belonging to the team with the same domain
         mailjet.create_email_domain(domain, team_id=team_id)
 
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,
             kind="email",
-            integration_id=domain,
+            integration_id=email_address,
             defaults={
                 "config": {
+                    "email": email_address,
                     "domain": domain,
+                    "name": name,
                     "mailjet_verified": False,
                     "aws_ses_verified": False,
                 },
@@ -1056,12 +1072,15 @@ class EmailIntegration:
         verification_result = self.mailjet_provider.verify_email_domain(domain, team_id=self.integration.team_id)
 
         if verification_result.get("status") == "success":
-            updated_config = {"mailjet_verified": True}
-
-            # Merge the new config with existing config
-            updated_config = {**self.integration.config, **updated_config}
-            self.integration.config = updated_config
-            self.integration.save()
+            # We can validate all other integrations with the same domain
+            other_integrations = Integration.objects.filter(
+                team_id=self.integration.team_id,
+                kind="email",
+                config__domain=domain,
+            )
+            for integration in other_integrations:
+                integration.config["mailjet_verified"] = True
+                integration.save()
 
         return verification_result
 
@@ -1112,15 +1131,38 @@ class GitHubIntegration:
 
     @classmethod
     def client_request(cls, endpoint: str, method: str = "GET") -> requests.Response:
-        jwt_token = jwt.encode(
-            {
-                "iat": int(time.time()) - 300,  # 5 minutes in the past
-                "exp": int(time.time()) + 300,  # 5 minutes in the future
-                "iss": settings.GITHUB_APP_CLIENT_ID,
-            },
-            settings.GITHUB_APP_PRIVATE_KEY,
-            algorithm="RS256",
-        )
+        github_app_client_id = settings.GITHUB_APP_CLIENT_ID
+        github_app_private_key = settings.GITHUB_APP_PRIVATE_KEY
+
+        if not github_app_client_id:
+            raise ValidationError("GITHUB_APP_CLIENT_ID is not configured")
+
+        if not github_app_private_key:
+            raise ValidationError("GITHUB_APP_PRIVATE_KEY is not configured")
+
+        # Handle common newline encoding issues in environment variables
+        # Replace literal \n with actual newlines
+        github_app_private_key = github_app_private_key.replace("\\n", "\n")
+
+        # Check if the private key has the proper PEM format
+        if not github_app_private_key.strip().startswith("-----BEGIN"):
+            raise ValidationError("GITHUB_APP_PRIVATE_KEY is not in proper PEM format. It should start with -----BEGIN")
+
+        try:
+            jwt_token = jwt.encode(
+                {
+                    "iat": int(time.time()) - 300,  # 5 minutes in the past
+                    "exp": int(time.time()) + 300,  # 5 minutes in the future
+                    "iss": github_app_client_id,
+                },
+                github_app_private_key,
+                algorithm="RS256",
+            )
+        except Exception:
+            logger.error("Failed to encode JWT token", exc_info=True)
+            raise ValidationError(
+                "Failed to create GitHub App JWT token. Please check your GITHUB_APP_PRIVATE_KEY format."
+            )
 
         return requests.request(
             method,
@@ -1209,7 +1251,7 @@ class GitHubIntegration:
     def organization(self) -> str:
         return dot_get(self.integration.config, "account.name")
 
-    def list_repositories(self, page: int = 1) -> list[dict]:
+    def list_repositories(self, page: int = 1) -> list[str]:
         access_token = self.integration.sensitive_config["access_token"]
 
         response = requests.get(
@@ -1245,6 +1287,259 @@ class GitHubIntegration:
         issue = response.json()
 
         return {"number": issue["number"], "repository": repository}
+
+    def get_default_branch(self, repository: str) -> str:
+        """Get the default branch for a repository."""
+        org = self.organization()
+        access_token = self.integration.sensitive_config["access_token"]
+
+        response = requests.get(
+            f"https://api.github.com/repos/{org}/{repository}",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+
+        if response.status_code == 200:
+            repo_data = response.json()
+            return repo_data.get("default_branch", "main")
+        else:
+            return "main"
+
+    def create_branch(self, repository: str, branch_name: str, base_branch: Optional[str] = None) -> dict[str, Any]:
+        """Create a new branch from a base branch."""
+        org = self.organization()
+        access_token = self.integration.sensitive_config["access_token"]
+
+        # Get the SHA of the base branch (default to repository's default branch)
+        if not base_branch:
+            base_branch = self.get_default_branch(repository)
+
+        # Get the SHA of the base branch
+        ref_response = requests.get(
+            f"https://api.github.com/repos/{org}/{repository}/git/ref/heads/{base_branch}",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+
+        if ref_response.status_code != 200:
+            return {
+                "success": False,
+                "error": f"Failed to get base branch {base_branch}: {ref_response.text}",
+            }
+
+        base_sha = ref_response.json()["object"]["sha"]
+
+        # Create the new branch
+        response = requests.post(
+            f"https://api.github.com/repos/{org}/{repository}/git/refs",
+            json={
+                "ref": f"refs/heads/{branch_name}",
+                "sha": base_sha,
+            },
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+
+        if response.status_code == 201:
+            branch_data = response.json()
+            return {
+                "success": True,
+                "branch_name": branch_name,
+                "sha": branch_data["object"]["sha"],
+                "ref": branch_data["ref"],
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"Failed to create branch: {response.text}",
+                "status_code": response.status_code,
+            }
+
+    def update_file(
+        self, repository: str, file_path: str, content: str, commit_message: str, branch: str, sha: Optional[str] = None
+    ) -> dict[str, Any]:
+        """Create or update a file in the repository."""
+        org = self.organization()
+        access_token = self.integration.sensitive_config["access_token"]
+
+        # If no SHA provided, try to get existing file's SHA
+        if not sha:
+            get_response = requests.get(
+                f"https://api.github.com/repos/{org}/{repository}/contents/{file_path}",
+                params={"ref": branch},
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "Authorization": f"Bearer {access_token}",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+            )
+            if get_response.status_code == 200:
+                sha = get_response.json()["sha"]
+
+        import base64
+
+        encoded_content = base64.b64encode(content.encode("utf-8")).decode("utf-8")
+
+        data = {
+            "message": commit_message,
+            "content": encoded_content,
+            "branch": branch,
+        }
+
+        if sha:
+            data["sha"] = sha
+
+        response = requests.put(
+            f"https://api.github.com/repos/{org}/{repository}/contents/{file_path}",
+            json=data,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+
+        if response.status_code in [200, 201]:
+            commit_data = response.json()
+            return {
+                "success": True,
+                "commit_sha": commit_data["commit"]["sha"],
+                "file_sha": commit_data["content"]["sha"],
+                "html_url": commit_data["commit"]["html_url"],
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"Failed to update file: {response.text}",
+                "status_code": response.status_code,
+            }
+
+    def create_pull_request(
+        self, repository: str, title: str, body: str, head_branch: str, base_branch: Optional[str] = None
+    ) -> dict[str, Any]:
+        """Create a pull request."""
+        org = self.organization()
+        access_token = self.integration.sensitive_config["access_token"]
+
+        if not base_branch:
+            base_branch = self.get_default_branch(repository)
+
+        response = requests.post(
+            f"https://api.github.com/repos/{org}/{repository}/pulls",
+            json={
+                "title": title,
+                "body": body,
+                "head": head_branch,
+                "base": base_branch,
+            },
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+
+        if response.status_code == 201:
+            pr_data = response.json()
+            return {
+                "success": True,
+                "pr_number": pr_data["number"],
+                "pr_url": pr_data["html_url"],
+                "pr_id": pr_data["id"],
+                "state": pr_data["state"],
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"Failed to create pull request: {response.text}",
+                "status_code": response.status_code,
+            }
+
+    def get_branch_info(self, repository: str, branch_name: str) -> dict[str, Any]:
+        """Get information about a specific branch."""
+        org = self.organization()
+        access_token = self.integration.sensitive_config["access_token"]
+
+        response = requests.get(
+            f"https://api.github.com/repos/{org}/{repository}/branches/{branch_name}",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+
+        if response.status_code == 200:
+            branch_data = response.json()
+            return {
+                "success": True,
+                "exists": True,
+                "branch_name": branch_data["name"],
+                "commit_sha": branch_data["commit"]["sha"],
+                "protected": branch_data.get("protected", False),
+            }
+        elif response.status_code == 404:
+            return {
+                "success": True,
+                "exists": False,
+                "branch_name": branch_name,
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"Failed to get branch info: {response.text}",
+                "status_code": response.status_code,
+            }
+
+    def list_pull_requests(self, repository: str, state: str = "open") -> dict[str, Any]:
+        """List pull requests for a repository."""
+        org = self.organization()
+        access_token = self.integration.sensitive_config["access_token"]
+
+        params: dict[str, str | int] = {"state": state, "per_page": 100}
+        response = requests.get(
+            f"https://api.github.com/repos/{org}/{repository}/pulls",
+            params=params,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+
+        if response.status_code == 200:
+            prs = response.json()
+            return {
+                "success": True,
+                "pull_requests": [
+                    {
+                        "number": pr["number"],
+                        "title": pr["title"],
+                        "url": pr["html_url"],
+                        "state": pr["state"],
+                        "head_branch": pr["head"]["ref"],
+                        "base_branch": pr["base"]["ref"],
+                        "created_at": pr["created_at"],
+                        "updated_at": pr["updated_at"],
+                    }
+                    for pr in prs
+                ],
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"Failed to list pull requests: {response.text}",
+                "status_code": response.status_code,
+            }
 
 
 class MetaAdsIntegration:

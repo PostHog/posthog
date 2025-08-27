@@ -2,30 +2,25 @@ from decimal import Decimal
 from pathlib import Path
 
 from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 
 from posthog.schema import (
     CurrencyCode,
     RevenueExampleDataWarehouseTablesQuery,
     RevenueExampleDataWarehouseTablesQueryResponse,
 )
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    snapshot_clickhouse_queries,
-)
+
+from posthog.temporal.data_imports.sources.stripe.constants import CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME
 from posthog.warehouse.models import ExternalDataSchema
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
+
 from products.revenue_analytics.backend.hogql_queries.revenue_example_data_warehouse_tables_query_runner import (
     RevenueExampleDataWarehouseTablesQueryRunner,
-)
-from products.revenue_analytics.backend.views.revenue_analytics_charge_view import (
-    STRIPE_CHARGE_RESOURCE_NAME,
 )
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
     REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT,
     STRIPE_CHARGE_COLUMNS,
 )
-
 
 TEST_BUCKET = "test_storage_bucket-posthog.revenue.stripe_charges"
 
@@ -115,6 +110,7 @@ class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIB
             (Decimal("245"), "USD", Decimal("195.265"), "GBP"),
             (Decimal("250"), "EUR", Decimal("207.0990541523"), "GBP"),
             (Decimal("300"), "USD", Decimal("239.1"), "GBP"),
+            (Decimal("350"), "EUR", Decimal("289.9386758133"), "GBP"),
             # Important here how we treated the 500 in the CSV as 500 Yen rather than 5 Yen
             # like we do with other currencies (20000 -> 200 EUR)
             (Decimal("500"), "JPY", Decimal("2.5438762801"), "GBP"),

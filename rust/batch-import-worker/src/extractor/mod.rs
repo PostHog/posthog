@@ -60,7 +60,7 @@ impl PartExtractor for ZipGzipJsonExtractor {
         let data_file_path = temp_dir.join(format!("{}.data", key.replace(':', "_")));
         let mut output_file = File::create(&data_file_path)
             .await
-            .with_context(|| format!("Failed to create data file for key: {}", key))?;
+            .with_context(|| format!("Failed to create data file for key: {key}"))?;
         let mut total_size = 0usize;
 
         let file_entries = tokio::task::spawn_blocking({
@@ -92,10 +92,7 @@ impl PartExtractor for ZipGzipJsonExtractor {
         })
         .await
         .with_context(|| {
-            format!(
-                "Failed to extract file entries from zip archive for key: {}",
-                key
-            )
+            format!("Failed to extract file entries from zip archive for key: {key}")
         })??;
 
         for file_name in file_entries {
@@ -165,16 +162,13 @@ impl PartExtractor for ZipGzipJsonExtractor {
             }
 
             total_size += file_size;
-            debug!(
-                "Processed file: {} from byte {} to {}",
-                file_name, start_offset, total_size
-            );
+            debug!("Processed file: {file_name} from byte {start_offset} to {total_size}");
         }
 
         output_file
             .sync_all()
             .await
-            .with_context(|| format!("Failed to sync output file to disk for key: {}", key))?;
+            .with_context(|| format!("Failed to sync output file to disk for key: {key}"))?;
         Ok(ExtractedPartData {
             data_file_path,
             data_file_size: total_size,
@@ -195,7 +189,7 @@ impl PartExtractor for PlainGzipExtractor {
         let data_file_path = temp_dir.join(format!("{}.data", key.replace(':', "_")));
         let mut output_file = File::create(&data_file_path)
             .await
-            .with_context(|| format!("Failed to create data file for key: {}", key))?;
+            .with_context(|| format!("Failed to create data file for key: {key}"))?;
 
         let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<Vec<u8>, Error>>(16);
 
@@ -258,7 +252,7 @@ impl PartExtractor for PlainGzipExtractor {
         output_file
             .sync_all()
             .await
-            .with_context(|| format!("Failed to sync output file to disk for key: {}", key))?;
+            .with_context(|| format!("Failed to sync output file to disk for key: {key}"))?;
 
         Ok(ExtractedPartData {
             data_file_path,
@@ -351,7 +345,7 @@ mod tests {
         assert_eq!(result.data_file_size, test_content.len() + 1); // +1 for added newline
 
         let extracted_content = fs::read_to_string(&result.data_file_path).await?;
-        assert_eq!(extracted_content, format!("{}\n", test_content));
+        assert_eq!(extracted_content, format!("{test_content}\n"));
 
         Ok(())
     }

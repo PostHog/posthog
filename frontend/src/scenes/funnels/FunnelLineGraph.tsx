@@ -1,9 +1,11 @@
 import { useValues } from 'kea'
+
 import { dayjs } from 'lib/dayjs'
 import { capitalizeFirstLetter, shortTimeZone } from 'lib/utils'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { getFormattedDate } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
+import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
 import { FunnelsActorsQuery, NodeKind, TrendsFilter } from '~/queries/schema/schema-general'
@@ -12,7 +14,6 @@ import { ChartParams, GraphDataset, GraphType } from '~/types'
 
 import { funnelDataLogic } from './funnelDataLogic'
 import { funnelPersonsModalLogic } from './funnelPersonsModalLogic'
-import { teamLogic } from 'scenes/teamLogic'
 
 const LineGraphWrapper = ({ inCardView, children }: { inCardView?: boolean; children: JSX.Element }): JSX.Element => {
     if (inCardView) {
@@ -28,8 +29,15 @@ export function FunnelLineGraph({
     showPersonsModal: showPersonsModalProp = true,
 }: Omit<ChartParams, 'filters'>): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { indexedSteps, aggregationTargetLabel, incompletenessOffsetFromEnd, querySource, interval, insightData } =
-        useValues(funnelDataLogic(insightProps))
+    const {
+        indexedSteps,
+        goalLines,
+        aggregationTargetLabel,
+        incompletenessOffsetFromEnd,
+        querySource,
+        interval,
+        insightData,
+    } = useValues(funnelDataLogic(insightProps))
     const { weekStartDay } = useValues(teamLogic)
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
 
@@ -50,6 +58,7 @@ export function FunnelLineGraph({
                 isInProgress={incompletenessOffsetFromEnd < 0}
                 inSharedMode={!!inSharedMode}
                 showPersonsModal={showPersonsModal}
+                goalLines={goalLines ?? []}
                 tooltip={{
                     showHeader: false,
                     hideColorCol: true,

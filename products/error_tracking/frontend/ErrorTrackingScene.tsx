@@ -1,39 +1,40 @@
-import { IconChevronDown, IconChevronRight, IconGear, IconMinus } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCheckbox, LemonDivider, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
-import { getRuntimeFromLib } from 'lib/components/Errors/utils'
-import { PageHeader } from 'lib/components/PageHeader'
-import { TZLabel } from 'lib/components/TZLabel'
-import { humanFriendlyLargeNumber } from 'lib/utils'
+import { BindLogic, useValues } from 'kea'
 import { posthog } from 'posthog-js'
+
+import { IconGear } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonDivider, Link, Tooltip } from '@posthog/lemon-ui'
+
+import { PageHeader } from 'lib/components/PageHeader'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { humanFriendlyLargeNumber } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 
-import { AssigneeIconDisplay, AssigneeLabelDisplay } from './components/Assignee/AssigneeDisplay'
-import { AssigneeSelect } from './components/Assignee/AssigneeSelect'
-import { ErrorFilters } from './components/ErrorFilters'
-import { errorIngestionLogic } from './components/ErrorTrackingSetupPrompt/errorIngestionLogic'
-import { ErrorTrackingSetupPrompt } from './components/ErrorTrackingSetupPrompt/ErrorTrackingSetupPrompt'
-import { issueActionsLogic } from './components/IssueActions/issueActionsLogic'
-import { IssueStatusSelect } from './components/IssueStatusSelect'
-import { RuntimeIcon } from './components/RuntimeIcon'
-import { errorTrackingDataNodeLogic } from './errorTrackingDataNodeLogic'
-import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { ErrorTrackingListOptions } from './ErrorTrackingListOptions'
+import { OccurrenceSparkline } from './OccurrenceSparkline'
+import { ErrorFilters } from './components/ErrorFilters'
+import { ErrorTrackingSetupPrompt } from './components/ErrorTrackingSetupPrompt/ErrorTrackingSetupPrompt'
+import { errorIngestionLogic } from './components/ErrorTrackingSetupPrompt/errorIngestionLogic'
+import { ErrorTrackingIssueFilteringTool } from './components/IssueFilteringTool'
+import { ErrorTrackingIssueImpactTool } from './components/IssueImpactTool'
+import { IssueListTitleColumn, IssueListTitleHeader } from './components/TableColumns'
+import { errorTrackingDataNodeLogic } from './errorTrackingDataNodeLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 import { useSparklineData } from './hooks/use-sparkline-data'
-import { OccurrenceSparkline } from './OccurrenceSparkline'
 import { ERROR_TRACKING_LISTING_RESOLUTION } from './utils'
-import { ErrorTrackingSceneTool } from './components/SceneTool'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export const scene: SceneExport = {
     component: ErrorTrackingScene,
@@ -52,8 +53,8 @@ export function ErrorTrackingScene(): JSX.Element {
         columns: {
             error: {
                 width: '50%',
-                render: CustomGroupTitleColumn,
-                renderTitle: CustomGroupTitleHeader,
+                render: TitleColumn,
+                renderTitle: TitleHeader,
             },
             occurrences: { align: 'center', render: CountColumn },
             sessions: { align: 'center', render: CountColumn },
@@ -69,19 +70,24 @@ export function ErrorTrackingScene(): JSX.Element {
     // TODO - fix feature flag check once the feature flag is created etc
     return (
         <ErrorTrackingSetupPrompt>
-            {featureFlags[FEATURE_FLAGS.ERROR_TRACKING_SCENE_TOOL] && <ErrorTrackingSceneTool />}
-            <BindLogic logic={errorTrackingDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
-                <Header />
-                {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
-                <ErrorFilters.Root>
-                    <ErrorFilters.DateRange />
-                    <ErrorFilters.FilterGroup />
-                    <ErrorFilters.InternalAccounts />
-                </ErrorFilters.Root>
-                <LemonDivider className="mt-2" />
-                <ErrorTrackingListOptions />
-                <Query query={query} context={context} />
-            </BindLogic>
+            <ErrorTrackingIssueFilteringTool />
+            {featureFlags[FEATURE_FLAGS.ERROR_TRACKING_IMPACT_MAX_TOOL] && <ErrorTrackingIssueImpactTool />}
+            <SceneContent className="ErrorTracking">
+                <BindLogic logic={errorTrackingDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
+                    <Header />
+                    {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
+                    <div>
+                        <ErrorFilters.Root>
+                            <ErrorFilters.DateRange />
+                            <ErrorFilters.FilterGroup />
+                            <ErrorFilters.InternalAccounts />
+                        </ErrorFilters.Root>
+                        <LemonDivider className="mt-2" />
+                        <ErrorTrackingListOptions />
+                        <Query query={query} context={context} />
+                    </div>
+                </BindLogic>
+            </SceneContent>
         </ErrorTrackingSetupPrompt>
     )
 }
@@ -107,114 +113,15 @@ const VolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName }) =>
     )
 }
 
-const CustomGroupTitleHeader: QueryContextColumnTitleComponent = ({ columnName }) => {
-    const { selectedIssueIds } = useValues(errorTrackingSceneLogic)
-    const { setSelectedIssueIds } = useActions(errorTrackingSceneLogic)
+const TitleHeader: QueryContextColumnTitleComponent = (): JSX.Element => {
     const { results } = useValues(errorTrackingDataNodeLogic)
-    const allSelected = results.length == selectedIssueIds.length && selectedIssueIds.length > 0
-
-    return (
-        <div className="flex gap-2 items-center">
-            <LemonCheckbox
-                checked={allSelected}
-                onChange={() => (allSelected ? setSelectedIssueIds([]) : setSelectedIssueIds(results.map((r) => r.id)))}
-            />
-            {columnName}
-        </div>
-    )
+    return <IssueListTitleHeader results={results} />
 }
 
-const CustomGroupSeparator = (): JSX.Element => <IconMinus className="text-quaternary" transform="rotate(90)" />
-
-const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
-    const { selectedIssueIds, shiftKeyHeld, previouslyCheckedRecordIndex } = useValues(errorTrackingSceneLogic)
-    const { setSelectedIssueIds, setPreviouslyCheckedRecordIndex } = useActions(errorTrackingSceneLogic)
-    const { updateIssueAssignee, updateIssueStatus } = useActions(issueActionsLogic)
+const TitleColumn: QueryContextColumnComponent = (props): JSX.Element => {
     const { results } = useValues(errorTrackingDataNodeLogic)
 
-    const record = props.record as ErrorTrackingIssue
-    const checked = selectedIssueIds.includes(record.id)
-    const runtime = getRuntimeFromLib(record.library)
-    const recordIndex = props.recordIndex
-
-    const onChange = (newValue: boolean): void => {
-        const includedIds: string[] = []
-
-        if (!shiftKeyHeld || previouslyCheckedRecordIndex === null) {
-            includedIds.push(record.id)
-        } else {
-            const start = Math.min(previouslyCheckedRecordIndex, recordIndex)
-            const end = Math.max(previouslyCheckedRecordIndex, recordIndex) + 1
-            includedIds.push(...results.slice(start, end).map((r) => r.id))
-        }
-
-        setPreviouslyCheckedRecordIndex(recordIndex)
-        setSelectedIssueIds(
-            newValue
-                ? [...new Set([...selectedIssueIds, ...includedIds])]
-                : selectedIssueIds.filter((id) => !includedIds.includes(id))
-        )
-    }
-
-    return (
-        <div className="flex items-start gap-x-2 group my-1">
-            <LemonCheckbox className="h-[1.2rem]" checked={checked} onChange={onChange} />
-
-            <div className="flex flex-col gap-[2px]">
-                <Link
-                    className="flex-1 pr-12"
-                    to={urls.errorTrackingIssue(record.id, { timestamp: record.last_seen })}
-                    onClick={() => {
-                        const issueLogic = errorTrackingIssueSceneLogic({ id: record.id, timestamp: record.last_seen })
-                        issueLogic.mount()
-                        issueLogic.actions.setIssue(record)
-                    }}
-                >
-                    <div className="flex items-center h-[1.2rem] gap-2">
-                        <RuntimeIcon className="shrink-0" runtime={runtime} fontSize="0.8rem" />
-                        <span className="font-semibold text-[1.2em] line-clamp-1">{record.name || 'Unknown Type'}</span>
-                    </div>
-                </Link>
-                <div title={record.description || undefined} className="line-clamp-1 text-secondary">
-                    {record.description}
-                </div>
-                <div className="flex items-center text-secondary">
-                    <IssueStatusSelect
-                        status={record.status}
-                        onChange={(status) => updateIssueStatus(record.id, status)}
-                    />
-                    <CustomGroupSeparator />
-                    <AssigneeSelect
-                        assignee={record.assignee}
-                        onChange={(assignee) => updateIssueAssignee(record.id, assignee)}
-                    >
-                        {(anyAssignee) => (
-                            <div
-                                className="flex items-center hover:bg-fill-button-tertiary-hover p-[0.1rem] rounded cursor-pointer"
-                                role="button"
-                            >
-                                <AssigneeIconDisplay assignee={anyAssignee} size="xsmall" />
-                                <AssigneeLabelDisplay
-                                    assignee={anyAssignee}
-                                    className="ml-1 text-xs text-secondary"
-                                    size="xsmall"
-                                />
-                                <IconChevronDown />
-                            </div>
-                        )}
-                    </AssigneeSelect>
-                    <CustomGroupSeparator />
-                    <TZLabel time={record.first_seen} className="border-dotted border-b text-xs ml-1" delayMs={750} />
-                    <IconChevronRight className="text-quaternary mx-1" />
-                    {record.last_seen ? (
-                        <TZLabel time={record.last_seen} className="border-dotted border-b text-xs" delayMs={750} />
-                    ) : (
-                        <LemonSkeleton />
-                    )}
-                </div>
-            </div>
-        </div>
-    )
+    return <IssueListTitleColumn results={results} {...props} />
 }
 
 const CountColumn = ({ record, columnName }: { record: unknown; columnName: string }): JSX.Element => {
@@ -244,36 +151,48 @@ const Header = (): JSX.Element => {
     }
 
     return (
-        <PageHeader
-            buttons={
-                <>
-                    {isDev ? (
-                        <>
-                            <LemonButton
-                                onClick={() => {
-                                    posthog.captureException(new Error('Kaboom !'))
-                                }}
-                            >
-                                Send an exception
-                            </LemonButton>
-                            <LemonButton onClick={onClick}>Start exception loop</LemonButton>
-                        </>
-                    ) : null}
-                    <LemonButton to="https://posthog.com/docs/error-tracking" type="secondary" targetBlank>
-                        Documentation
-                    </LemonButton>
-                    <LemonButton to={urls.errorTrackingConfiguration()} type="secondary" icon={<IconGear />}>
-                        Configure
-                    </LemonButton>
-                </>
-            }
-        />
+        <>
+            <PageHeader
+                buttons={
+                    <>
+                        {isDev ? (
+                            <>
+                                <LemonButton
+                                    onClick={() => {
+                                        posthog.captureException(new Error('Kaboom !'))
+                                    }}
+                                >
+                                    Send an exception
+                                </LemonButton>
+                                <LemonButton onClick={onClick}>Start exception loop</LemonButton>
+                            </>
+                        ) : null}
+                        <LemonButton to="https://posthog.com/docs/error-tracking" type="secondary" targetBlank>
+                            Documentation
+                        </LemonButton>
+                        <LemonButton to={urls.errorTrackingConfiguration()} type="secondary" icon={<IconGear />}>
+                            Configure
+                        </LemonButton>
+                    </>
+                }
+            />
+            <SceneTitleSection
+                name="Error tracking"
+                description="Track and analyze errors in your website or application to understand and fix issues."
+                resourceType={{
+                    type: 'errorTracking',
+                    typePlural: 'Error Tracking',
+                }}
+            />
+            <SceneDivider />
+        </>
     )
 }
 
 const IngestionStatusCheck = (): JSX.Element | null => {
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     return (
-        <LemonBanner type="warning" className="my-4">
+        <LemonBanner type="warning" className={cn(!newSceneLayout && 'mb-4')}>
             <p>
                 <strong>No Exception events have been detected!</strong>
             </p>

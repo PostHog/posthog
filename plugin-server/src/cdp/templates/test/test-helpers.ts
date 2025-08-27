@@ -5,7 +5,7 @@ import { DateTime } from 'luxon'
 import { NativeDestinationExecutorService } from '~/cdp/services/native-destination-executor.service'
 import { defaultConfig } from '~/config/config'
 import { CyclotronInputType } from '~/schema/cyclotron'
-import { GeoIp, GeoIPService } from '~/utils/geoip'
+import { GeoIPService, GeoIp } from '~/utils/geoip'
 
 import { Hub } from '../../../types'
 import { cleanNullValues } from '../../hog-transformations/transformation-functions'
@@ -22,8 +22,7 @@ import {
     HogFunctionType,
     NativeTemplate,
 } from '../../types'
-import { cloneInvocation } from '../../utils/invocation-utils'
-import { createInvocation } from '../../utils/invocation-utils'
+import { cloneInvocation, createInvocation } from '../../utils/invocation-utils'
 import { compileHog } from '../compiler'
 
 export type DeepPartialHogFunctionInvocationGlobals = {
@@ -45,7 +44,7 @@ const compileObject = async (obj: any): Promise<any> => {
     } else if (typeof obj === 'string') {
         return await compileHog(`return f'${obj}'`)
     } else {
-        return undefined
+        return obj
     }
 }
 
@@ -193,7 +192,6 @@ export class TemplateTester {
             mappings: this.template.mappings || null,
             created_at: '2024-01-01T00:00:00Z',
             updated_at: '2024-01-01T00:00:00Z',
-            is_addon_required: false,
             deleted: false,
         }
 
@@ -270,7 +268,6 @@ export class TemplateTester {
             deleted: false,
             inputs: compiledInputs,
             mappings: [compiledMappingInputs],
-            is_addon_required: false,
         }
 
         const globalsWithInputs = await this.executor.buildInputsWithGlobals(
@@ -378,7 +375,6 @@ export class DestinationTester {
             updated_at: '2024-01-01T00:00:00Z',
             deleted: false,
             inputs: compiledInputs,
-            is_addon_required: false,
         })
 
         const result = await this.executor.execute(invocation)

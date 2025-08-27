@@ -1,13 +1,16 @@
-import { IconEye, IconHide, IconPin, IconPinFilled } from '@posthog/icons'
-import { IconArrowUp, IconArrowDown } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonCheckbox, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useCallback, useMemo, useRef } from 'react'
+
+import { IconEye, IconHide, IconPin, IconPinFilled } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+
+import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
+
+import { MarketingAnalyticsTableQuery } from '~/queries/schema/schema-general'
+import { DataTableNode } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
-import { MarketingAnalyticsTableQuery } from '~/queries/schema/schema-general'
 import { marketingAnalyticsTableLogic } from '../../logic/marketingAnalyticsTableLogic'
-import { DataTableNode } from '~/queries/schema/schema-general'
-import { useCallback, useMemo, useRef } from 'react'
 import { createMarketingAnalyticsOrderBy } from '../../logic/utils'
 
 const directionOptions = [

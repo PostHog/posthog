@@ -1,25 +1,26 @@
-// eslint-disable-next-line simple-import-sort/imports
 import { MockKafkaProducerWrapper } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
+import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
+
+import { waitForExpect } from '~/tests/helpers/expectations'
+import { resetKafka } from '~/tests/helpers/kafka'
+import { forSnapshot } from '~/tests/helpers/snapshots'
+import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+
 import { CdpCyclotronWorker } from '../../src/cdp/consumers/cdp-cyclotron-worker.consumer'
-import { CdpEventsConsumer } from './consumers/cdp-events.consumer'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
 import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../../src/config/kafka-topics'
 import { Hub, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
-import { waitForExpect } from '~/tests/helpers/expectations'
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { logger } from '../utils/logger'
 import { HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './_tests/examples'
 import {
-    createHogExecutionGlobals,
     insertHogFunction as _insertHogFunction,
+    createHogExecutionGlobals,
     insertIntegration,
 } from './_tests/fixtures'
-import { forSnapshot } from '~/tests/helpers/snapshots'
-import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
-import { resetKafka } from '~/tests/helpers/kafka'
-import { logger } from '../utils/logger'
+import { CdpEventsConsumer } from './consumers/cdp-events.consumer'
 import { compileHog } from './templates/compiler'
 
 const ActualKafkaProducerWrapper = jest.requireActual('../../src/kafka/producer').KafkaProducerWrapper
@@ -80,7 +81,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
             const hog = `
             let res := fetch(inputs.url, {
                 'headers': {
-                  'Authorization': f'Bearer {inputs.slack.access_token}',
+                  'Authorization': f'Bearer {inputs.oauth.access_token}',
                 },
                 'body': inputs.body,
                 'method': inputs.method
@@ -95,11 +96,11 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                 bytecode: await compileHog(hog),
                 inputs_schema: [
                     ...(HOG_INPUTS_EXAMPLES.simple_fetch.inputs_schema ?? []),
-                    { key: 'slack', type: 'integration', label: 'Slack', secret: false, required: true },
+                    { key: 'oauth', type: 'integration', label: 'Slack', secret: false, required: true },
                 ],
                 inputs: {
                     ...HOG_INPUTS_EXAMPLES.simple_fetch.inputs,
-                    slack: {
+                    oauth: {
                         value: 1,
                     },
                 },
@@ -206,22 +207,11 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                 {
                     topic: 'clickhouse_app_metrics2_test',
                     value: {
-                        app_source: 'cdp_destination',
-                        app_source_id: expect.any(String),
+                        app_source: 'hog_function',
+                        app_source_id: fnFetchNoFilters.id.toString(),
                         count: 1,
-                        metric_kind: 'success',
-                        metric_name: 'event_triggered_destination',
-                        team_id: 2,
-                    },
-                },
-                {
-                    topic: 'clickhouse_app_metrics2_test',
-                    value: {
-                        app_source: 'cdp_destination',
-                        app_source_id: 'custom',
-                        count: 1,
-                        metric_kind: 'success',
-                        metric_name: 'destination_invoked',
+                        metric_kind: 'billing',
+                        metric_name: 'billable_invocation',
                         team_id: 2,
                     },
                 },

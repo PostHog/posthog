@@ -1,24 +1,25 @@
-import logging
 import os
-from structlog import get_logger
+import logging
+from typing import Any, Optional
+
 from django.core.management.base import BaseCommand
-from typing import TYPE_CHECKING, Any, Optional
+
+from structlog import get_logger
 
 from posthog.schema import (
     SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldSelectConfig,
-    SourceFieldSwitchGroupConfig,
-    SourceFieldOauthConfig,
     SourceFieldFileUploadConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldOauthConfig,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigConverter,
     SourceFieldSSHTunnelConfig,
-    Type4,
-    Converter,
+    SourceFieldSwitchGroupConfig,
 )
-from posthog.temporal.data_imports.sources import SourceRegistry
 
-if TYPE_CHECKING:
-    from posthog.warehouse.models import ExternalDataSource
+from posthog.temporal.data_imports.sources import SourceRegistry
+from posthog.warehouse.types import ExternalDataSourceType
 
 logger = get_logger(__name__)
 logger.setLevel(logging.INFO)
@@ -61,11 +62,11 @@ class SourceConfigGenerator:
 
         return self._build_output()
 
-    def generate_source_config(self, source_type: "ExternalDataSource.Type", source_config: SourceConfig) -> None:
+    def generate_source_config(self, source_type: ExternalDataSourceType, source_config: SourceConfig) -> None:
         self.imports.update(
             [
                 "from posthog.temporal.data_imports.sources.common import config",
-                "from posthog.warehouse.models import ExternalDataSource",
+                "from posthog.warehouse.types import ExternalDataSourceType",
             ]
         )
 
@@ -326,20 +327,20 @@ class SourceConfigGenerator:
         else:
             return f"    {python_field_name}: SSHTunnelConfig | None = None"
 
-    def _get_python_type(self, field_type: Type4) -> str:
+    def _get_python_type(self, field_type: SourceFieldInputConfigType) -> str:
         type_mapping = {
-            Type4.TEXT: "str",
-            Type4.PASSWORD: "str",
-            Type4.EMAIL: "str",
-            Type4.NUMBER: "int",
-            Type4.TEXTAREA: "str",
+            SourceFieldInputConfigType.TEXT: "str",
+            SourceFieldInputConfigType.PASSWORD: "str",
+            SourceFieldInputConfigType.EMAIL: "str",
+            SourceFieldInputConfigType.NUMBER: "int",
+            SourceFieldInputConfigType.TEXTAREA: "str",
         }
 
         return type_mapping.get(field_type, "str")
 
-    def _get_input_converter(self, field_type: Type4) -> Optional[str]:
+    def _get_input_converter(self, field_type: SourceFieldInputConfigType) -> Optional[str]:
         converter_mapping = {
-            Type4.NUMBER: "int",
+            SourceFieldInputConfigType.NUMBER: "int",
         }
 
         return converter_mapping.get(field_type)
@@ -350,18 +351,18 @@ class SourceConfigGenerator:
             self.typing_import.add("Literal")
             return f"Literal[{', '.join(option_values)}]"
 
-        if field.converter == Converter.STR_TO_BOOL:
+        if field.converter == SourceFieldSelectConfigConverter.STR_TO_BOOL:
             return "bool"
 
-        if field.converter == Converter.STR_TO_INT:
+        if field.converter == SourceFieldSelectConfigConverter.STR_TO_INT:
             return "int"
 
-        if field.converter == Converter.STR_TO_OPTIONAL_INT:
+        if field.converter == SourceFieldSelectConfigConverter.STR_TO_OPTIONAL_INT:
             return "int | None"
 
         raise ValueError(f"Converter value {field.converter} not recognized")
 
-    def _get_config_class_name(self, source_type: "ExternalDataSource.Type") -> str:
+    def _get_config_class_name(self, source_type: ExternalDataSourceType) -> str:
         return f"{source_type.value}SourceConfig"
 
     def _get_nested_class_name(self, field_name: str, parent_class: str) -> str:
@@ -448,11 +449,11 @@ class {class_name}(config.Config):
             parts.append("")
             parts.append("")
 
-        parts.append("def get_config_for_source(source: ExternalDataSource.Type):")
+        parts.append("def get_config_for_source(source: ExternalDataSourceType):")
         parts.append("    return {")
         for source_type in sorted(sources.keys(), key=lambda x: x.value):
             config_class = self._get_config_class_name(source_type)
-            parts.append(f"        ExternalDataSource.Type.{source_type.name}: {config_class},")
+            parts.append(f"        ExternalDataSourceType.{source_type.name}: {config_class},")
         parts.append("    }[source]")
         parts.append("")
 

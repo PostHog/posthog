@@ -1,14 +1,15 @@
 import pytest
+from posthog.test.base import BaseTest
+
+from rest_framework import serializers
+
 from posthog.constants import AvailableFeature
 from posthog.models.dashboard import Dashboard
-from posthog.models.organization import OrganizationMembership
+from posthog.models.file_system.file_system import FileSystem
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.models.file_system.file_system import FileSystem
-from posthog.models.organization import Organization
-from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlSerializerMixin, AccessSource
-from posthog.test.base import BaseTest
-from rest_framework import serializers
+from posthog.rbac.user_access_control import AccessSource, UserAccessControl, UserAccessControlSerializerMixin
 
 try:
     from ee.models.rbac.access_control import AccessControl
@@ -1218,6 +1219,7 @@ class TestSpecificObjectAccessControl(BaseUserAccessControlTest):
     def test_user_access_control_serializer_mixin_with_specific_access(self):
         """Test UserAccessControlSerializerMixin returns correct access levels"""
         from rest_framework import serializers
+
         from posthog.models.notebook.notebook import Notebook
 
         # Set resource-level access to "none"

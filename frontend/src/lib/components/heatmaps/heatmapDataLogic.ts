@@ -1,7 +1,9 @@
-import { actions, kea, listeners, path, props, reducers, selectors, key } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { encodeParams } from 'kea-router'
 import { windowValues } from 'kea-window-values'
+
+import { DEFAULT_HEATMAP_FILTERS, calculateViewportRange } from 'lib/components/IframedToolbarBrowser/utils'
 import {
     CommonFilters,
     HeatmapFilters,
@@ -9,7 +11,6 @@ import {
     HeatmapJsData,
     HeatmapJsDataPoint,
 } from 'lib/components/heatmaps/types'
-import { calculateViewportRange, DEFAULT_HEATMAP_FILTERS } from 'lib/components/IframedToolbarBrowser/utils'
 import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 import { dateFilterToText } from 'lib/utils'
 

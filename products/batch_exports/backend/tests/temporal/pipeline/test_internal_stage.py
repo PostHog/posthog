@@ -1,18 +1,16 @@
-import datetime as dt
-import json
 import re
-import typing as t
+import json
 import uuid
+import typing as t
+import datetime as dt
+
+import pytest
 from unittest import mock
 from unittest.mock import patch
 
-import pytest
-
-from posthog.batch_exports.service import (
-    BackfillDetails,
-    BatchExportModel,
-)
+from posthog.batch_exports.service import BackfillDetails, BatchExportModel
 from posthog.temporal.common.clickhouse import ClickHouseClient
+
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     BatchExportInsertIntoInternalStageInputs,
     insert_into_internal_stage_activity,

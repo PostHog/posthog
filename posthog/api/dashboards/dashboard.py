@@ -1,10 +1,14 @@
 import json
+from contextlib import nullcontext
 from typing import Any, Optional, cast
 
-import pydantic_core
-import structlog
 from django.db.models import Prefetch
 from django.utils.timezone import now
+
+import structlog
+import pydantic_core
+import posthoganalytics
+from opentelemetry import trace
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
@@ -12,14 +16,7 @@ from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 from rest_framework.utils.serializer_helpers import ReturnDict
 
-from posthog.api.dashboards.dashboard_template_json_schema_parser import (
-    DashboardTemplateCreationJSONSchemaParser,
-)
-from posthog.constants import GENERATED_DASHBOARD_PREFIX
-from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.models.insight_variable import InsightVariable
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.api.dashboards.dashboard_template_json_schema_parser import DashboardTemplateCreationJSONSchemaParser
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import InsightSerializer, InsightViewSet
 from posthog.api.monitoring import Feature, monitor
@@ -27,23 +24,56 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
+from posthog.clickhouse.client.async_task_chain import task_chain_context
+from posthog.constants import GENERATED_DASHBOARD_PREFIX
 from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template
 from posthog.models import Dashboard, DashboardTile, Insight, Text
+from posthog.models.alert import AlertConfiguration
 from posthog.models.dashboard_templates import DashboardTemplate
+from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.insight_variable import InsightVariable
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.user import User
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import filters_override_requested_by_client, variables_override_requested_by_client
-from posthog.clickhouse.client.async_task_chain import task_chain_context
-from contextlib import nullcontext
-import posthoganalytics
-from opentelemetry import trace
-
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
+
+
+def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, dict]:
+    """
+    Serialize a single tile with error handling. Returns (order, tile_data) tuple.
+    This function is designed to be thread-safe and used with ThreadPoolExecutor.
+    """
+    # Create a copy of context to avoid thread conflicts
+    tile_context = context.copy()
+    tile_context.update(
+        {
+            "dashboard_tile": tile,
+            "order": order,
+        }
+    )
+
+    if isinstance(tile.layouts, str):
+        tile.layouts = json.loads(tile.layouts)
+
+    try:
+        tile_data = DashboardTileSerializer(tile, many=False, context=tile_context).data
+        return order, tile_data
+    except pydantic_core.ValidationError as e:
+        if not tile.insight:
+            raise
+        query = tile.insight.query
+        tile.insight.query = None
+        tile_data = DashboardTileSerializer(tile, context=tile_context).data
+        tile_data["insight"]["query"] = query
+        tile_data["error"] = {"type": type(e).__name__, "message": str(e)}
+        return order, tile_data
 
 
 class CanEditDashboard(BasePermission):
@@ -163,6 +193,8 @@ class DashboardSerializer(DashboardBasicSerializer):
     breakdown_colors = serializers.JSONField(required=False)
     data_color_theme_id = serializers.IntegerField(required=False, allow_null=True)
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    persisted_filters = serializers.SerializerMethodField()
+    persisted_variables = serializers.SerializerMethodField()
 
     class Meta:
         model = Dashboard
@@ -192,6 +224,8 @@ class DashboardSerializer(DashboardBasicSerializer):
             "access_control_version",
             "_create_in_folder",
             "last_refresh",
+            "persisted_filters",
+            "persisted_variables",
         ]
         read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared", "user_access_level"]
 
@@ -437,14 +471,19 @@ class DashboardSerializer(DashboardBasicSerializer):
         # used by insight serializer to load insight filters in correct context
         self.context.update({"dashboard": dashboard})
 
-        serialized_tiles = []
+        serialized_tiles: list[ReturnDict] = []
 
         tiles = DashboardTile.dashboard_queryset(dashboard.tiles).prefetch_related(
             Prefetch(
                 "insight__tagged_items",
                 queryset=TaggedItem.objects.select_related("tag"),
                 to_attr="prefetched_tags",
-            )
+            ),
+            Prefetch(
+                "insight__alertconfiguration_set",
+                queryset=AlertConfiguration.objects.select_related("created_by"),
+                to_attr="_prefetched_alerts",
+            ),
         )
         self.user_permissions.set_preloaded_dashboard_tiles(list(tiles))
 
@@ -467,50 +506,29 @@ class DashboardSerializer(DashboardBasicSerializer):
         )
 
         with task_chain_context() if chained_tile_refresh_enabled else nullcontext():
+            # Handle case where there are no tiles
+            if not sorted_tiles:
+                return []
+
             for order, tile in enumerate(sorted_tiles):
-                self.context.update(
-                    {
-                        "dashboard_tile": tile,
-                        "order": order,
-                    }
-                )
-
-                if isinstance(tile.layouts, str):
-                    tile.layouts = json.loads(tile.layouts)
-
-                try:
-                    tile_data = DashboardTileSerializer(tile, many=False, context=self.context).data
-                    serialized_tiles.append(tile_data)
-                # A single broken query object has the potential to crash the entire dashboard
-                # Here we catch it and handle it gracefully
-                except pydantic_core.ValidationError as e:
-                    if not tile.insight:
-                        raise
-                    query = tile.insight.query
-                    tile.insight.query = None
-                    # If this throws with no query, it will still crash the dashboard. We could attempt to handle this
-                    # general case gracefully, but it gets increasingly complicated to handle the tile in a graceful
-                    # way if we don't have insight information attached.
-                    tile_data = DashboardTileSerializer(tile, context=self.context).data
-                    tile_data["insight"]["query"] = query
-                    tile_data["error"] = {"type": type(e).__name__, "message": str(e)}
-                    serialized_tiles.append(tile_data)
+                order, tile_data = serialize_tile_with_context(tile, order, self.context)
+                serialized_tiles.append(cast(ReturnDict, tile_data))
 
         return serialized_tiles
 
     def get_filters(self, dashboard: Dashboard) -> dict:
         request = self.context.get("request")
-        if request:
-            filters_override = filters_override_requested_by_client(request)
-
-            if filters_override is not None:
-                return filters_override
-
-        return dashboard.filters
+        return filters_override_requested_by_client(request, dashboard)
 
     def get_variables(self, dashboard: Dashboard) -> dict | None:
         request = self.context.get("request")
         return variables_override_requested_by_client(request, dashboard, list(self.context["insight_variables"]))
+
+    def get_persisted_filters(self, dashboard: Dashboard) -> dict | None:
+        return dashboard.filters if dashboard.filters else None
+
+    def get_persisted_variables(self, dashboard: Dashboard) -> dict | None:
+        return dashboard.variables if dashboard.variables else None
 
     def validate(self, data):
         if data.get("use_dashboard", None) and data.get("use_template", None):

@@ -1,20 +1,25 @@
-import logging
 import json
+import logging
+
+from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
+
+from posthog.schema import MaxRecordingUniversalFilters
+
+from posthog.models import Team, User
+
+from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
 from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
-from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
 from ee.hogai.graph.taxonomy.tools import base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
 from ee.hogai.tool import MaxTool
-from langchain_core.prompts import ChatPromptTemplate
-from posthog.models import Team, User
-from posthog.schema import MaxRecordingUniversalFilters
+
 from .prompts import (
+    DATE_FIELDS_PROMPT,
+    FILTER_FIELDS_TAXONOMY_PROMPT,
     PRODUCT_DESCRIPTION_PROMPT,
     SESSION_REPLAY_EXAMPLES_PROMPT,
-    FILTER_FIELDS_TAXONOMY_PROMPT,
-    DATE_FIELDS_PROMPT,
     USER_FILTER_OPTIONS_PROMPT,
 )
 
@@ -44,7 +49,7 @@ class SessionReplayFilterOptionsToolkit(TaxonomyAgentToolkit):
 class SessionReplayFilterNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgentState[MaxRecordingUniversalFilters]]):
     """Node for generating filtering options for session replay."""
 
-    def __init__(self, team: Team, user: User, toolkit_class: SessionReplayFilterOptionsToolkit):
+    def __init__(self, team: Team, user: User, toolkit_class: type[SessionReplayFilterOptionsToolkit]):
         super().__init__(team, user, toolkit_class=toolkit_class)
 
     def _get_system_prompt(self) -> ChatPromptTemplate:
@@ -65,7 +70,7 @@ class SessionReplayFilterOptionsToolsNode(
 ):
     """Node for generating filtering options for session replay."""
 
-    def __init__(self, team: Team, user: User, toolkit_class: SessionReplayFilterOptionsToolkit):
+    def __init__(self, team: Team, user: User, toolkit_class: type[SessionReplayFilterOptionsToolkit]):
         super().__init__(team, user, toolkit_class=toolkit_class)
 
 
@@ -101,6 +106,7 @@ class SearchSessionRecordingsTool(MaxTool):
     thinking_message: str = "Coming up with session recordings filters"
     root_system_prompt_template: str = "Current recordings filters are: {current_filters}"
     args_schema: type[BaseModel] = SearchSessionRecordingsArgs
+    show_tool_call_message: bool = False
 
     async def _arun_impl(self, change: str) -> tuple[str, MaxRecordingUniversalFilters]:
         graph = SessionReplayFilterOptionsGraph(team=self._team, user=self._user)
@@ -117,7 +123,7 @@ class SearchSessionRecordingsTool(MaxTool):
         result = await graph.compile_full_graph().ainvoke(graph_context)
 
         if type(result["output"]) is not MaxRecordingUniversalFilters:
-            content = "❌ I need more information to proceed."
+            content = result["intermediate_steps"][-1][0].tool_input
             filters = MaxRecordingUniversalFilters.model_validate(self.context.get("current_filters", {}))
         else:
             try:

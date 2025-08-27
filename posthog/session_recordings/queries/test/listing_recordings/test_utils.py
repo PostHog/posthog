@@ -1,13 +1,15 @@
 import datetime
 
-from posthog.models import Team
+from posthog.test.base import _create_event
+
 from posthog.schema import RecordingsQuery
+
+from posthog.models import Team
 from posthog.session_recordings.queries.session_recording_list_from_query import (
-    SessionRecordingQueryResult,
     SessionRecordingListFromQuery,
+    SessionRecordingQueryResult,
 )
 from posthog.session_recordings.session_recording_api import query_as_params_to_dict
-from posthog.test.base import _create_event
 
 
 def create_event(

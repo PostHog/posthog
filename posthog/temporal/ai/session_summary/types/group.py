@@ -1,7 +1,25 @@
 import dataclasses
+from enum import Enum
+
+from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 
 from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
-from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
+
+
+class SessionSummaryStreamUpdate(Enum):
+    """Types of updates that can be streamed during session group summarization."""
+
+    UI_STATUS = "ui_status"  # Status messages for UI progress display
+    NOTEBOOK_UPDATE = "notebook_update"  # Intermediate state for notebook display
+    FINAL_RESULT = "final_result"  # Final summarization result
+
+
+class SessionSummaryStep(Enum):
+    """Steps in the session group summarization process."""
+
+    WATCHING_SESSIONS = "watching_sessions"
+    FINDING_PATTERNS = "finding_patterns"
+    GENERATING_REPORT = "generating_report"
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -15,6 +33,7 @@ class SessionGroupSummaryInputs:
     # Timestamps required to avoid reading too many days from ClickHouse
     min_timestamp_str: str
     max_timestamp_str: str
+    model_to_use: str
     extra_summary_context: ExtraSummaryContext | None = None
     local_reads_prod: bool = False
 
@@ -34,6 +53,7 @@ class SessionGroupSummaryOfSummariesInputs:
     single_session_summaries_inputs: list[SingleSessionSummaryInputs]
     user_id: int
     redis_key_base: str
+    model_to_use: str
     extra_summary_context: ExtraSummaryContext | None = None
 
 

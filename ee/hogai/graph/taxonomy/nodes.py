@@ -1,33 +1,37 @@
 from abc import ABC, abstractmethod
+from functools import cached_property
+from typing import Generic, TypeVar
+
 from langchain_core.agents import AgentAction
 from langchain_core.messages import (
-    merge_message_runs,
-    ToolMessage as LangchainToolMessage,
     AIMessage as LangchainAIMessage,
+    ToolMessage as LangchainToolMessage,
+    merge_message_runs,
 )
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from pydantic import ValidationError
 
-from typing import Generic, TypeVar
-from posthog.models import Team, User
+from posthog.schema import MaxEventContext
 
-from .types import EntityType, TaxonomyAgentState
-from .tools import TaxonomyTool
-from functools import cached_property
-from ee.hogai.llm import MaxChatOpenAI
+from posthog.models import Team, User
 from posthog.models.group_type_mapping import GroupTypeMapping
-from .toolkit import TaxonomyAgentToolkit
-from ..mixins import StateClassMixin
+
+from ee.hogai.llm import MaxChatOpenAI
+from ee.hogai.utils.helpers import format_events_yaml
+
 from ..base import BaseAssistantNode
+from ..mixins import StateClassMixin
 from .prompts import (
-    PROPERTY_TYPES_PROMPT,
-    TAXONOMY_TOOL_USAGE_PROMPT,
     HUMAN_IN_THE_LOOP_PROMPT,
-    REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT,
     ITERATION_LIMIT_PROMPT,
+    PROPERTY_TYPES_PROMPT,
+    REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT,
+    TAXONOMY_TOOL_USAGE_PROMPT,
 )
-from ee.hogai.utils.helpers import format_events_prompt
+from .toolkit import TaxonomyAgentToolkit
+from .tools import TaxonomyTool
+from .types import EntityType, TaxonomyAgentState
 
 TaxonomyStateType = TypeVar("TaxonomyStateType", bound=TaxonomyAgentState)
 TaxonomyPartialStateType = TypeVar("TaxonomyPartialStateType", bound=TaxonomyAgentState)
@@ -78,13 +82,21 @@ class TaxonomyAgentNode(Generic[TaxonomyStateType, TaxonomyPartialStateType], Ta
         Construct the conversation thread for the agent. Handles both initial conversation setup
         and continuation with intermediate steps.
         """
-        conversation = self._get_system_prompt().messages
-        conversation.append(("human", state.change or ""))
+        conversation = list(self._get_system_prompt().messages)
+        human_content = state.change or ""
+        all_messages = [*conversation, ("human", human_content)]
 
         progress_messages = state.tool_progress_messages or []
-        conversation = [*conversation, *progress_messages]
+        all_messages.extend(progress_messages)
 
-        return ChatPromptTemplate(conversation, template_format="mustache")
+        return ChatPromptTemplate(all_messages, template_format="mustache")
+
+    def _format_events(self, events_in_context: list[MaxEventContext]) -> str:
+        """
+        Generate the output format for events. Can be overridden by subclasses.
+        Default implementation uses YAML format but it can be overridden to use XML format.
+        """
+        return format_events_yaml(events_in_context, self._team)
 
     def run(self, state: TaxonomyStateType, config: RunnableConfig) -> TaxonomyPartialStateType:
         """Process the state and return filtering options."""
@@ -99,7 +111,7 @@ class TaxonomyAgentNode(Generic[TaxonomyStateType, TaxonomyPartialStateType], Ta
 
         output_message = chain.invoke(
             {
-                "events": format_events_prompt(events_in_context, self._team),
+                "events": self._format_events(events_in_context),
                 "groups": self._team_group_types,
             },
             config,
@@ -152,14 +164,14 @@ class TaxonomyAgentToolsNode(Generic[TaxonomyStateType, TaxonomyPartialStateType
         else:
             if tool_input.name == "final_answer":
                 return self._partial_state_class(
-                    output=tool_input.arguments.answer,
+                    output=tool_input.arguments.answer,  # type: ignore
                     intermediate_steps=None,
                 )
 
             # The agent has requested help, so we return a message to the root node
             if tool_input.name == "ask_user_for_help":
                 return self._get_reset_state(
-                    tool_input.arguments.request,
+                    tool_input.arguments.request,  # type: ignore
                     tool_input.name,
                     state,
                 )

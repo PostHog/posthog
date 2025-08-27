@@ -1,5 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useEffect, useMemo, useState } from 'react'
+
+import { IconGridMasonry, IconNotebook, IconPalette, IconScreen, IconTrash } from '@posthog/icons'
+
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -7,6 +12,13 @@ import { ExportButton, ExportButtonItem } from 'lib/components/ExportButton/Expo
 import { FullScreen } from 'lib/components/FullScreen'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
+import { SceneExportDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneExportDropdownMenu'
+import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
+import { SceneFile } from 'lib/components/Scenes/SceneFile'
+import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
+import { SceneSubscribeButton } from 'lib/components/Scenes/SceneSubscribeButton'
+import { SceneTags } from 'lib/components/Scenes/SceneTags'
+import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { FEATURE_FLAGS, privilegeLevelToName } from 'lib/constants'
@@ -16,15 +28,27 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { isLemonSelectSection } from 'lib/lemon-ui/LemonSelect'
 import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture/ProfileBubbles'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { humanFriendlyDetailedTime, slugify } from 'lib/utils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
-import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
-import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
+import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
+import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import {
+    ScenePanel,
+    ScenePanelActions,
+    ScenePanelCommonActions,
+    ScenePanelDivider,
+    ScenePanelMetaInfo,
+} from '~/layout/scenes/SceneLayout'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { notebooksModel } from '~/models/notebooksModel'
 import { tagsModel } from '~/models/tagsModel'
@@ -37,32 +61,10 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
-import { IconGridMasonry, IconNotebook, IconPalette, IconScreen, IconTrash } from '@posthog/icons'
-import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { SceneExportDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneExportDropdownMenu'
-import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
-import { SceneFile } from 'lib/components/Scenes/SceneFile'
-import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
-import { SceneSubscribeButton } from 'lib/components/Scenes/SceneSubscribeButton'
-import { SceneTags } from 'lib/components/Scenes/SceneTags'
-import { SceneTextarea } from 'lib/components/Scenes/SceneTextarea'
-import { SceneTextInput } from 'lib/components/Scenes/SceneTextInput'
-import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { useEffect, useState } from 'react'
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
-import {
-    ScenePanel,
-    ScenePanelActions,
-    ScenePanelCommonActions,
-    ScenePanelDivider,
-    ScenePanelMetaInfo,
-} from '~/layout/scenes/SceneLayout'
-import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
-import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { DashboardInsightColorsModal } from './DashboardInsightColorsModal'
+import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
+import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { dashboardLogic } from './dashboardLogic'
 import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
@@ -104,6 +106,29 @@ export function DashboardHeader(): JSX.Element | null {
     const [isPinned, setIsPinned] = useState(dashboard?.pinned)
     const { featureFlags } = useValues(featureFlagLogic)
     const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+
+    const isNewDashboard = useMemo(() => {
+        if (!dashboard || dashboardLoading) {
+            return false
+        }
+
+        // A dashboard is considered new if:
+        // 1. It's a fresh duplicate (has _highlight set), OR
+        // 2. It's a blank dashboard with default name, OR
+        // 3. It was created recently (within last 30 seconds) - catches templates, OR
+        // 4. It has no tiles yet (completely empty)
+        const now = new Date()
+        const createdAt = new Date(dashboard.created_at)
+        const isRecentlyCreated = now.getTime() - createdAt.getTime() < 30000 // 30 seconds
+
+        return (
+            Boolean(dashboard._highlight) ||
+            dashboard.name === 'New Dashboard' ||
+            isRecentlyCreated ||
+            !dashboard.tiles ||
+            dashboard.tiles.length === 0
+        )
+    }, [dashboard, dashboardLoading])
 
     const hasDashboardColors = useFeatureFlag('DASHBOARD_COLORS')
 
@@ -148,6 +173,7 @@ export function DashboardHeader(): JSX.Element | null {
                         isOpen={dashboardMode === DashboardMode.Sharing}
                         closeModal={() => push(urls.dashboard(dashboard.id))}
                         dashboardId={dashboard.id}
+                        userAccessLevel={dashboard.user_access_level}
                     />
                     {canEditDashboard && (
                         <TextCardModal
@@ -213,7 +239,6 @@ export function DashboardHeader(): JSX.Element | null {
                                         overlay={
                                             dashboard ? (
                                                 <>
-                                                    {/* ✅ transfered to scene */}
                                                     {dashboard.created_by && (
                                                         <>
                                                             <div className="flex p-2 text-secondary">
@@ -226,7 +251,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                             <LemonDivider />
                                                         </>
                                                     )}
-                                                    {/* ✅ transfered to scene */}
                                                     {canEditDashboard && hasDashboardColors && (
                                                         <LemonButton
                                                             onClick={() => showInsightColorsModal(dashboard.id)}
@@ -236,7 +260,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                         </LemonButton>
                                                     )}
 
-                                                    {/* ✅ transfered to scene */}
                                                     {canEditDashboard && (
                                                         <LemonButton
                                                             onClick={() =>
@@ -251,7 +274,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                         </LemonButton>
                                                     )}
 
-                                                    {/* ✅ transfered to scene */}
                                                     <LemonButton
                                                         onClick={() =>
                                                             setDashboardMode(
@@ -264,7 +286,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                         Go full screen (F)
                                                     </LemonButton>
 
-                                                    {/* ✅ transfered to scene */}
                                                     {canEditDashboard &&
                                                         (dashboard.pinned ? (
                                                             <LemonButton
@@ -291,11 +312,8 @@ export function DashboardHeader(): JSX.Element | null {
                                                                 Pin dashboard
                                                             </LemonButton>
                                                         ))}
-                                                    {/* ✅ transfered to scene */}
                                                     <SubscribeButton dashboardId={dashboard.id} />
-                                                    {/* ✅ transfered to scene */}
                                                     <ExportButton fullWidth items={exportOptions} />
-                                                    {/* ✅ transfered to scene */}
                                                     {user?.is_staff && (
                                                         <LemonButton
                                                             onClick={() => {
@@ -311,7 +329,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                     )}
                                                     <LemonDivider />
 
-                                                    {/* ✅ transfered to scene */}
                                                     <LemonButton
                                                         onClick={() => {
                                                             showDuplicateDashboardModal(dashboard.id, dashboard.name)
@@ -321,7 +338,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                         Duplicate dashboard
                                                     </LemonButton>
 
-                                                    {/* ✅ transfered to scene */}
                                                     <LemonButton
                                                         onClick={() => createNotebookFromDashboard(dashboard)}
                                                         fullWidth
@@ -329,7 +345,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                         Create notebook from dashboard
                                                     </LemonButton>
 
-                                                    {/* ✅ transfered to scene */}
                                                     {canEditDashboard && (
                                                         <AccessControlledLemonButton
                                                             userAccessLevel={dashboard.user_access_level}
@@ -492,26 +507,6 @@ export function DashboardHeader(): JSX.Element | null {
                     />
                 </ScenePanelCommonActions>
                 <ScenePanelMetaInfo>
-                    <SceneTextInput
-                        name="name"
-                        defaultValue={dashboard?.name || ''}
-                        onSave={(value) => updateDashboard({ id: dashboard?.id, name: value, allowUndo: true })}
-                        dataAttrKey={RESOURCE_TYPE}
-                        canEdit={canEditDashboard}
-                        isLoading={dashboardLoading}
-                    />
-
-                    <SceneTextarea
-                        name="description"
-                        defaultValue={dashboard?.description || ''}
-                        onSave={(value) => updateDashboard({ id: dashboard?.id, description: value, allowUndo: true })}
-                        dataAttrKey={RESOURCE_TYPE}
-                        optional
-                        canEdit={canEditDashboard}
-                        isLoading={dashboardLoading}
-                        markdown
-                    />
-
                     <SceneTags
                         onSave={(tags) => {
                             triggerDashboardUpdate({ tags })
@@ -640,6 +635,25 @@ export function DashboardHeader(): JSX.Element | null {
                     )}
                 </ScenePanelActions>
             </ScenePanel>
+
+            <SceneTitleSection
+                name={dashboard?.name}
+                description={dashboard?.description}
+                resourceType={{
+                    type: 'dashboard',
+                    typePlural: 'dashboards',
+                }}
+                onNameChange={(value) => updateDashboard({ id: dashboard?.id, name: value, allowUndo: true })}
+                onDescriptionChange={(value) =>
+                    updateDashboard({ id: dashboard?.id, description: value, allowUndo: true })
+                }
+                markdown
+                canEdit={canEditDashboard}
+                isLoading={dashboardLoading}
+                forceEdit={dashboardMode === DashboardMode.Edit || isNewDashboard}
+                renameDebounceMs={1000}
+            />
+            <SceneDivider />
         </>
     ) : null
 }
