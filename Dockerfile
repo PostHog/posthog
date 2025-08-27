@@ -140,6 +140,19 @@ COPY ee ee/
 COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
 RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
 
+# Install runtime deps for video export (ffmpeg for MP4/GIF transcoding)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg=7:5.1.6-0+deb12u1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Pre-install Playwright's Chromium into the image so workers can launch a browser at runtime
+# (the Python 'playwright' package was installed by uv sync above)
+RUN /python-runtime/bin/python -m playwright install --with-deps chromium
+
+# Validate installations to catch issues early
+RUN ffmpeg -version && \
+    /python-runtime/bin/python -c "import playwright; print(f'Playwright {playwright.__version__} installed')" && \
+    /python-runtime/bin/python -c "from playwright.sync_api import sync_playwright; print('Playwright sync API available')"
 
 #
 # ---------------------------------------------------------
