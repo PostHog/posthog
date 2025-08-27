@@ -590,10 +590,15 @@ def postgres_source(
                     )
                 )
                 try:
+                    logger.debug("Getting primary keys...")
                     primary_keys = _get_primary_keys(cursor, schema, table_name)
+                    logger.debug("Getting table types...")
                     table = _get_table(cursor, schema, table_name)
+                    logger.debug("Getting table chunk size...")
                     chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
+                    logger.debug("Getting rows to sync...")
                     rows_to_sync = _get_rows_to_sync(cursor, inner_query_without_limit, logger)
+                    logger.debug("Getting partition settings...")
                     partition_settings = (
                         _get_partition_settings(cursor, schema, table_name, logger)
                         if should_use_incremental_field
@@ -604,6 +609,7 @@ def postgres_source(
                     # Fallback on checking for an `id` field on the table
                     if primary_keys is None and "id" in table:
                         primary_keys = ["id"]
+                        logger.debug("Checking duplicate primary keys...")
                         has_duplicate_primary_keys = _has_duplicate_primary_keys(
                             cursor, schema, table_name, primary_keys
                         )
