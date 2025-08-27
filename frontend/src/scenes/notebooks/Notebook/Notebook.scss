@@ -31,6 +31,10 @@
                     opacity: 0.5; // Reduced opacity so that this doesn't stand out like a sore thumb
                     transform: translateY(-50%) translateX(-100%);
 
+                    .SidePanel3000 & {
+                        padding-right: 1px;
+                    }
+
                     &:hover {
                         opacity: 1;
                     }
@@ -359,5 +363,15 @@
             padding: 0;
             border-bottom-width: 0;
         }
+    }
+}
+
+.Notebook_content {
+    display: flex;
+    flex: 1;
+    justify-content: center;
+
+    .SidePanel3000 & {
+        padding: 0 0.75rem; // Padding to fit in the HeadingToggles
     }
 }
