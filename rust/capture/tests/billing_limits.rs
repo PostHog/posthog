@@ -1635,7 +1635,7 @@ async fn test_ai_event_name_detection() {
 
         if should_be_filtered {
             // AI event should be filtered, only pageview remains
-            assert_eq!(events.len(), 1, "Event '{}' should be filtered", event_name);
+            assert_eq!(events.len(), 1, "Event '{event_name}' should be filtered");
             let event_data: Value = serde_json::from_str(&events[0].event.data).unwrap();
             assert_eq!(event_data["event"], "pageview");
         } else {
@@ -1643,8 +1643,7 @@ async fn test_ai_event_name_detection() {
             assert_eq!(
                 events.len(),
                 2,
-                "Event '{}' should not be filtered",
-                event_name
+                "Event '{event_name}' should not be filtered"
             );
         }
     }
