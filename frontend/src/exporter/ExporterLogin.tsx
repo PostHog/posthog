@@ -75,7 +75,77 @@ export const loginLogic = kea<loginLogicType>([
 
                             if (dashboardResponse.ok) {
                                 const dashboardData = await dashboardResponse.json()
-                                actions.setData(dashboardData)
+
+                                // CRITICAL: Set up API configuration BEFORE setting data
+                                // This ensures the config is ready before Exporter component mounts
+                                try {
+                                    const { ApiConfig } = await import('lib/api')
+
+                                    // Set POSTHOG_APP_CONTEXT if it's provided in the response
+                                    if (dashboardData.app_context) {
+                                        window.POSTHOG_APP_CONTEXT = dashboardData.app_context
+
+                                        if (dashboardData.app_context.current_team) {
+                                            ApiConfig.setCurrentTeamId(dashboardData.app_context.current_team.id)
+                                            ApiConfig.setCurrentProjectId(
+                                                dashboardData.app_context.current_team.project_id
+                                            )
+
+                                            // Trigger teamLogic to reload with the new context
+                                            try {
+                                                const { teamLogic } = await import('scenes/teamLogic')
+                                                teamLogic.actions.loadCurrentTeam()
+                                            } catch (error) {
+                                                console.warn('Could not reload teamLogic:', error)
+                                            }
+                                        }
+
+                                        if (dashboardData.app_context.current_user?.organization?.id) {
+                                            ApiConfig.setCurrentOrganizationId(
+                                                dashboardData.app_context.current_user.organization.id
+                                            )
+                                        } else if (dashboardData.app_context.current_organization?.id) {
+                                            // Try current_organization as alternative
+                                            ApiConfig.setCurrentOrganizationId(
+                                                dashboardData.app_context.current_organization.id
+                                            )
+                                        }
+                                    } else {
+                                        // This should not happen once backend is updated
+                                        console.error('WARNING: app_context not provided in JWT response!')
+                                        console.error(
+                                            'The backend should include app_context with the same structure as POSTHOG_APP_CONTEXT'
+                                        )
+
+                                        // Fallback: use dashboard team_id if app_context not provided
+                                        if (dashboardData.dashboard?.team_id) {
+                                            ApiConfig.setCurrentTeamId(dashboardData.dashboard.team_id)
+                                            ApiConfig.setCurrentProjectId(dashboardData.dashboard.team_id)
+                                        } else {
+                                            console.error('No team data available in response!')
+                                        }
+                                    }
+                                } catch (error) {
+                                    console.error('Failed to set API configuration:', error)
+                                    actions.setGeneralError(
+                                        'Configuration error',
+                                        'Failed to initialize application context'
+                                    )
+                                    return
+                                }
+
+                                // Ensure we have all required data before proceeding
+                                if (!dashboardData.dashboard) {
+                                    console.error('No dashboard in response:', dashboardData)
+                                    actions.setGeneralError('Invalid response', 'Dashboard data is missing')
+                                    return
+                                }
+
+                                // Use small delay to ensure API config changes have propagated
+                                // before mounting the Exporter component and making API calls
+                                setTimeout(() => {
+                                    actions.setData(dashboardData)
+                                }, 10)
                             } else {
                                 actions.setGeneralError(
                                     'Failed to load dashboard',
@@ -103,7 +173,8 @@ export interface ExporterLoginProps {
 export function ExporterLogin(props: ExporterLoginProps): JSX.Element {
     const { data, isLoginSubmitting, generalError } = useValues(loginLogic())
 
-    if (data) {
+    // Only render Exporter if we have data AND the API config is properly set
+    if (data && window.POSTHOG_APP_CONTEXT?.current_team) {
         return <Exporter {...data} />
     }
 

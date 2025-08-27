@@ -21,6 +21,7 @@ from posthog.api.exports import ExportedAssetSerializer
 from posthog.api.insight import InsightSerializer
 from posthog.api.insight_variable import InsightVariable
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.shared import TeamPublicSerializer
 from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import AvailableFeature
@@ -33,6 +34,7 @@ from posthog.models.user import User
 from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
 from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
+from posthog.views import preflight_check
 
 
 def shared_url_as_png(url: str = "") -> str:
@@ -79,6 +81,30 @@ def get_themes_for_team(team: Team):
     global_and_team_themes = DataColorTheme.objects.filter(Q(team_id=team.pk) | Q(team_id=None))
     themes = DataColorThemeSerializer(global_and_team_themes, many=True).data
     return themes
+
+
+def build_shared_app_context(team: Team, request: Request) -> dict[str, Any]:
+    """
+    Build app context for shared dashboards/insights similar to what render_template creates.
+    This provides the same structure as window.POSTHOG_APP_CONTEXT.
+    """
+    from django.conf import settings
+
+    from posthog.utils import get_git_commit_short
+
+    return {
+        "current_user": None,
+        "current_project": None,
+        "current_team": TeamPublicSerializer(team, context={"request": request}, many=False).data,
+        "preflight": json.loads(preflight_check(request).getvalue()),
+        "default_event_name": "$pageview",
+        "switched_team": None,
+        "suggested_users_with_access": None,
+        "commit_sha": get_git_commit_short(),
+        "livestream_host": settings.LIVESTREAM_HOST,
+        "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
+        "anonymous": True,
+    }
 
 
 class SharingConfigurationSerializer(serializers.ModelSerializer):
@@ -292,6 +318,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
 
             if request.method == "GET" and not is_jwt_authenticated:
                 exported_data["type"] = "unlock"
+                # Don't include app_context in the initial unlock page for security
+                # It will be provided after authentication
                 return render_template(
                     "exporter.html",
                     request=request,
@@ -306,6 +334,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 # JWT authenticated GET request with JSON Accept header - return dashboard data as JSON
                 exported_data["shareToken"] = request.META.get("HTTP_AUTHORIZATION", "").replace("Bearer ", "")
                 exported_data.pop("accessToken", None)  # Remove access_token to prevent direct API access
+                # Add app_context so frontend can initialize properly (same structure as POSTHOG_APP_CONTEXT)
+                exported_data["app_context"] = build_shared_app_context(resource.team, request)
                 # Continue processing to add dashboard/insight data to exported_data
                 pass
             elif request.method == "POST" and (

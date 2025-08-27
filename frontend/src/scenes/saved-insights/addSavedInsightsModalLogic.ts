@@ -73,9 +73,15 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
                     params.dashboards = [dashboardId]
                 }
 
-                const response = await api.get(
-                    `api/environments/${teamLogic.values.currentTeamId}/insights/?${toParams(params)}`
-                )
+                // Get team ID from teamLogic or shared context
+                const teamId = teamLogic.values.currentTeamId || window.POSTHOG_APP_CONTEXT?.current_team?.id
+
+                if (!teamId) {
+                    console.warn('No team ID available for loading insights in shared context')
+                    return { results: [], count: 0 }
+                }
+
+                const response = await api.get(`api/environments/${teamId}/insights/?${toParams(params)}`)
 
                 return {
                     ...response,

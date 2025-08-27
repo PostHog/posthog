@@ -278,8 +278,15 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         }
                     }
 
-                    if (!values.currentTeamId) {
+                    // For shared/exported contexts, get team ID from app context instead of teamLogic
+                    let teamId = values.currentTeamId
+                    if (!teamId && window.POSTHOG_APP_CONTEXT?.current_team?.id) {
+                        teamId = window.POSTHOG_APP_CONTEXT.current_team.id
+                    }
+
+                    if (!teamId) {
                         // if shared/exported, the team is not loaded
+
                         return null
                     }
 
@@ -300,7 +307,16 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         signal: cache.abortController.signal,
                     }
                     try {
-                        const response = await getConcurrencyController(query, values.currentTeam as TeamType).run({
+                        // For shared contexts, create a minimal team object if needed
+                        const teamForQuery =
+                            values.currentTeam ||
+                            (window.POSTHOG_APP_CONTEXT?.current_team
+                                ? {
+                                      id: teamId,
+                                      ...window.POSTHOG_APP_CONTEXT.current_team,
+                                  }
+                                : { id: teamId })
+                        const response = await getConcurrencyController(query, teamForQuery as TeamType).run({
                             debugTag: query.kind,
                             abortController,
                             priority: props.loadPriority,
