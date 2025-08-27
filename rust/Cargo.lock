@@ -3807,6 +3807,9 @@ dependencies = [
  "health",
  "metrics",
  "num_cpus",
+ "opentelemetry 0.22.0",
+ "opentelemetry-otlp",
+ "opentelemetry_sdk 0.22.1",
  "rdkafka",
  "rocksdb",
  "serde",
@@ -3817,6 +3820,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+ "tracing-opentelemetry",
  "tracing-subscriber",
  "uuid",
 ]

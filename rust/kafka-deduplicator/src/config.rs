@@ -110,6 +110,19 @@ pub struct Config {
 
     #[envconfig(default = "true")]
     pub export_prometheus: bool,
+
+    // OpenTelemetry configuration
+    #[envconfig(from = "OTEL_EXPORTER_OTLP_ENDPOINT")]
+    pub otel_url: Option<String>,
+
+    #[envconfig(from = "OTEL_TRACES_SAMPLER_ARG", default = "0.001")]
+    pub otel_sampling_rate: f64,
+
+    #[envconfig(from = "OTEL_SERVICE_NAME", default = "posthog-kafka-deduplicator")]
+    pub otel_service_name: String,
+
+    #[envconfig(from = "OTEL_LOG_LEVEL", default = "info")]
+    pub otel_log_level: tracing::Level,
 }
 
 impl Config {

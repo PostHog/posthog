@@ -20,6 +20,9 @@ futures = { workspace = true }
 health = { path = "../common/health" }
 metrics = { workspace = true }
 num_cpus = "1.17.0"
+opentelemetry = { workspace = true }
+opentelemetry-otlp = { workspace = true }
+opentelemetry_sdk = { workspace = true }
 rdkafka = { workspace = true }
 rocksdb = "0.24.0"
 serde = { workspace = true }
@@ -29,6 +32,7 @@ time = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { version = "0.7", features = ["rt"] }
 tracing = { workspace = true }
+tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
