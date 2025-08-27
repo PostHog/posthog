@@ -8619,7 +8619,7 @@ class HogQLQueryResponse(BaseModel):
     types: Optional[list] = Field(default=None, description="Types of returned columns")
 
 
-class HogQLQueryResponseDefInterface9741497531105121106219741497530118291(BaseModel):
+class HogQLQueryResponseDefInterface9741497531105971107069741497530118558(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11157,6 +11157,7 @@ class CachedWebTrendsQueryResponse(BaseModel):
     next_allowed_client_refresh: datetime
     offset: Optional[int] = None
     query: Optional[str] = Field(default=None, description="Input query string")
+    query_metadata: Optional[dict[str, Any]] = None
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
