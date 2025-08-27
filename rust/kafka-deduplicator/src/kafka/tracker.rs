@@ -349,7 +349,7 @@ impl InFlightTracker {
         let topic = message.topic().to_string();
         let partition = message.partition();
         let offset = message.offset();
-        let message_id = format!("{}-{}-{}", topic, partition, offset);
+        let message_id = format!("{topic}-{partition}-{offset}");
 
         // Increment global counters
         self.global_stats.message_tracked(memory_size);
