@@ -23,16 +23,15 @@ from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES, Ch
 from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV1
 from posthog.hogql.errors import ResolutionError
 
+from posthog.hogql_queries.web_analytics.pre_aggregated.properties import (
+    get_all_preaggregated_table_supported_properties,
+)
 from posthog.models.property_definition import PropertyType
 from posthog.models.sessions.sql import (
     SELECT_SESSION_PROP_STRING_VALUES_SQL,
     SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER,
 )
 from posthog.queries.insight import insight_sync_execute
-from posthog.schema import BounceRatePageViewMode
-from posthog.hogql_queries.web_analytics.pre_aggregated.properties import (
-    get_all_preaggregated_table_supported_properties,
-)
 
 if TYPE_CHECKING:
     from posthog.models.team import Team

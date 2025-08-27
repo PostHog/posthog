@@ -25,16 +25,15 @@ from posthog.hogql.database.schema.util.where_clause_extractor import SessionMin
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 
+from posthog.hogql_queries.web_analytics.pre_aggregated.properties import (
+    get_all_preaggregated_table_supported_properties,
+)
 from posthog.models.property_definition import PropertyType
 from posthog.models.raw_sessions.sql import (
     RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL,
     RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER,
 )
 from posthog.queries.insight import insight_sync_execute
-from posthog.schema import BounceRatePageViewMode, CustomChannelRule, SessionsV2JoinMode
-from posthog.hogql_queries.web_analytics.pre_aggregated.properties import (
-    get_all_preaggregated_table_supported_properties,
-)
 
 if TYPE_CHECKING:
     from posthog.models.team import Team

@@ -72,8 +72,6 @@ export function TaxonomicPropertyFilter({
     addFilterDocLink,
     editable = true,
     operatorAllowlist,
-    showOptimizedHints = false,
-    enableOptimizedHints = false,
     enablePreaggregatedTableHints = false,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
