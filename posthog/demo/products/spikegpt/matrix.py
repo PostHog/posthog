@@ -1,5 +1,6 @@
 from posthog.demo.matrix.matrix import Cluster, Matrix
 from posthog.models import Cohort
+
 from .models import SpikeGPTPerson
 
 

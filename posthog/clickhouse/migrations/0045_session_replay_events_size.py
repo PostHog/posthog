@@ -1,14 +1,14 @@
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.session_recordings.sql.session_replay_event_migrations_sql import (
-    DROP_SESSION_REPLAY_EVENTS_TABLE_MV_SQL,
-    DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL,
-    ADD_SIZE_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL,
     ADD_SIZE_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL,
     ADD_SIZE_SESSION_REPLAY_EVENTS_TABLE_SQL,
+    ADD_SIZE_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL,
+    DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL,
+    DROP_SESSION_REPLAY_EVENTS_TABLE_MV_SQL,
 )
 from posthog.session_recordings.sql.session_replay_event_sql import (
-    SESSION_REPLAY_EVENTS_TABLE_MV_SQL,
     KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL,
+    SESSION_REPLAY_EVENTS_TABLE_MV_SQL,
 )
 
 operations = [

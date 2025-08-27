@@ -3,7 +3,7 @@
   '''
   
   SELECT events__some_field.key AS key 
-  FROM events LEFT JOIN (
+  FROM events GLOBAL LEFT JOIN (
   SELECT groups.key AS key, key AS events__some_field___key 
   FROM (
   SELECT groups.group_type_index AS index, groups.group_key AS key 
@@ -18,7 +18,7 @@
   '''
   
   SELECT events__some_field.key AS key 
-  FROM events LEFT JOIN (
+  FROM events GLOBAL LEFT JOIN (
   SELECT groups.key AS key, key AS events__some_field___key 
   FROM (
   SELECT groups.group_type_index AS index, groups.group_key AS key 
@@ -2079,6 +2079,26 @@
       },
       "query_log": {
           "fields": {
+              "event_date": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "event_date",
+                  "id": null,
+                  "name": "event_date",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "date"
+              },
+              "event_time": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "event_time",
+                  "id": null,
+                  "name": "event_time",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
               "query_id": {
                   "chain": null,
                   "fields": null,
@@ -3455,6 +3475,26 @@
       },
       "query_log": {
           "fields": {
+              "event_date": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "event_date",
+                  "id": null,
+                  "name": "event_date",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "date"
+              },
+              "event_time": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "event_time",
+                  "id": null,
+                  "name": "event_time",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
               "query_id": {
                   "chain": null,
                   "fields": null,

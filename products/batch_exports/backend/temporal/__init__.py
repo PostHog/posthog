@@ -44,9 +44,7 @@ from products.batch_exports.backend.temporal.monitoring import (
     update_batch_export_runs,
 )
 from products.batch_exports.backend.temporal.noop import NoOpWorkflow, noop_activity
-from products.batch_exports.backend.temporal.pipeline.internal_stage import (
-    insert_into_internal_stage_activity,
-)
+from products.batch_exports.backend.temporal.pipeline.internal_stage import insert_into_internal_stage_activity
 
 WORKFLOWS = [
     BackfillBatchExportWorkflow,

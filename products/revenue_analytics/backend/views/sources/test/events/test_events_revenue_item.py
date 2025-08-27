@@ -1,7 +1,7 @@
 from products.revenue_analytics.backend.views.core import SourceHandle
+from products.revenue_analytics.backend.views.schemas.revenue_item import SCHEMA as REVENUE_ITEM_SCHEMA
 from products.revenue_analytics.backend.views.sources.events.revenue_item import build
 from products.revenue_analytics.backend.views.sources.test.events.base import EventsSourceBaseTest
-from products.revenue_analytics.backend.views.schemas.revenue_item import SCHEMA as REVENUE_ITEM_SCHEMA
 
 
 class TestRevenueItemEventsBuilder(EventsSourceBaseTest):

@@ -1,5 +1,4 @@
-from typing import Optional, cast, Literal
-
+from typing import Literal, Optional, cast
 
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
