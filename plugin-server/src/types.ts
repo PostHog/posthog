@@ -121,6 +121,9 @@ export type CdpConfig = {
     CDP_WATCHER_SEND_EVENTS: boolean // If true then the watcher will send events to posthog for messaging
     CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS: number // How long to buffer results before observing them
     CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS: number // How many results to buffer before observing them
+    CDP_RATE_LIMITER_BUCKET_SIZE: number // The total bucket size
+    CDP_RATE_LIMITER_REFILL_RATE: number // The number of tokens to be refilled per second
+    CDP_RATE_LIMITER_TTL: number // The expiry for the rate limit key
     CDP_HOG_FILTERS_TELEMETRY_TEAMS: string
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: CyclotronJobQueueKind
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: CyclotronJobQueueSource
@@ -182,6 +185,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     OTEL_EXPORTER_OTLP_ENDPOINT: string
     OTEL_SDK_DISABLED: boolean
     OTEL_TRACES_SAMPLER_ARG: number
+    OTEL_MAX_SPANS_PER_GROUP: number
+    OTEL_MIN_SPAN_DURATION_MS: number
     TASKS_PER_WORKER: number // number of parallel tasks per worker thread
     INGESTION_CONCURRENCY: number // number of parallel event ingestion queues per batch
     INGESTION_BATCH_SIZE: number // kafka consumer batch size

@@ -1,6 +1,8 @@
 import { S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
 import { CODES, Message, TopicPartition, TopicPartitionOffset, features, librdkafkaVersion } from 'node-rdkafka'
 
+import { instrumentFn } from '~/common/tracing/tracing-utils'
+
 import { buildIntegerMatcher } from '../../../config/config'
 import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS_V2_TEST } from '../../../config/kafka-topics'
 import { KafkaConsumer } from '../../../kafka/consumer'
@@ -18,7 +20,7 @@ import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
-import { parseSessionRecordingV2MetadataSwitchoverDate, runInstrumentedFunction } from '../../utils'
+import { parseSessionRecordingV2MetadataSwitchoverDate } from '../../utils'
 import {
     KAFKA_CONSUMER_GROUP_ID,
     KAFKA_CONSUMER_GROUP_ID_OVERFLOW,
@@ -173,11 +175,13 @@ export class SessionRecordingIngester {
             })
         }
 
-        await runInstrumentedFunction({
-            statsKey: `recordingingesterv2.handleEachBatch`,
-            sendException: false,
-            func: async () => this.processBatchMessages(messages),
-        })
+        await instrumentFn(
+            {
+                key: `recordingingesterv2.handleEachBatch`,
+                sendException: false,
+            },
+            async () => this.processBatchMessages(messages)
+        )
     }
 
     private async processBatchMessages(messages: Message[]): Promise<void> {
@@ -190,33 +194,28 @@ export class SessionRecordingIngester {
         SessionRecordingIngesterMetrics.observeKafkaBatchSize(batchSize)
         SessionRecordingIngesterMetrics.observeKafkaBatchSizeKb(batchSizeKb)
 
-        const processedMessages = await runInstrumentedFunction({
-            statsKey: `recordingingesterv2.handleEachBatch.parseBatch`,
-            func: async () => {
-                const parsedMessages = await this.kafkaParser.parseBatch(messages)
-                const messagesWithTeam = await this.teamFilter.filterBatch(parsedMessages)
-                const processedMessages = this.libVersionMonitor
-                    ? await this.libVersionMonitor.processBatch(messagesWithTeam)
-                    : messagesWithTeam
+        const processedMessages = await instrumentFn(`recordingingesterv2.handleEachBatch.parseBatch`, async () => {
+            const parsedMessages = await this.kafkaParser.parseBatch(messages)
+            const messagesWithTeam = await this.teamFilter.filterBatch(parsedMessages)
+            const processedMessages = this.libVersionMonitor
+                ? await this.libVersionMonitor.processBatch(messagesWithTeam)
+                : messagesWithTeam
 
-                return processedMessages
-            },
+            return processedMessages
         })
 
         this.kafkaConsumer.heartbeat()
 
-        await runInstrumentedFunction({
-            statsKey: `recordingingesterv2.handleEachBatch.processMessages`,
-            func: async () => this.processMessages(processedMessages),
-        })
+        await instrumentFn(`recordingingesterv2.handleEachBatch.processMessages`, async () =>
+            this.processMessages(processedMessages)
+        )
 
         this.kafkaConsumer.heartbeat()
 
         if (this.sessionBatchManager.shouldFlush()) {
-            await runInstrumentedFunction({
-                statsKey: `recordingingesterv2.handleEachBatch.flush`,
-                func: async () => this.sessionBatchManager.flush(),
-            })
+            await instrumentFn(`recordingingesterv2.handleEachBatch.flush`, async () =>
+                this.sessionBatchManager.flush()
+            )
         }
     }
 
@@ -348,12 +347,9 @@ export class SessionRecordingIngester {
     }
 
     private async commitOffsets(offsets: TopicPartitionOffset[]): Promise<void> {
-        await runInstrumentedFunction({
-            statsKey: `recordingingesterv2.handleEachBatch.flush.commitOffsets`,
-            func: async () => {
-                this.kafkaConsumer.offsetsStore(offsets)
-                return Promise.resolve()
-            },
+        await instrumentFn(`recordingingesterv2.handleEachBatch.flush.commitOffsets`, () => {
+            this.kafkaConsumer.offsetsStore(offsets)
+            return Promise.resolve()
         })
     }
 }

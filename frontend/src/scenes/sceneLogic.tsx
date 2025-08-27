@@ -1,12 +1,26 @@
 import { arrayMove } from '@dnd-kit/sortable'
-import { BuiltLogic, actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    BuiltLogic,
+    actions,
+    afterMount,
+    beforeUnmount,
+    connect,
+    kea,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { combineUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
+import { useEffect, useState } from 'react'
 
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
 import { TeamMembershipLevel } from 'lib/constants'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { getRelativeNextPath, identifierToHuman } from 'lib/utils'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
@@ -86,6 +100,15 @@ const pathPrefixesOnboardingNotRequiredFor = [
     urls.activity(),
     urls.oauthAuthorize(),
 ]
+
+const DelayedLoadingSpinner = (): JSX.Element => {
+    const [show, setShow] = useState(false)
+    useEffect(() => {
+        const timeout = window.setTimeout(() => setShow(true), 500)
+        return () => window.clearTimeout(timeout)
+    }, [])
+    return <>{show ? <Spinner /> : null}</>
+}
 
 export const sceneLogic = kea<sceneLogicType>([
     props(
@@ -398,7 +421,7 @@ export const sceneLogic = kea<sceneLogicType>([
             (s) => [s.activeSceneId, s.activeExportedScene, s.sceneParams, s.activeTabId],
             (activeSceneId, activeExportedScene, sceneParams, activeTabId): LoadedScene | null => {
                 return {
-                    ...(activeExportedScene ?? { component: (): JSX.Element => <>Loading...</> }),
+                    ...(activeExportedScene ?? { component: DelayedLoadingSpinner }),
                     id: activeSceneId ?? Scene.Error404,
                     tabId: activeTabId ?? undefined,
                     sceneParams: sceneParams,
@@ -951,4 +974,23 @@ export const sceneLogic = kea<sceneLogicType>([
             }
         },
     })),
+    afterMount(({ actions, cache, values }) => {
+        cache.onKeyDown = (event: KeyboardEvent) => {
+            if ((event.ctrlKey || event.metaKey) && event.key === 'b') {
+                event.preventDefault()
+                event.stopPropagation()
+                if (event.shiftKey) {
+                    if (values.activeTab) {
+                        actions.removeTab(values.activeTab)
+                    }
+                } else {
+                    actions.newTab()
+                }
+            }
+        }
+        window.addEventListener('keydown', cache.onKeyDown)
+    }),
+    beforeUnmount(({ cache }) => {
+        window.removeEventListener('keydown', cache.onKeyDown)
+    }),
 ])

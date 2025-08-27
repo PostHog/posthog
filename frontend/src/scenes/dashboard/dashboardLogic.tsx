@@ -1391,7 +1391,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     })
                 }
 
-                eventUsageLogic.actions.reportDashboardRefreshed(dashboardId, values.lastDashboardRefresh)
+                eventUsageLogic.actions.reportDashboardRefreshed(
+                    dashboardId,
+                    values.lastDashboardRefresh,
+                    action,
+                    forceRefresh
+                )
             }
         },
         saveEditModeChanges: () => {
@@ -1504,7 +1509,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             // and "values.dashboard" will then fail
             const { dashboard, lastDashboardRefresh } = values
             if (dashboard) {
-                void api.create(`api/environments/${teamLogic.values.currentTeamId}/dashboards/${dashboard.id}/viewed`)
                 eventUsageLogic.actions.reportDashboardViewed(dashboard, lastDashboardRefresh)
                 await breakpoint(IS_TEST_MODE ? 1 : 10000) // Tests will wait for all breakpoints to finish
                 if (

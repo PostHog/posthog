@@ -1,3 +1,5 @@
+import { IconPiggyBank } from '@posthog/icons'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
@@ -24,12 +26,21 @@ export const manifest: ProductManifest = {
         {
             path: 'Revenue analytics',
             category: 'Analytics',
-            iconType: 'piggyBank',
             href: urls.revenueAnalytics(),
+            type: 'revenue',
             tags: ['beta'],
             flag: FEATURE_FLAGS.REVENUE_ANALYTICS,
         },
     ],
+    fileSystemTypes: {
+        revenue: {
+            name: 'Revenue',
+            icon: <IconPiggyBank />,
+            href: () => urls.revenueAnalytics(),
+            iconColor: ['var(--color-product-revenue-analytics-light)', 'var(--color-product-revenue-analytics-dark)'],
+            filterKey: 'revenue',
+        },
+    },
     treeItemsMetadata: [
         {
             path: 'Revenue settings',
