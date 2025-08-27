@@ -23,6 +23,7 @@ class ResourceNotebook(UUIDTModel):
     group = models.IntegerField(
         null=True,
         blank=True,
+        db_column="group_id",
     )
 
     class Meta:
