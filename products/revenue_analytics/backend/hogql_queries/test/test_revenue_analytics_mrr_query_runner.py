@@ -63,7 +63,6 @@ ALL_MONTHS_DAYS = [
     "2025-05-31",
     "2025-06-30",
     "2025-07-31",
-    "2025-08-26",  # We always include the current date for simplicity
     "2025-08-31",
     "2025-09-30",
     "2025-10-31",
@@ -73,6 +72,7 @@ ALL_MONTHS_DAYS = [
     "2026-02-28",
     "2026-03-31",
     "2026-04-30",
+    "2026-05-01",  # Last day on the whole query doesn't need to be last day of the month
 ]
 ALL_MONTHS_LABELS = [
     "Nov 2024",
@@ -85,7 +85,6 @@ ALL_MONTHS_LABELS = [
     "Jun 2025",
     "Jul 2025",
     "Aug 2025",
-    "Aug 2025",  # Always include the current date for simplicity
     "Sep 2025",
     "Oct 2025",
     "Nov 2025",
@@ -94,17 +93,18 @@ ALL_MONTHS_LABELS = [
     "Feb 2026",
     "Mar 2026",
     "Apr 2026",
+    "May 2026",
 ]
 ALL_MONTHS_FAKEDATETIMES = [ANY] * 19
 
-LAST_6_MONTHS_DAYS = ALL_MONTHS_DAYS[:6].copy()
-LAST_6_MONTHS_LABELS = ALL_MONTHS_LABELS[:6].copy()
-LAST_6_MONTHS_FAKEDATETIMES = ALL_MONTHS_FAKEDATETIMES[:6].copy()
+LAST_7_MONTHS_DAYS = ALL_MONTHS_DAYS[:7].copy()
+LAST_7_MONTHS_LABELS = ALL_MONTHS_LABELS[:7].copy()
+LAST_7_MONTHS_FAKEDATETIMES = ALL_MONTHS_FAKEDATETIMES[:7].copy()
 
 
 @snapshot_clickhouse_queries
 class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
-    QUERY_TIMESTAMP = "2025-05-30"
+    QUERY_TIMESTAMP = "2025-05-31"
 
     def _create_purchase_events(self, data):
         person_result = []
@@ -360,7 +360,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     Decimal("24.5077499999"),
                     Decimal("24.5077499999"),
                     Decimal("24.5077499999"),
-                    Decimal("24.5077499999"),
+                    0,
                     0,
                     0,
                     0,
@@ -480,8 +480,8 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     0,
                     0,
                     0,
-                    0,
                     Decimal("-24.5077499999"),
+                    0,
                     0,
                     0,
                     0,
@@ -521,11 +521,17 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results[0].total,
             {
                 "label": "stripe.posthog_test",
-                "days": ["2025-02-28", "2025-03-31", "2025-04-30"],
-                "labels": ["Feb 2025", "Mar 2025", "Apr 2025"],
+                # May 1st because we use end of interval
+                "days": ["2025-02-28", "2025-03-31", "2025-04-30", "2025-05-01"],
+                "labels": ["Feb 2025", "Mar 2025", "Apr 2025", "May 2025"],
                 # This is an important test, see how MRR is included for the first month, because there's previous data from January 30 days prior to February 1st
-                "data": [Decimal("1668.2285949999"), Decimal("2031.2461549999"), Decimal("2337.7643849999")],
-                "action": {"days": [ANY] * 3, "id": "stripe.posthog_test", "name": "stripe.posthog_test"},
+                "data": [
+                    Decimal("1668.2285949999"),
+                    Decimal("2031.2461549999"),
+                    Decimal("2337.7643849999"),
+                    Decimal("2337.7643849999"),
+                ],
+                "action": {"days": [ANY] * 4, "id": "stripe.posthog_test", "name": "stripe.posthog_test"},
             },
         )
 
@@ -581,7 +587,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         churn_mrr = sum(results[0].churn["data"])
-        self.assertEqual(churn_mrr, Decimal("0"))
+        self.assertEqual(churn_mrr, 0)
         self.assertEqual(
             hashlib.sha256(",".join(str(x) for x in results[0].churn["data"]).encode()).hexdigest(),
             "c437cc187e67c1ac601f65fcc1ac3a5d492ba904c63ed805109e4a417c98865b",
@@ -635,6 +641,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     Decimal("93.6807083333"),
                     Decimal("309.0301083333"),
                     Decimal("91.3694083333"),
+                    Decimal("207.3329083333"),
                 ],
                 [
                     0,
@@ -643,11 +650,44 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     Decimal("289.8755416666"),
                     Decimal("362.1634416666"),
                     Decimal("95.9973216666"),
+                    Decimal("115.5238216666"),
                 ],
-                [0, 0, Decimal("5.758325"), Decimal("24.352335"), Decimal("19.960865"), Decimal("1.462495")],
-                [0, 0, Decimal("193.451825"), Decimal("386.90365"), Decimal("386.90365"), Decimal("580.355475")],
-                [0, 0, Decimal("0.171355"), Decimal("0.34271"), Decimal("0.34271"), Decimal("0.514065")],
-                [0, 0, Decimal("416.61581"), Decimal("873.07365"), Decimal("952.84538"), Decimal("1568.06562")],
+                [
+                    0,
+                    0,
+                    Decimal("5.758325"),
+                    Decimal("24.352335"),
+                    Decimal("19.960865"),
+                    Decimal("1.462495"),
+                    Decimal("9.84295"),
+                ],
+                [
+                    0,
+                    0,
+                    Decimal("193.451825"),
+                    Decimal("386.90365"),
+                    Decimal("386.90365"),
+                    Decimal("580.355475"),
+                    Decimal("773.8073"),
+                ],
+                [
+                    0,
+                    0,
+                    Decimal("0.171355"),
+                    Decimal("0.34271"),
+                    Decimal("0.34271"),
+                    Decimal("0.514065"),
+                    Decimal("0.68542"),
+                ],
+                [
+                    0,
+                    0,
+                    Decimal("416.61581"),
+                    Decimal("873.07365"),
+                    Decimal("952.84538"),
+                    Decimal("1568.06562"),
+                    Decimal("1159.34808"),
+                ],
             ],
         )
 
@@ -685,6 +725,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     Decimal("8.2024583333"),
                     Decimal("223.5518583333"),
                     Decimal("8.2024583333"),
+                    Decimal("124.1659583333"),
                 ],
                 [
                     0,
@@ -693,8 +734,17 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     Decimal("16.3052916666"),
                     Decimal("88.5931916666"),
                     Decimal("16.3052916666"),
+                    Decimal("35.8317916666"),
                 ],
-                [0, 0, Decimal("5.758325"), Decimal("5.758325"), Decimal("1.366855"), Decimal("1.366855")],
+                [
+                    0,
+                    0,
+                    Decimal("5.758325"),
+                    Decimal("5.758325"),
+                    Decimal("1.366855"),
+                    Decimal("1.366855"),
+                    Decimal("9.74731"),
+                ],
                 [
                     0,
                     0,
@@ -702,20 +752,95 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     Decimal("193.451825"),
                     Decimal("193.451825"),
                     Decimal("193.451825"),
+                    Decimal("386.90365"),
                 ],
-                [0, 0, Decimal("0.171355"), Decimal("0.171355"), Decimal("0.171355"), Decimal("0.171355")],
-                [0, 0, Decimal("416.61581"), Decimal("416.61581"), Decimal("496.38754"), Decimal("496.38754")],
-                [0, 0, 0, Decimal("85.47825"), Decimal("85.47825"), Decimal("83.16695")],
-                [0, 0, 0, Decimal("273.57025"), Decimal("273.57025"), Decimal("79.69203")],
-                [0, 0, 0, Decimal("18.59401"), Decimal("18.59401"), Decimal("0.09564")],
-                [0, 0, 0, Decimal("193.451825"), Decimal("193.451825"), Decimal("386.90365")],
-                [0, 0, 0, Decimal("0.171355"), Decimal("0.171355"), Decimal("0.34271")],
-                [0, 0, 0, Decimal("456.45784"), Decimal("456.45784"), Decimal("1071.67808")],
+                [
+                    0,
+                    0,
+                    Decimal("0.171355"),
+                    Decimal("0.171355"),
+                    Decimal("0.171355"),
+                    Decimal("0.171355"),
+                    Decimal("0.34271"),
+                ],
+                [
+                    0,
+                    0,
+                    Decimal("416.61581"),
+                    Decimal("416.61581"),
+                    Decimal("496.38754"),
+                    Decimal("496.38754"),
+                    Decimal("1159.34808"),
+                ],
+                [
+                    0,
+                    0,
+                    0,
+                    Decimal("85.47825"),
+                    Decimal("85.47825"),
+                    Decimal("83.16695"),
+                    Decimal("83.16695"),
+                ],
+                [
+                    0,
+                    0,
+                    0,
+                    Decimal("273.57025"),
+                    Decimal("273.57025"),
+                    Decimal("79.69203"),
+                    Decimal("79.69203"),
+                ],
+                [
+                    0,
+                    0,
+                    0,
+                    Decimal("18.59401"),
+                    Decimal("18.59401"),
+                    Decimal("0.09564"),
+                    Decimal("0.09564"),
+                ],
+                [
+                    0,
+                    0,
+                    0,
+                    Decimal("193.451825"),
+                    Decimal("193.451825"),
+                    Decimal("386.90365"),
+                    Decimal("386.90365"),
+                ],
+                [
+                    0,
+                    0,
+                    0,
+                    Decimal("0.171355"),
+                    Decimal("0.171355"),
+                    Decimal("0.34271"),
+                    Decimal("0.34271"),
+                ],
+                [
+                    0,
+                    0,
+                    0,
+                    Decimal("456.45784"),
+                    Decimal("456.45784"),
+                    Decimal("1071.67808"),
+                    0,
+                ],
             ],
         )
 
     def test_with_product_filter(self):
-        expected_data = [[0, 0, Decimal("5.758325"), Decimal("24.352335"), Decimal("19.960865"), Decimal("1.462495")]]
+        expected_data = [
+            [
+                0,
+                0,
+                Decimal("5.758325"),
+                Decimal("24.352335"),
+                Decimal("19.960865"),
+                Decimal("1.462495"),
+                Decimal("9.84295"),
+            ]
+        ]
 
         results = self._run_revenue_analytics_mrr_query(
             properties=[
@@ -764,12 +889,13 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [result.total["data"] for result in results],
             [
                 [
-                    0,
-                    0,
+                    Decimal("0"),
+                    Decimal("0"),
                     Decimal("24.5077499999"),
                     Decimal("24.5077499999"),
                     Decimal("312.1450499999"),
                     Decimal("24.5077499999"),
+                    Decimal("159.9977499999"),
                 ]
             ],
         )
@@ -824,11 +950,11 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results[0].total,
             {
                 "label": "revenue_analytics.events.purchase",
-                "days": LAST_6_MONTHS_DAYS,
-                "labels": LAST_6_MONTHS_LABELS,
-                "data": [0, 0, Decimal("33.474"), Decimal("25.4879321819"), Decimal("36.9999675355"), 0],
+                "days": LAST_7_MONTHS_DAYS,
+                "labels": LAST_7_MONTHS_LABELS,
+                "data": [0, 0, Decimal("33.474"), Decimal("25.4879321819"), Decimal("36.9999675355"), 0, 0],
                 "action": {
-                    "days": LAST_6_MONTHS_FAKEDATETIMES,
+                    "days": LAST_7_MONTHS_FAKEDATETIMES,
                     "id": "revenue_analytics.events.purchase",
                     "name": "revenue_analytics.events.purchase",
                 },
@@ -839,11 +965,11 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results[0].new,
             {
                 "label": "New | revenue_analytics.events.purchase",
-                "days": LAST_6_MONTHS_DAYS,
-                "labels": LAST_6_MONTHS_LABELS,
-                "data": [0, 0, Decimal("33.474"), Decimal("5.5629321819"), 0, 0],
+                "days": LAST_7_MONTHS_DAYS,
+                "labels": LAST_7_MONTHS_LABELS,
+                "data": [0, 0, Decimal("33.474"), Decimal("5.5629321819"), 0, 0, 0],
                 "action": {
-                    "days": LAST_6_MONTHS_FAKEDATETIMES,
+                    "days": LAST_7_MONTHS_FAKEDATETIMES,
                     "id": "New | revenue_analytics.events.purchase",
                     "name": "New | revenue_analytics.events.purchase",
                 },
@@ -854,11 +980,11 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results[0].expansion,
             {
                 "label": "Expansion | revenue_analytics.events.purchase",
-                "days": LAST_6_MONTHS_DAYS,
-                "labels": LAST_6_MONTHS_LABELS,
-                "data": [0, 0, 0, 0, Decimal("31.4370353536"), 0],
+                "days": LAST_7_MONTHS_DAYS,
+                "labels": LAST_7_MONTHS_LABELS,
+                "data": [0, 0, 0, 0, Decimal("31.4370353536"), 0, 0],
                 "action": {
-                    "days": LAST_6_MONTHS_FAKEDATETIMES,
+                    "days": LAST_7_MONTHS_FAKEDATETIMES,
                     "id": "Expansion | revenue_analytics.events.purchase",
                     "name": "Expansion | revenue_analytics.events.purchase",
                 },
@@ -869,11 +995,11 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results[0].contraction,
             {
                 "label": "Contraction | revenue_analytics.events.purchase",
-                "days": LAST_6_MONTHS_DAYS,
-                "labels": LAST_6_MONTHS_LABELS,
-                "data": [0, 0, 0, Decimal("-13.549"), 0, 0],
+                "days": LAST_7_MONTHS_DAYS,
+                "labels": LAST_7_MONTHS_LABELS,
+                "data": [0, 0, 0, Decimal("-13.549"), 0, 0, 0],
                 "action": {
-                    "days": LAST_6_MONTHS_FAKEDATETIMES,
+                    "days": LAST_7_MONTHS_FAKEDATETIMES,
                     "id": "Contraction | revenue_analytics.events.purchase",
                     "name": "Contraction | revenue_analytics.events.purchase",
                 },
@@ -884,11 +1010,11 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results[0].churn,
             {
                 "label": "Churn | revenue_analytics.events.purchase",
-                "days": LAST_6_MONTHS_DAYS,
-                "labels": LAST_6_MONTHS_LABELS,
-                "data": [0, 0, 0, 0, Decimal("-19.925"), Decimal("-36.9999675355")],
+                "days": LAST_7_MONTHS_DAYS,
+                "labels": LAST_7_MONTHS_LABELS,
+                "data": [0, 0, 0, 0, Decimal("-19.925"), Decimal("-36.9999675355"), 0],
                 "action": {
-                    "days": LAST_6_MONTHS_FAKEDATETIMES,
+                    "days": LAST_7_MONTHS_FAKEDATETIMES,
                     "id": "Churn | revenue_analytics.events.purchase",
                     "name": "Churn | revenue_analytics.events.purchase",
                 },
@@ -925,11 +1051,11 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results[0].total,
             {
                 "label": "revenue_analytics.events.purchase",
-                "days": LAST_6_MONTHS_DAYS,
-                "labels": LAST_6_MONTHS_LABELS,
-                "data": [0, 0, 0, 0, 0, 0],  # No MRR data because events aren"t recurring/got no subscription
+                "days": LAST_7_MONTHS_DAYS,
+                "labels": LAST_7_MONTHS_LABELS,
+                "data": [0, 0, 0, 0, 0, 0, 0],  # No MRR data because events aren"t recurring/got no subscription
                 "action": {
-                    "days": LAST_6_MONTHS_FAKEDATETIMES,
+                    "days": LAST_7_MONTHS_FAKEDATETIMES,
                     "id": "revenue_analytics.events.purchase",
                     "name": "revenue_analytics.events.purchase",
                 },

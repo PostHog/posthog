@@ -158,6 +158,10 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
         )
 
         # If we're filtering by month, then keep only the last day of each month in the query
+        # plus the last entry for each group of breakdown_by, customer_id, subscription_id
+        # counted by the `row_number` column above
+        #
+        # This can't be added directly as a `where` clause because it uses a window function
         if self.query_date_range.interval_name == "month":
             query.where = ast.Or(
                 exprs=[
@@ -168,8 +172,8 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
                     ),
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["date"]),
-                        right=ast.Call(name="today", args=[]),
+                        left=ast.Field(chain=["row_number"]),
+                        right=ast.Constant(value=1),
                     ),
                 ]
             )
@@ -213,6 +217,13 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
                                 },
                             ),
                         ],
+                    ),
+                ),
+                # We will always want to keep the last row even when filtering by month, so let's get that here
+                ast.Alias(
+                    alias="row_number",
+                    expr=parse_expr(
+                        "ROW_NUMBER() OVER (PARTITION BY breakdown_by, customer_id, subscription_id ORDER BY date DESC)"
                     ),
                 ),
                 # Make sure that the date is a string, otherwise the map operations will fail
