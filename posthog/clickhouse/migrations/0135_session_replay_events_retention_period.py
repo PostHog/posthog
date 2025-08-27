@@ -13,13 +13,13 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
 
 operations = [
     # looking at past migrations we have to drop materialized views and kafka tables first
-    run_sql_with_exceptions(DROP_SESSION_REPLAY_EVENTS_TABLE_MV_SQL()),
-    run_sql_with_exceptions(DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL()),
+    run_sql_with_exceptions(DROP_SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=False)),
+    run_sql_with_exceptions(DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=False)),
     # alter the target tables
     run_sql_with_exceptions(ADD_RETENTION_PERIOD_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL()),
     run_sql_with_exceptions(ADD_RETENTION_PERIOD_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL()),
     run_sql_with_exceptions(ADD_RETENTION_PERIOD_SESSION_REPLAY_EVENTS_TABLE_SQL()),
     # and then recreate the materialized views and kafka tables
-    run_sql_with_exceptions(KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL()),
-    run_sql_with_exceptions(SESSION_REPLAY_EVENTS_TABLE_MV_SQL()),
+    run_sql_with_exceptions(KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=False)),
+    run_sql_with_exceptions(SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=False)),
 ]

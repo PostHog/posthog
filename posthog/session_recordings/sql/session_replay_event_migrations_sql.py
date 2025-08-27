@@ -2,17 +2,18 @@ from django.conf import settings
 
 from posthog.session_recordings.sql.session_replay_event_sql import SESSION_REPLAY_EVENTS_DATA_TABLE
 
-DROP_SESSION_REPLAY_EVENTS_TABLE_MV_SQL = (
-    lambda: "DROP TABLE IF EXISTS session_replay_events_mv ON CLUSTER {cluster}".format(
-        cluster=settings.CLICKHOUSE_CLUSTER,
-    )
-)
 
-DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL = (
-    lambda: "DROP TABLE IF EXISTS kafka_session_replay_events ON CLUSTER {cluster}".format(
-        cluster=settings.CLICKHOUSE_CLUSTER,
+def DROP_SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=True):
+    return "DROP TABLE IF EXISTS session_replay_events_mv" + (
+        f"ON CLUSTER {settings.CLICKHOUSE_CLUSTER}" if on_cluster else ""
     )
-)
+
+
+def DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=True):
+    return "DROP TABLE IF EXISTS kafka_session_replay_events" + (
+        f"ON CLUSTER {settings.CLICKHOUSE_CLUSTER}" if on_cluster else ""
+    )
+
 
 # this alter command exists because existing installations
 # need to have the columns added, the SESSION_REPLAY_EVENTS_TABLE_BASE_SQL string
@@ -157,27 +158,23 @@ ADD_LIBRARY_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_L
 
 # migration to add retention_period column to the session replay table
 ALTER_SESSION_REPLAY_ADD_RETENTION_PERIOD_COLUMN = """
-    ALTER TABLE {table_name} on CLUSTER '{cluster}'
-    ADD COLUMN IF NOT EXISTS retention_period Nullable(String)
+    ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS retention_period Nullable(String)
 """
 
 ADD_RETENTION_PERIOD_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = (
     lambda: ALTER_SESSION_REPLAY_ADD_RETENTION_PERIOD_COLUMN.format(
         table_name="session_replay_events",
-        cluster=settings.CLICKHOUSE_CLUSTER,
     )
 )
 
 ADD_RETENTION_PERIOD_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL = (
     lambda: ALTER_SESSION_REPLAY_ADD_RETENTION_PERIOD_COLUMN.format(
         table_name="writable_session_replay_events",
-        cluster=settings.CLICKHOUSE_CLUSTER,
     )
 )
 
 ADD_RETENTION_PERIOD_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_RETENTION_PERIOD_COLUMN.format(
     table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
-    cluster=settings.CLICKHOUSE_CLUSTER,
 )
 
 # =========================

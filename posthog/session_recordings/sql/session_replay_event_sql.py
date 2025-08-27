@@ -130,8 +130,8 @@ def KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=True):
     )
 
 
-SESSION_REPLAY_EVENTS_TABLE_MV_SQL = (
-    lambda: """
+def SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=True):
+    return """
 CREATE MATERIALIZED VIEW IF NOT EXISTS session_replay_events_mv {on_cluster_clause}
 TO {database}.{target_table} {explictly_specify_columns}
 AS SELECT
@@ -175,7 +175,7 @@ FROM {database}.kafka_session_replay_events
 group by session_id, team_id
 """.format(
         target_table="writable_session_replay_events",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(),
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         database=settings.CLICKHOUSE_DATABASE,
         # ClickHouse is incorrectly expanding the type of the snapshot source column
         # Despite it being a LowCardinality(Nullable(String)) in writable_session_replay_events
@@ -200,7 +200,7 @@ group by session_id, team_id
 `retention_period` Nullable(String)
 )""",
     )
-)
+
 
 # Distributed engine tables are only created if CLICKHOUSE_REPLICATED
 
