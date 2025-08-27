@@ -7,6 +7,7 @@ import { LemonBanner, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect/LemonSegmentedSelect'
@@ -36,6 +37,7 @@ import { WebAnalyticsRecordingsTile } from 'scenes/web-analytics/tiles/WebAnalyt
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { QuerySchema } from '~/queries/schema/schema-general'
 import { ProductKey } from '~/types'
@@ -475,13 +477,13 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
             <BindLogic logic={dataNodeCollectionLogic} props={{ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
                 <WebAnalyticsModal />
                 <VersionCheckerBanner />
-                <div className="WebAnalyticsDashboard w-full flex flex-col">
+                <SceneContent className="WebAnalyticsDashboard w-full flex flex-col">
                     <Filters tabs={<WebAnalyticsTabs />} />
 
                     <WebAnalyticsPageReportsCTA />
                     <WebAnalyticsHealthCheck />
                     <MainContent />
-                </div>
+                </SceneContent>
             </BindLogic>
         </BindLogic>
     )
@@ -492,6 +494,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
 
     const { setProductTab } = useActions(webAnalyticsLogic)
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     return (
         <LemonTabs<ProductTab>
@@ -503,6 +506,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
                 ...pageReportsTab(featureFlags),
                 ...marketingTab(featureFlags),
             ]}
+            sceneInset={newSceneLayout}
         />
     )
 }

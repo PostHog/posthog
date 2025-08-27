@@ -119,6 +119,7 @@ export enum NodeKind {
     WebVitalsQuery = 'WebVitalsQuery',
     WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
     WebPageURLSearchQuery = 'WebPageURLSearchQuery',
+    WebTrendsQuery = 'WebTrendsQuery',
     WebAnalyticsExternalSummaryQuery = 'WebAnalyticsExternalSummaryQuery',
 
     // Revenue analytics queries
@@ -181,6 +182,7 @@ export type AnyDataNode =
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
     | WebPageURLSearchQuery
+    | WebTrendsQuery
     | WebAnalyticsExternalSummaryQuery
     | SessionAttributionExplorerQuery
     | RevenueExampleEventsQuery
@@ -3232,6 +3234,9 @@ export enum DefaultChannelTypes {
     Unknown = 'Unknown',
 }
 
+// IMPORTANT: Changes to AIEventType values impact usage reporting and billing
+// These values are used in SQL queries to compute usage and exclude AI events from standard event counts
+// Any changes here will be reflected in the Python schema and affect billing calculations
 export type AIEventType = '$ai_generation' | '$ai_embedding' | '$ai_span' | '$ai_trace' | '$ai_metric' | '$ai_feedback'
 
 export interface LLMTraceEvent {
@@ -3554,6 +3559,39 @@ export interface WebPageURLSearchQueryResponse extends AnalyticsQueryResponseBas
 }
 
 export type CachedWebPageURLSearchQueryResponse = CachedQueryResponse<WebPageURLSearchQueryResponse>
+
+export enum WebTrendsMetric {
+    UNIQUE_USERS = 'UniqueUsers',
+    PAGE_VIEWS = 'PageViews',
+    SESSIONS = 'Sessions',
+    BOUNCES = 'Bounces',
+    SESSION_DURATION = 'SessionDuration',
+    TOTAL_SESSIONS = 'TotalSessions',
+}
+
+export interface WebTrendsQuery extends WebAnalyticsQueryBase<WebTrendsQueryResponse> {
+    kind: NodeKind.WebTrendsQuery
+    interval: IntervalType
+    metrics: WebTrendsMetric[]
+    limit?: integer
+    offset?: integer
+}
+
+export interface WebTrendsItem {
+    bucket: string
+    metrics: Partial<Record<WebTrendsMetric, number>>
+}
+
+export interface WebTrendsQueryResponse extends HogQLQueryResponse<WebTrendsItem[]> {
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    samplingRate?: SamplingRate
+    types?: unknown[]
+    usedPreAggregatedTables?: boolean
+}
+
+export type CachedWebTrendsQueryResponse = CachedQueryResponse<WebTrendsQueryResponse>
 
 export type MarketingAnalyticsOrderBy = [string, 'ASC' | 'DESC']
 

@@ -2,6 +2,7 @@ import { Message, MessageHeader } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 import { z } from 'zod'
 
+import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { MessageSizeTooLarge } from '~/utils/db/error'
 import { captureIngestionWarning } from '~/worker/ingestion/utils'
 
@@ -10,7 +11,6 @@ import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { ingestionOverflowingMessagesTotal } from '../main/ingestion-queues/batch-processing/metrics'
 import { latestOffsetTimestampGauge, setUsageInNonPersonEventsCounter } from '../main/ingestion-queues/metrics'
-import { runInstrumentedFunction } from '../main/utils'
 import {
     Hub,
     IncomingEventWithTeam,
@@ -207,11 +207,13 @@ export class IngestionConsumer {
         ])
 
         await this.kafkaConsumer.connect(async (messages) => {
-            return await runInstrumentedFunction({
-                statsKey: `ingestionConsumer.handleEachBatch`,
-                sendException: false,
-                func: async () => await this.handleKafkaBatch(messages),
-            })
+            return await instrumentFn(
+                {
+                    key: `ingestionConsumer.handleEachBatch`,
+                    sendException: false,
+                },
+                async () => await this.handleKafkaBatch(messages)
+            )
         })
     }
 
@@ -238,7 +240,7 @@ export class IngestionConsumer {
     }
 
     private runInstrumented<T>(name: string, func: () => Promise<T>): Promise<T> {
-        return runInstrumentedFunction<T>({ statsKey: `ingestionConsumer.${name}`, func })
+        return instrumentFn<T>(`ingestionConsumer.${name}`, func)
     }
 
     private createBreadcrumb(message: Message): KafkaConsumerBreadcrumb {
