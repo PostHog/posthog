@@ -8,7 +8,7 @@ use rocksdb::{ColumnFamilyDescriptor, Options};
 use tracing::{error, info};
 
 use crate::metrics::MetricsHelper;
-use crate::rocksdb::dedup_metadata::{MetadataVersion, VersionedMetadata};
+use crate::rocksdb::dedup_metadata::{MetadataV1, MetadataVersion, VersionedMetadata};
 use crate::rocksdb::{metrics_consts::*, store::RocksDbStore};
 
 const UNKNOWN_STR: &str = "unknown";
@@ -230,26 +230,73 @@ impl DeduplicationStore {
         let existing_metadata = self.store.get(DeduplicationStore::RECORDS_CF, &key_bytes)?;
 
         if let Some(existing_bytes) = existing_metadata {
-            // Key exists - it's a duplicate, update metrics
+            // Key exists - it's a duplicate
             let mut metadata = VersionedMetadata::deserialize_metadata(&existing_bytes)?;
 
-            // Update duplicate metrics using trait method
+            // Calculate similarity between original and new event
+            let similarity = match &metadata {
+                VersionedMetadata::V1(v1) => v1.calculate_similarity(raw_event)?,
+            };
+
+            // Update duplicate metrics using trait method (tracks UUIDs)
             metadata.update_duplicate(raw_event);
 
-            // Log the duplicate metrics using trait method
+            // Log the duplicate with similarity metrics
             info!(
-                "Duplicate detected: {} for key {}",
+                "Duplicate detected: {} for key {}, Similarity: {:.2}, Field diffs: {}, Property diffs: {}",
                 metadata.get_metrics_summary(),
-                key.get_formatted_key()
+                key.get_formatted_key(),
+                similarity.overall_score,
+                similarity.different_field_count,
+                similarity.different_property_count
             );
 
-            // Extract library info and emit duplicate metric with labels
+            // Log detailed differences if similarity is not perfect
+            if similarity.overall_score < 1.0 {
+                if !similarity.different_fields.is_empty() {
+                    info!(
+                        "Different fields for key {}: {:?}",
+                        key.get_formatted_key(),
+                        similarity.different_fields
+                    );
+                }
+                if !similarity.different_properties.is_empty() {
+                    info!(
+                        "Different properties for key {}: {:?}",
+                        key.get_formatted_key(),
+                        similarity.different_properties
+                    );
+                }
+            }
+
+            // Extract library info and emit duplicate metric with labels including similarity
             let (lib_name, lib_version) = extract_library_info(raw_event);
             self.metrics
                 .counter(DUPLICATE_EVENTS_TOTAL_COUNTER)
                 .with_label("lib", &lib_name)
                 .with_label("lib_version", &lib_version)
                 .increment(1);
+
+            // Emit similarity histogram metric
+            self.metrics
+                .histogram("deduplication_similarity_score")
+                .with_label("lib", &lib_name)
+                .with_label("lib_version", &lib_version)
+                .record(similarity.overall_score);
+
+            // Emit field differences metric
+            self.metrics
+                .histogram("deduplication_field_differences")
+                .with_label("lib", &lib_name)
+                .with_label("lib_version", &lib_version)
+                .record(similarity.different_field_count as f64);
+
+            // Emit property differences metric
+            self.metrics
+                .histogram("deduplication_property_differences")
+                .with_label("lib", &lib_name)
+                .with_label("lib_version", &lib_version)
+                .record(similarity.different_property_count as f64);
 
             // Store updated metrics
             let serialized_metadata = VersionedMetadata::serialize_metadata(&metadata)?;
@@ -263,8 +310,7 @@ impl DeduplicationStore {
         }
 
         // Key doesn't exist - store it with initial metrics
-        let metadata =
-            VersionedMetadata::V1(crate::rocksdb::dedup_metadata::MetadataV1::new(raw_event));
+        let metadata = VersionedMetadata::V1(MetadataV1::new(raw_event));
         let serialized_metadata = VersionedMetadata::serialize_metadata(&metadata)?;
 
         self.store.put_batch(
