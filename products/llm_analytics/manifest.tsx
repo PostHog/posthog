@@ -48,6 +48,14 @@ export const manifest: ProductManifest = {
             layout: 'app-container',
             defaultDocsPath: '/docs/ai-engineering/observability',
         },
+        LLMAnalyticsDataset: {
+            import: () => import('./frontend/datasets/LLMAnalyticsDatasetScene'),
+            projectBased: true,
+            name: 'LLM analytics dataset',
+            activityScope: 'LLMAnalytics',
+            layout: 'app-container',
+            defaultDocsPath: '/docs/ai-engineering/observability',
+        },
     },
     routes: {
         '/llm-analytics': ['LLMAnalytics', 'llmAnalytics'],
@@ -58,6 +66,7 @@ export const manifest: ProductManifest = {
         '/llm-analytics/users': ['LLMAnalytics', 'llmAnalyticsUsers'],
         '/llm-analytics/playground': ['LLMAnalytics', 'llmAnalyticsPlayground'],
         '/llm-analytics/datasets': ['LLMAnalytics', 'llmAnalyticsDatasets'],
+        '/llm-analytics/datasets/:id': ['LLMAnalyticsDataset', 'llmAnalyticsDataset'],
     },
     redirects: {
         '/llm-observability': (_params, searchParams, hashParams) =>
@@ -76,6 +85,8 @@ export const manifest: ProductManifest = {
             combineUrl(`/llm-analytics/playground`, searchParams, hashParams).url,
         '/llm-observability/datasets': (_params, searchParams, hashParams) =>
             combineUrl(`/llm-analytics/datasets`, searchParams, hashParams).url,
+        '/llm-observability/datasets/:id': (params, searchParams, hashParams) =>
+            combineUrl(`/llm-analytics/datasets/${params.id}`, searchParams, hashParams).url,
     },
     urls: {
         llmAnalyticsDashboard: (): string => '/llm-analytics',
@@ -96,6 +107,7 @@ export const manifest: ProductManifest = {
         llmAnalyticsUsers: (): string => '/llm-analytics/users',
         llmAnalyticsPlayground: (): string => '/llm-analytics/playground',
         llmAnalyticsDatasets: (): string => '/llm-analytics/datasets',
+        llmAnalyticsDataset: (id: string): string => `/llm-analytics/datasets/${id}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],

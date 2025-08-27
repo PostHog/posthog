@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Link } from 'lib/lemon-ui/Link'
@@ -31,7 +32,7 @@ export function LLMAnalyticsDatasetsScene(): JSX.Element {
             key: 'name',
             width: '20%',
             render: function renderName(_, dataset) {
-                return <Link to={urls.llmAnalyticsDataset(dataset.id)}>{name}</Link>
+                return <Link to={urls.llmAnalyticsDataset(dataset.id)}>{dataset.name}</Link>
             },
         },
         {
@@ -89,36 +90,45 @@ export function LLMAnalyticsDatasetsScene(): JSX.Element {
     ]
 
     return (
-        <div className="space-y-4">
-            <div className="flex gap-x-4 gap-y-2 items-center flex-wrap py-4 -mt-4 mb-4 border-b justify-between">
-                <LemonInput
-                    type="search"
-                    placeholder="Search datasets..."
-                    value={filters.search}
-                    onChange={(value) => setFilters({ search: value })}
-                    className="max-w-md"
-                />
-                <div className="text-muted-alt">{datasetCountLabel}</div>
-            </div>
-
-            <LemonTable
-                loading={datasetsLoading}
-                columns={columns}
-                dataSource={datasets.results}
-                pagination={pagination}
-                noSortingCancellation
-                sorting={sorting}
-                onSort={(newSorting) =>
-                    setFilters({
-                        order_by: newSorting
-                            ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
-                            : undefined,
-                    })
+        <>
+            <PageHeader
+                buttons={
+                    <LemonButton type="primary" to={urls.llmAnalyticsDataset('new')}>
+                        New dataset
+                    </LemonButton>
                 }
-                rowKey="id"
-                loadingSkeletonRows={DATASETS_PER_PAGE}
-                nouns={['dataset', 'datasets']}
             />
-        </div>
+            <div className="space-y-4">
+                <div className="flex gap-x-4 gap-y-2 items-center flex-wrap py-4 -mt-4 mb-4 border-b justify-between">
+                    <LemonInput
+                        type="search"
+                        placeholder="Search datasets..."
+                        value={filters.search}
+                        onChange={(value) => setFilters({ search: value })}
+                        className="max-w-md"
+                    />
+                    <div className="text-muted-alt">{datasetCountLabel}</div>
+                </div>
+
+                <LemonTable
+                    loading={datasetsLoading}
+                    columns={columns}
+                    dataSource={datasets.results}
+                    pagination={pagination}
+                    noSortingCancellation
+                    sorting={sorting}
+                    onSort={(newSorting) =>
+                        setFilters({
+                            order_by: newSorting
+                                ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                                : undefined,
+                        })
+                    }
+                    rowKey="id"
+                    loadingSkeletonRows={DATASETS_PER_PAGE}
+                    nouns={['dataset', 'datasets']}
+                />
+            </div>
+        </>
     )
 }

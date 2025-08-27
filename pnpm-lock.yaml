@@ -1994,6 +1994,9 @@ importers:
       kea:
         specifier: ^3.1.7
         version: 3.1.7(react@18.2.0)
+      kea-forms:
+        specifier: ^3.2.0
+        version: 3.2.0(kea@3.1.7(react@18.2.0))
       kea-loaders:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.7(react@18.2.0))
@@ -36525,7 +36528,7 @@ snapshots:
 
   require-in-the-middle@7.5.2:
     dependencies:
-      debug: 4.4.0(supports-color@8.1.1)
+      debug: 4.4.0(supports-color@5.5.0)
       module-details-from-path: 1.0.4
       resolve: 1.22.8
     transitivePeerDependencies:
