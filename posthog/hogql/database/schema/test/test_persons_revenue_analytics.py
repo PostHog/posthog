@@ -196,10 +196,10 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                     [
                         (distinct_id_to_person_id["cus_1"], Decimal("429.7423999996")),
                         (distinct_id_to_person_id["cus_2"], Decimal("477.2037499988")),
-                        (distinct_id_to_person_id["cus_3"], Decimal("26182.78099")),
+                        (distinct_id_to_person_id["cus_3"], Decimal("4171.09153")),
                         (distinct_id_to_person_id["cus_4"], Decimal("254.12345")),
                         (distinct_id_to_person_id["cus_5"], Decimal("1529.9212")),
-                        (distinct_id_to_person_id["cus_6"], Decimal("17476.47254")),
+                        (distinct_id_to_person_id["cus_6"], Decimal("2796.37014")),
                         (distinct_id_to_person_id["dummy"], None),
                     ],
                 )
@@ -244,17 +244,13 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                         Decimal("477.2037499988"),
                         Decimal("477.2037499988"),
                     ),
-                    (
-                        distinct_id_to_person_id["john.smith@example.com"],
-                        Decimal("26182.78099"),
-                        Decimal("26182.78099"),
-                    ),
+                    (distinct_id_to_person_id["john.smith@example.com"], Decimal("4171.09153"), Decimal("4171.09153")),
                     (distinct_id_to_person_id["jane.smith@example.com"], Decimal("254.12345"), Decimal("254.12345")),
                     (distinct_id_to_person_id["john.doejr@example.com"], Decimal("1529.9212"), Decimal("1529.9212")),
                     (
                         distinct_id_to_person_id["john.doejrjr@example.com"],
-                        Decimal("17476.47254"),
-                        Decimal("17476.47254"),
+                        Decimal("2796.37014"),
+                        Decimal("2796.37014"),
                     ),
                     (distinct_id_to_person_id["zdummy"], None, None),
                 ],
@@ -292,10 +288,10 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                 [
                     (distinct_id_to_person_id["cus_1_metadata"], Decimal("429.7423999996"), Decimal("429.7423999996")),
                     (distinct_id_to_person_id["cus_2_metadata"], Decimal("477.2037499988"), Decimal("477.2037499988")),
-                    (distinct_id_to_person_id["cus_3_metadata"], Decimal("26182.78099"), Decimal("26182.78099")),
+                    (distinct_id_to_person_id["cus_3_metadata"], Decimal("4171.09153"), Decimal("4171.09153")),
                     (distinct_id_to_person_id["cus_4_metadata"], Decimal("254.12345"), Decimal("254.12345")),
                     (distinct_id_to_person_id["cus_5_metadata"], Decimal("1529.9212"), Decimal("1529.9212")),
-                    (distinct_id_to_person_id["cus_6_metadata"], Decimal("17476.47254"), Decimal("17476.47254")),
+                    (distinct_id_to_person_id["cus_6_metadata"], Decimal("2796.37014"), Decimal("2796.37014")),
                     (distinct_id_to_person_id["dummy"], None, None),
                 ],
             )
