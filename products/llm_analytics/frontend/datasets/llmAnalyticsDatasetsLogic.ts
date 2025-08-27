@@ -4,8 +4,9 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api, { CountedPaginatedResponse } from '~/lib/api'
 import { Sorting } from '~/lib/lemon-ui/LemonTable'
+import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
-import { objectDiffShallow, objectsEqual } from '~/lib/utils'
+import { objectsEqual } from '~/lib/utils'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { urls } from '~/scenes/urls'
 import { Dataset } from '~/types'
@@ -36,12 +37,13 @@ export const llmAnalyticsDatasetsLogic = kea<llmAnalyticsDatasetsLogicType>([
     })),
 
     actions({
-        setFilters: (filters, merge = true, debounce = true) => ({
+        setFilters: (filters: Partial<DatasetFilters>, merge: boolean = true, debounce: boolean = true) => ({
             filters,
             merge,
             debounce,
         }),
-        loadDatasets: (debounce = true) => ({ debounce }),
+        loadDatasets: (debounce: boolean = true) => ({ debounce }),
+        deleteDataset: (datasetId: string) => ({ datasetId }),
     }),
 
     reducers({
@@ -131,6 +133,18 @@ export const llmAnalyticsDatasetsLogic = kea<llmAnalyticsDatasetsLogicType>([
                 entryCount: count,
             }),
         ],
+
+        datasetCountLabel: [
+            (s) => [s.filters, s.count],
+            (filters, entryCount) => {
+                const start = (filters.page - 1) * DATASETS_PER_PAGE + 1
+                const end = Math.min(filters.page * DATASETS_PER_PAGE, entryCount)
+
+                return entryCount === 0
+                    ? '0 datasets'
+                    : `${start}-${end} of ${entryCount} dataset${entryCount === 1 ? '' : 's'}`
+            },
+        ],
     }),
 
     listeners(({ asyncActions, values, selectors }) => ({
@@ -151,6 +165,15 @@ export const llmAnalyticsDatasetsLogic = kea<llmAnalyticsDatasetsLogicType>([
                 await asyncActions.loadDatasets(debounce)
             }
         },
+
+        deleteDataset: async ({ datasetId }) => {
+            try {
+                await api.datasets.update(datasetId, { deleted: true })
+                await asyncActions.loadDatasets(false)
+            } catch {
+                lemonToast.error('Failed to delete dataset')
+            }
+        },
     })),
 
     actionToUrl(({ values }) => {
@@ -164,32 +187,21 @@ export const llmAnalyticsDatasetsLogic = kea<llmAnalyticsDatasetsLogicType>([
                   },
               ]
             | void => {
-            const currentScene = sceneLogic.findMounted()?.values
-            if (currentScene?.activeSceneId === 'LLMAnalyticsDatasets') {
-                const nextValues = cleanFilters(values.filters)
-                const urlValues = cleanFilters(router.values.searchParams)
-                if (!objectsEqual(nextValues, urlValues)) {
-                    return [
-                        urls.llmAnalyticsDatasets(),
-                        objectDiffShallow(cleanFilters({}), nextValues),
-                        {},
-                        { replace: false },
-                    ]
-                }
+            const nextValues = cleanFilters(values.filters)
+            const urlValues = cleanFilters(router.values.searchParams)
+            if (!objectsEqual(nextValues, urlValues)) {
+                return [urls.llmAnalyticsDatasets(), nextValues, {}, { replace: false }]
             }
         }
         return {
-            loadDatasets: changeUrl,
             setFilters: changeUrl,
         }
     }),
 
     urlToAction(({ actions, values }) => ({
         [urls.llmAnalyticsDatasets()]: (_, searchParams) => {
-            const currentFilters = cleanFilters(values.filters)
-            const nextFilters = cleanFilters(searchParams)
-            if (values.rawFilters === null || !objectsEqual(currentFilters, nextFilters)) {
-                actions.setFilters(nextFilters, false)
+            if (values.rawFilters === null) {
+                actions.setFilters(cleanFilters(searchParams), false)
             }
         },
     })),

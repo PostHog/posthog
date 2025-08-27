@@ -1,7 +1,11 @@
 import { useActions, useValues } from 'kea'
 
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { LemonInput } from '~/lib/lemon-ui/LemonInput'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
@@ -16,8 +20,9 @@ export const scene: SceneExport = {
 }
 
 export function LLMAnalyticsDatasetsScene(): JSX.Element {
-    const { setFilters } = useActions(llmAnalyticsDatasetsLogic)
-    const { datasets, datasetsLoading, sorting, pagination, filters } = useValues(llmAnalyticsDatasetsLogic)
+    const { setFilters, deleteDataset } = useActions(llmAnalyticsDatasetsLogic)
+    const { datasets, datasetsLoading, sorting, pagination, filters, datasetCountLabel } =
+        useValues(llmAnalyticsDatasetsLogic)
 
     const columns: LemonTableColumns<Dataset> = [
         {
@@ -25,8 +30,8 @@ export function LLMAnalyticsDatasetsScene(): JSX.Element {
             dataIndex: 'name',
             key: 'name',
             width: '20%',
-            render: function renderName(name) {
-                return <span className="font-medium">{name}</span>
+            render: function renderName(_, dataset) {
+                return <Link to={urls.llmAnalyticsDataset(dataset.id)}>{name}</Link>
             },
         },
         {
@@ -52,12 +57,36 @@ export function LLMAnalyticsDatasetsScene(): JSX.Element {
         },
         createdAtColumn<Dataset>() as LemonTableColumn<Dataset, keyof Dataset | undefined>,
         updatedAtColumn<Dataset>() as LemonTableColumn<Dataset, keyof Dataset | undefined>,
+        {
+            width: 0,
+            render: function renderMore(_, dataset) {
+                return (
+                    <More
+                        overlay={
+                            <>
+                                <LemonButton
+                                    to={urls.llmAnalyticsDataset(dataset.id)}
+                                    data-attr={`dataset-item-${dataset.id}-dropdown-view`}
+                                    fullWidth
+                                >
+                                    View
+                                </LemonButton>
+
+                                <LemonButton
+                                    status="danger"
+                                    onClick={() => deleteDataset(dataset.id)}
+                                    data-attr={`dataset-item-${dataset.id}-dropdown-delete`}
+                                    fullWidth
+                                >
+                                    Delete dataset
+                                </LemonButton>
+                            </>
+                        }
+                    />
+                )
+            },
+        },
     ]
-
-    const { currentPage, pageSize, entryCount } = pagination
-
-    const start = (currentPage - 1) * pageSize + 1
-    const end = Math.min(currentPage * pageSize, entryCount)
 
     return (
         <div className="space-y-4">
@@ -69,11 +98,7 @@ export function LLMAnalyticsDatasetsScene(): JSX.Element {
                     onChange={(value) => setFilters({ search: value })}
                     className="max-w-md"
                 />
-                <div className="text-muted-alt">
-                    {entryCount === 0
-                        ? '0 datasets'
-                        : `${start}-${end} of ${entryCount} dataset${entryCount === 1 ? '' : 's'}`}
-                </div>
+                <div className="text-muted-alt">{datasetCountLabel}</div>
             </div>
 
             <LemonTable
