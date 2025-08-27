@@ -413,17 +413,14 @@ export async function filterFunctionInstrumented(options: {
         result.match = typeof execHogOutcome.execResult.result === 'boolean' && execHogOutcome.execResult.result
 
         // Pre-filter was wrong - either filtered an event that matched, or didn't filter one that didn't match
-        if (wouldHavePreFiltered === result.match) {
-            logger.error('🚨 Pre-filter mismatch detected!', {
-                functionId: fn.id,
-                teamId: fn.team_id,
-                eventId: eventUuid,
-                wouldHavePreFiltered,
-                actualMatch: result.match,
-                filters: JSON.stringify(filters),
-            })
-            hogFunctionPreFilterCounter.inc({ result: 'mismatch' })
+        const matchesPreFilter = wouldHavePreFiltered === result.match
+        let result = matchesPreFilter ? 'match' : 'mismatch_safe'
+        
+        if (wouldHavePreFiltered && !matchesPreFilter) {
+          result = 'mismatch_unsafe'
         }
+        
+        hogFunctionPreFilterCounter.inc({ result: 'mismatch' })
 
         if (!result.match) {
             metrics.push({
