@@ -222,8 +222,10 @@ pub async fn evaluate_for_request(
         project_id,
         distinct_id,
         feature_flags: filtered_flags,
-        reader: state.reader.clone(),
-        writer: state.writer.clone(),
+        // Use persons reader for person/group queries
+        reader: state.database_pools.persons_reader.clone(),
+        // Use persons writer for hash key overrides (will be on persons DB)
+        writer: state.database_pools.persons_writer.clone(),
         cohort_cache: state.cohort_cache_manager.clone(),
         person_property_overrides,
         group_property_overrides,

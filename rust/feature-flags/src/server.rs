@@ -3,7 +3,6 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use common_database::get_pool;
 use common_geoip::GeoIpClient;
 use common_redis::RedisClient;
 use health::{HealthHandle, HealthRegistry};
@@ -13,6 +12,7 @@ use tokio::net::TcpListener;
 use crate::billing_limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::config::Config;
+use crate::database_pools::DatabasePools;
 use crate::db_monitor::DatabasePoolMonitor;
 use crate::router;
 use common_cookieless::CookielessManager;
@@ -49,40 +49,27 @@ where
             }
         };
 
-    let reader = match get_pool(&config.read_database_url, config.max_pg_connections).await {
-        Ok(client) => {
-            tracing::info!("Successfully created read Postgres client");
-            Arc::new(client)
+    // Create database pools with persons routing support
+    let database_pools = match DatabasePools::from_config(&config).await {
+        Ok(pools) => {
+            tracing::info!("Successfully created database pools");
+            if config.is_persons_db_routing_enabled() {
+                tracing::info!("Persons database routing is enabled");
+            }
+            Arc::new(pools)
         }
         Err(e) => {
             tracing::error!(
                 error = %e,
-                url = %config.read_database_url,
-                max_connections = config.max_pg_connections,
-                "Failed to create read Postgres client"
+                "Failed to create database pools"
             );
             return;
         }
     };
 
-    let writer =
-        // TODO - we should have a dedicated URL for both this and the reader – the reader will read
-        // from the replica, and the writer will write to the main database.
-        match get_pool(&config.write_database_url, config.max_pg_connections).await {
-            Ok(client) => {
-                tracing::info!("Successfully created write Postgres client");
-                Arc::new(client)
-            }
-            Err(e) => {
-                tracing::error!(
-                    error = %e,
-                    url = %config.write_database_url,
-                    max_connections = config.max_pg_connections,
-                    "Failed to create write Postgres client"
-                );
-                return;
-            }
-        };
+    // Keep legacy reader/writer for backward compatibility
+    let reader = database_pools.non_persons_reader.clone();
+    let writer = database_pools.non_persons_writer.clone();
 
     let geoip_service = match GeoIpClient::new(config.get_maxmind_db_path()) {
         Ok(service) => Arc::new(service),
@@ -165,6 +152,7 @@ where
         redis_writer_client,
         reader,
         writer,
+        database_pools,
         cohort_cache,
         geoip_service,
         health,

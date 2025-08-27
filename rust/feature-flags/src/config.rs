@@ -113,6 +113,12 @@ pub struct Config {
     #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
     pub read_database_url: String,
 
+    #[envconfig(default = "")]
+    pub persons_write_database_url: String,
+
+    #[envconfig(default = "")]
+    pub persons_read_database_url: String,
+
     #[envconfig(default = "1000")]
     pub max_concurrency: usize,
 
@@ -200,6 +206,12 @@ pub struct Config {
     pub otel_log_level: Level,
 }
 
+impl Default for Config {
+    fn default() -> Self {
+        Self::default_test_config()
+    }
+}
+
 impl Config {
     pub fn default_test_config() -> Self {
         Self {
@@ -210,6 +222,8 @@ impl Config {
             write_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog"
                 .to_string(),
             read_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog".to_string(),
+            persons_write_database_url: "".to_string(),
+            persons_read_database_url: "".to_string(),
             max_concurrency: 1000,
             max_pg_connections: 10,
             acquire_timeout_secs: 5,
@@ -289,6 +303,29 @@ impl Config {
             TeamIdCollection::All => true,
             TeamIdCollection::None => false,
             TeamIdCollection::TeamIds(ids) => ids.contains(&team_id),
+        }
+    }
+
+    /// Check if persons database routing is enabled
+    pub fn is_persons_db_routing_enabled(&self) -> bool {
+        !self.persons_read_database_url.is_empty() || !self.persons_write_database_url.is_empty()
+    }
+
+    /// Get the database URL for persons reads, falling back to the default read URL
+    pub fn get_persons_read_database_url(&self) -> String {
+        if self.persons_read_database_url.is_empty() {
+            self.read_database_url.clone()
+        } else {
+            self.persons_read_database_url.clone()
+        }
+    }
+
+    /// Get the database URL for persons writes, falling back to the default write URL
+    pub fn get_persons_write_database_url(&self) -> String {
+        if self.persons_write_database_url.is_empty() {
+            self.write_database_url.clone()
+        } else {
+            self.persons_write_database_url.clone()
         }
     }
 }

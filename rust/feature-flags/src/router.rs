@@ -1,6 +1,7 @@
 use std::{future::ready, sync::Arc};
 
 use crate::billing_limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
+use crate::database_pools::DatabasePools;
 use axum::{
     http::Method,
     routing::{any, get},
@@ -31,6 +32,7 @@ pub struct State {
     pub redis_writer: Arc<dyn RedisClient + Send + Sync>,
     pub reader: PostgresReader,
     pub writer: PostgresWriter,
+    pub database_pools: Arc<DatabasePools>,
     pub cohort_cache_manager: Arc<CohortCacheManager>,
     pub geoip: Arc<GeoIpClient>,
     pub team_ids_to_track: TeamIdCollection,
@@ -46,6 +48,7 @@ pub fn router<RR, RW, D>(
     redis_writer: Arc<RW>,
     reader: Arc<D>,
     writer: Arc<D>,
+    database_pools: Arc<DatabasePools>,
     cohort_cache: Arc<CohortCacheManager>,
     geoip: Arc<GeoIpClient>,
     liveness: HealthRegistry,
@@ -64,6 +67,7 @@ where
         redis_writer,
         reader,
         writer,
+        database_pools,
         cohort_cache_manager: cohort_cache,
         geoip,
         team_ids_to_track: config.team_ids_to_track.clone(),
