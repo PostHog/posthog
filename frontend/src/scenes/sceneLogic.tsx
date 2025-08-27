@@ -1,5 +1,17 @@
 import { arrayMove } from '@dnd-kit/sortable'
-import { BuiltLogic, actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    BuiltLogic,
+    actions,
+    afterMount,
+    beforeUnmount,
+    connect,
+    kea,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { combineUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
@@ -962,4 +974,23 @@ export const sceneLogic = kea<sceneLogicType>([
             }
         },
     })),
+    afterMount(({ actions, cache, values }) => {
+        cache.onKeyDown = (event: KeyboardEvent) => {
+            if ((event.ctrlKey || event.metaKey) && event.key === 'b') {
+                event.preventDefault()
+                event.stopPropagation()
+                if (event.shiftKey) {
+                    if (values.activeTab) {
+                        actions.removeTab(values.activeTab)
+                    }
+                } else {
+                    actions.newTab()
+                }
+            }
+        }
+        window.addEventListener('keydown', cache.onKeyDown)
+    }),
+    beforeUnmount(({ cache }) => {
+        window.removeEventListener('keydown', cache.onKeyDown)
+    }),
 ])
