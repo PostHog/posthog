@@ -185,6 +185,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     OTEL_EXPORTER_OTLP_ENDPOINT: string
     OTEL_SDK_DISABLED: boolean
     OTEL_TRACES_SAMPLER_ARG: number
+    OTEL_MAX_SPANS_PER_GROUP: number
+    OTEL_MIN_SPAN_DURATION_MS: number
     TASKS_PER_WORKER: number // number of parallel tasks per worker thread
     INGESTION_CONCURRENCY: number // number of parallel event ingestion queues per batch
     INGESTION_BATCH_SIZE: number // kafka consumer batch size

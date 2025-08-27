@@ -125,8 +125,6 @@ def will_hit_billing_limit(team_id: int, logger: FilteringBoundLogger) -> bool:
 
         billing_res = billing_manager.get_billing(organization)
 
-        logger.debug(f"will_hit_billing_limit: billing_res = {billing_res}")
-
         current_billing_cycle_start = billing_res.get("billing_period", {}).get("current_period_start")
         if current_billing_cycle_start is None:
             logger.debug(

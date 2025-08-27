@@ -22,7 +22,7 @@ const hogFunctionFilterDuration = new Histogram({
     name: 'cdp_hog_function_filter_duration_ms',
     help: 'Processing time for filtering a function',
     // We have a timeout so we don't need to worry about much more than that
-    buckets: [0, 10, 20, 50, 100, 200],
+    buckets: [0, 10, 20, 50, 100, 200, 300, 500, 1000],
     labelNames: ['type'],
 })
 
@@ -393,6 +393,21 @@ export async function filterFunctionInstrumented(options: {
             if (preFilterMatch === false && result.match === true) {
                 // we would have filtered out this event but it actually matched the bytecode filter
                 // this would mean we dropped a valid event
+
+                logger.warn(
+                    '🦔',
+                    `[${fnKind}] Pre-filter mismatch detected - event would have been incorrectly filtered`,
+                    {
+                        functionId: fn.id,
+                        functionName: fn.name,
+                        teamId: fn.team_id,
+                        eventUuid: eventUuid,
+                        eventName: filterGlobals.event,
+                        preFilterMatch,
+                        resultMatch: result.match,
+                    }
+                )
+
                 hogFunctionPreFilterCounter.inc({ result: 'mismatch_unsafe' })
             }
         }

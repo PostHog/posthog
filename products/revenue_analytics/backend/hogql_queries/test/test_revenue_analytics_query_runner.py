@@ -83,7 +83,7 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             should_sync=True,
             status=ExternalDataSchema.Status.COMPLETED,
             last_synced_at=datetime.now(),
-            sync_frequency_interval=timedelta(hours=4),  # 4 hours
+            sync_frequency_interval=timedelta(hours=6),  # 6 hours
         )
 
         ExternalDataSchema.objects.create(
@@ -93,11 +93,11 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             should_sync=True,
             status=ExternalDataSchema.Status.COMPLETED,
             last_synced_at=datetime.now(),
-            sync_frequency_interval=timedelta(hours=8),  # 8 hours
+            sync_frequency_interval=timedelta(hours=12),  # 12 hours
         )
 
-        # Should cache for half of the minimum interval (4 hours / 2 = 2 hours)
-        self.assertDiff(timedelta(hours=2))
+        # Should cache for half of the minimum interval (6 hours / 2 = 3 hours)
+        self.assertDiff(timedelta(hours=3))
 
     def test_cache_target_age_without_sync_intervals(self):
         """Test that when schemas have no sync intervals, we use our default cache target age"""
@@ -174,11 +174,11 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             should_sync=True,
             status=ExternalDataSchema.Status.COMPLETED,
             last_synced_at=datetime.now(),
-            sync_frequency_interval=timedelta(hours=2),  # 2 hours (minimum)
+            sync_frequency_interval=timedelta(hours=1),  # 1 hour (minimum)
         )
 
-        # Should cache for half of the minimum interval (2 hours / 2 = 1 hour)
-        self.assertDiff(timedelta(hours=1))
+        # Should cache for half of the minimum interval (1 hour / 2 = 0.5 hour)
+        self.assertDiff(timedelta(minutes=30))
 
     def test_cache_target_age_non_stripe_sources_ignored(self):
         """Test that non-Stripe sources are ignored"""
@@ -200,7 +200,7 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             should_sync=True,
             status=ExternalDataSchema.Status.COMPLETED,
             last_synced_at=datetime.now(),
-            sync_frequency_interval=timedelta(hours=2),
+            sync_frequency_interval=timedelta(hours=1),
         )
 
         # Should use our default cache target age since no Stripe sources
@@ -226,7 +226,7 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             should_sync=True,
             status=ExternalDataSchema.Status.COMPLETED,
             last_synced_at=datetime.now(),
-            sync_frequency_interval=timedelta(hours=2),
+            sync_frequency_interval=timedelta(hours=1),
         )
 
         # Should use our default cache target age since revenue analytics is disabled
@@ -252,7 +252,7 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             should_sync=False,  # Should not sync
             status=ExternalDataSchema.Status.COMPLETED,
             last_synced_at=datetime.now(),
-            sync_frequency_interval=timedelta(hours=2),
+            sync_frequency_interval=timedelta(hours=1),
         )
 
         # Should use our default cache target age since schema shouldn't sync
@@ -288,7 +288,7 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             should_sync=True,
             status=ExternalDataSchema.Status.COMPLETED,
             last_synced_at=datetime.now(),
-            sync_frequency_interval=timedelta(hours=4),
+            sync_frequency_interval=timedelta(hours=6),
         )
 
         # Should return our small cache target age since it's the first time syncing
@@ -314,7 +314,7 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             should_sync=True,
             status=ExternalDataSchema.Status.RUNNING,
             last_synced_at=None,  # First-time sync (should take priority)
-            sync_frequency_interval=timedelta(hours=8),
+            sync_frequency_interval=timedelta(hours=12),
         )
 
         ExternalDataSchema.objects.create(
@@ -334,7 +334,7 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             should_sync=False,  # Should be ignored
             status=ExternalDataSchema.Status.COMPLETED,
             last_synced_at=datetime.now(),
-            sync_frequency_interval=timedelta(hours=2),
+            sync_frequency_interval=timedelta(hours=1),
         )
 
         ExternalDataSchema.objects.create(

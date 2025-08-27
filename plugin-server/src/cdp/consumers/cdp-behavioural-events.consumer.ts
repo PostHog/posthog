@@ -2,7 +2,7 @@ import { createHash } from 'crypto'
 import { Message } from 'node-rdkafka'
 import { Histogram } from 'prom-client'
 
-import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 
 import { KAFKA_CDP_AGGREGATION_WRITER_EVENTS, KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
@@ -47,6 +47,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
     }
 
+    @instrumented('cdpBehaviouralEventsConsumer.publishEvents')
     private async publishEvents(events: ProducedEvent[]): Promise<void> {
         if (!this.kafkaProducer || events.length === 0) {
             return
@@ -70,64 +71,63 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
     }
 
     // This consumer always parses from kafka and creates events directly
+    @instrumented('cdpBehaviouralEventsConsumer.handleEachBatch.parseKafkaMessages')
     public async _parseKafkaBatch(messages: Message[]): Promise<ProducedEvent[]> {
-        return await this.runWithHeartbeat(() =>
-            instrumentFn(`cdpBehaviouralEventsConsumer.handleEachBatch.parseKafkaMessages`, () => {
-                const events: ProducedEvent[] = []
-                messages.forEach((message) => {
-                    try {
-                        const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
+        return await this.runWithHeartbeat(() => {
+            const events: ProducedEvent[] = []
+            messages.forEach((message) => {
+                try {
+                    const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
 
-                        if (!clickHouseEvent.person_id) {
-                            const error = new Error(
-                                `Event missing person_id. Event: ${clickHouseEvent.event}, Team: ${clickHouseEvent.team_id}, Event-UUID: ${clickHouseEvent.uuid}`
-                            )
-                            logger.error('Event missing person_id', {
-                                teamId: clickHouseEvent.team_id,
-                                event: clickHouseEvent.event,
-                                uuid: clickHouseEvent.uuid,
-                            })
-                            throw error
-                        }
-
-                        const timestamp = Math.floor(new Date(clickHouseEvent.timestamp).getTime() / 1000)
-                        const date = new Date(timestamp * 1000).toISOString().split('T')[0]
-
-                        // Create person-performed-event with partition key: teamId:personId:eventName
-                        const personPerformedEventKey = `${clickHouseEvent.team_id}:${clickHouseEvent.person_id}:${clickHouseEvent.event}`
-                        const personPerformedEvent: ProducedEvent = {
-                            key: personPerformedEventKey,
-                            payload: {
-                                type: 'person-performed-event',
-                                personId: clickHouseEvent.person_id,
-                                eventName: clickHouseEvent.event,
-                                teamId: clickHouseEvent.team_id,
-                            },
-                        }
-
-                        // Create behavioural-filter-match-event with partition key: teamId:personId:hash:date
-                        const filterHash = createHash('sha256').update(clickHouseEvent.event).digest('hex')
-                        const behaviouralFilterMatchEventKey = `${clickHouseEvent.team_id}:${clickHouseEvent.person_id}:${filterHash}:${date}`
-                        const behaviouralFilterMatchEvent: ProducedEvent = {
-                            key: behaviouralFilterMatchEventKey,
-                            payload: {
-                                type: 'behavioural-filter-match-event',
-                                teamId: clickHouseEvent.team_id,
-                                personId: clickHouseEvent.person_id,
-                                filterHash: filterHash,
-                                date: date,
-                            },
-                        }
-
-                        events.push(personPerformedEvent, behaviouralFilterMatchEvent)
-                    } catch (e) {
-                        logger.error('Error parsing message', e)
+                    if (!clickHouseEvent.person_id) {
+                        const error = new Error(
+                            `Event missing person_id. Event: ${clickHouseEvent.event}, Team: ${clickHouseEvent.team_id}, Event-UUID: ${clickHouseEvent.uuid}`
+                        )
+                        logger.error('Event missing person_id', {
+                            teamId: clickHouseEvent.team_id,
+                            event: clickHouseEvent.event,
+                            uuid: clickHouseEvent.uuid,
+                        })
+                        throw error
                     }
-                })
-                // Return Promise.resolve to satisfy runInstrumentedFunction's Promise return type
-                return Promise.resolve(events)
+
+                    const timestamp = Math.floor(new Date(clickHouseEvent.timestamp).getTime() / 1000)
+                    const date = new Date(timestamp * 1000).toISOString().split('T')[0]
+
+                    // Create person-performed-event with partition key: teamId:personId:eventName
+                    const personPerformedEventKey = `${clickHouseEvent.team_id}:${clickHouseEvent.person_id}:${clickHouseEvent.event}`
+                    const personPerformedEvent: ProducedEvent = {
+                        key: personPerformedEventKey,
+                        payload: {
+                            type: 'person-performed-event',
+                            personId: clickHouseEvent.person_id,
+                            eventName: clickHouseEvent.event,
+                            teamId: clickHouseEvent.team_id,
+                        },
+                    }
+
+                    // Create behavioural-filter-match-event with partition key: teamId:personId:hash:date
+                    const filterHash = createHash('sha256').update(clickHouseEvent.event).digest('hex')
+                    const behaviouralFilterMatchEventKey = `${clickHouseEvent.team_id}:${clickHouseEvent.person_id}:${filterHash}:${date}`
+                    const behaviouralFilterMatchEvent: ProducedEvent = {
+                        key: behaviouralFilterMatchEventKey,
+                        payload: {
+                            type: 'behavioural-filter-match-event',
+                            teamId: clickHouseEvent.team_id,
+                            personId: clickHouseEvent.person_id,
+                            filterHash: filterHash,
+                            date: date,
+                        },
+                    }
+
+                    events.push(personPerformedEvent, behaviouralFilterMatchEvent)
+                } catch (e) {
+                    logger.error('Error parsing message', e)
+                }
             })
-        )
+            // Return Promise.resolve to satisfy runInstrumentedFunction's Promise return type
+            return Promise.resolve(events)
+        })
     }
 
     public async start(): Promise<void> {
@@ -139,7 +139,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                 size: messages.length,
             })
 
-            return await this.runInstrumented('handleEachBatch', async () => {
+            return await instrumentFn('cdpConsumer.handleEachBatch', async () => {
                 const events = await this._parseKafkaBatch(messages)
                 // Publish events in background
                 const backgroundTask = this.publishEvents(events).catch((error) => {

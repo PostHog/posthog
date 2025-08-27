@@ -292,6 +292,9 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
     def generate_query_metadata(self):
         from posthog.hogql_queries.query_metadata import extract_query_metadata
 
+        if self.query is None:
+            return
+
         query_metadata = extract_query_metadata(
             query=self.query,
             team=self.team,

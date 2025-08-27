@@ -11,6 +11,7 @@ from posthog.schema import (
     ExperimentFunnelsQuery,
     ExperimentMeanMetric,
     ExperimentMetricType,
+    ExperimentRatioMetric,
     ExperimentTrendsQuery,
 )
 
@@ -85,8 +86,10 @@ class ExperimentSavedMetricSerializer(TaggedItemSerializerMixin, serializers.Mod
                     ExperimentMeanMetric(**metric_query)
                 elif metric_query["metric_type"] == ExperimentMetricType.FUNNEL:
                     ExperimentFunnelMetric(**metric_query)
+                elif metric_query["metric_type"] == ExperimentMetricType.RATIO:
+                    ExperimentRatioMetric(**metric_query)
                 else:
-                    raise ValidationError("ExperimentMetric metric_type must be 'mean' or 'funnel'")
+                    raise ValidationError("ExperimentMetric metric_type must be 'mean', 'funnel', or 'ratio'")
             elif metric_query["kind"] == "ExperimentTrendsQuery":
                 ExperimentTrendsQuery(**metric_query)
             elif metric_query["kind"] == "ExperimentFunnelsQuery":
