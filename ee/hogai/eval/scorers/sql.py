@@ -4,13 +4,102 @@ from braintrust import Score
 from braintrust_core.score import Scorer
 
 from posthog.hogql.errors import BaseHogQLError
-from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES, HOGQL_KEYWORDS
+from posthog.hogql.functions.mapping import HOGQL_AGGREGATIONS, HOGQL_CLICKHOUSE_FUNCTIONS, HOGQL_POSTHOG_FUNCTIONS
 from posthog.hogql.parser import ast, parse_select
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.errors import InternalCHQueryError
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.models.team.team import Team
+
+# from https://github.com/PostHog/posthog/blob/master/posthog/hogql/grammar/HogQLParser.g4#L290-L300
+HOGQL_KEYWORDS = {
+    "ALL",
+    "AND",
+    "ANTI",
+    "ANY",
+    "ARRAY",
+    "AS",
+    "ASCENDING",
+    "ASOF",
+    "BETWEEN",
+    "BOTH",
+    "BY",
+    "CASE",
+    "CAST",
+    "COHORT",
+    "COLLATE",
+    "CROSS",
+    "CUBE",
+    "CURRENT",
+    "DATE",
+    "DESC",
+    "DESCENDING",
+    "DISTINCT",
+    "ELSE",
+    "END",
+    "EXTRACT",
+    "FINAL",
+    "FIRST",
+    "FOR",
+    "FOLLOWING",
+    "FROM",
+    "FULL",
+    "GROUP",
+    "HAVING",
+    "ID",
+    "IS",
+    "IF",
+    "ILIKE",
+    "IN",
+    "INNER",
+    "INTERVAL",
+    "JOIN",
+    "KEY",
+    "LAST",
+    "LEADING",
+    "LEFT",
+    "LIKE",
+    "LIMIT",
+    "NOT",
+    "NULLS",
+    "OFFSET",
+    "ON",
+    "OR",
+    "ORDER",
+    "OUTER",
+    "OVER",
+    "PARTITION",
+    "PRECEDING",
+    "PREWHERE",
+    "RANGE",
+    "RETURN",
+    "RIGHT",
+    "ROLLUP",
+    "ROW",
+    "ROWS",
+    "SAMPLE",
+    "SELECT",
+    "SEMI",
+    "SETTINGS",
+    "SUBSTRING",
+    "THEN",
+    "TIES",
+    "TIMESTAMP",
+    "TOTALS",
+    "TRAILING",
+    "TRIM",
+    "TRUNCATE",
+    "TO",
+    "TOP",
+    "UNBOUNDED",
+    "UNION",
+    "USING",
+    "WHEN",
+    "WHERE",
+    "WINDOW",
+    "WITH",
+}
 
 
 def evaluate_sql_query(name: str, output: str | None, team: Team | None = None) -> Score:
@@ -88,7 +177,11 @@ class SQLFunctionCorrectness(Scorer):
 
         invalid_functions = set()
         for func in functions:
-            if func not in ALL_EXPOSED_FUNCTION_NAMES:
+            if (
+                func not in HOGQL_CLICKHOUSE_FUNCTIONS
+                and func not in HOGQL_AGGREGATIONS
+                and func not in HOGQL_POSTHOG_FUNCTIONS
+            ):
                 invalid_functions.add(func)
 
         if invalid_functions:
