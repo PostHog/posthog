@@ -60,7 +60,7 @@ export const createEmptyInsight = (
 })
 
 export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType>([
-    props({} as InsightLogicProps),
+    props({ filtersOverride: null, variablesOverride: null } as InsightLogicProps),
     key(keyForInsightLogicProps('new')),
     path((key) => ['scenes', 'insights', 'insightLogic', key]),
     connect(() => ({
