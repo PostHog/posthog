@@ -1,5 +1,6 @@
-import { IconInfo } from '@posthog/icons'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+
+import { IconInfo } from '@posthog/icons'
 
 import { LemonCollapse as LemonCollapseComponent } from './LemonCollapse'
 

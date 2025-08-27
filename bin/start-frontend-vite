@@ -1,0 +1,15 @@
+#!/bin/bash
+set -e
+
+# pass first argument to WEBPACK_HOT_RELOAD_HOST
+[ $# -ge 1 ] && export WEBPACK_HOT_RELOAD_HOST=$1
+
+# DEBUG=1 might be exported to this script from a parent, but we don't want it in the frontend build process
+# In particular, DEBUG=1 enables a lot of Tailwind logging we don't need, so let's set 0 instead
+export DEBUG=0
+
+# Set Vite usage flag to prevent ESBUILD script injection
+export POSTHOG_USE_VITE=1
+
+pnpm --filter=@posthog/frontend... install
+bin/turbo --filter=@posthog/frontend start-vite

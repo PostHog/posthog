@@ -1,17 +1,19 @@
-import asyncio
-import collections.abc
-import contextlib
-import csv
-import dataclasses
-import datetime as dt
-import json
 import re
+import csv
+import json
 import typing
+import asyncio
+import datetime as dt
+import contextlib
+import dataclasses
+import collections.abc
+
+from django.conf import settings
 
 import psycopg
 import pyarrow as pa
-from django.conf import settings
 from psycopg import sql
+from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -24,14 +26,10 @@ from posthog.batch_exports.service import (
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import (
-    bind_contextvars,
-    get_external_logger,
-    get_logger,
-)
+from posthog.temporal.common.logger import get_produce_only_logger, get_write_only_logger
+
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
-    RecordsCompleted,
     StartBatchExportRunInputs,
     default_fields,
     execute_batch_export_insert_activity,
@@ -43,20 +41,19 @@ from products.batch_exports.backend.temporal.heartbeat import (
     DateRange,
     should_resume_from_activity_heartbeat,
 )
+from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
+from products.batch_exports.backend.temporal.record_batch_model import resolve_batch_exports_model
 from products.batch_exports.backend.temporal.spmc import (
     Consumer,
     Producer,
     RecordBatchQueue,
-    resolve_batch_exports_model,
     run_consumer,
     wait_for_schema_or_producer,
 )
-from products.batch_exports.backend.temporal.temporary_file import (
-    BatchExportTemporaryFile,
-    WriterFormat,
-)
+from products.batch_exports.backend.temporal.temporary_file import BatchExportTemporaryFile, WriterFormat
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
+    handle_non_retryable_errors,
     make_retryable_with_exponential_backoff,
     set_status_to_running_task,
 )
@@ -73,8 +70,50 @@ UNPAIRED_SURROGATE_PATTERN_2 = re.compile(
     rb"(\\u[dD][89A-Fa-f][0-9A-Fa-f]{2}\\u[dD][c-fC-F][0-9A-Fa-f]{2})|(\\u[dD][c-fC-F][0-9A-Fa-f]{2})"
 )
 
-LOGGER = get_logger(__name__)
-EXTERNAL_LOGGER = get_external_logger()
+LOGGER = get_write_only_logger(__name__)
+EXTERNAL_LOGGER = get_produce_only_logger("EXTERNAL")
+
+NON_RETRYABLE_ERROR_TYPES = (
+    # Raised on errors that are related to database operation.
+    # For example: unexpected disconnect, database or other object not found.
+    "OperationalError",
+    # The schema name provided is invalid (usually because it doesn't exist).
+    "InvalidSchemaName",
+    # Missing permissions to, e.g., insert into table.
+    "InsufficientPrivilege",
+    # Issue with exported data compared to schema, retrying won't help.
+    "NotNullViolation",
+    # A user added a unique constraint on their table, but batch exports (particularly events)
+    # can cause duplicates.
+    "UniqueViolation",
+    # Something changed in the target table's schema that we were not expecting.
+    "UndefinedColumn",
+    # A VARCHAR column is too small.
+    "StringDataRightTruncation",
+    # Raised by PostgreSQL client. Self explanatory.
+    "DiskFull",
+    # Raised by our PostgreSQL client when failing to connect after several attempts.
+    "PostgreSQLConnectionError",
+    # Raised when merging without a primary key.
+    "MissingPrimaryKeyError",
+    # Raised when the database doesn't support a particular feature we use.
+    # Generally, we have seen this when the database is read-only.
+    "FeatureNotSupported",
+    # A check constraint has been violated.
+    # We do not create any ourselves, so this generally is a user-managed check, so we
+    # should not retry.
+    "CheckViolation",
+    # We do not create foreign keys, so this is a user managed check we have failed.
+    "ForeignKeyViolation",
+    # Data (usually event properties) contains garbage that we cannot clean.
+    "UntranslatableCharacter",
+    "InvalidTextRepresentation",
+    # Can be raised when merging tables with an incompatible schema (eg if the destination table has been
+    # created manually)
+    "DatatypeMismatch",
+    # Exceeded limits for indexes that we do not maintain.
+    "ProgramLimitExceeded",
+)
 
 
 class PostgreSQLConnectionError(Exception):
@@ -183,7 +222,9 @@ class PostgreSQLClient:
             ) from err
         except psycopg.OperationalError as err:
             raise PostgreSQLConnectionError(
-                f"Failed to connect after {max_attempts} attempts. Please review connection configuration."
+                f"Failed to connect after {max_attempts} attempts due to an unrecoverable error. "
+                "Please review connection configuration. "
+                f"Error message: {str(err)}"
             ) from err
 
         async with connection as connection:
@@ -598,7 +639,8 @@ class PostgreSQLConsumer(Consumer):
 
 
 @activity.defn
-async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> RecordsCompleted:
+@handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
+async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> BatchExportResult:
     """Activity streams data from ClickHouse to Postgres."""
     bind_contextvars(
         team_id=inputs.team_id,
@@ -663,7 +705,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
                 inputs.data_interval_end or "END",
             )
 
-            return details.records_completed
+            return BatchExportResult(records_completed=details.records_completed)
 
         record_batch_schema = pa.schema(
             [field.with_nullable(True) for field in record_batch_schema if field.name != "_inserted_at"]
@@ -799,7 +841,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
                             update_key=update_key,
                         )
 
-                return details.records_completed
+                return BatchExportResult(records_completed=details.records_completed)
 
 
 @workflow.defn(name="postgres-export", failure_exception_types=[workflow.NondeterminismError])
@@ -879,46 +921,5 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
             insert_into_postgres_activity,
             insert_inputs,
             interval=inputs.interval,
-            non_retryable_error_types=[
-                # Raised on errors that are related to database operation.
-                # For example: unexpected disconnect, database or other object not found.
-                "OperationalError",
-                # The schema name provided is invalid (usually because it doesn't exist).
-                "InvalidSchemaName",
-                # Missing permissions to, e.g., insert into table.
-                "InsufficientPrivilege",
-                # Issue with exported data compared to schema, retrying won't help.
-                "NotNullViolation",
-                # A user added a unique constraint on their table, but batch exports (particularly events)
-                # can cause duplicates.
-                "UniqueViolation",
-                # Something changed in the target table's schema that we were not expecting.
-                "UndefinedColumn",
-                # A VARCHAR column is too small.
-                "StringDataRightTruncation",
-                # Raised by PostgreSQL client. Self explanatory.
-                "DiskFull",
-                # Raised by our PostgreSQL client when failing to connect after several attempts.
-                "PostgreSQLConnectionError",
-                # Raised when merging without a primary key.
-                "MissingPrimaryKeyError",
-                # Raised when the database doesn't support a particular feature we use.
-                # Generally, we have seen this when the database is read-only.
-                "FeatureNotSupported",
-                # A check constraint has been violated.
-                # We do not create any ourselves, so this generally is a user-managed check, so we
-                # should not retry.
-                "CheckViolation",
-                # We do not create foreign keys, so this is a user managed check we have failed.
-                "ForeignKeyViolation",
-                # Data (usually event properties) contains garbage that we cannot clean.
-                "UntranslatableCharacter",
-                "InvalidTextRepresentation",
-                # Can be raised when merging tables with an incompatible schema (eg if the destination table has been
-                # created manually)
-                "DatatypeMismatch",
-                # Exceeded limits for indexes that we do not maintain.
-                "ProgramLimitExceeded",
-            ],
             finish_inputs=finish_inputs,
         )

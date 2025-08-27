@@ -9,7 +9,7 @@ title: Sprint 1.n.0 m/2 - Jan 1 to Jan 12
 
 # List of incidents + any action items that haven't been scheduled yet
 
-- 
+-
 
 # Team sprint planning
 
@@ -26,10 +26,6 @@ For your team sprint planning copy this template into a comment below for each t
 1. Quarter goals, status (red/yellow/green) and action points if yellow/red
 
 ## Retro
-
-### Changelog
-
-List any [shipped new minor/medium features](https://posthog.com/handbook/brand/product-announcements#types-of-announcement) @joethreepwood should add to the changelog. PR links appreciated. For major features or new products, please refer to [the handbook](https://posthog.com/handbook/team-structure#launching-new-products-and-features). 
 
 ### Tasks
 

@@ -1,28 +1,8 @@
 import dataclasses
 from typing import ClassVar, Optional, Union, cast
 
-from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.query_tagging import tag_queries
-from posthog.errors import ExposedCHQueryError
-from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_default_limit_for_context
-from posthog.hogql.errors import ExposedHogQLError
-from posthog.hogql.filters import replace_filters
-from posthog.hogql.hogql import HogQLContext
-from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.parser import parse_select
-from posthog.hogql.placeholders import find_placeholders, replace_placeholders
-from posthog.hogql.printer import (
-    prepare_ast_for_printing,
-    print_ast,
-    print_prepared_ast,
-)
-from posthog.hogql.resolver_utils import extract_select_queries
-from posthog.hogql.timings import HogQLTimings
-from posthog.hogql.variables import replace_variables
-from posthog.hogql.visitor import clone_expr
-from posthog.models.team import Team
+from opentelemetry import trace
+
 from posthog.schema import (
     HogLanguage,
     HogQLFilters,
@@ -32,7 +12,30 @@ from posthog.schema import (
     HogQLQueryResponse,
     HogQLVariable,
 )
+
+from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_default_limit_for_context
+from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.filters import replace_filters
+from posthog.hogql.hogql import HogQLContext
+from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.parser import parse_select
+from posthog.hogql.placeholders import find_placeholders, replace_placeholders
+from posthog.hogql.printer import prepare_ast_for_printing, print_ast, print_prepared_ast
+from posthog.hogql.resolver_utils import extract_select_queries
+from posthog.hogql.timings import HogQLTimings
+from posthog.hogql.transforms.preaggregated_table_transformation import do_preaggregated_table_transforms
+from posthog.hogql.variables import replace_variables
+from posthog.hogql.visitor import clone_expr
+
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.query_tagging import tag_queries
+from posthog.errors import ExposedCHQueryError
+from posthog.models.team import Team
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
+
+tracer = trace.get_tracer(__name__)
 
 
 @dataclasses.dataclass
@@ -55,6 +58,7 @@ class HogQLQueryExecutor:
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
 
+    @tracer.start_as_current_span("HogQLQueryExecutor.__post_init__")
     def __post_init__(self):
         if self.context is self.__uninitialized_context:
             self.context = HogQLContext(team_id=self.team.pk)
@@ -67,6 +71,7 @@ class HogQLQueryExecutor:
         self.types = None
         self.metadata: Optional[HogQLMetadataResponse] = None
 
+    @tracer.start_as_current_span("HogQLQueryExecutor._parse_query")
     def _parse_query(self):
         with self.timings.measure("query"):
             if isinstance(self.query, ast.SelectQuery) or isinstance(self.query, ast.SelectSetQuery):
@@ -75,6 +80,7 @@ class HogQLQueryExecutor:
             else:
                 self.select_query = parse_select(str(self.query), timings=self.timings)
 
+    @tracer.start_as_current_span("HogQLQueryExecutor._process_variables")
     def _process_variables(self):
         with self.timings.measure("variables"):
             if self.variables and len(self.variables.keys()) > 0:
@@ -82,36 +88,24 @@ class HogQLQueryExecutor:
                     node=self.select_query, variables=list(self.variables.values()), team=self.team
                 )
 
+    @tracer.start_as_current_span("HogQLQueryExecutor._process_placeholders")
     def _process_placeholders(self):
         with self.timings.measure("replace_placeholders"):
-            placeholders_in_query = find_placeholders(self.select_query)
-            self.placeholders = self.placeholders or {}
+            if not self.placeholders:
+                self.placeholders = {}
+            finder = find_placeholders(self.select_query)
 
-            if "filters" in self.placeholders and self.filters is not None:
-                raise ExposedHogQLError(
-                    f"Query contains 'filters' placeholder, yet filters are also provided as a standalone query parameter."
-                )
-
-            if "filters" in placeholders_in_query or any(
-                placeholder and placeholder.startswith("filters.") for placeholder in placeholders_in_query
-            ):
+            # Need to use the "filters" system to replace a few special placeholders
+            if finder.has_filters:
+                if "filters" in self.placeholders and self.filters is not None:
+                    raise ValueError(f"Query contains 'filters' both as placeholder and as a query parameter.")
                 self.select_query = replace_filters(self.select_query, self.filters, self.team)
 
-                leftover_placeholders: list[str] = []
-                for placeholder in placeholders_in_query:
-                    if placeholder is None:
-                        raise ValueError("Placeholder expressions are not yet supported")
-                    if placeholder != "filters" and not placeholder.startswith("filters."):
-                        leftover_placeholders.append(placeholder)
-                placeholders_in_query = leftover_placeholders
+            # If there are placeholders remaining
+            if finder.placeholder_fields or finder.placeholder_expressions:
+                self.select_query = cast(ast.SelectQuery, replace_placeholders(self.select_query, self.placeholders))
 
-            if len(placeholders_in_query) > 0:
-                if len(self.placeholders) == 0:
-                    raise ExposedHogQLError(
-                        f"Query contains placeholders, but none were provided. Placeholders in query: {', '.join(s for s in placeholders_in_query if s is not None)}"
-                    )
-                self.select_query = replace_placeholders(self.select_query, self.placeholders)
-
+    @tracer.start_as_current_span("HogQLQueryExecutor._apply_limit")
     def _apply_limit(self):
         if self.limit_context in (LimitContext.COHORT_CALCULATION, LimitContext.SAVED_QUERY):
             self.context.limit_top_select = False
@@ -123,6 +117,15 @@ class HogQLQueryExecutor:
                         value=get_default_limit_for_context(self.limit_context or LimitContext.QUERY)
                     )
 
+    @tracer.start_as_current_span("HogQLQueryExecutor._apply_optimizers")
+    def _apply_optimizers(self):
+        if self.query_modifiers.useWebAnalyticsPreAggregatedTables:
+            with self.timings.measure("preaggregated_table_transforms"):
+                transformed_node = do_preaggregated_table_transforms(self.select_query, self.context)
+                if isinstance(transformed_node, ast.SelectQuery) or isinstance(transformed_node, ast.SelectSetQuery):
+                    self.select_query = transformed_node
+
+    @tracer.start_as_current_span("HogQLQueryExecutor._generate_hogql")
     def _generate_hogql(self):
         self.hogql_context = dataclasses.replace(
             self.context,
@@ -169,6 +172,7 @@ class HogQLQueryExecutor:
                         )
                     )
 
+    @tracer.start_as_current_span("HogQLQueryExecutor._generate_clickhouse_sql")
     def _generate_clickhouse_sql(self):
         settings = self.settings or HogQLGlobalSettings()
         if self.limit_context in (
@@ -213,6 +217,7 @@ class HogQLQueryExecutor:
             else:
                 raise
 
+    @tracer.start_as_current_span("HogQLQueryExecutor._execute_clickhouse_query")
     def _execute_clickhouse_query(self):
         timings_dict = self.timings.to_dict()
         with self.timings.measure("clickhouse_execute"):
@@ -264,17 +269,20 @@ class HogQLQueryExecutor:
                     HogQLMetadata(language=HogLanguage.HOG_QL, query=self.hogql, debug=True), self.team
                 )
 
+    @tracer.start_as_current_span("HogQLQueryExecutor.generate_clickhouse_sql")
     def generate_clickhouse_sql(self) -> tuple[str, HogQLContext]:
         self._parse_query()
         self._process_variables()
         self._process_placeholders()
         self._apply_limit()
+        self._apply_optimizers()
         with self.timings.measure("_generate_hogql"):
             self._generate_hogql()
         with self.timings.measure("_generate_clickhouse_sql"):
             self._generate_clickhouse_sql()
         return self.clickhouse_sql, self.clickhouse_context
 
+    @tracer.start_as_current_span("HogQLQueryExecutor.execute")
     def execute(self) -> HogQLQueryResponse:
         self.generate_clickhouse_sql()
         if self.clickhouse_sql is not None:

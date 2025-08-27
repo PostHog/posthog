@@ -1,50 +1,49 @@
-from typing import Any, Optional
-
-from django.core.files.uploadedfile import UploadedFile
-from posthog.models.team.team import Team
-import structlog
 import hashlib
+from typing import Any, Optional, Protocol, TypeVar
 
-from rest_framework import serializers, viewsets, status, request
-from rest_framework.response import Response
-from rest_framework.exceptions import ValidationError
-from rest_framework.parsers import MultiPartParser, FileUploadParser, JSONParser
-
-from django.http import JsonResponse
 from django.conf import settings
+from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
+from django.http import JsonResponse
 
-from common.hogvm.python.operation import Operation
+import structlog
+from loginas.utils import is_impersonated_session
+from rest_framework import request, serializers, status, viewsets
+from rest_framework.exceptions import ValidationError
+from rest_framework.parsers import FileUploadParser, JSONParser, MultiPartParser
+from rest_framework.response import Response
+
+from posthog.schema import PropertyGroupFilterValue
+
+from posthog.hogql import ast
+from posthog.hogql.compiler.bytecode import create_bytecode
+from posthog.hogql.property import property_to_expr
+
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
-
 from posthog.api.utils import action
-from posthog.models.utils import UUIDT
-from posthog.models.integration import Integration, GitHubIntegration, LinearIntegration
+from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
+from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.error_tracking import (
-    ErrorTrackingIssue,
-    ErrorTrackingRelease,
-    ErrorTrackingSymbolSet,
     ErrorTrackingAssignmentRule,
+    ErrorTrackingExternalReference,
     ErrorTrackingGroupingRule,
-    ErrorTrackingSuppressionRule,
-    ErrorTrackingStackFrame,
+    ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
-    ErrorTrackingExternalReference,
+    ErrorTrackingRelease,
+    ErrorTrackingStackFrame,
+    ErrorTrackingSuppressionRule,
+    ErrorTrackingSymbolSet,
 )
-from posthog.models.activity_logging.activity_log import log_activity, Detail, Change, load_activity
-from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.error_tracking.hogvm_stl import RUST_HOGVM_STL
-from posthog.models.utils import uuid7
+from posthog.models.integration import GitHubIntegration, Integration, LinearIntegration
+from posthog.models.team.team import Team
+from posthog.models.utils import UUIDT, uuid7
 from posthog.storage import object_storage
-from loginas.utils import is_impersonated_session
-from posthog.hogql.property import property_to_expr
-from posthog.hogql import ast
-
 from posthog.tasks.email import send_error_tracking_issue_assigned
-from posthog.hogql.compiler.bytecode import create_bytecode
-from posthog.schema import PropertyGroupFilterValue
+
+from common.hogvm.python.operation import Operation
 
 ONE_HUNDRED_MEGABYTES = 1024 * 1024 * 100
 JS_DATA_MAGIC = b"posthog_error_tracking"
@@ -737,12 +736,33 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         return Response({"success": True}, status=status.HTTP_201_CREATED)
 
 
+class HasGetQueryset(Protocol):
+    def get_queryset(self): ...
+
+
+T = TypeVar("T", bound=HasGetQueryset)
+
+
+class RuleReorderingMixin:
+    @action(methods=["PATCH"], detail=False)
+    def reorder(self: T, request, **kwargs):
+        orders: dict[str, int] = request.data.get("orders", {})
+        rules = self.get_queryset().filter(id__in=orders.keys())
+
+        for rule in rules:
+            rule.order_key = orders[str(rule.id)]
+
+        self.get_queryset().bulk_update(rules, ["order_key"])
+
+        return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
+
+
 class ErrorTrackingAssignmentRuleSerializer(serializers.ModelSerializer):
     assignee = serializers.SerializerMethodField()
 
     class Meta:
         model = ErrorTrackingAssignmentRule
-        fields = ["id", "filters", "assignee"]
+        fields = ["id", "filters", "assignee", "order_key", "disabled_data"]
         read_only_fields = ["team_id"]
 
     def get_assignee(self, obj):
@@ -753,9 +773,9 @@ class ErrorTrackingAssignmentRuleSerializer(serializers.ModelSerializer):
         return None
 
 
-class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet, RuleReorderingMixin):
     scope_object = "error_tracking"
-    queryset = ErrorTrackingAssignmentRule.objects.all()
+    queryset = ErrorTrackingAssignmentRule.objects.order_by("order_key").all()
     serializer_class = ErrorTrackingAssignmentRuleSerializer
 
     def safely_get_queryset(self, queryset):
@@ -810,7 +830,7 @@ class ErrorTrackingGroupingRuleSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ErrorTrackingGroupingRule
-        fields = ["id", "filters", "assignee"]
+        fields = ["id", "filters", "assignee", "order_key", "disabled_data"]
         read_only_fields = ["team_id"]
 
     def get_assignee(self, obj):
@@ -821,9 +841,9 @@ class ErrorTrackingGroupingRuleSerializer(serializers.ModelSerializer):
         return None
 
 
-class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet, RuleReorderingMixin):
     scope_object = "error_tracking"
-    queryset = ErrorTrackingGroupingRule.objects.all()
+    queryset = ErrorTrackingGroupingRule.objects.order_by("order_key").all()
     serializer_class = ErrorTrackingGroupingRuleSerializer
 
     def safely_get_queryset(self, queryset):
@@ -883,9 +903,9 @@ class ErrorTrackingSuppressionRuleSerializer(serializers.ModelSerializer):
         read_only_fields = ["team_id"]
 
 
-class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet, RuleReorderingMixin):
     scope_object = "error_tracking"
-    queryset = ErrorTrackingSuppressionRule.objects.all()
+    queryset = ErrorTrackingSuppressionRule.objects.order_by("order_key").all()
     serializer_class = ErrorTrackingSuppressionRuleSerializer
 
     def safely_get_queryset(self, queryset):
@@ -930,17 +950,24 @@ def create_symbol_set(
         release = None
 
     with transaction.atomic():
-        # Use update_or_create for proper upsert behavior
-        symbol_set, created = ErrorTrackingSymbolSet.objects.update_or_create(
-            team=team,
-            ref=chunk_id,
-            release=release,
-            defaults={
-                "storage_ptr": storage_ptr,
-                "content_hash": content_hash,
-                "failure_reason": None,
-            },
-        )
+        try:
+            symbol_set = ErrorTrackingSymbolSet.objects.get(team=team, ref=chunk_id)
+            if symbol_set.release is None:
+                symbol_set.release = release
+            elif symbol_set.release != release:
+                raise ValidationError(f"Symbol set has already been uploaded for a different release")
+            symbol_set.storage_ptr = storage_ptr
+            symbol_set.content_hash = content_hash
+            symbol_set.save()
+
+        except ErrorTrackingSymbolSet.DoesNotExist:
+            symbol_set = ErrorTrackingSymbolSet.objects.create(
+                team=team,
+                ref=chunk_id,
+                release=release,
+                storage_ptr=storage_ptr,
+                content_hash=content_hash,
+            )
 
         # Delete any existing frames associated with this symbol set
         ErrorTrackingStackFrame.objects.filter(team=team, symbol_set=symbol_set).delete()

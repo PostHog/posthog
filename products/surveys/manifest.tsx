@@ -1,4 +1,5 @@
 import { IconMessage } from '@posthog/icons'
+
 import { SurveysTabs } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
 
@@ -17,7 +18,7 @@ export const manifest: ProductManifest = {
             name: 'Survey',
             icon: <IconMessage />,
             href: (ref: string) => urls.survey(ref),
-            iconColor: ['var(--product-surveys-light)'],
+            iconColor: ['var(--color-product-surveys-light)'],
             filterKey: 'survey',
         },
     },

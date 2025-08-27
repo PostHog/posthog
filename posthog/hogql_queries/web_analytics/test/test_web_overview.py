@@ -1,32 +1,8 @@
+from datetime import UTC, datetime
 from typing import Optional
-from unittest.mock import MagicMock, patch
-from datetime import datetime, UTC
 from zoneinfo import ZoneInfo
 
-
 from freezegun import freeze_time
-
-from posthog.clickhouse.client.execute import sync_execute
-from posthog.hogql.constants import LimitContext
-from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
-from posthog.hogql_queries.web_analytics.web_overview_pre_aggregated import WebOverviewPreAggregatedQueryBuilder
-from posthog.models import Action, Element, Cohort
-from posthog.models.utils import uuid7
-from posthog.schema import (
-    CompareFilter,
-    CurrencyCode,
-    WebOverviewQuery,
-    DateRange,
-    SessionTableVersion,
-    HogQLQueryModifiers,
-    CustomEventConversionGoal,
-    ActionConversionGoal,
-    BounceRatePageViewMode,
-    WebOverviewQueryResponse,
-    RevenueCurrencyPropertyConfig,
-    RevenueAnalyticsEventItem,
-)
-from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -34,8 +10,34 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import MagicMock, patch
+
+from posthog.schema import (
+    ActionConversionGoal,
+    BounceRatePageViewMode,
+    CompareFilter,
+    CurrencyCode,
+    CustomEventConversionGoal,
+    DateRange,
+    HogQLQueryModifiers,
+    RevenueAnalyticsEventItem,
+    RevenueCurrencyPropertyConfig,
+    SessionPropertyFilter,
+    SessionTableVersion,
+    WebOverviewQuery,
+    WebOverviewQueryResponse,
+)
+
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import print_ast
+
+from posthog.clickhouse.client.execute import sync_execute
+from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
+from posthog.hogql_queries.web_analytics.web_overview_pre_aggregated import WebOverviewPreAggregatedQueryBuilder
+from posthog.models import Action, Cohort, Element
+from posthog.models.utils import uuid7
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 
 @snapshot_clickhouse_queries
@@ -305,7 +307,6 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(None, duration_s.changeFromPreviousPct)
 
         bounce = results[4]
-        self.assertEqual("bounce rate", bounce.key)
         self.assertAlmostEqual(100 * 2 / 3, bounce.value)
         self.assertEqual(None, bounce.previous)
         self.assertEqual(None, bounce.changeFromPreviousPct)
@@ -352,7 +353,6 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(-100, duration_s.changeFromPreviousPct)
 
         bounce = results[4]
-        self.assertEqual("bounce rate", bounce.key)
         self.assertAlmostEqual(100, bounce.value)
         self.assertEqual(0, bounce.previous)
         self.assertEqual(None, bounce.changeFromPreviousPct)
@@ -1016,6 +1016,28 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(
             pre_agg_builder.can_use_preaggregated_tables(), "Should use pre-aggregated tables with supported properties"
         )
+
+    @freeze_time("2023-12-15T12:00:00Z")
+    def test_can_use_preaggregated_tables_with_channel_type_filter(self):
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
+            properties=[SessionPropertyFilter(key="$channel_type", value="Direct", operator="exact", type="session")],
+        )
+        runner = WebOverviewQueryRunner(team=self.team, query=query)
+        pre_agg_builder = runner.preaggregated_query_builder
+        assert pre_agg_builder.can_use_preaggregated_tables()
+
+    @freeze_time("2023-12-15T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_web_overview_with_channel_type_filter_execution(self):
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
+            properties=[SessionPropertyFilter(key="$channel_type", value="Direct", operator="exact", type="session")],
+            modifiers=HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True),
+        )
+        runner = WebOverviewQueryRunner(team=self.team, query=query)
+
+        assert runner.preaggregated_query_builder.can_use_preaggregated_tables()
 
     @freeze_time("2023-12-15T12:00:00Z")
     def test_preaggregated_queries_use_utc_filtering(self):

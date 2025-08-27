@@ -1,6 +1,9 @@
-import { useLayoutEffect, useRef, useState } from 'react'
 import { useValues } from 'kea'
+import { useLayoutEffect, useRef, useState } from 'react'
+
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+
 import { maxGlobalLogic } from '../maxGlobalLogic'
 
 /**
@@ -176,6 +179,7 @@ export function useFloatingMaxPosition(): {
 } {
     const { isFloatingMaxExpanded, floatingMaxPosition, floatingMaxDragState } = useValues(maxGlobalLogic)
     const { isLayoutNavCollapsed } = useValues(panelLayoutLogic)
+    const { sidePanelOpen } = useValues(sidePanelStateLogic)
     const [shouldAnimate, setShouldAnimate] = useState(false)
     const prevExpandedRef = useRef(isFloatingMaxExpanded)
     const [floatingMaxPositionStyle, setFloatingMaxPositionStyle] = useState<React.CSSProperties>({})
@@ -215,7 +219,14 @@ export function useFloatingMaxPosition(): {
             ...baseStyle,
         })
         // oxlint-disable-next-line exhaustive-deps
-    }, [isFloatingMaxExpanded, isLayoutNavCollapsed, floatingMaxDragState, floatingMaxPosition, shouldAnimate])
+    }, [
+        isFloatingMaxExpanded,
+        isLayoutNavCollapsed,
+        floatingMaxDragState,
+        floatingMaxPosition,
+        shouldAnimate,
+        sidePanelOpen,
+    ])
 
     return {
         floatingMaxPositionStyle,

@@ -1,44 +1,44 @@
+import time
 import uuid
+from collections.abc import Callable
 from contextlib import suppress
 from datetime import datetime, timedelta
-from posthog.geoip import get_geoip_properties
-import time
 from ipaddress import ip_address, ip_network
-from typing import Any, Optional, cast
-from collections.abc import Callable
-from loginas.utils import is_impersonated_session, restore_original_login
-from posthog.rbac.user_access_control import UserAccessControl
-from django.shortcuts import redirect
-import structlog
-from corsheaders.middleware import CorsMiddleware
+from typing import Optional, cast
+
 from django.conf import settings
 from django.contrib.sessions.middleware import SessionMiddleware
+from django.core.cache import cache
 from django.core.exceptions import MiddlewareNotUsed
 from django.db import connection
 from django.db.models import QuerySet
 from django.http import HttpRequest, HttpResponse
 from django.middleware.csrf import CsrfViewMiddleware
+from django.shortcuts import redirect
 from django.urls import resolve
 from django.utils.cache import add_never_cache_headers
-from django_prometheus.middleware import (
-    Metrics,
-    PrometheusAfterMiddleware,
-)
+
+import structlog
+from django_prometheus.middleware import Metrics
+from loginas.utils import is_impersonated_session, restore_original_login
 from rest_framework import status
 from statshog.defaults.django import statsd
-from django.core.cache import cache
 
-from posthog.api.capture import get_event
 from posthog.api.decide import get_decide
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import generate_exception_response
-from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Notebook, User, Team
+from posthog.geoip import get_geoip_properties
+from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Notebook, Team, User
+from posthog.models.activity_logging.utils import activity_storage
+from posthog.models.utils import generate_random_token
 from posthog.rate_limit import DecideRateThrottle
-from posthog.settings import SITE_URL, PROJECT_SWITCHING_TOKEN_ALLOWLIST
+from posthog.rbac.user_access_control import UserAccessControl
+from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
+
 from .auth import PersonalAPIKeyAuthentication
 from .utils_cors import cors_response
 
@@ -301,8 +301,7 @@ class CHQueries:
 
         with suppress(Exception):
             if request_id := structlog.get_context(self.logger).get("request_id"):
-                uuid.UUID(request_id)  # just to verify it is a real UUID
-                tag_queries(http_request_id=request_id)
+                tag_queries(http_request_id=uuid.UUID(request_id))
 
         tag_queries(
             user_id=user.pk,
@@ -416,90 +415,6 @@ class ShortCircuitMiddleware:
             finally:
                 reset_query_tags()
         response: HttpResponse = self.get_response(request)
-        return response
-
-
-class CaptureMiddleware:
-    """
-    Middleware to serve up capture responses. We specifically want to avoid
-    doing any unnecessary work in these endpoints as they are hit very
-    frequently, and we want to provide the best availability possible, which
-    translates to keeping dependencies to a minimum.
-    """
-
-    def __init__(self, get_response):
-        self.get_response = get_response
-
-        middlewares: list[Any] = []
-        # based on how we're using these middlewares, only middlewares that
-        # have a process_request and process_response attribute can be valid here.
-        # Or, middlewares that inherit from `middleware.util.deprecation.MiddlewareMixin` which
-        # reconciles the old style middleware with the new style middleware.
-        for middleware_class in (
-            CorsMiddleware,
-            PrometheusAfterMiddleware,
-        ):
-            try:
-                # Some middlewares raise MiddlewareNotUsed if they are not
-                # needed. In this case we want to avoid the default middlewares
-                # being used.
-                middlewares.append(middleware_class(get_response=get_response))
-            except MiddlewareNotUsed:
-                pass
-
-        # List of middlewares we want to run, that would've been shortcircuited otherwise
-        self.CAPTURE_MIDDLEWARE = middlewares
-
-    def __call__(self, request: HttpRequest):
-        if request.path in (
-            "/e",
-            "/e/",
-            "/s",
-            "/s/",
-            "/track",
-            "/track/",
-            "/capture",
-            "/capture/",
-            "/batch",
-            "/batch/",
-            "/engage/",
-            "/engage",
-        ):
-            try:
-                # :KLUDGE: Manually tag ClickHouse queries as CHMiddleware is skipped
-                tag_queries(
-                    kind="request",
-                    id=request.path,
-                    route_id=resolve(request.path).route,
-                    http_referer=request.META.get("HTTP_REFERER"),
-                    http_user_agent=request.META.get("HTTP_USER_AGENT"),
-                )
-
-                for middleware in self.CAPTURE_MIDDLEWARE:
-                    middleware.process_request(request)
-
-                # call process_view for PrometheusAfterMiddleware to get the right metrics in place
-                # simulate how django prepares the url
-                resolver_match = resolve(request.path)
-                request.resolver_match = resolver_match
-                for middleware in self.CAPTURE_MIDDLEWARE:
-                    middleware.process_view(
-                        request,
-                        resolver_match.func,
-                        resolver_match.args,
-                        resolver_match.kwargs,
-                    )
-
-                response: HttpResponse = get_event(request)
-
-                for middleware in self.CAPTURE_MIDDLEWARE[::-1]:
-                    middleware.process_response(request, response)
-
-                return response
-            finally:
-                reset_query_tags()
-
-        response = self.get_response(request)
         return response
 
 
@@ -730,5 +645,68 @@ class Fix204Middleware:
             response.content = b""
             for h in ["Content-Type", "X-Content-Type-Options"]:
                 response.headers.pop(h, None)
+
+        return response
+
+
+class ActivityLoggingMiddleware:
+    """
+    Middleware that sets the current user and impersonation status in activity storage
+    for use by the activity logging system.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest):
+        # Set user in activity storage if authenticated
+        if request.user.is_authenticated:
+            activity_storage.set_user(request.user)
+            activity_storage.set_was_impersonated(is_impersonated_session(request))
+
+        try:
+            response = self.get_response(request)
+        finally:
+            # Clean up activity storage after request
+            activity_storage.clear_all()
+
+        return response
+
+
+# Add CSP to Admin tooling
+class AdminCSPMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        is_admin_view = request.path.startswith("/admin/")
+        # add nonce to request before generating response
+        if is_admin_view:
+            nonce = generate_random_token(16)
+            request.admin_csp_nonce = nonce
+
+        response = self.get_response(request)
+
+        if is_admin_view:
+            # TODO replace with django-loginas `LOGINAS_CSP_FRIENDLY` setting once 0.3.12 is released (https://github.com/skorokithakis/django-loginas/issues/111)
+            django_loginas_inline_script_hash = "sha256-YS9p0l7SQLkAEtvGFGffDcYHRcUBpPzMcbSQe1lRuLc="
+            csp_parts = [
+                "default-src 'self'",
+                "style-src 'self' 'unsafe-inline'",
+                f"script-src 'self' 'nonce-{nonce}' '{django_loginas_inline_script_hash}'",
+                "worker-src 'none'",
+                "child-src 'none'",
+                "object-src 'none'",
+                "frame-ancestors 'none'",
+                "manifest-src 'none'",
+                "base-uri 'self'",
+                "report-uri https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&v=2",
+                "report-to posthog",
+            ]
+
+            response.headers["Reporting-Endpoints"] = (
+                'posthog="https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&v=2"'
+            )
+            response.headers["Content-Security-Policy"] = "; ".join(csp_parts)
 
         return response

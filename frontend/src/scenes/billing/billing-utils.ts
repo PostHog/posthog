@@ -1,26 +1,24 @@
 import equal from 'fast-deep-equal'
 import { LogicWrapper } from 'kea'
 import { routerType } from 'kea-router/lib/routerType'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import Papa from 'papaparse'
+
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { compactNumber, dateStringToDayJs } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
 
 import { OrganizationType } from '~/types'
-import { BillingProductV2Type, BillingTierType, BillingType } from '~/types'
+import { BillingPeriod, BillingProductV2AddonType, BillingProductV2Type, BillingTierType, BillingType } from '~/types'
 
 import { USAGE_TYPES } from './constants'
-import type { BillingFilters, BillingUsageInteractionProps } from './types'
+import type { BillingFilters, BillingSeriesForCsv, BillingUsageInteractionProps, BuildBillingCsvOptions } from './types'
 
 export const summarizeUsage = (usage: number | null): string => {
     if (usage === null) {
         return ''
-    } else if (usage < 1000) {
-        return `${usage}`
-    } else if (Math.round(usage / 1000) < 1000) {
-        const thousands = usage / 1000
-        return `${Number.isInteger(thousands) ? thousands : thousands.toFixed(1)} thousand`
     }
-    return `${Math.round(usage / 1000000)} million`
+    return compactNumber(usage)
 }
 
 export const projectUsage = (usage: number | undefined, period: BillingType['billing_period']): number | undefined => {
@@ -364,4 +362,103 @@ export function buildTrackingProperties(
         has_team_breakdown: (values.filters.breakdowns || []).includes('team'),
         interval: values.filters.interval || 'day',
     }
+}
+
+export const isAddonVisible = (
+    product: BillingProductV2Type,
+    addon: BillingProductV2AddonType,
+    featureFlags: Record<string, any>
+): boolean => {
+    // Filter out inclusion-only addons if personless events are not supported
+    if (addon.inclusion_only && featureFlags[FEATURE_FLAGS.PERSONLESS_EVENTS_NOT_SUPPORTED]) {
+        return false
+    }
+
+    // Filter out legacy addons for platform_and_support if not subscribed
+    if (product.type === 'platform_and_support' && addon.legacy_product && !addon.subscribed) {
+        return false
+    }
+
+    // Filter out addons that are hidden by feature flag
+    const hideAddonFlag = `billing_hide_addon_${addon.type}`
+    if (featureFlags[hideAddonFlag]) {
+        return false
+    }
+
+    return true
+}
+
+/**
+ * Calculate billing period markers for a given date range
+ * @param billingPeriodUTC - The billing period with UTC dates (start, end, interval)
+ * @param dateFrom - Start date string (can be relative like '30d' or absolute)
+ * @param dateTo - End date string
+ * @returns Array of billing period markers
+ */
+export function calculateBillingPeriodMarkers(
+    billingPeriodUTC: BillingPeriod,
+    dateFrom: string,
+    dateTo: string
+): Array<{ date: dayjs.Dayjs }> {
+    if (!billingPeriodUTC?.start || !billingPeriodUTC?.interval) {
+        return []
+    }
+
+    // Convert user dates to UTC for comparison with billingPeriodUTC
+    const from = dateStringToDayJs(dateFrom)?.utc() || dayjs(dateFrom).utc()
+    const to = dateStringToDayJs(dateTo)?.utc() || dayjs(dateTo).utc()
+    const interval = billingPeriodUTC.interval
+
+    // Find the first period start that could be visible
+    const periodsSinceStart = Math.ceil(billingPeriodUTC.start.diff(from, interval))
+    const firstVisiblePeriod = billingPeriodUTC.start.subtract(Math.max(0, periodsSinceStart), interval)
+
+    // Collect all period starts within the range
+    const markers = []
+    let periodStart = firstVisiblePeriod
+
+    while (periodStart.isSameOrBefore(to)) {
+        if (periodStart.isSameOrAfter(from)) {
+            markers.push({
+                date: periodStart,
+            })
+        }
+        periodStart = periodStart.add(1, interval)
+    }
+
+    return markers
+}
+
+const sumSeries = (values: number[]): number => values.reduce((sum, v) => sum + v, 0)
+
+// Keep up to N decimals without trailing zeros
+const formatWithDecimals = (value: number, decimals?: number): string =>
+    typeof decimals === 'number' ? String(Number(value.toFixed(decimals))) : String(value)
+
+/**
+ * Build CSV from the billing usage and spend data:
+ * - columns are [Series, Total, ...dates]
+ * - rows are visible series (products and/or projects)
+ * - sorted by total desc
+ * Values can be clamped to N decimals via options.decimals.
+ */
+export function buildBillingCsv(params: {
+    series: BillingSeriesForCsv[]
+    dates: string[]
+    hiddenSeries?: number[]
+    options?: BuildBillingCsvOptions
+}): string {
+    const { series, dates, hiddenSeries = [], options } = params
+
+    const visible = series.filter((s) => !hiddenSeries.includes(s.id))
+    const withTotalSorted = visible.map((s) => ({ ...s, total: sumSeries(s.data) })).sort((a, b) => b.total - a.total)
+
+    const header = ['Series', 'Total', ...dates]
+    const rows = withTotalSorted.map((s) => [
+        s.label,
+        formatWithDecimals(s.total, options?.decimals),
+        ...s.data.map((v) => formatWithDecimals(v, options?.decimals)),
+    ])
+
+    return Papa.unparse([header, ...rows])
 }

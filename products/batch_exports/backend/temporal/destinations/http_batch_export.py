@@ -1,40 +1,37 @@
-import asyncio
-import dataclasses
-import datetime as dt
 import io
 import json
+import asyncio
+import datetime as dt
+import dataclasses
+
+from django.conf import settings
 
 import aiohttp
-from django.conf import settings
+from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.service import (
-    BatchExportField,
-    BatchExportInsertInputs,
-    HttpBatchExportInputs,
-)
+from posthog.batch_exports.service import BatchExportField, BatchExportInsertInputs, HttpBatchExportInputs
 from posthog.models import BatchExportRun
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
-from posthog.temporal.common.logger import bind_temporal_worker_logger
+from posthog.temporal.common.logger import get_logger
+
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
-    RecordsCompleted,
     StartBatchExportRunInputs,
     execute_batch_export_insert_activity,
     get_data_interval,
     iter_records,
     start_batch_export_run,
 )
-from products.batch_exports.backend.temporal.metrics import (
-    get_bytes_exported_metric,
-    get_rows_exported_metric,
-)
-from products.batch_exports.backend.temporal.temporary_file import (
-    BatchExportTemporaryFile,
-    json_dumps_bytes,
-)
+from products.batch_exports.backend.temporal.metrics import get_bytes_exported_metric, get_rows_exported_metric
+from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
+from products.batch_exports.backend.temporal.temporary_file import BatchExportTemporaryFile, json_dumps_bytes
+from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
+
+NON_RETRYABLE_ERROR_TYPES = ("NonRetryableResponseError",)
+LOGGER = get_logger(__name__)
 
 
 class RetryableResponseError(Exception):
@@ -104,8 +101,6 @@ class HttpInsertInputs(BatchExportInsertInputs):
 async def maybe_resume_from_heartbeat(inputs: HttpInsertInputs) -> str | None:
     """Returns the `interval_start` to use, either resuming from previous heartbeat data or
     using the `data_interval_start` from the inputs."""
-    logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="HTTP")
-
     interval_start = inputs.data_interval_start
     details = activity.info().heartbeat_details
 
@@ -118,7 +113,7 @@ async def maybe_resume_from_heartbeat(inputs: HttpInsertInputs) -> str | None:
     except IndexError:
         # This is the error we expect when there are no activity details as the sequence will be
         # empty.
-        logger.debug(
+        LOGGER.debug(
             "Did not receive details from previous activity Excecution. Export will start from the beginning %s",
             interval_start,
         )
@@ -126,7 +121,7 @@ async def maybe_resume_from_heartbeat(inputs: HttpInsertInputs) -> str | None:
         # We still start from the beginning, but we make a point to log unexpected errors. Ideally,
         # any new exceptions should be added to the previous block after the first time and we will
         # never land here.
-        logger.warning(
+        LOGGER.warning(
             "Did not receive details from previous activity Excecution due to an unexpected error. Export will start from the beginning %s",
             interval_start,
         )
@@ -153,9 +148,17 @@ async def post_json_file_to_url(url, batch_file, session: aiohttp.ClientSession)
 
 
 @activity.defn
-async def insert_into_http_activity(inputs: HttpInsertInputs) -> RecordsCompleted:
+@handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
+async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResult:
     """Activity streams data from ClickHouse to an HTTP Endpoint."""
-    logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="HTTP")
+    bind_contextvars(
+        team_id=inputs.team_id,
+        destination="HTTP",
+        data_interval_start=inputs.data_interval_start,
+        data_interval_end=inputs.data_interval_end,
+    )
+    logger = LOGGER.bind()
+
     logger.info(
         "Batch exporting range %s - %s to HTTP endpoint: %s",
         inputs.data_interval_start or "START",
@@ -290,7 +293,7 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> RecordsComplete
                     last_uploaded_timestamp = str(inserted_at)
                     await flush_batch_to_http_endpoint(last_uploaded_timestamp, session)
 
-            return batch_file.records_total
+            return BatchExportResult(records_completed=batch_file.records_total)
 
 
 @workflow.defn(name="http-export")
@@ -364,9 +367,6 @@ class HttpBatchExportWorkflow(PostHogWorkflow):
             insert_into_http_activity,
             insert_inputs,
             interval=inputs.interval,
-            non_retryable_error_types=[
-                "NonRetryableResponseError",
-            ],
             finish_inputs=finish_inputs,
             # Disable heartbeat timeout until we add heartbeat support.
             heartbeat_timeout_seconds=None,

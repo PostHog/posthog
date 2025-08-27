@@ -2,6 +2,7 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
+
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AutoplayDirection, SessionRecordingSidebarStacking } from '~/types'
@@ -35,7 +36,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setSidebarOpen: (open: boolean) => ({ open }),
         setPlaylistOpen: (open: boolean) => ({ open }),
         setURLOverrideSidebarOpen: (open: boolean) => ({ open }),
-        setIsZenMode: (isZenMode: boolean) => ({ isZenMode }),
+        setIsCinemaMode: (isCinemaMode: boolean) => ({ isCinemaMode }),
     }),
     connect(() => ({
         values: [teamLogic, ['currentTeam']],
@@ -107,11 +108,11 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                 setHideViewedRecordings: (_, { hideViewedRecordings }) => hideViewedRecordings,
             },
         ],
-        isZenMode: [
+        isCinemaMode: [
             false,
             { persist: true },
             {
-                setIsZenMode: (_, { isZenMode }) => isZenMode,
+                setIsCinemaMode: (_, { isCinemaMode }) => isCinemaMode,
             },
         ],
     })),

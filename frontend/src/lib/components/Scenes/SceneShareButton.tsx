@@ -1,11 +1,18 @@
+import { IconShare } from '@posthog/icons'
+
 import { ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
 
-type SceneShareButtonProps = {
-    buttonProps?: Omit<ButtonPrimitiveProps, 'children'>
-    onClick?: () => void
-    children?: React.ReactNode
+import { SceneDataAttrKeyProps } from './utils'
+
+type SceneShareButtonProps = SceneDataAttrKeyProps & {
+    buttonProps?: Omit<ButtonPrimitiveProps, 'children' | 'data-attr'>
 }
 
-export function SceneShareButton({ buttonProps, children }: SceneShareButtonProps): JSX.Element {
-    return <ButtonPrimitive {...buttonProps}>{children}</ButtonPrimitive>
+export function SceneShareButton({ buttonProps, dataAttrKey }: SceneShareButtonProps): JSX.Element {
+    return (
+        <ButtonPrimitive {...buttonProps} data-attr={`${dataAttrKey}-share-button`}>
+            <IconShare />
+            Share or embed
+        </ButtonPrimitive>
+    )
 }

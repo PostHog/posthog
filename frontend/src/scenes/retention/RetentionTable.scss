@@ -11,7 +11,7 @@
         border-bottom: 10px solid transparent;
 
         &:nth-of-type(-n + 2) {
-            padding-left: 1px solid var(--border-primary);
+            padding-left: 1px solid var(--color-border-primary);
         }
     }
 
@@ -49,9 +49,9 @@
         }
 
         &.RetentionTable__Tab--period {
-            color: var(--text-secondary);
-            background-color: var(--bg-surface-primary);
-            border: 1px solid var(--border-primary);
+            color: var(--color-text-secondary);
+            background-color: var(--color-bg-surface-primary);
+            border: 1px solid var(--color-border-primary);
             border-style: dashed;
         }
     }

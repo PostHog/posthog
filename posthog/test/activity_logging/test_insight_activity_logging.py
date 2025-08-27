@@ -1,11 +1,13 @@
 import random
 import string
 
+from posthog.test.base import BaseTest
+from unittest import mock
+
 from dateutil import parser
 
 from posthog.models import Dashboard, DashboardTile, Insight, Tag
 from posthog.models.activity_logging.activity_log import Change, changes_between
-from posthog.test.base import BaseTest
 
 
 class TestChangesBetweenInsights(BaseTest):
@@ -28,7 +30,14 @@ class TestChangesBetweenInsights(BaseTest):
                         "insight": {"id": insight_after.id},
                     }
                 ],
-            )
+            ),
+            Change(
+                type="Insight",
+                field="query_metadata",
+                action="changed",
+                before=mock.ANY,
+                after=mock.ANY,
+            ),
         ]
 
         assert actual == expected
@@ -42,11 +51,18 @@ class TestChangesBetweenInsights(BaseTest):
         expected = [
             Change(
                 type="Insight",
+                field="query_metadata",
+                action="changed",
+                before=mock.ANY,
+                after=mock.ANY,
+            ),
+            Change(
+                type="Insight",
                 field="name",
                 action="changed",
                 before="name",
                 after="new name",
-            )
+            ),
         ]
 
         self.assertCountEqual(actual, expected)
@@ -60,11 +76,18 @@ class TestChangesBetweenInsights(BaseTest):
         expected = [
             Change(
                 type="Insight",
+                field="query_metadata",
+                action="changed",
+                before=mock.ANY,
+                after=mock.ANY,
+            ),
+            Change(
+                type="Insight",
                 field="tags",
                 action="changed",
                 before=["before", "tags"],
                 after=["after", "tags"],
-            )
+            ),
         ]
 
         self.assertCountEqual(actual, expected)
@@ -78,11 +101,18 @@ class TestChangesBetweenInsights(BaseTest):
         expected = [
             Change(
                 type="Insight",
+                field="query_metadata",
+                action="changed",
+                before=mock.ANY,
+                after=mock.ANY,
+            ),
+            Change(
+                type="Insight",
                 field="derived_name",
                 action="changed",
                 before="starting",
                 after="after",
-            )
+            ),
         ]
 
         self.assertCountEqual(actual, expected)
@@ -96,11 +126,18 @@ class TestChangesBetweenInsights(BaseTest):
         expected = [
             Change(
                 type="Insight",
+                field="query_metadata",
+                action="changed",
+                before=mock.ANY,
+                after=mock.ANY,
+            ),
+            Change(
+                type="Insight",
                 field="description",
                 action="changed",
                 before="starting",
                 after="after",
-            )
+            ),
         ]
 
         self.assertCountEqual(actual, expected)

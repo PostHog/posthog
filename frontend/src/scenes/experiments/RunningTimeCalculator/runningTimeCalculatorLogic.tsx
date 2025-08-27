@@ -1,30 +1,19 @@
 import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { DEFAULT_MDE, experimentLogic } from 'scenes/experiments/experimentLogic'
+
 import { performQuery } from '~/queries/query'
 import {
     ExperimentMetric,
-    ExperimentMetricType,
     FunnelsQuery,
-    isExperimentFunnelMetric,
-    isExperimentMeanMetric,
     TrendsQuery,
     TrendsQueryResponse,
+    isExperimentFunnelMetric,
+    isExperimentMeanMetric,
 } from '~/queries/schema/schema-general'
-import {
-    AnyPropertyFilter,
-    BaseMathType,
-    CountPerActorMathType,
-    Experiment,
-    ExperimentMetricMathType,
-    FunnelVizType,
-} from '~/types'
-
-import { calculateRecommendedSampleSize, calculateVariance } from './experimentStatisticsUtils'
-import type { runningTimeCalculatorLogicType } from './runningTimeCalculatorLogicType'
-
 import {
     addExposureToQuery,
     compose,
@@ -32,6 +21,10 @@ import {
     getEventNode,
     getQuery,
 } from '~/scenes/experiments/metricQueryUtils'
+import { AnyPropertyFilter, BaseMathType, Experiment, ExperimentMetricMathType, FunnelVizType } from '~/types'
+
+import { calculateRecommendedSampleSize, calculateVariance } from './experimentStatisticsUtils'
+import type { runningTimeCalculatorLogicType } from './runningTimeCalculatorLogicType'
 
 export const TIMEFRAME_HISTORICAL_DATA_DAYS = 14
 export const VARIANCE_SCALING_FACTOR_TOTAL_COUNT = 2
@@ -78,28 +71,6 @@ const defaultExposureEstimateConfig: ExposureEstimateConfig = {
     manualConversionRate: 2,
     uniqueUsers: null,
 }
-
-const applyMathTrendsQuery =
-    (metric: ExperimentMetric) =>
-    (query: TrendsQuery | FunnelsQuery | undefined): TrendsQuery | FunnelsQuery | undefined => {
-        if (!query) {
-            return undefined
-        }
-
-        if (metric.metric_type === ExperimentMetricType.MEAN) {
-            return {
-                ...query,
-                series: [
-                    ...query.series.slice(0, -1)!,
-                    {
-                        ...query.series.at(-1)!,
-                        math: CountPerActorMathType.Average,
-                    },
-                ],
-            }
-        }
-        return query
-    }
 
 export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
     path(['scenes', 'experiments', 'RunningTimeCalculator', 'runningTimeCalculatorLogic']),
@@ -176,7 +147,6 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                 const queryBuilder = compose<
                     ExperimentMetric,
                     FunnelsQuery | TrendsQuery | undefined,
-                    FunnelsQuery | TrendsQuery | undefined,
                     FunnelsQuery | TrendsQuery | undefined
                 >(
                     getQuery({
@@ -187,8 +157,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                         },
                         trendsFilter: {},
                     }),
-                    addExposureToQuery(exposureEventNode),
-                    applyMathTrendsQuery(metric)
+                    addExposureToQuery(exposureEventNode)
                 )
 
                 const query = queryBuilder(metric)

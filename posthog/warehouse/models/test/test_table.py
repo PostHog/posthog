@@ -1,7 +1,8 @@
+from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from posthog.hogql.database.models import DateTimeDatabaseField, IntegerDatabaseField, StringDatabaseField
-from posthog.test.base import BaseTest
+
 from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
 from posthog.warehouse.models.table import SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING
 

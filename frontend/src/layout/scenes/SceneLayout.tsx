@@ -1,16 +1,22 @@
-import { IconInfo, IconX } from '@posthog/icons'
+import './SceneLayout.css'
+
 import { useActions, useValues } from 'kea'
+import React, { PropsWithChildren, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
+
+import { IconInfo, IconX } from '@posthog/icons'
+import { LemonDivider } from '@posthog/lemon-ui'
+
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { Label, LabelProps } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
-import React, { useEffect, useRef } from 'react'
-import { createPortal } from 'react-dom'
 import { SceneConfig } from 'scenes/sceneTypes'
+
+import { SceneTabs } from '~/layout/scenes/SceneTabs'
+
 import { SceneHeader } from './SceneHeader'
-import './SceneLayout.css'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
-import { Label } from 'lib/ui/Label/Label'
-import { LemonDivider } from '@posthog/lemon-ui'
 
 type SceneLayoutProps = {
     children: React.ReactNode
@@ -38,60 +44,68 @@ export function ScenePanel({ children }: { children: React.ReactNode }): JSX.Ele
     )
 }
 
-export function ScenePanelDivider(): JSX.Element {
-    return <LemonDivider className="-mx-2 my-2 w-[calc(100%+1rem)]" />
+export function ScenePanelDivider({ className }: { className?: string }): JSX.Element {
+    return <LemonDivider className={cn('-mx-2 my-2 w-[calc(100%+1rem)]', className)} />
 }
 
-export function ScenePanelMetaInfo({ children }: { children: React.ReactNode }): JSX.Element {
-    return <div className="pl-1 pt-4 flex flex-col gap-2">{children}</div>
-}
-
-export function ScenePanelCommonActions({ children }: { children: React.ReactNode }): JSX.Element {
+// Should be first!
+export const ScenePanelCommonActions = ({ children }: { children: React.ReactNode }): JSX.Element => {
     return (
         <>
-            <div className="flex flex-col gap-2">{children}</div>
-            <ScenePanelDivider />
+            <div
+                // This is a hack to make the meta info panel have a margin top of 0 when it's the first child of the panel
+                className={`
+                    [&+.scene-panel-meta-info]:mt-0 
+                    flex flex-col gap-2 min-h-[var(--scene-layout-header-height)] py-2 border-b border-primary -mx-2 px-2 mb-2
+                `}
+            >
+                {children}
+            </div>
         </>
     )
 }
 
+// Should be second!
+export function ScenePanelMetaInfo({ children }: { children: React.ReactNode }): JSX.Element {
+    return <div className="scene-panel-meta-info pl-1 pb-1 flex flex-col gap-2 mt-2">{children}</div>
+}
+
+// Should be third!
 export function ScenePanelActions({ children }: { children: React.ReactNode }): JSX.Element {
     return (
-        <div className="flex flex-col gap-2">
-            <Label intent="menu" className="px-1">
+        <div className="flex flex-col gap-2 pl-1 -ml-1">
+            <Label intent="menu" className="mx-2">
                 Actions
             </Label>
-            <div className="flex flex-col gap-px">{children}</div>
+            <div className="flex flex-col gap-px -ml-1 pl-1">{children}</div>
+        </div>
+    )
+}
+
+export function ScenePanelLabel({ children, title, ...props }: PropsWithChildren<LabelProps>): JSX.Element {
+    return (
+        <div className="flex flex-col gap-0">
+            <Label intent="menu" {...props}>
+                {title}
+            </Label>
+            {children}
         </div>
     )
 }
 
 export function SceneLayout({ children, className, layoutConfig }: SceneLayoutProps): JSX.Element {
-    const { registerScenePanelElement, setScenePanelOpen, setScenePanelIsOverlay } = useActions(sceneLayoutLogic)
-    const { scenePanelIsPresent, scenePanelIsOverlay, scenePanelOpen } = useValues(sceneLayoutLogic)
+    const { registerScenePanelElement, setScenePanelOpen, setSceneContainerRef, setForceScenePanelClosedWhenRelative } =
+        useActions(sceneLayoutLogic)
+    const { scenePanelIsPresent, scenePanelOpen, useSceneTabs, scenePanelIsRelative, sceneContainerRect } =
+        useValues(sceneLayoutLogic)
     const sceneLayoutContainer = useRef<HTMLDivElement>(null)
 
+    // Set container ref so we can measure the width of the scene layout in logic
     useEffect(() => {
         if (sceneLayoutContainer.current) {
-            const resizeObserver = new ResizeObserver((entries) => {
-                for (const entry of entries) {
-                    if (entry.contentRect.width >= 1300) {
-                        setScenePanelIsOverlay(false)
-                        setScenePanelOpen(true)
-                    } else {
-                        setScenePanelIsOverlay(true)
-                        setScenePanelOpen(false)
-                    }
-                }
-            })
-
-            resizeObserver.observe(sceneLayoutContainer.current)
-
-            return () => {
-                resizeObserver.disconnect()
-            }
+            setSceneContainerRef(sceneLayoutContainer)
         }
-    }, [setScenePanelOpen, setScenePanelIsOverlay])
+    }, [sceneLayoutContainer, setSceneContainerRef])
 
     return (
         <div
@@ -99,30 +113,48 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
             ref={sceneLayoutContainer}
             style={
                 {
-                    '--scene-layout-outer-right': sceneLayoutContainer.current?.getBoundingClientRect().right + 'px',
+                    '--scene-layout-rect-right': sceneContainerRect?.right + 'px',
                 } as React.CSSProperties
             }
         >
             <div
                 className={cn('relative min-h-screen', {
                     block: layoutConfig?.layout === 'app-raw-no-header',
-                    // Ensure the grid only exists when the panel is active and not overlayed
-                    'grid grid-rows-[42px_1fr] grid-cols-[1fr_auto]': scenePanelIsPresent && !scenePanelIsOverlay,
+                    // flex: scenePanelIsPresent && scenePanelIsRelative && scenePanelOpen,
                 })}
             >
-                {layoutConfig?.layout !== 'app-raw-no-header' && <SceneHeader className="row-span-1 col-span-1" />}
+                <div
+                    className={cn('relative min-h-screen', {
+                        'w-[calc(100%-var(--scene-layout-panel-width))]':
+                            scenePanelIsPresent && scenePanelIsRelative && scenePanelOpen,
+                    })}
+                >
+                    {useSceneTabs ? <SceneTabs /> : null}
+                    {layoutConfig?.layout !== 'app-raw-no-header' && (
+                        <SceneHeader className="row-span-1 col-span-1 min-w-0" />
+                    )}
+
+                    <div
+                        className={cn(
+                            'flex-1 flex flex-col p-4 pb-16 w-full order-1 row-span-1 col-span-1 col-start-1 relative min-w-0',
+                            {
+                                'p-0 h-screen': layoutConfig?.layout === 'app-raw-no-header',
+                                'p-0 h-[calc(100vh-var(--scene-layout-header-height))]':
+                                    layoutConfig?.layout === 'app-raw',
+                            }
+                        )}
+                    >
+                        {children}
+                    </div>
+                </div>
 
                 {scenePanelIsPresent && (
                     <>
                         <div
                             className={cn(
-                                'scene-layout__content-panel order-2 bg-primary flex flex-col overflow-hidden row-span-2 col-span-2 row-start-1 col-start-2 sticky top-0 h-screen',
+                                'scene-layout__content-panel order-2 fixed left-[calc(var(--scene-layout-rect-right)-var(--scene-layout-panel-width))] bg-surface-secondary flex flex-col overflow-hidden row-span-2 col-span-2 row-start-1 col-start-2 top-0 h-screen min-w-0',
                                 {
                                     hidden: !scenePanelOpen,
-                                    // When it's a modal, we do fixed positioning to keep it floating and not scrolling relative to the page
-                                    // Also important when the SidePanel is open
-                                    'fixed left-[calc(var(--scene-layout-outer-right)-var(--scene-layout-panel-width)-1px)]':
-                                        scenePanelIsOverlay,
                                 }
                             )}
                         >
@@ -133,7 +165,28 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                                 </div>
 
                                 {scenePanelOpen && (
-                                    <ButtonPrimitive iconOnly onClick={() => setScenePanelOpen(false)}>
+                                    <ButtonPrimitive
+                                        iconOnly
+                                        onClick={() =>
+                                            scenePanelIsRelative
+                                                ? setForceScenePanelClosedWhenRelative(true)
+                                                : setScenePanelOpen(false)
+                                        }
+                                        tooltip={
+                                            !scenePanelOpen
+                                                ? 'Open info panel'
+                                                : scenePanelIsRelative
+                                                  ? 'Force close info panel'
+                                                  : 'Close info panel'
+                                        }
+                                        aria-label={
+                                            !scenePanelOpen
+                                                ? 'Open info panel'
+                                                : scenePanelIsRelative
+                                                  ? 'Force close info panel'
+                                                  : 'Close info panel'
+                                        }
+                                    >
                                         <IconX className="size-4" />
                                     </ButtonPrimitive>
                                 )}
@@ -141,33 +194,24 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                             <ScrollableShadows
                                 direction="vertical"
                                 className="h-full flex-1"
-                                innerClassName="px-2 pb-4"
+                                innerClassName="px-2 pb-4 bg-primary"
+                                styledScrollbars
                             >
                                 <div ref={registerScenePanelElement} />
                             </ScrollableShadows>
                         </div>
 
-                        {scenePanelOpen && scenePanelIsOverlay && (
+                        {scenePanelOpen && !scenePanelIsRelative && (
                             <div
                                 onClick={() => {
                                     setScenePanelOpen(false)
                                 }}
+                                aria-hidden="true"
                                 className="z-[var(--z-top-navigation-under)] fixed inset-0 w-screen h-screen bg-fill-highlight-100"
                             />
                         )}
                     </>
                 )}
-                <div
-                    className={cn(
-                        'flex-1 flex flex-col p-4 w-full order-1 row-span-1 col-span-1 col-start-1 relative',
-                        {
-                            'p-0 h-screen': layoutConfig?.layout === 'app-raw-no-header',
-                            'p-0 h-[calc(100vh-var(--scene-layout-header-height))]': layoutConfig?.layout === 'app-raw',
-                        }
-                    )}
-                >
-                    {children}
-                </div>
             </div>
         </div>
     )

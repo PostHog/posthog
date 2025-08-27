@@ -1,6 +1,8 @@
-import { IconExternal } from '@posthog/icons'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
+
+import { IconExternal } from '@posthog/icons'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -35,6 +37,7 @@ import {
     containsHogQLQuery,
     filterKeyForQuery,
     getDisplay,
+    getResultCustomizations,
     getShowPercentStackView,
     getShowValuesOnSeries,
     isDataTableNode,
@@ -79,6 +82,9 @@ export interface QueryPropertyCache
         Omit<Partial<StickinessQuery>, 'kind' | 'response'>,
         Omit<Partial<LifecycleQuery>, 'kind' | 'response'> {
     commonFilter: CommonInsightFilter
+    commonFilterTrendsStickiness?: {
+        resultCustomizations?: Record<string, any>
+    }
 }
 
 const cleanSeriesEntityMath = (
@@ -200,7 +206,14 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     ...(featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT]
                         ? [
                               {
-                                  label: 'Calendar Heatmap',
+                                  label: (
+                                      <>
+                                          Calendar heatmap
+                                          <LemonTag type="warning" className="uppercase ml-2">
+                                              Beta
+                                          </LemonTag>
+                                      </>
+                                  ),
                                   type: InsightType.CALENDAR_HEATMAP,
                                   dataAttr: 'insight-calendar-heatmap-tab',
                               },
@@ -303,6 +316,14 @@ const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyC
     const { resultCustomizations, ...commonProperties } = query[filterKey] || {}
     newCache.commonFilter = { ...cache?.commonFilter, ...commonProperties }
 
+    /** store the insight specific filter for trend and stickiness queries */
+    if (isTrendsQuery(query) || isStickinessQuery(query)) {
+        newCache.commonFilterTrendsStickiness = {
+            ...cache?.commonFilterTrendsStickiness,
+            ...(resultCustomizations !== undefined ? { resultCustomizations } : {}),
+        }
+    }
+
     return newCache
 }
 
@@ -323,8 +344,8 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
                 const mathAvailability = isTrendsQuery(mergedQuery)
                     ? MathAvailability.All
                     : isStickinessQuery(mergedQuery)
-                    ? MathAvailability.ActorsOnly
-                    : MathAvailability.None
+                      ? MathAvailability.ActorsOnly
+                      : MathAvailability.None
                 mergedQuery.series = cleanSeriesMath(cache.series, mathAvailability)
             }
         }
@@ -398,6 +419,12 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
     const filterKey = filterKeyForQuery(mergedQuery)
     if (cache[filterKey] || cache.commonFilter) {
         const node = { kind: mergedQuery.kind, [filterKey]: cache.commonFilter } as unknown as InsightQueryNode
+        const nodeTrendsStickiness = (isTrendsQuery(mergedQuery) || isStickinessQuery(mergedQuery)
+            ? {
+                  kind: mergedQuery.kind,
+                  [filterKey]: cache.commonFilterTrendsStickiness,
+              }
+            : {}) as unknown as InsightQueryNode
         mergedQuery[filterKey] = {
             ...query[filterKey],
             ...cache[filterKey],
@@ -407,6 +434,9 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
             ...(getShowValuesOnSeries(node) ? { showValuesOnSeries: getShowValuesOnSeries(node) } : {}),
             ...(getShowPercentStackView(node) ? { showPercentStackView: getShowPercentStackView(node) } : {}),
             ...(getDisplay(node) ? { display: getDisplay(node) } : {}),
+            ...(getResultCustomizations(nodeTrendsStickiness)
+                ? { resultCustomizations: getResultCustomizations(nodeTrendsStickiness) }
+                : {}),
         }
     }
 

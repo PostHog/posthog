@@ -1,43 +1,40 @@
 import csv
-
 from collections import defaultdict
-from django.db import DatabaseError
-from loginas.utils import is_impersonated_session
-from posthog.api.insight import capture_legacy_api_call
-import structlog
-
-from posthog.models.activity_logging.activity_log import log_activity, Detail, dict_changes_between, load_activity
-from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.feature_flag.flag_matching import (
-    FeatureFlagMatcher,
-    FlagsMatcherCache,
-    get_feature_flag_hash_key_overrides,
-)
-from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
-from posthog.models.property.property import Property, PropertyGroup
-from posthog.models.team.team import Team
-from posthog.queries.base import property_group_to_Q
-from posthog.metrics import LABEL_TEAM_ID
-from posthog.renderers import SafeJSONRenderer
+from collections.abc import Iterator
 from datetime import datetime
-from typing import Any, cast, Optional, Union
+from typing import Annotated, Any, Literal, Optional, Union, cast
 
 from django.conf import settings
-from django.db.models import QuerySet, Prefetch, prefetch_related_objects, OuterRef, Subquery
-from rest_framework import serializers, viewsets, request, status
-from posthog.api.utils import action
+from django.db import DatabaseError
+from django.db.models import OuterRef, Prefetch, QuerySet, Subquery, prefetch_related_objects
+
+import structlog
+from loginas.utils import is_impersonated_session
+from prometheus_client import Counter
+from pydantic import (
+    BaseModel,
+    Field,
+    ValidationError as PydanticValidationError,
+    model_validator,
+)
+from rest_framework import request, serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
-from posthog.exceptions_capture import capture_exception
+
+from posthog.schema import ActorsQuery, HogQLQuery
+
+from posthog.hogql.constants import CSV_EXPORT_LIMIT
+from posthog.hogql.context import HogQLContext
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.insight import capture_legacy_api_call
 from posthog.api.person import get_funnel_actor_class
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.utils import get_target_entity
+from posthog.api.utils import action, get_target_entity
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import (
     INSIGHT_FUNNELS,
@@ -48,42 +45,44 @@ from posthog.constants import (
     OFFSET,
     PropertyOperatorType,
 )
-from posthog.hogql.constants import CSV_EXPORT_LIMIT
 from posthog.event_usage import report_user_action
-from posthog.hogql.context import HogQLContext
+from posthog.exceptions_capture import capture_exception
+from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Cohort, FeatureFlag, Person
+from posthog.models.activity_logging.activity_log import Detail, dict_changes_between, load_activity, log_activity
+from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.cohort.util import get_dependent_cohorts, print_cohort_hogql_query
 from posthog.models.cohort import CohortOrEmpty
+from posthog.models.cohort.util import get_dependent_cohorts, print_cohort_hogql_query
+from posthog.models.cohort.validation import CohortTypeValidationSerializer
+from posthog.models.feature_flag.flag_matching import (
+    FeatureFlagMatcher,
+    FlagsMatcherCache,
+    get_feature_flag_hash_key_overrides,
+)
 from posthog.models.filters.filter import Filter
-from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.lifecycle_filter import LifecycleFilter
-from posthog.models.person.sql import (
-    INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID,
-    PERSON_STATIC_COHORT_TABLE,
-)
-from posthog.queries.actor_base_query import (
-    ActorBaseQuery,
-    get_serialized_people,
-)
+from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
+from posthog.models.person.sql import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
+from posthog.models.property.property import Property, PropertyGroup
+from posthog.models.team.team import Team
+from posthog.queries.actor_base_query import ActorBaseQuery, get_serialized_people
+from posthog.queries.base import property_group_to_Q
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.stickiness import StickinessActors
-from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.queries.trends.lifecycle_actors import LifecycleActors
+from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.queries.util import get_earliest_timestamp
-from posthog.schema import ActorsQuery, HogQLQuery
+from posthog.renderers import SafeJSONRenderer
 from posthog.tasks.calculate_cohort import (
     calculate_cohort_from_list,
+    increment_version_and_enqueue_calculate_cohort,
     insert_cohort_from_feature_flag,
     insert_cohort_from_insight_filter,
-    increment_version_and_enqueue_calculate_cohort,
     insert_cohort_from_query,
 )
 from posthog.utils import format_query_params_absolute_url
-from prometheus_client import Counter
-from typing import Literal, Annotated
-from pydantic import BaseModel, Field, model_validator
-from pydantic import ValidationError as PydanticValidationError
 
 
 class EventPropFilter(BaseModel, extra="forbid"):
@@ -181,6 +180,25 @@ API_COHORT_PERSON_BYTES_READ_FROM_POSTGRES_COUNTER = Counter(
 logger = structlog.get_logger(__name__)
 
 
+class CSVConfig:
+    """Configuration constants for CSV processing"""
+
+    DISTINCT_ID_HEADERS = ["distinct_id", "distinct-id"]
+    ENCODING = "utf-8"
+
+    class ErrorMessages:
+        EMPTY_FILE = "CSV file is empty. Please upload a CSV file with at least one row of data."
+        MISSING_DISTINCT_ID = (
+            "Multi-column CSV must contain a 'distinct_id' or 'distinct-id' column header. Found columns: {columns}"
+        )
+        NO_VALID_IDS = (
+            "CSV file contains no valid distinct IDs. Please ensure your file has data rows with distinct IDs."
+        )
+        ENCODING_ERROR = "CSV file encoding is not supported. Please save your file as UTF-8 and try again."
+        FORMAT_ERROR = "CSV file format is invalid. Please check your file format and try again."
+        GENERIC_ERROR = "An error occurred while processing your CSV file. Please try again or contact support if the problem persists."
+
+
 class CohortSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     earliest_timestamp_func = get_earliest_timestamp
@@ -206,6 +224,7 @@ class CohortSerializer(serializers.ModelSerializer):
             "errors_calculating",
             "count",
             "is_static",
+            "cohort_type",
             "experiment_set",
             "_create_in_folder",
         ]
@@ -219,6 +238,31 @@ class CohortSerializer(serializers.ModelSerializer):
             "count",
             "experiment_set",
         ]
+
+    def validate_cohort_type(self, value):
+        """Validate that the cohort type matches the filters"""
+        if not value:
+            return value
+
+        cohort_data = {
+            "cohort_type": value,
+            "is_static": self.initial_data.get(
+                "is_static", getattr(self.instance, "is_static", False) if self.instance else False
+            ),
+            "query": self.initial_data.get("query", getattr(self.instance, "query", None) if self.instance else None),
+            "filters": self.initial_data.get(
+                "filters", getattr(self.instance, "filters", None) if self.instance else None
+            ),
+        }
+
+        type_serializer = CohortTypeValidationSerializer(data=cohort_data, team_id=self.context["team_id"])
+        if not type_serializer.is_valid():
+            # NB: Get the first error message, since it's the only one we're interested in
+            if "cohort_type" in type_serializer.errors:
+                raise ValidationError(type_serializer.errors["cohort_type"][0])
+            raise ValidationError("Invalid cohort type for the given filters")
+
+        return value
 
     def _handle_static(self, cohort: Cohort, context: dict, validated_data: dict) -> None:
         request = self.context["request"]
@@ -258,11 +302,117 @@ class CohortSerializer(serializers.ModelSerializer):
         report_user_action(request.user, "cohort created", cohort.get_analytics_metadata())
         return cohort
 
-    def _calculate_static_by_csv(self, file, cohort: Cohort) -> None:
-        decoded_file = file.read().decode("utf-8").splitlines()
+    def _parse_csv_file(self, file) -> tuple[list[str], Iterator[list[str]]]:
+        """Handle file reading and CSV parsing with error handling"""
+        decoded_file = file.read().decode(CSVConfig.ENCODING).splitlines()
         reader = csv.reader(decoded_file)
-        distinct_ids = [row[0] for row in reader if len(row) > 0 and row]
+
+        # Skip empty rows at the beginning
+        first_row: list[str] = []
+        while not first_row:
+            row = next(reader, None)
+            if row is None:
+                raise ValidationError({"csv": [CSVConfig.ErrorMessages.EMPTY_FILE]})
+            first_row = row
+
+        return first_row, reader
+
+    def _is_single_column_format(self, first_row: list) -> bool:
+        """Determine if CSV should be treated as single-column format"""
+        non_empty_cols = [col for col in first_row if col.strip()]
+        return len(non_empty_cols) <= 1
+
+    def _find_distinct_id_column(self, headers: list[str]) -> int | None:
+        """Find the index of the distinct_id column in headers"""
+        normalized_headers = [h.lower().strip() for h in headers]
+        for i, header in enumerate(normalized_headers):
+            if header in CSVConfig.DISTINCT_ID_HEADERS:
+                return i
+        return None
+
+    def _extract_distinct_ids_single_column(self, first_row: list[str], reader: Iterator[list[str]]) -> list[str]:
+        """Process single-column CSV format"""
+        distinct_ids = [first_row[0].strip()] if first_row and first_row[0].strip() != "" else []
+        for row in reader:
+            if len(row) > 0:
+                stripped_id = row[0].strip()
+                if stripped_id != "":
+                    distinct_ids.append(stripped_id)
+        return distinct_ids
+
+    def _extract_distinct_ids_multi_column(
+        self, reader: Iterator[list[str]], distinct_id_col: int, cohort_pk: int
+    ) -> list[str]:
+        """Process multi-column CSV format with robust error handling"""
+        distinct_ids = []
+        skipped_rows = 0
+
+        for row in reader:
+            # Skip rows with incorrect number of columns
+            if len(row) <= distinct_id_col:
+                skipped_rows += 1
+                continue
+
+            # Extract distinct ID if present and non-empty
+            distinct_id = row[distinct_id_col].strip()
+            if distinct_id != "":
+                distinct_ids.append(distinct_id)
+
+        if skipped_rows > 0:
+            logger.info(f"Skipped {skipped_rows} rows with incorrect column count in CSV for cohort {cohort_pk}")
+
+        return distinct_ids
+
+    def _validate_and_process_distinct_ids(self, distinct_ids: list[str], cohort: Cohort) -> None:
+        """Final validation and task scheduling"""
+        if not distinct_ids:
+            raise ValidationError({"csv": [CSVConfig.ErrorMessages.NO_VALID_IDS]})
+
+        logger.info(f"Processing CSV upload for cohort {cohort.pk} with {len(distinct_ids)} distinct IDs")
         calculate_cohort_from_list.delay(cohort.pk, distinct_ids, team_id=self.context["team_id"])
+
+    def _handle_csv_errors(self, e: Exception, cohort: Cohort) -> None:
+        """Centralized error handling with consistent exception capture"""
+
+        if isinstance(e, UnicodeDecodeError):
+            raise ValidationError({"csv": [CSVConfig.ErrorMessages.ENCODING_ERROR]})
+        elif isinstance(e, csv.Error):
+            capture_exception(e, additional_properties={"cohort_id": cohort.pk, "team_id": self.context["team_id"]})
+            raise ValidationError({"csv": [CSVConfig.ErrorMessages.FORMAT_ERROR]})
+        elif isinstance(e, ValidationError):
+            # If it's already a ValidationError, just re-raise it to preserve format
+            raise
+        else:
+            capture_exception(e, additional_properties={"cohort_id": cohort.pk, "team_id": self.context["team_id"]})
+            raise ValidationError({"csv": [CSVConfig.ErrorMessages.GENERIC_ERROR]})
+
+    def _calculate_static_by_csv(self, file, cohort: Cohort) -> None:
+        """Main orchestration method for CSV processing - clear high-level flow"""
+        try:
+            first_row, reader = self._parse_csv_file(file)
+
+            if self._is_single_column_format(first_row):
+                distinct_ids = self._extract_distinct_ids_single_column(first_row, reader)
+            else:
+                distinct_id_col = self._find_distinct_id_column(first_row)
+                if distinct_id_col is None:
+                    available_headers = [h for h in first_row if h.strip()]
+                    raise ValidationError(
+                        {
+                            "csv": [
+                                CSVConfig.ErrorMessages.MISSING_DISTINCT_ID.format(
+                                    columns=", ".join(available_headers) if available_headers else "none"
+                                )
+                            ]
+                        }
+                    )
+
+                distinct_ids = self._extract_distinct_ids_multi_column(reader, distinct_id_col, cohort.pk)
+
+            self._validate_and_process_distinct_ids(distinct_ids, cohort)
+
+        except Exception as e:
+            self._handle_csv_errors(e, cohort)
 
     def validate_query(self, query: Optional[dict]) -> Optional[dict]:
         if not query:
@@ -365,6 +515,8 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort.groups = validated_data.get("groups", cohort.groups)
         cohort.is_static = validated_data.get("is_static", cohort.is_static)
         cohort.filters = validated_data.get("filters", cohort.filters)
+        cohort.cohort_type = validated_data.get("cohort_type", cohort.cohort_type)
+
         deleted_state = validated_data.get("deleted", None)
 
         is_deletion_change = deleted_state is not None and cohort.deleted != deleted_state

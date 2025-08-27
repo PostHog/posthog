@@ -1,6 +1,8 @@
 from typing import cast
-from unittest.mock import patch
 from uuid import uuid4
+
+from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
@@ -9,11 +11,11 @@ from langchain_core.messages import (
 )
 from langchain_core.runnables import RunnableLambda
 
+from posthog.schema import AssistantMessage, AssistantToolCallMessage, HumanMessage
+
 from ee.hogai.graph.inkeep_docs.nodes import InkeepDocsNode
 from ee.hogai.graph.inkeep_docs.prompts import INKEEP_DATA_CONTINUATION_PHRASE
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from posthog.schema import AssistantMessage, AssistantToolCallMessage, HumanMessage
-from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 
 class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
@@ -143,7 +145,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
             self.assertEqual(first_message.tool_call_id, test_tool_call_id)
 
             # Check that the output state resets tool_call_id
-            self.assertEqual(next_state.root_tool_call_id, "")
+            self.assertEqual(next_state.root_tool_call_id, None)
 
     def test_message_id_generation(self):
         """Test that each message gets a unique UUID."""
@@ -165,3 +167,16 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
             self.assertIsNotNone(first_message.id)
             self.assertIsNotNone(second_message.id)
             self.assertNotEqual(first_message.id, second_message.id)
+
+    def test_truncates_messages_after_limit(self):
+        """Inkeep accepts maximum 30 messages"""
+        node = InkeepDocsNode(self.team, self.user)
+        state = AssistantState(
+            messages=[HumanMessage(content=str(i)) for i in range(31)],
+            root_tool_call_id="test-id",
+        )
+        next_state = node._construct_messages(state)
+        self.assertEqual(len(next_state), 30)
+        self.assertEqual(next_state[0].type, "system")
+        self.assertEqual(next_state[1].content, "2")
+        self.assertEqual(next_state[-1].content, "30")

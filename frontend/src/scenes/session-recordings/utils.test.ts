@@ -1,8 +1,8 @@
-import { quickEmojis } from 'scenes/session-recordings/player/commenting/playerFrameCommentOverlayLogic'
+import { defaultQuickEmojis } from 'lib/lemon-ui/LemonTextArea/emojiUsageLogic'
 import { isSingleEmoji } from 'scenes/session-recordings/utils'
 
 describe('session recording utils', () => {
-    quickEmojis.forEach((quickEmoji) => {
+    defaultQuickEmojis.forEach((quickEmoji) => {
         it(`can check ${quickEmoji} is a single emoji`, () => {
             expect(isSingleEmoji(quickEmoji)).toBe(true)
         })

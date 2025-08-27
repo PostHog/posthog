@@ -1,13 +1,14 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { windowValues } from 'kea-window-values'
+
 import api from 'lib/api'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -36,6 +37,7 @@ export const navigationLogic = kea<navigationLogicType>([
         toggleProjectSwitcher: true,
         hideProjectSwitcher: true,
         closeProjectNotice: (projectNoticeVariant: ProjectNoticeVariant) => ({ projectNoticeVariant }),
+        acknowledgeFeaturePreviewChange: true,
     }),
     loaders({
         navigationStatus: [
@@ -75,6 +77,14 @@ export const navigationLogic = kea<navigationLogicType>([
             { persist: true },
             {
                 closeProjectNotice: (state, { projectNoticeVariant }) => ({ ...state, [projectNoticeVariant]: true }),
+            },
+        ],
+        // TODO: Remove this in a while so all users have acknowledged the change
+        featurePreviewChangeAcknowledged: [
+            false,
+            { persist: true },
+            {
+                acknowledgeFeaturePreviewChange: () => true,
             },
         ],
     }),

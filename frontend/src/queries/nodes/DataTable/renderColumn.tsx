@@ -1,10 +1,11 @@
 import { combineUrl, router } from 'kea-router'
+
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { Property } from 'lib/components/Property'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -23,7 +24,7 @@ import {
     HasPropertiesNode,
     LLMTracePerson,
 } from '~/queries/schema/schema-general'
-import { QueryContext } from '~/queries/types'
+import { QueryContext, QueryContextColumn } from '~/queries/types'
 import {
     isActorsQuery,
     isEventsQuery,
@@ -36,6 +37,24 @@ import {
 } from '~/queries/utils'
 import { AnyPropertyFilter, EventType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 
+import { extractExpressionComment, removeExpressionComment } from './utils'
+
+export function getContextColumn(
+    key: string,
+    columns?: QueryContext<DataTableNode>['columns']
+): {
+    queryContextColumnName: string | undefined
+    queryContextColumn: QueryContextColumn | undefined
+} {
+    const queryContextColumnName = key.startsWith('context.columns.') ? trimQuotes(key.substring(16)) : undefined
+    const queryContextColumn = queryContextColumnName ? columns?.[queryContextColumnName] : undefined
+
+    return {
+        queryContextColumnName,
+        queryContextColumn,
+    }
+}
+
 export function renderColumn(
     key: string,
     value: any,
@@ -46,9 +65,8 @@ export function renderColumn(
     setQuery?: (query: DataTableNode) => void,
     context?: QueryContext<DataTableNode>
 ): JSX.Element | string {
-    const queryContextColumnName = key.startsWith('context.columns.') ? trimQuotes(key.substring(16)) : undefined
-    const queryContextColumn = queryContextColumnName ? context?.columns?.[queryContextColumnName] : undefined
-    key = key.split('--')[0].trim()
+    const { queryContextColumnName, queryContextColumn } = getContextColumn(key, context?.columns)
+    key = isGroupsQuery(query.source) ? extractExpressionComment(key) : removeExpressionComment(key)
 
     if (value === loadingColumn) {
         return <Spinner />
@@ -130,7 +148,13 @@ export function renderColumn(
         const eventRecord = query.source.select.includes('*') ? resultRow[query.source.select.indexOf('*')] : null
 
         if (value === '$autocapture' && eventRecord) {
-            return autoCaptureEventToDescription(eventRecord)
+            return (
+                <PropertyKeyInfo
+                    value={value}
+                    displayText={autoCaptureEventToDescription(eventRecord)}
+                    type={TaxonomicFilterGroupType.Events}
+                />
+            )
         }
         const content = <PropertyKeyInfo value={value} type={TaxonomicFilterGroupType.Events} />
         const $sentry_url = eventRecord?.properties?.$sentry_url
@@ -145,7 +169,7 @@ export function renderColumn(
         return <TZLabel time={value} showSeconds />
     } else if (!Array.isArray(record) && key.startsWith('properties.')) {
         // TODO: remove after removing the old events table
-        const propertyKey = trimQuotes(key.substring(11))
+        const propertyKey = trimQuotes(key.substring('properties.'.length))
         if (setQuery && (isEventsQuery(query.source) || isPersonsNode(query.source)) && query.showPropertyFilter) {
             const newProperty: AnyPropertyFilter = {
                 key: propertyKey,
@@ -265,11 +289,13 @@ export function renderColumn(
 
         return <PersonDisplay {...displayProps} />
     } else if (key === 'person_display_name') {
+        // Hide the popover on people list only
+        const noPopover = isActorsQuery(query.source)
         const displayProps: PersonDisplayProps = {
             withIcon: true,
             person: { id: value.id },
             displayName: value.display_name,
-            noPopover: true,
+            noPopover,
         }
         return <PersonDisplay {...displayProps} />
     } else if (key === 'group' && typeof value === 'object') {
@@ -296,11 +322,30 @@ export function renderColumn(
         ) : (
             String(value)
         )
+    } else if (
+        isGroupsQuery(query.source) &&
+        key.startsWith('properties.') &&
+        context?.columns?.[trimQuotes(key.substring('properties.'.length))]?.render
+    ) {
+        const propertyName = trimQuotes(key.substring('properties.'.length))
+        const Component = context?.columns?.[propertyName].render
+        return Component ? (
+            <Component
+                record={record}
+                columnName={propertyName}
+                value={value}
+                query={query}
+                recordIndex={recordIndex}
+                rowCount={rowCount}
+            />
+        ) : (
+            String(value)
+        )
     } else if (key === 'id' && (isPersonsNode(query.source) || isActorsQuery(query.source))) {
         return (
             <CopyToClipboardInline
                 explicitValue={String(value)}
-                iconStyle={{ color: 'var(--accent)' }}
+                iconStyle={{ color: 'var(--color-accent)' }}
                 description="person id"
             >
                 {String(value)}
@@ -310,7 +355,7 @@ export function renderColumn(
         return (
             <CopyToClipboardInline
                 explicitValue={String(value)}
-                iconStyle={{ color: 'var(--accent)' }}
+                iconStyle={{ color: 'var(--color-accent)' }}
                 description="group id"
             >
                 {String(value)}
@@ -332,5 +377,6 @@ export function renderColumn(
             // do nothing
         }
     }
+
     return String(value)
 }

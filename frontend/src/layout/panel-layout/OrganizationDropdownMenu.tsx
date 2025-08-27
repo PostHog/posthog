@@ -1,29 +1,36 @@
-import { IconCheck, IconPlusSmall } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+
+import { IconCheck, IconPlusSmall } from '@posthog/icons'
+
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
-import { IconBlank } from 'lib/lemon-ui/icons'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { IconBlank } from 'lib/lemon-ui/icons'
+import { ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
 import { Combobox } from 'lib/ui/Combobox/Combobox'
+import { DropdownMenuOpenIndicator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
 import {
     PopoverPrimitive,
     PopoverPrimitiveContent,
     PopoverPrimitiveTrigger,
 } from 'lib/ui/PopoverPrimitive/PopoverPrimitive'
-import { organizationLogic } from 'scenes/organizationLogic'
+import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { globalModalsLogic } from '~/layout/GlobalModals'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
-import { AccessLevelIndicator } from '~/layout/navigation/OrganizationSwitcher'
 import { AvailableFeature } from '~/types'
 
-import { DropdownMenuOpenIndicator } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { AccessLevelIndicator } from '../navigation/AccessLevelIndicator'
 import { panelLayoutLogic } from './panelLayoutLogic'
 
-export function OrganizationDropdownMenu(): JSX.Element {
+export function OrganizationDropdownMenu({
+    buttonProps = { className: 'font-semibold' },
+}: {
+    buttonProps?: ButtonPrimitiveProps
+}): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { otherOrganizations } = useValues(userLogic)
     const { updateCurrentOrganization } = useActions(userLogic)
@@ -38,10 +45,11 @@ export function OrganizationDropdownMenu(): JSX.Element {
             <PopoverPrimitive>
                 <PopoverPrimitiveTrigger asChild>
                     <ButtonPrimitive
-                        className="max-w-[210px]"
                         iconOnly={isLayoutNavCollapsed ? true : false}
                         data-attr="tree-navbar-organization-dropdown-button"
                         size="sm"
+                        {...buttonProps}
+                        className={cn('max-w-[178px]', buttonProps.className)}
                     >
                         {currentOrganization ? (
                             <UploadedLogo

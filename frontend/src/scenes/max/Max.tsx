@@ -1,3 +1,7 @@
+import clsx from 'clsx'
+import { BindLogic, useActions, useValues } from 'kea'
+import React from 'react'
+
 import {
     IconArrowLeft,
     IconChevronLeft,
@@ -9,14 +13,13 @@ import {
     IconSidePanel,
 } from '@posthog/icons'
 import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
 
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconArrowUp } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import React from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -24,19 +27,17 @@ import { SidePanelPaneHeader } from '~/layout/navigation-3000/sidepanel/componen
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { SidePanelTab } from '~/types'
 
-import clsx from 'clsx'
-import { IconArrowUp } from 'lib/lemon-ui/icons'
+import { ConversationHistory } from './ConversationHistory'
+import { HistoryPreview } from './HistoryPreview'
+import { Intro } from './Intro'
+import { Thread } from './Thread'
 import { AnimatedBackButton } from './components/AnimatedBackButton'
 import { SidebarQuestionInput } from './components/SidebarQuestionInput'
 import { SidebarQuestionInputWithSuggestions } from './components/SidebarQuestionInputWithSuggestions'
 import { ThreadAutoScroller } from './components/ThreadAutoScroller'
-import { ConversationHistory } from './ConversationHistory'
-import { HistoryPreview } from './HistoryPreview'
-import { Intro } from './Intro'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
-import { maxThreadLogic, MaxThreadLogicProps } from './maxThreadLogic'
-import { Thread } from './Thread'
+import { MaxThreadLogicProps, maxThreadLogic } from './maxThreadLogic'
 
 export const scene: SceneExport = {
     component: Max,
@@ -161,7 +162,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                             </AnimatedBackButton>
                             {chatTitle ? (
                                 <h3
-                                    className="flex items-center font-semibold mb-0 line-clamp-1 text-sm ml-1"
+                                    className="flex items-center font-semibold mb-0 line-clamp-1 text-sm ml-1 leading-[1.1]"
                                     title={chatTitle !== 'Max AI' ? chatTitle : undefined}
                                 >
                                     {chatTitle !== 'Max AI' ? (

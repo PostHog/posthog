@@ -1,20 +1,7 @@
+from datetime import datetime
 from typing import Any, cast
 
 from freezegun import freeze_time
-from datetime import datetime
-from posthog.hogql import ast
-from posthog.hogql.ast import CompareOperationOp
-from posthog.hogql_queries.events_query_runner import EventsQueryRunner
-from posthog.models import Person, Team, Element
-from posthog.models.organization import Organization
-from posthog.schema import (
-    CachedEventsQueryResponse,
-    EventMetadataPropertyFilter,
-    EventsQuery,
-    EventPropertyFilter,
-    HogQLQueryModifiers,
-    PropertyOperator,
-)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -24,6 +11,22 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+
+from posthog.schema import (
+    CachedEventsQueryResponse,
+    EventMetadataPropertyFilter,
+    EventPropertyFilter,
+    EventsQuery,
+    HogQLQueryModifiers,
+    PropertyOperator,
+)
+
+from posthog.hogql import ast
+from posthog.hogql.ast import CompareOperationOp
+
+from posthog.hogql_queries.events_query_runner import EventsQueryRunner
+from posthog.models import Element, Person, Team
+from posthog.models.organization import Organization
 
 
 class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -696,3 +699,53 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = runner.run()
         assert isinstance(response, CachedEventsQueryResponse)
         assert response.results[0][2] == "Organic Social"
+
+    def test_orderby_person_display_name_field(self):
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["id_email", "id_anon"],
+            properties={"email": "user@email.com", "name": "Test User"},
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["id_email_2", "id_anon_2"],
+            properties={"email": "user2@email.com", "name": "Test User 2"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="id_email",
+            properties={},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="id_email_2",
+            properties={},
+        )
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="id_email_2",
+            properties={},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="id_anon",
+            properties={},
+        )
+        flush_persons_and_events()
+
+        query = EventsQuery(
+            kind="EventsQuery",
+            select=["event", "person_display_name -- Person"],
+            orderBy=["person_display_name -- Person  DESC"],
+        )
+        runner = EventsQueryRunner(query=query, team=self.team)
+        response = runner.run()
+        assert isinstance(response, CachedEventsQueryResponse)
+        # Should use default display name property (email)
+        display_names = [row[1]["display_name"] for row in response.results]
+        assert display_names[0] == "user@email.com"

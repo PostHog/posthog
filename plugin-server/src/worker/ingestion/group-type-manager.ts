@@ -13,11 +13,13 @@ export type GroupTypesByProjectId = Record<ProjectId, GroupTypeToColumnIndex>
 export class GroupTypeManager {
     private loader: LazyLoader<GroupTypeToColumnIndex>
 
-    constructor(private postgres: PostgresRouter, private teamManager: TeamManager) {
+    constructor(
+        private postgres: PostgresRouter,
+        private teamManager: TeamManager
+    ) {
         this.loader = new LazyLoader({
             name: 'GroupTypeManager',
-            refreshAge: 30_000, // 30 seconds
-            refreshNullAge: 30_000, // 30 seconds
+            refreshAgeMs: 30_000, // 30 seconds
             refreshJitterMs: 0,
             loader: async (projectIds: string[]) => {
                 const response: Record<string, GroupTypeToColumnIndex> = {}
@@ -98,8 +100,8 @@ export class GroupTypeManager {
             PostgresUse.PERSONS_WRITE,
             `
             WITH insert_result AS (
-                INSERT INTO posthog_grouptypemapping (team_id, project_id, group_type, group_type_index)
-                VALUES ($1, $2, $3, $4)
+                INSERT INTO posthog_grouptypemapping (team_id, project_id, group_type, group_type_index, created_at)
+                VALUES ($1, $2, $3, $4, $5)
                 ON CONFLICT DO NOTHING
                 RETURNING group_type_index
             )
@@ -107,7 +109,7 @@ export class GroupTypeManager {
             UNION
             SELECT group_type_index, 0 AS is_insert FROM posthog_grouptypemapping WHERE project_id = $2 AND group_type = $3;
             `,
-            [teamId, projectId, groupType, index],
+            [teamId, projectId, groupType, index, new Date()],
             'insertGroupType'
         )
 

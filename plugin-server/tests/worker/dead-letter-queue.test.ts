@@ -1,14 +1,17 @@
+import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
-import { MeasuringPersonsStoreForBatch } from '~/worker/ingestion/persons/measuring-person-store'
+import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
 
 import { Hub, LogLevel, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { UUIDT } from '../../src/utils/utils'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
 import { BatchWritingGroupStoreForBatch } from '../../src/worker/ingestion/groups/batch-writing-group-store'
+import { PostgresPersonRepository } from '../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 import { generateEventDeadLetterQueueMessage } from '../../src/worker/ingestion/utils'
-import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
+import { forSnapshot } from '../helpers/snapshots'
 import { createOrganization, createTeam, getTeam, resetTestDatabase } from '../helpers/sql'
 
 jest.setTimeout(60000) // 60 sec timeout
@@ -53,7 +56,6 @@ describe('events dead letter queue', () => {
         hub = await createHub({ LOG_LEVEL: LogLevel.Info })
         console.warn = jest.fn() as any
         await resetTestDatabase()
-        await resetTestDatabaseClickhouse()
     })
 
     afterEach(async () => {
@@ -65,8 +67,15 @@ describe('events dead letter queue', () => {
         const teamId = await createTeam(hub.postgres, orgId)
         const team = (await getTeam(hub, teamId))!
         const event = createEvent(team)
-        const personsStoreForBatch = new MeasuringPersonsStoreForBatch(hub.db)
-        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
+        const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(
+            new PostgresPersonRepository(hub.db.postgres),
+            hub.kafkaProducer
+        )
+        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(
+            hub.db,
+            hub.groupRepository,
+            hub.clickhouseGroupRepository
+        )
         const ingestResponse1 = await new EventPipelineRunner(
             hub,
             event,
@@ -82,18 +91,27 @@ describe('events dead letter queue', () => {
         })
         expect(generateEventDeadLetterQueueMessage).toHaveBeenCalled()
 
-        await delayUntilEventIngested(() => hub.db.fetchDeadLetterQueueEvents(), 1)
-
-        const deadLetterQueueEvents = await hub.db.fetchDeadLetterQueueEvents()
-
-        expect(deadLetterQueueEvents.length).toEqual(1)
-
-        const dlqEvent = deadLetterQueueEvents[0]
-        expect(dlqEvent.event).toEqual('default event')
-        expect(dlqEvent.team_id).toEqual(teamId)
-        expect(dlqEvent.error_location).toEqual('plugin_server_ingest_event:prepareEventStep')
-        expect(dlqEvent.error).toEqual('Event ingestion failed. Error: database unavailable')
-        expect(dlqEvent.properties).toEqual(JSON.stringify({ key: 'value', $ip: '127.0.0.1' }))
-        expect(dlqEvent.event_uuid).toEqual(EVENT_UUID)
+        expect(
+            forSnapshot(mockProducerObserver.getProducedKafkaMessagesForTopic('events_dead_letter_queue_test'))
+        ).toMatchObject([
+            {
+                topic: 'events_dead_letter_queue_test',
+                value: {
+                    distinct_id: 'my_id',
+                    error: 'Event ingestion failed. Error: database unavailable',
+                    error_location: 'plugin_server_ingest_event:prepareEventStep',
+                    event: 'default event',
+                    event_uuid: '<REPLACED-UUID-0>',
+                    id: '<REPLACED-UUID-1>',
+                    ip: '127.0.0.1',
+                    now: expect.any(String),
+                    properties: `{"key":"value","$ip":"127.0.0.1"}`,
+                    site_url: 'http://localhost',
+                    tags: ['plugin_server', 'ingest_event'],
+                    team_id: teamId,
+                    uuid: '<REPLACED-UUID-0>',
+                },
+            },
+        ])
     })
 })

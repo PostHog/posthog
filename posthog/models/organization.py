@@ -2,27 +2,24 @@ import sys
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Optional, TypedDict, Union
 
-import structlog
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
+from django.core.cache import cache
 from django.db import models, transaction
 from django.db.models.query import QuerySet
 from django.db.models.query_utils import Q
+from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
+
+import structlog
 from rest_framework import exceptions
-from posthog.models.personal_api_key import PersonalAPIKey
-from django.db.models.signals import post_save
-from django.core.cache import cache
 
 from posthog.cloud_utils import is_cloud
 from posthog.constants import INVITE_DAYS_VALIDITY, MAX_SLUG_LENGTH, AvailableFeature
-from posthog.models.utils import (
-    LowercaseSlugField,
-    UUIDModel,
-    create_with_slug,
-    sane_repr,
-)
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import LowercaseSlugField, UUIDTModel, create_with_slug, sane_repr
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -43,7 +40,9 @@ class OrganizationUsageInfo(TypedDict):
     events: Optional[OrganizationUsageResource]
     exceptions: Optional[OrganizationUsageResource]
     recordings: Optional[OrganizationUsageResource]
+    surveys: Optional[OrganizationUsageResource]
     rows_synced: Optional[OrganizationUsageResource]
+    cdp_invocations: Optional[OrganizationUsageResource]
     feature_flag_requests: Optional[OrganizationUsageResource]
     api_queries_read_bytes: Optional[OrganizationUsageResource]
     period: Optional[list[str]]
@@ -94,7 +93,7 @@ class OrganizationManager(models.Manager):
         return organization, organization_membership, team
 
 
-class Organization(UUIDModel):
+class Organization(ModelActivityMixin, UUIDTModel):
     class Meta:
         constraints = [
             models.UniqueConstraint(
@@ -127,26 +126,41 @@ class Organization(UUIDModel):
         related_name="organizations",
         related_query_name="organization",
     )
+
+    # General settings
     name = models.CharField(max_length=64)
     slug: LowercaseSlugField = LowercaseSlugField(unique=True, max_length=MAX_SLUG_LENGTH)
     logo_media = models.ForeignKey("posthog.UploadedMedia", on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    plugins_access_level = models.PositiveSmallIntegerField(
-        default=PluginsAccessLevel.CONFIG,
-        choices=PluginsAccessLevel.choices,
-    )
+
+    # Security / management settings
     session_cookie_age = models.IntegerField(
         null=True,
         blank=True,
         help_text="Custom session cookie age in seconds. If not set, the global setting SESSION_COOKIE_AGE will be used.",
     )
-    for_internal_metrics = models.BooleanField(default=False)
     is_member_join_email_enabled = models.BooleanField(default=True)
     is_ai_data_processing_approved = models.BooleanField(null=True, blank=True)
     enforce_2fa = models.BooleanField(null=True, blank=True)
     members_can_invite = models.BooleanField(default=True, null=True, blank=True)
     members_can_use_personal_api_keys = models.BooleanField(default=True)
+    allow_publicly_shared_resources = models.BooleanField(default=True)
+    default_role = models.ForeignKey(
+        "ee.Role",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="default_for_organizations",
+        help_text="Role automatically assigned to new members joining the organization",
+    )
+
+    # Misc
+    plugins_access_level = models.PositiveSmallIntegerField(
+        default=PluginsAccessLevel.CONFIG,
+        choices=PluginsAccessLevel.choices,
+    )
+    for_internal_metrics = models.BooleanField(default=False)
     default_experiment_stats_method = models.CharField(
         max_length=20,
         choices=DefaultExperimentStatsMethod.choices,
@@ -155,7 +169,6 @@ class Organization(UUIDModel):
         null=True,
         blank=True,
     )
-
     is_hipaa = models.BooleanField(default=False, null=True, blank=True)
 
     ## Managed by Billing
@@ -275,7 +288,7 @@ def organization_about_to_be_created(sender, instance: Organization, raw, using,
             instance.plugins_access_level = Organization.PluginsAccessLevel.ROOT
 
 
-class OrganizationMembership(UUIDModel):
+class OrganizationMembership(ModelActivityMixin, UUIDTModel):
     class Level(models.IntegerChoices):
         """Keep in sync with TeamMembership.Level (only difference being projects not having an Owner)."""
 
@@ -377,6 +390,22 @@ class OrganizationMembership(UUIDModel):
             "keys": keys_data,
             "team_ids": team_ids,
         }
+
+    def delete(self, *args, **kwargs):
+        from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
+        from posthog.models.signals import model_activity_signal
+
+        model_activity_signal.send(
+            sender=self.__class__,
+            scope=self.__class__.__name__,
+            before_update=self,
+            after_update=None,
+            activity="deleted",
+            user=get_current_user(),
+            was_impersonated=get_was_impersonated(),
+        )
+
+        return super().delete(*args, **kwargs)
 
     __repr__ = sane_repr("organization", "user", "level")
 

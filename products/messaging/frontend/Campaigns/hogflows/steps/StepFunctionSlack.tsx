@@ -1,16 +1,18 @@
 import { Node } from '@xyflow/react'
 
+import { IconSlack } from 'lib/lemon-ui/icons/icons'
+
 import { HogFlowAction } from '../types'
+import { StepFunctionConfiguration } from './StepFunction'
 import { StepView } from './components/StepView'
 import { HogFlowStep, HogFlowStepNodeProps } from './types'
-import { StepFunctionConfiguration } from './StepFunction'
-import { IconSlack } from 'lib/lemon-ui/icons/icons'
 
 export const StepFunctionSlack: HogFlowStep<'function_slack'> = {
     type: 'function_slack',
     name: 'Slack',
     description: 'Send a message to a Slack channel.',
     icon: <IconSlack />,
+    color: '#000000',
     renderNode: (props) => <StepFunctionSlackNode {...props} />,
     renderConfiguration: (node) => <StepFunctionSlackConfiguration node={node} />,
     create: () => {
@@ -21,7 +23,7 @@ export const StepFunctionSlack: HogFlowStep<'function_slack'> = {
                 type: 'function_slack',
                 on_error: 'continue',
                 config: {
-                    template_id: 'template-hogflow-send-message-slack',
+                    template_id: 'template-slack',
                     inputs: {},
                 },
             },

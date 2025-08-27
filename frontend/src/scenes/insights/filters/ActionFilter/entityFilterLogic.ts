@@ -1,9 +1,10 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
 import { defaultDataWarehousePopoverFields } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
 import { uuid } from 'lib/utils'
-import { eventUsageLogic, GraphSeriesAddedSource } from 'lib/utils/eventUsageLogic'
+import { GraphSeriesAddedSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getDefaultEventLabel, getDefaultEventName } from 'lib/utils/getAppContext'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 

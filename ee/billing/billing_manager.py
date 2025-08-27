@@ -1,25 +1,27 @@
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any, Optional, cast
+
+from django.conf import settings
+from django.db.models import F
+from django.utils import timezone
 
 import jwt
 import requests
 import structlog
-from django.conf import settings
-from django.db.models import F
-from django.utils import timezone
 from requests import JSONDecodeError
 from rest_framework.exceptions import NotAuthenticated
 
-from ee.billing.billing_types import BillingStatus
-from ee.billing.quota_limiting import set_org_usage_summary, update_org_billing_quotas
-from ee.models import License
-from ee.settings import BILLING_SERVICE_URL
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
 from posthog.models.user import User
+
+from ee.billing.billing_types import BillingStatus
+from ee.billing.quota_limiting import set_org_usage_summary, update_org_billing_quotas
+from ee.models import License
+from ee.settings import BILLING_SERVICE_URL
 
 logger = structlog.get_logger(__name__)
 
@@ -325,7 +327,9 @@ class BillingManager:
                 events=usage_summary["events"],
                 exceptions=usage_summary.get("exceptions", {}),
                 recordings=usage_summary["recordings"],
+                surveys=usage_summary.get("surveys", {}),
                 rows_synced=usage_summary.get("rows_synced", {}),
+                cdp_invocations=usage_summary.get("cdp_invocations", {}),
                 feature_flag_requests=usage_summary.get("feature_flag_requests", {}),
                 api_queries_read_bytes=usage_summary.get("api_queries_read_bytes", {}),
                 period=[

@@ -36,7 +36,7 @@ use serde_json::Value;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tracing::{error, warn};
+use tracing::{error, instrument, warn};
 use uuid::Uuid;
 
 #[derive(Debug)]
@@ -217,6 +217,7 @@ impl FeatureFlagMatcher {
     /// ## Returns
     ///
     /// * `FlagsResponse` - The result containing flag evaluations and any errors.
+    #[instrument(skip_all, fields(team_id = %self.team_id, project_id = %self.project_id, distinct_id = %self.distinct_id, flags_len = feature_flags.flags.len()))]
     pub async fn evaluate_all_feature_flags(
         &mut self,
         feature_flags: FeatureFlagList,
@@ -287,6 +288,7 @@ impl FeatureFlagMatcher {
     /// Returns a tuple containing:
     /// - Option<HashMap<String, String>>: The hash key overrides if successfully retrieved, None if there was an error
     /// - bool: Whether there was an error during processing (true = error occurred)
+    #[instrument(skip_all, fields(team_id = %self.team_id, project_id = %self.project_id, distinct_id = %self.distinct_id))]
     async fn process_hash_key_override(
         &self,
         hash_key: String,
@@ -546,6 +548,7 @@ impl FeatureFlagMatcher {
 
     /// Prepares evaluation state for flags that require database properties.
     /// Returns true if there were errors during preparation.
+    #[instrument(skip_all, fields(team_id = %self.team_id, project_id = %self.project_id, distinct_id = %self.distinct_id))]
     async fn prepare_evaluation_state_if_needed(
         &mut self,
         feature_flags: &FeatureFlagList,
@@ -610,6 +613,7 @@ impl FeatureFlagMatcher {
     ///
     /// This function is designed to be used as part of a level-based evaluation strategy
     /// (e.g., Kahn's algorithm) for handling flag dependencies.
+    #[instrument(skip_all, fields(team_id = %self.team_id, project_id = %self.project_id, distinct_id = %self.distinct_id))]
     async fn evaluate_flags_in_level(
         &mut self,
         flags: &[&FeatureFlag],
@@ -785,10 +789,10 @@ impl FeatureFlagMatcher {
         property_overrides: Option<HashMap<String, Value>>,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<FeatureFlagMatch, FlagError> {
-        if self
-            .hashed_identifier(flag, hash_key_overrides.clone())?
-            .is_empty()
-        {
+        // Check if this is a group-based flag with missing group
+        let hashed_id = self.hashed_identifier(flag, hash_key_overrides.clone())?;
+        if flag.get_group_type_index().is_some() && hashed_id.is_empty() {
+            // This is a group-based flag but we don't have the group key
             return Ok(FeatureFlagMatch {
                 matches: false,
                 variant: None,
@@ -797,6 +801,7 @@ impl FeatureFlagMatcher {
                 payload: None,
             });
         }
+        // For person-based flags, empty distinct_id is valid and should continue evaluation
 
         let mut highest_match = FeatureFlagMatchReason::NoConditionMatch;
         let mut highest_index = None;
@@ -1075,18 +1080,16 @@ impl FeatureFlagMatcher {
                 let condition = &holdout_groups[0];
                 // TODO: Check properties and match based on them
 
-                if condition
-                    .properties
-                    .as_ref()
-                    .map_or(false, |p| !p.is_empty())
-                {
+                if condition.properties.as_ref().is_some_and(|p| !p.is_empty()) {
                     return Ok((false, None, FeatureFlagMatchReason::NoConditionMatch));
                 }
 
                 let rollout_percentage = condition.rollout_percentage;
 
                 if let Some(percentage) = rollout_percentage {
-                    if self.get_holdout_hash(flag, None)? > (percentage / 100.0) {
+                    if percentage < 100.0
+                        && self.get_holdout_hash(flag, None)? > (percentage / 100.0)
+                    {
                         // If hash is greater than percentage, we're OUT of holdout
                         return Ok((false, None, FeatureFlagMatchReason::OutOfRolloutBound));
                     }
@@ -1133,7 +1136,7 @@ impl FeatureFlagMatcher {
             let merged_properties = self.get_person_properties(property_overrides)?;
 
             let has_relevant_super_condition_properties =
-                super_condition.properties.as_ref().map_or(false, |props| {
+                super_condition.properties.as_ref().is_some_and(|props| {
                     props
                         .iter()
                         .any(|prop| merged_properties.contains_key(&prop.key))
@@ -1247,8 +1250,11 @@ impl FeatureFlagMatcher {
         rollout_percentage: f64,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<(bool, FeatureFlagMatchReason), FlagError> {
+        if rollout_percentage == 100.0 {
+            return Ok((true, FeatureFlagMatchReason::ConditionMatch));
+        }
         let hash = self.get_hash(feature_flag, "", hash_key_overrides)?;
-        if rollout_percentage == 100.0 || hash <= (rollout_percentage / 100.0) {
+        if hash <= (rollout_percentage / 100.0) {
             Ok((true, FeatureFlagMatchReason::ConditionMatch))
         } else {
             Ok((false, FeatureFlagMatchReason::OutOfRolloutBound))
@@ -1418,6 +1424,7 @@ impl FeatureFlagMatcher {
             // i just want to be able to differentiate between no properties because we fetched no properties,
             // and no properties because we failed to fetch
             // maybe I need a fetch indicator in the cache?
+            tracing::warn!("Person properties not found in evaluation state cache");
             Err(FlagError::PersonNotFound)
         }
     }

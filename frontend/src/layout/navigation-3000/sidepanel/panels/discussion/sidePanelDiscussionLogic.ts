@@ -1,6 +1,7 @@
 import { actions, connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
+
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -34,6 +35,7 @@ export const sidePanelDiscussionLogic = kea<sidePanelDiscussionLogicType>([
                     await breakpoint(100)
                     const response = await api.comments.getCount({
                         ...values.commentsLogicProps,
+                        exclude_emoji_reactions: true,
                     })
 
                     breakpoint()
@@ -58,6 +60,7 @@ export const sidePanelDiscussionLogic = kea<sidePanelDiscussionLogicType>([
                     ? {
                           scope: sceneSidePanelContext.activity_scope,
                           item_id: sceneSidePanelContext.activity_item_id,
+                          item_context: sceneSidePanelContext.activity_item_context,
                           disabled: sceneSidePanelContext.discussions_disabled,
                       }
                     : null

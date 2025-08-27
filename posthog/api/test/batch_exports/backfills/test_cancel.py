@@ -1,9 +1,11 @@
+import time
 import asyncio
 import datetime as dt
-import time
-from unittest.mock import patch
 
 import pytest
+from posthog.test.base import _create_event
+from unittest.mock import patch
+
 from django.test.client import Client as HttpClient
 
 from posthog.api.test.batch_exports.conftest import start_test_worker
@@ -17,7 +19,6 @@ from posthog.api.test.batch_exports.operations import (
 )
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.test.base import _create_event
 
 
 def wait_for_backfill_creation(client: HttpClient, team_id: int, batch_export_id: str):
@@ -59,12 +60,10 @@ def test_cancelling_a_batch_export_backfill(client: HttpClient, temporal):
     user = create_user("test@user.com", "Test User", organization)
     client.force_login(user)
 
-    with patch(
-        "products.batch_exports.backend.temporal.destinations.s3_batch_export.Producer.start"
-    ) as mock_producer_start:
+    with patch("products.batch_exports.backend.temporal.pipeline.producer.Producer.start") as mock_producer_start:
         # Mock the producer to sleep so we can test cancellation
         async def mock_sleep(*args, **kwargs):
-            await asyncio.sleep(5)
+            await asyncio.sleep(30)
             return None
 
         mock_producer_start.side_effect = mock_sleep

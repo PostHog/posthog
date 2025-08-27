@@ -48,9 +48,9 @@ jobs:
                     - image: log-capture
                       dockerfile: ./rust/Dockerfile
                       project: c1bwj4j4qg
-                    - image: links
+                    - image: kafka-deduplicator
                       dockerfile: ./rust/Dockerfile
-                      project: c1bwj4j4qg
+                      project: vznmbshh6q
         runs-on: depot-ubuntu-22.04
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
@@ -69,7 +69,7 @@ jobs:
             cymbal_digest: ${{ steps.digest.outputs.cymbal_digest }}
             feature-flags_digest: ${{ steps.digest.outputs.feature-flags_digest }}
             log-capture_digest: ${{ steps.digest.outputs.log-capture_digest }}
-            links_digest: ${{ steps.digest.outputs.links_digest }}
+            kafka-deduplicator_digest: ${{ steps.digest.outputs.kafka-deduplicator_digest }}
         defaults:
             run:
                 working-directory: rust
@@ -79,7 +79,7 @@ jobs:
               # Checkout project code
               # Use sparse checkout to only select files in rust directory
               # Turning off cone mode ensures that files in the project root are not included during checkout
-              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+              uses: actions/checkout@v4
               with:
                   sparse-checkout: 'rust/'
                   sparse-checkout-cone-mode: false
@@ -197,10 +197,10 @@ jobs:
                       values:
                           image:
                               sha: '${{ needs.build.outputs.log-capture_digest }}'
-                    - release: links
+                    - release: kafka-deduplicator
                       values:
                           image:
-                              sha: '${{ needs.build.outputs.links_digest }}'
+                              sha: '${{ needs.build.outputs.kafka-deduplicator_digest }}'
         steps:
             - name: get deployer token
               id: deployer

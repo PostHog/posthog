@@ -1,28 +1,29 @@
 import itertools
-from datetime import timedelta, UTC, datetime
 from collections.abc import Generator
+from datetime import UTC, datetime, timedelta
 from typing import Optional
 
-from posthog.schema_migrations.upgrade_manager import upgrade_query
+from django.db.models import Q
+
 import structlog
+import posthoganalytics
 from celery import shared_task
 from celery.canvas import chain
-from django.db.models import Q
 from prometheus_client import Counter, Gauge
-from posthog.exceptions_capture import capture_exception
+
+from posthog.hogql.constants import LimitContext
 
 from posthog.api.services.query import process_query_dict
 from posthog.caching.utils import largest_teams
-from posthog.clickhouse.query_tagging import tag_queries, Feature
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
-from posthog.hogql.constants import LimitContext
-from posthog.hogql_queries.query_cache import QueryCacheManager
+from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Team, Insight, DashboardTile
-from posthog.tasks.utils import CeleryQueue
+from posthog.models import DashboardTile, Insight, Team
 from posthog.ph_client import ph_scoped_capture
-import posthoganalytics
-
+from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.tasks.utils import CeleryQueue
 
 logger = structlog.get_logger(__name__)
 
@@ -86,10 +87,10 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
         LAST_VIEWED_THRESHOLD if not shared_only else SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD
     )
 
-    QueryCacheManager.clean_up_stale_insights(team_id=team.pk, threshold=threshold)
+    QueryCacheManagerBase.clean_up_stale_insights(team_id=team.pk, threshold=threshold)
 
     # get all insights currently in the cache for the team
-    combos = QueryCacheManager.get_stale_insights(team_id=team.pk, limit=500)
+    combos = QueryCacheManagerBase.get_stale_insights(team_id=team.pk, limit=500)
 
     STALE_INSIGHTS_GAUGE.labels(team_id=team.pk).set(len(combos))
 

@@ -1,7 +1,6 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
-
-template: HogFunctionTemplate = HogFunctionTemplate(
+template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="beta",
     free=False,
     type="destination",
@@ -10,7 +9,8 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Creates a new contact in ActiveCampaign whenever an event is triggered.",
     icon_url="/static/services/activecampaign.png",
     category=["Email Marketing"],
-    hog="""
+    code_language="hog",
+    code="""
 if (empty(inputs.email)) {
     print('`email` input is empty. Not creating a contact.')
     return

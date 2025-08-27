@@ -45,7 +45,7 @@ runs:
     using: 'composite'
     steps:
         - name: Checkout
-          uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+          uses: actions/checkout@v4
 
         - name: Set up Docker Buildx
           uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3
@@ -80,9 +80,9 @@ runs:
           id: emit
           shell: bash
           run: |
-              TAGS="posthog/posthog:${{ github.sha }},${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:${{ github.sha }}"
-              if [[ "${{ inputs.push-image }}" == "true" ]]; then
-                TAGS="$TAGS,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:pr-commit-${{ github.sha }}"
+              TAGS="posthog/posthog:${{ github.sha }}"
+              if [[ -n "${{ steps.aws-ecr.outputs.registry }}" ]]; then
+                TAGS="$TAGS,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:${{ github.sha }}"
               fi
               if [[ "${{ inputs.pr-number }}" != "" ]]; then
                 TAGS="$TAGS,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:pr-${{ inputs.pr-number }}"

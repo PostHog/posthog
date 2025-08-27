@@ -1,15 +1,11 @@
+from rest_framework import mixins, status, viewsets
 from rest_framework.response import Response
-from posthog.api.utils import action
-from rest_framework import (
-    mixins,
-    viewsets,
-    status,
-)
+
 from posthog.api.cohort import CohortSerializer
+from posthog.api.feature_flag import CanEditFeatureFlag, FeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.feature_flag import FeatureFlagSerializer
-from posthog.api.feature_flag import CanEditFeatureFlag
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.utils import action
 from posthog.models import FeatureFlag, Team
 from posthog.models.cohort import Cohort, CohortOrEmpty
 from posthog.models.filters.filter import Filter
@@ -173,6 +169,7 @@ class OrganizationFeatureFlagView(
                 "rollout_percentage": flag_to_copy.rollout_percentage,
                 "ensure_experience_continuity": flag_to_copy.ensure_experience_continuity,
                 "deleted": False,
+                "evaluation_runtime": flag_to_copy.evaluation_runtime,
             }
             context = {
                 "request": request,

@@ -1,7 +1,9 @@
-import { IconCheck } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
+
+import { IconCheck } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
@@ -88,7 +90,7 @@ export function SurveyContainerAppearance({
     onAppearanceChange,
     validationErrors,
     surveyType,
-}: CommonProps): JSX.Element {
+}: CommonProps): JSX.Element | null {
     const { surveysStylingAvailable } = useValues(surveysLogic)
 
     return (

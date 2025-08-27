@@ -1,7 +1,9 @@
-import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
 import { actions, kea, listeners, path, props, reducers, selectors, useActions, useValues } from 'kea'
 import { router, urlToAction } from 'kea-router'
+
+import { IconPlusSmall } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { PageHeader } from 'lib/components/PageHeader'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -12,11 +14,12 @@ import { urls } from 'scenes/urls'
 import { Breadcrumb } from '~/types'
 
 import { CampaignsTable } from './Campaigns/CampaignsTable'
+import { MessageChannels } from './Channels/MessageChannels'
 import type { messagingSceneLogicType } from './MessagingSceneType'
-import { MessageSenders } from './Senders/MessageSenders'
+import { OptOutScene } from './OptOuts/OptOutScene'
 import { MessageTemplatesTable } from './TemplateLibrary/MessageTemplatesTable'
 
-const MESSAGING_SCENE_TABS = ['campaigns', 'library', 'senders'] as const
+const MESSAGING_SCENE_TABS = ['campaigns', 'library', 'channels', 'opt-outs'] as const
 export type MessagingSceneTab = (typeof MESSAGING_SCENE_TABS)[number]
 
 export type MessagingSceneProps = {
@@ -40,8 +43,8 @@ export const messagingSceneLogic = kea<messagingSceneLogicType>([
     selectors({
         logicProps: [() => [(_, props) => props], (props) => props],
         breadcrumbs: [
-            () => [(_, props) => props],
-            ({ tab }): Breadcrumb[] => {
+            (_, p) => [p.tab],
+            (tab): Breadcrumb[] => {
                 return [
                     {
                         key: Scene.Messaging,
@@ -75,12 +78,10 @@ export const messagingSceneLogic = kea<messagingSceneLogicType>([
     }),
 ])
 
-export const scene: SceneExport = {
+export const scene: SceneExport<MessagingSceneProps> = {
     component: MessagingScene,
     logic: messagingSceneLogic,
-    paramsToProps: ({ params: { tab } }): (typeof messagingSceneLogic)['props'] => ({
-        tab,
-    }),
+    paramsToProps: ({ params: { tab } }) => ({ tab }),
 }
 
 export function MessagingScene(): JSX.Element {
@@ -148,9 +149,14 @@ export function MessagingScene(): JSX.Element {
             ),
         },
         {
-            label: 'Senders',
-            key: 'senders',
-            content: <MessageSenders />,
+            label: 'Channels',
+            key: 'channels',
+            content: <MessageChannels />,
+        },
+        {
+            label: 'Opt-outs',
+            key: 'opt-outs',
+            content: <OptOutScene />,
         },
     ]
 

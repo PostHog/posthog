@@ -2,6 +2,8 @@ import asyncio
 from dataclasses import asdict
 from datetime import timedelta
 
+from django.conf import settings
+
 import structlog
 from asgiref.sync import async_to_sync
 from temporalio.client import (
@@ -9,21 +11,24 @@ from temporalio.client import (
     Schedule,
     ScheduleActionStartWorkflow,
     ScheduleAlreadyRunningError,
+    ScheduleCalendarSpec,
     ScheduleIntervalSpec,
+    ScheduleRange,
     ScheduleSpec,
 )
 
-from posthog.constants import MAX_AI_TASK_QUEUE, GENERAL_PURPOSE_TASK_QUEUE
+from posthog.constants import GENERAL_PURPOSE_TASK_QUEUE, MAX_AI_TASK_QUEUE
 from posthog.hogql_queries.ai.vector_search_query_runner import LATEST_ACTIONS_EMBEDDING_VERSION
 from posthog.temporal.ai import SyncVectorsInputs
 from posthog.temporal.ai.sync_vectors import EmbeddingVersion
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
-from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
-from posthog.temporal.subscriptions.subscription_scheduling_workflow import ScheduleAllSubscriptionsWorkflowInputs
 from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
-from django.conf import settings
+from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
+from posthog.temporal.salesforce_enrichment.workflow import SalesforceEnrichmentInputs
+from posthog.temporal.subscriptions.subscription_scheduling_workflow import ScheduleAllSubscriptionsWorkflowInputs
 
+from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
 
 logger = structlog.get_logger(__name__)
 
@@ -114,6 +119,37 @@ async def create_upgrade_queries_schedule(client: Client):
         await a_create_schedule(client, "upgrade-queries-schedule", upgrade_queries_schedule, trigger_immediately=False)
 
 
+async def create_salesforce_enrichment_schedule(client: Client):
+    """Create or update the schedule for the Salesforce enrichment workflow.
+
+    This schedule runs every Sunday at 2 AM UTC with default chunk size.
+    """
+    salesforce_enrichment_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "salesforce-enrichment-async",
+            SalesforceEnrichmentInputs(chunk_size=DEFAULT_CHUNK_SIZE),
+            id="salesforce-enrichment-schedule",
+            task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Sunday at 2 AM UTC",
+                    hour=[ScheduleRange(start=2, end=2)],
+                    day_of_week=[ScheduleRange(start=0, end=0)],
+                )
+            ]
+        ),
+    )
+
+    if await a_schedule_exists(client, "salesforce-enrichment-schedule"):
+        await a_update_schedule(client, "salesforce-enrichment-schedule", salesforce_enrichment_schedule)
+    else:
+        await a_create_schedule(
+            client, "salesforce-enrichment-schedule", salesforce_enrichment_schedule, trigger_immediately=False
+        )
+
+
 schedules = [
     create_sync_vectors_schedule,
     create_run_quota_limiting_schedule,
@@ -122,6 +158,8 @@ schedules = [
 
 if settings.EE_AVAILABLE:
     schedules.append(create_schedule_all_subscriptions_schedule)
+    if settings.CLOUD_DEPLOYMENT == "US":
+        schedules.append(create_salesforce_enrichment_schedule)
 
 
 async def a_init_general_queue_schedules():

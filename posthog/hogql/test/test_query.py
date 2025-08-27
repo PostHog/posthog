@@ -1,38 +1,35 @@
 import datetime
+from decimal import Decimal
+from uuid import UUID
+from zoneinfo import ZoneInfo
 
 import pytest
-from uuid import UUID
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from unittest.mock import patch
 
-from zoneinfo import ZoneInfo
 from django.test import override_settings
 from django.utils import timezone
-from freezegun import freeze_time
 
-from posthog.errors import InternalCHQueryError
+from posthog.schema import DateRange, EventPropertyFilter, HogQLFilters, QueryTiming, SessionPropertyFilter
+
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.test.utils import pretty_print_in_tests, pretty_print_response_in_tests
+from posthog.hogql.test.utils import (
+    execute_hogql_query_with_timings,
+    pretty_print_in_tests,
+    pretty_print_response_in_tests,
+)
+
+from posthog.errors import InternalCHQueryError
 from posthog.models import Cohort
-from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
 from posthog.models.cohort.util import recalculate_cohortpeople
+from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
 from posthog.models.utils import UUIDT, uuid7
-from posthog.session_recordings.queries.test.session_replay_sql import (
-    produce_replay_summary,
-)
-from posthog.schema import HogQLFilters, EventPropertyFilter, DateRange, QueryTiming, SessionPropertyFilter
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    flush_persons_and_events,
-)
-from unittest.mock import patch
-from decimal import Decimal
-from posthog.hogql.errors import ExposedHogQLError
 
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
@@ -135,7 +132,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     def test_query_timings(self):
         with freeze_time("2020-01-10"):
             random_uuid = self._create_random_events()
-            response = execute_hogql_query(
+            response = execute_hogql_query_with_timings(
                 "select count(), event from events where properties.random_uuid = {random_uuid} group by event",
                 placeholders={"random_uuid": ast.Constant(value=random_uuid)},
                 team=self.team,
@@ -1429,7 +1426,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_hogql_query_filters_double_error(self):
         query = "SELECT event from events where {filters}"
-        with self.assertRaises(ExposedHogQLError) as e:
+        with self.assertRaises(ValueError) as e:
             execute_hogql_query(
                 query,
                 team=self.team,
@@ -1438,7 +1435,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
         self.assertEqual(
             str(e.exception),
-            "Query contains 'filters' placeholder, yet filters are also provided as a standalone query parameter.",
+            "Query contains 'filters' both as placeholder and as a query parameter.",
         )
 
     def test_hogql_query_filters_alias(self):

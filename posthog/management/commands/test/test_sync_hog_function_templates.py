@@ -1,14 +1,15 @@
-from posthog.management.commands.sync_hog_function_templates import TYPES_WITH_JAVASCRIPT_SOURCE
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
 from django.core.management import call_command
 
-from posthog.models.hog_function_template import HogFunctionTemplate as DBHogFunctionTemplate
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
 from posthog.management.commands.sync_hog_function_templates import (
-    TEST_INCLUDE_PYTHON_TEMPLATE_IDS,
     TEST_INCLUDE_NODEJS_TEMPLATE_IDS,
+    TEST_INCLUDE_PYTHON_TEMPLATE_IDS,
+    TYPES_WITH_JAVASCRIPT_SOURCE,
 )
+from posthog.models.hog_function_template import HogFunctionTemplate
 
 pytestmark = pytest.mark.django_db
 
@@ -27,7 +28,7 @@ class TestSyncHogFunctionTemplates:
         call_command("sync_hog_function_templates")
 
         # Verify that the Python test template was created successfully
-        db_templates = DBHogFunctionTemplate.objects.filter(template_id__in=TEST_INCLUDE_PYTHON_TEMPLATE_IDS)
+        db_templates = HogFunctionTemplate.objects.filter(template_id__in=TEST_INCLUDE_PYTHON_TEMPLATE_IDS)
         assert db_templates.count() == len(TEST_INCLUDE_PYTHON_TEMPLATE_IDS)
 
         # Verify that each template has the expected ID
@@ -51,11 +52,12 @@ class TestSyncHogFunctionTemplates:
                     "name": f"Test {template_id}",
                     "description": f"Test template for {template_id}",
                     "type": "transformation",
-                    "hog": "return event",
+                    "code": "return event",
                     "inputs_schema": [],
                     "status": "beta",
                     "free": True,
                     "category": ["Custom"],
+                    "code_language": "javascript",
                 }
             )
 
@@ -70,7 +72,7 @@ class TestSyncHogFunctionTemplates:
 
         # Verify that Node.js test templates were synced correctly
         for template_id in TEST_INCLUDE_NODEJS_TEMPLATE_IDS:
-            node_template = DBHogFunctionTemplate.objects.filter(template_id=template_id).first()
+            node_template = HogFunctionTemplate.objects.filter(template_id=template_id).first()
             assert node_template is not None
             assert node_template.type == "transformation"
             assert node_template.name == f"Test {template_id}"
@@ -95,7 +97,7 @@ class TestSyncHogFunctionTemplates:
         call_command("sync_hog_function_templates")
 
         # Verify that the Python test templates were still created but not the invalid one
-        db_template_ids = set(DBHogFunctionTemplate.objects.values_list("template_id", flat=True))
+        db_template_ids = set(HogFunctionTemplate.objects.values_list("template_id", flat=True))
         assert all(tid in db_template_ids for tid in TEST_INCLUDE_PYTHON_TEMPLATE_IDS)
         assert "invalid_template" not in db_template_ids
 
@@ -109,7 +111,7 @@ class TestSyncHogFunctionTemplates:
         call_command("sync_hog_function_templates")
 
         # Verify that Python test templates were still created
-        db_template_ids = set(DBHogFunctionTemplate.objects.values_list("template_id", flat=True))
+        db_template_ids = set(HogFunctionTemplate.objects.values_list("template_id", flat=True))
         assert all(tid in db_template_ids for tid in TEST_INCLUDE_PYTHON_TEMPLATE_IDS)
 
     @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
@@ -122,7 +124,7 @@ class TestSyncHogFunctionTemplates:
         mock_get_hog_function_templates.return_value = mock_response
 
         # Clear any existing templates
-        DBHogFunctionTemplate.objects.all().delete()
+        HogFunctionTemplate.objects.all().delete()
 
         # First run - templates should be created
         from io import StringIO
@@ -135,7 +137,7 @@ class TestSyncHogFunctionTemplates:
         expected_created = len(TEST_INCLUDE_PYTHON_TEMPLATE_IDS)
 
         # Check that templates were reported as created
-        assert f"Created: {expected_created}" in output or f"Created: " in output
+        assert f"Created or updated: {expected_created}" in output or f"Created or updated: " in output
 
         # Second run - templates should be skipped/updated since they already exist
         stdout = StringIO()
@@ -163,26 +165,36 @@ class TestSyncHogFunctionTemplates:
         ), f"Template {TEST_INCLUDE_PYTHON_TEMPLATE_IDS[0]} not found in HOG_FUNCTION_TEMPLATES"
 
         # Check that the template was stored correctly
-        db_template = DBHogFunctionTemplate.objects.get(template_id=slack_template.id)
+        db_template = HogFunctionTemplate.objects.get(template_id=slack_template.id)
 
         # Verify core template fields
         assert db_template.name == slack_template.name
-        assert db_template.code == slack_template.hog
+        assert db_template.code == slack_template.code
         assert db_template.type == slack_template.type
 
         # Only check bytecode if it's not a JavaScript template
         if db_template.type not in TYPES_WITH_JAVASCRIPT_SOURCE:
             assert db_template.bytecode is not None
 
-        dataclass_template = db_template.to_dataclass()
-        assert dataclass_template.id == slack_template.id
-        assert dataclass_template.name == slack_template.name
-        assert dataclass_template.hog == slack_template.hog
+        assert db_template.template_id == slack_template.id
+        assert db_template.name == slack_template.name
+        assert db_template.code == slack_template.code
 
     @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
     def test_template_version_behavior(self, mock_get_hog_function_templates):
         """Test that template versioning behaves correctly"""
-        from posthog.cdp.templates.hog_function_template import HogFunctionTemplate as DataclassTemplate
+        # Mock the Node.js API to avoid external dependencies
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = []
+        mock_get_hog_function_templates.return_value = mock_response
+
+        # Clear any existing templates
+        HogFunctionTemplate.objects.all().delete()
+
+    @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
+    def test_delete_deleted_coming_soon_templates(self, mock_get_hog_function_templates):
+        """Test that coming-soon templates are properly deleted when they're no longer in in the codebase."""
 
         # Mock the Node.js API to avoid external dependencies
         mock_response = MagicMock()
@@ -191,58 +203,77 @@ class TestSyncHogFunctionTemplates:
         mock_get_hog_function_templates.return_value = mock_response
 
         # Clear any existing templates
-        DBHogFunctionTemplate.objects.all().delete()
+        HogFunctionTemplate.objects.all().delete()
 
-        # Create a test template
-        test_template = DataclassTemplate(
-            id="test-versioning-template",
-            name="Test Versioning Template",
-            description="Test template for version behavior",
-            type="transformation",
-            hog="return event",
+        # First, create some templates that will be in the current sync
+        call_command("sync_hog_function_templates")
+
+        # Verify initial state - should have Python test templates
+        initial_count = HogFunctionTemplate.objects.count()
+        assert initial_count > 0
+
+        # Create a template that does not exist anymore
+        HogFunctionTemplate.objects.create(
+            template_id="coming-soon-old-template",
+            name="Old Template",
+            description="This template has been deleted",
+            type="destination",
+            code="return event",
             inputs_schema=[],
             status="beta",
             free=True,
-            category=["Test"],
+            category=["Custom"],
+            code_language="hog",
         )
 
-        # Save the template to the database
-        template_1, created_1 = DBHogFunctionTemplate.create_from_dataclass(test_template)
-        assert created_1 is True
-        initial_sha = template_1.sha
+        # Verify the old template was created
+        assert HogFunctionTemplate.objects.filter(template_id="coming-soon-old-template").exists()
 
-        # Save the exact same template again
-        template_2, created_2 = DBHogFunctionTemplate.create_from_dataclass(test_template)
-        assert created_2 is False  # Should not create a new record
-        assert template_2.id == template_1.id  # Should be the same database record
-        assert template_2.sha == initial_sha  # sha should be unchanged
+        # Run sync again - should detect and delete the old template
+        call_command("sync_hog_function_templates")
 
-        # Verify only one template exists in the database
-        template_count = DBHogFunctionTemplate.objects.filter(template_id="test-versioning-template").count()
-        assert template_count == 1
+        # Verify the old template was deleted
+        assert not HogFunctionTemplate.objects.filter(template_id="coming-soon-old-template").exists()
 
-        # Create a modified version of the template (can't modify frozen dataclass)
-        modified_template = DataclassTemplate(
-            id="test-versioning-template",  # Same ID
-            name="Modified Test Template",  # Changed
-            description="This template was modified",  # Changed
-            type="transformation",
-            hog="return null",  # Changed
+    @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
+    def test_does_not_delete_deleted_templates(self, mock_get_hog_function_templates):
+        """Test that non coming-soon templates are not deleted when they're no longer in in the codebase."""
+
+        # Mock the Node.js API to avoid external dependencies
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = []
+        mock_get_hog_function_templates.return_value = mock_response
+
+        # Clear any existing templates
+        HogFunctionTemplate.objects.all().delete()
+
+        # First, create some templates that will be in the current sync
+        call_command("sync_hog_function_templates")
+
+        # Verify initial state - should have Python test templates
+        initial_count = HogFunctionTemplate.objects.count()
+        assert initial_count > 0
+
+        # Create a template that does not exist anymore
+        HogFunctionTemplate.objects.create(
+            template_id="old-template",
+            name="Old Template",
+            description="This template has been deleted",
+            type="destination",
+            code="return event",
             inputs_schema=[],
             status="beta",
             free=True,
-            category=["Test"],
+            category=["Custom"],
+            code_language="hog",
         )
 
-        # Save the modified template
-        template_3, created_3 = DBHogFunctionTemplate.create_from_dataclass(modified_template)
-        assert created_3 is False  # Should not create a new record
-        assert template_3.id == template_1.id  # Should update the same database record
-        assert template_3.sha != initial_sha  # sha should be different
-        assert template_3.name == "Modified Test Template"
-        assert template_3.description == "This template was modified"
-        assert template_3.code == "return null"
+        # Verify the old template was created
+        assert HogFunctionTemplate.objects.filter(template_id="old-template").exists()
 
-        # Verify still only one template exists in the database
-        template_count = DBHogFunctionTemplate.objects.filter(template_id="test-versioning-template").count()
-        assert template_count == 1
+        # Run sync again - should detect and delete the old template
+        call_command("sync_hog_function_templates")
+
+        # Verify the old template was deleted
+        assert HogFunctionTemplate.objects.filter(template_id="old-template").exists()

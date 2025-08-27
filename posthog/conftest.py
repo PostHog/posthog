@@ -1,9 +1,11 @@
 import pytest
+from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_parallel
+
 from django.conf import settings
+
 from infi.clickhouse_orm import Database
 
 from posthog.clickhouse.client import sync_execute
-from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_parallel
 
 
 def create_clickhouse_tables():
@@ -64,12 +66,8 @@ def create_clickhouse_tables():
 def reset_clickhouse_tables():
     # Truncate clickhouse tables to default before running test
     # Mostly so that test runs locally work correctly
-    from posthog.clickhouse.dead_letter_queue import (
-        TRUNCATE_DEAD_LETTER_QUEUE_TABLE_SQL,
-    )
-    from posthog.clickhouse.plugin_log_entries import (
-        TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
-    )
+    from posthog.clickhouse.dead_letter_queue import TRUNCATE_DEAD_LETTER_QUEUE_TABLE_SQL
+    from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
     from posthog.heatmaps.sql import TRUNCATE_HEATMAPS_TABLE_SQL
     from posthog.models.ai.pg_embeddings import TRUNCATE_PG_EMBEDDINGS_TABLE_SQL
     from posthog.models.app_metrics.sql import TRUNCATE_APP_METRICS_TABLE_SQL
@@ -89,9 +87,7 @@ def reset_clickhouse_tables():
     )
     from posthog.models.raw_sessions.sql import TRUNCATE_RAW_SESSIONS_TABLE_SQL
     from posthog.models.sessions.sql import TRUNCATE_SESSIONS_TABLE_SQL
-    from posthog.session_recordings.sql.session_recording_event_sql import (
-        TRUNCATE_SESSION_RECORDING_EVENTS_TABLE_SQL,
-    )
+    from posthog.session_recordings.sql.session_recording_event_sql import TRUNCATE_SESSION_RECORDING_EVENTS_TABLE_SQL
 
     # REMEMBER TO ADD ANY NEW CLICKHOUSE TABLES TO THIS ARRAY!
     TABLES_TO_CREATE_DROP: list[str] = [
@@ -132,9 +128,7 @@ def reset_clickhouse_tables():
 
     run_clickhouse_statement_in_parallel(TABLES_TO_CREATE_DROP)
 
-    from posthog.clickhouse.schema import (
-        CREATE_DATA_QUERIES,
-    )
+    from posthog.clickhouse.schema import CREATE_DATA_QUERIES
 
     run_clickhouse_statement_in_parallel(list(CREATE_DATA_QUERIES))
 

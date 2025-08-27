@@ -1,4 +1,4 @@
-// eslint-disable-next-line no-restricted-imports
+// oxlint-disable-next-line no-restricted-imports
 import dayjs, { Dayjs as DayjsOriginal, isDayjs } from 'dayjs'
 import duration from 'dayjs/plugin/duration'
 import isSameOrAfter from 'dayjs/plugin/isSameOrAfter'
@@ -7,6 +7,7 @@ import LocalizedFormat from 'dayjs/plugin/localizedFormat'
 import quarterOfYear from 'dayjs/plugin/quarterOfYear'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import timezone from 'dayjs/plugin/timezone'
+import updateLocale from 'dayjs/plugin/updateLocale'
 import utc from 'dayjs/plugin/utc'
 import weekOfYear from 'dayjs/plugin/weekOfYear'
 
@@ -20,6 +21,7 @@ dayjs.extend(timezone)
 dayjs.extend(duration)
 dayjs.extend(quarterOfYear)
 dayjs.extend(weekOfYear)
+dayjs.extend(updateLocale)
 
 const now = (): Dayjs => dayjs()
 

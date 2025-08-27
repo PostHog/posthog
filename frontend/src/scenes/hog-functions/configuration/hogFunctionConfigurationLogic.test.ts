@@ -1,8 +1,11 @@
 import { expectLogic } from 'kea-test-utils'
+
 import api from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
 import { HogFunctionTemplateType, HogFunctionType } from '~/types'
+
+import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 
 jest.mock('lib/api', () => ({
     ...jest.requireActual('lib/api'),
@@ -18,8 +21,6 @@ jest.mock('lib/api', () => ({
 
 const mockApi = api.hogFunctions as jest.Mocked<typeof api.hogFunctions>
 
-import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
-
 const HOG_TEMPLATE: HogFunctionTemplateType = {
     free: false,
     status: 'beta',
@@ -27,7 +28,8 @@ const HOG_TEMPLATE: HogFunctionTemplateType = {
     type: 'destination',
     name: 'HTTP Webhook',
     description: 'Sends a webhook templated by the incoming event data',
-    hog: "let res := fetch(inputs.url, {\n  'headers': inputs.headers,\n  'body': inputs.body,\n  'method': inputs.method\n});\n\nif (inputs.debug) {\n  print('Response', res.status, res.body);\n}",
+    code: "let res := fetch(inputs.url, {\n  'headers': inputs.headers,\n  'body': inputs.body,\n  'method': inputs.method\n});\n\nif (inputs.debug) {\n  print('Response', res.status, res.body);\n}",
+    code_language: 'hog',
     inputs_schema: [
         {
             key: 'url',
@@ -101,6 +103,7 @@ const HOG_TEMPLATE: HogFunctionTemplateType = {
 
 const HOG_FUNCTION: HogFunctionType = {
     ...HOG_TEMPLATE,
+    hog: HOG_TEMPLATE.code,
     description: typeof HOG_TEMPLATE.description === 'string' ? HOG_TEMPLATE.description : '',
     created_at: '2021-09-29T14:00:00Z',
     created_by: {} as any,
@@ -137,7 +140,7 @@ describe('hogFunctionConfigurationLogic', () => {
                 description: HOG_TEMPLATE.description,
                 inputs_schema: HOG_TEMPLATE.inputs_schema,
                 filters: null,
-                hog: HOG_TEMPLATE.hog,
+                hog: HOG_TEMPLATE.code,
                 icon_url: HOG_TEMPLATE.icon_url,
                 inputs: {
                     method: { value: 'POST' },

@@ -7,12 +7,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import ConstantType, FieldTraverserType
 from posthog.hogql.base import _T_AST
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import (
-    FunctionCallTable,
-    LazyTable,
-    SavedQuery,
-    StringJSONDatabaseField,
-)
+from posthog.hogql.database.models import FunctionCallTable, LazyTable, SavedQuery, StringJSONDatabaseField
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
@@ -21,23 +16,21 @@ from posthog.hogql.escape_sql import safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
 from posthog.hogql.functions.cohort import cohort_query_node
-from posthog.hogql.functions.mapping import (
-    HOGQL_CLICKHOUSE_FUNCTIONS,
-    compare_types,
-    validate_function_args,
-)
-from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.explain_csp_report import explain_csp_report
+from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS, compare_types, validate_function_args
+from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.sparkline import sparkline
-from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, convert_to_hx
+from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS, convert_to_hx
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import (
     expand_hogqlx_query,
     extract_select_queries,
     lookup_cte_by_name,
     lookup_field_by_name,
+    lookup_table_by_name,
 )
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
+
 from posthog.models.utils import UUIDT
 
 # https://github.com/ClickHouse/ClickHouse/issues/23194 - "Describe how identifiers in SELECT queries are resolved"
@@ -352,7 +345,7 @@ class Resolver(CloningVisitor):
             # Always add an alias for function call tables. This way `select table.* from table` is replaced with
             # `select table.* from something() as table`, and not with `select something().* from something()`.
             if table_alias != table_name_alias or isinstance(database_table, FunctionCallTable):
-                node_type = ast.TableAliasType(alias=table_alias, table_type=node_table_type)
+                node_type: ast.TableOrSelectType = ast.TableAliasType(alias=table_alias, table_type=node_table_type)
             else:
                 node_type = node_table_type
 
@@ -372,13 +365,35 @@ class Resolver(CloningVisitor):
             node.next_join = self.visit(node.next_join)
 
             # Look ahead if current is events table and next is s3 table, global join must be used for distributed query on external data to work
-            if isinstance(node.type, ast.TableAliasType):
-                is_global = isinstance(node.type.table_type.table, EventsTable) and self._is_next_s3(node.next_join)
-            else:
-                is_global = isinstance(node.type.table, EventsTable) and self._is_next_s3(node.next_join)
+            global_table: ast.TableType | None = None
 
-            if is_global and node.next_join is not None:
-                node.next_join.join_type = f"GLOBAL {node.next_join.join_type}"
+            if isinstance(node.type, ast.TableAliasType) and isinstance(node.type.table_type, ast.TableType):
+                global_table = node.type.table_type
+            elif isinstance(node.type, ast.TableType):
+                global_table = node.type
+
+            if global_table and isinstance(global_table.table, EventsTable):
+                next_join = node.next_join
+                is_global = False
+
+                while next_join:
+                    if self._is_next_s3(next_join):
+                        is_global = True
+                    # Use GLOBAL joins for nested subqueries for S3 tables until https://github.com/ClickHouse/ClickHouse/pull/85839 is in
+                    elif isinstance(next_join.type, ast.SelectQueryAliasType):
+                        select_query_type = next_join.type.select_query_type
+                        tables = self._extract_tables_from_query_type(select_query_type)
+                        if any(self._is_s3_table(table) for table in tables):
+                            is_global = True
+
+                    next_join = next_join.next_join
+
+                # If there exists a S3 table in the chain, then all joins require to be a GLOBAL join
+                if is_global:
+                    next_join = node.next_join
+                    while next_join:
+                        next_join.join_type = f"GLOBAL {next_join.join_type}"
+                        next_join = next_join.next_join
 
             if node.constraint and node.constraint.constraint_type == "ON":
                 node.constraint = self.visit_join_constraint(node.constraint)
@@ -428,7 +443,7 @@ class Resolver(CloningVisitor):
             raise QueryError(f"A {type(node.table).__name__} cannot be used as a SELECT source")
 
     def visit_hogqlx_tag(self, node: ast.HogQLXTag):
-        if node.kind in HOGQLX_COMPONENTS:
+        if node.kind in HOGQLX_TAGS or node.kind in HOGQLX_COMPONENTS:
             return self.visit(convert_to_hx(node))
         return self.visit(expand_hogqlx_query(node, self.context.team_id))
 
@@ -555,7 +570,7 @@ class Resolver(CloningVisitor):
 
         # Each Lambda is a new scope in field name resolution.
         # This type keeps track of all lambda arguments that are in scope.
-        node_type = ast.SelectQueryType(parent=self.scopes[-1] if len(self.scopes) > 0 else None)
+        node_type = ast.SelectQueryType(parent=self.scopes[-1] if len(self.scopes) > 0 else None, is_lambda_type=True)
 
         for arg in node.args:
             node_type.aliases[arg] = ast.FieldAliasType(alias=arg, type=ast.LambdaArgumentType(name=arg))
@@ -588,8 +603,7 @@ class Resolver(CloningVisitor):
         name = str(node.chain[0])
 
         # If the field contains at least two parts, the first might be a table.
-        if len(node.chain) > 1 and name in scope.tables:
-            type = scope.tables[name]
+        type = lookup_table_by_name(scope, node)
 
         # If it's a wildcard
         if name == "*" and len(node.chain) == 1:
@@ -606,6 +620,13 @@ class Resolver(CloningVisitor):
         # Field in scope
         if not type:
             type = lookup_field_by_name(scope, name, self.context)
+
+        # If scope is a lambda, check with the parent scope
+        if not type and scope.is_lambda_type and len(self.scopes) > 1:
+            type = lookup_table_by_name(self.scopes[-2], node)
+
+            if not type:
+                type = lookup_field_by_name(self.scopes[-2], name, self.context)
 
         if not type:
             cte = lookup_cte_by_name(self.scopes, name)
@@ -654,6 +675,7 @@ class Resolver(CloningVisitor):
                 #
                 # One likely cause is that the database context isn't set up as you
                 # expect it to be.
+
                 raise QueryError(f"Unable to resolve field: {name}")
             else:
                 type = ast.UnresolvedFieldType(name=name)
@@ -896,9 +918,30 @@ class Resolver(CloningVisitor):
                 return isinstance(node.select_from.type.table, S3Table)
         return False
 
+    def _is_s3_table(self, table: ast.TableOrSelectType) -> bool:
+        if isinstance(table, ast.TableAliasType):
+            return self._is_s3_table(table.table_type)
+
+        if isinstance(table, ast.TableType):
+            return isinstance(table.table, S3Table)
+
+        return False
+
     def _is_next_s3(self, node: Optional[ast.JoinExpr]):
         if node is None:
             return False
         if isinstance(node.type, ast.TableAliasType):
-            return isinstance(node.type.table_type.table, S3Table)
+            return self._is_s3_table(node.type)
         return False
+
+    def _extract_tables_from_query_type(
+        self, select_query_type: ast.SelectQueryType | ast.SelectSetQueryType
+    ) -> list[ast.TableOrSelectType]:
+        tables: list[ast.TableOrSelectType] = []
+        if isinstance(select_query_type, ast.SelectQueryType):
+            tables.extend(list(select_query_type.tables.values()))
+        else:
+            for sqt in select_query_type.types:
+                tables.extend(self._extract_tables_from_query_type(sqt))
+
+        return tables

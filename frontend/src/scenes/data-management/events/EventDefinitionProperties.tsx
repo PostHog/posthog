@@ -1,10 +1,12 @@
-import { LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonTag } from '@posthog/lemon-ui'
+
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PROPERTY_DEFINITIONS_PER_EVENT } from 'lib/constants'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { useEffect } from 'react'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
@@ -18,9 +20,7 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
     const { eventPropertiesCacheMap, eventDefinitionPropertiesLoading } = useValues(eventDefinitionsTableLogic)
     const { hasTagging } = useValues(organizationLogic)
 
-    useEffect(() => {
-        loadPropertiesForEvent(definition)
-    }, [])
+    useOnMountEffect(() => loadPropertiesForEvent(definition))
 
     const columns: LemonTableColumns<PropertyDefinition> = [
         {
@@ -40,7 +40,7 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
             title: 'Type',
             key: 'type',
             render: function Render(_, _definition: PropertyDefinition) {
-                return <LemonTag type="muted">{_definition.property_type ?? '-'}</LemonTag>
+                return <LemonTag type="muted">{_definition.property_type ?? '—'}</LemonTag>
             },
         },
         ...(hasTagging
@@ -61,7 +61,7 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
             render: function Render(_, _definition: PropertyDefinition) {
                 return (
                     <LemonTag className="font-mono" type="muted">
-                        {_definition.example ?? '-'}
+                        {_definition.example !== undefined ? JSON.stringify(_definition.example) : '—'}
                     </LemonTag>
                 )
             },

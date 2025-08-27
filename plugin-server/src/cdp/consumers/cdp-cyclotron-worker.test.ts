@@ -1,6 +1,7 @@
+import { mockFetch } from '~/tests/helpers/mocks/request.mock'
+
 import { DateTime } from 'luxon'
 
-import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { UUIDT } from '~/utils/utils'
 
@@ -44,6 +45,7 @@ describe('CdpCyclotronWorker', () => {
                 ...HOG_EXAMPLES.simple_fetch,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
                 ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
+                template_id: 'template-webhook',
             })
         )
 
@@ -95,6 +97,83 @@ describe('CdpCyclotronWorker', () => {
                 'Fetch response:, {"status":200,"body":{}}',
                 expect.stringContaining('Function completed in'),
             ])
+        })
+
+        it('should route hog functions to correct executor services based on template_id', async () => {
+            const segmentFn = await insertHogFunction(
+                hub.postgres,
+                team.id,
+                createHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
+                    template_id: 'segment-actions-amplitude',
+                })
+            )
+
+            const nativeFn = await insertHogFunction(
+                hub.postgres,
+                team.id,
+                createHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
+                    template_id: 'native-webhook',
+                })
+            )
+
+            const pluginFn = await insertHogFunction(
+                hub.postgres,
+                team.id,
+                createHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
+                    template_id: 'plugin-posthog-intercom-plugin',
+                })
+            )
+
+            const nativeExecutorSpy = jest.spyOn(processor['nativeDestinationExecutorService'], 'execute')
+            const pluginExecutorSpy = jest.spyOn(processor['pluginDestinationExecutorService'], 'execute')
+            const segmentExecutorSpy = jest.spyOn(processor['segmentDestinationExecutorService'], 'execute')
+            const hogExecutorSpy = jest.spyOn(processor['hogExecutor'], 'executeWithAsyncFunctions')
+
+            const invocations = [
+                createExampleInvocation(nativeFn, globals),
+                createExampleInvocation(pluginFn, globals),
+                createExampleInvocation(segmentFn, globals),
+                createExampleInvocation(fn, globals),
+            ]
+
+            await processor.processInvocations(invocations)
+
+            expect(nativeExecutorSpy).toHaveBeenCalledTimes(1)
+            expect(nativeExecutorSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    hogFunction: expect.objectContaining({ template_id: 'native-webhook' }),
+                })
+            )
+
+            expect(pluginExecutorSpy).toHaveBeenCalledTimes(1)
+            expect(pluginExecutorSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    hogFunction: expect.objectContaining({ template_id: 'plugin-posthog-intercom-plugin' }),
+                })
+            )
+
+            expect(segmentExecutorSpy).toHaveBeenCalledTimes(1)
+            expect(segmentExecutorSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    hogFunction: expect.objectContaining({ template_id: 'segment-actions-amplitude' }),
+                })
+            )
+
+            expect(hogExecutorSpy).toHaveBeenCalledTimes(1)
+            expect(hogExecutorSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    hogFunction: expect.objectContaining({ template_id: 'template-webhook' }),
+                })
+            )
         })
 
         it('should partially process an invocation if multiple fetches are required', async () => {

@@ -2,11 +2,11 @@ from datetime import datetime, timedelta
 from typing import Any, Optional, cast
 from uuid import UUID
 
-import posthoganalytics
 from django.db.models import QuerySet
-from rest_framework import exceptions, mixins, request, response, serializers, status, viewsets, permissions
 
-from ee.models.explicit_team_membership import ExplicitTeamMembership
+import posthoganalytics
+from rest_framework import exceptions, mixins, permissions, request, response, serializers, status, viewsets
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
@@ -18,8 +18,11 @@ from posthog.models import OrganizationInvite, OrganizationMembership
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.permissions import OrganizationMemberPermissions, UserCanInvitePermission
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.tasks.email import send_invite
-from posthog.permissions import UserCanInvitePermission, OrganizationMemberPermissions
+
+from ee.models.explicit_team_membership import ExplicitTeamMembership
 
 
 class OrganizationInviteManager:
@@ -202,7 +205,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             # Check if the team has an access control row that applies to the entire resource
             team_access_controls = AccessControl.objects.filter(
                 team_id=item["id"],
-                resource="team",
+                resource="project",
                 resource_id=str(item["id"]),
                 organization_member=None,
                 role=None,
@@ -217,15 +220,9 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
 
             if private_team_access:
                 # Team is private, check if user has admin access
-                user_access = AccessControl.objects.filter(
-                    team_id=item["id"],
-                    resource="team",
-                    resource_id=str(item["id"]),
-                    organization_member__user=self.context["request"].user,
-                    access_level="admin",
-                ).exists()
-
-                if not user_access:
+                uac = UserAccessControl(user=self.context["request"].user, team=team)
+                access_level = uac.access_level_for_object(team)
+                if access_level != "admin":
                     raise exceptions.ValidationError(team_error)
 
         return private_project_access

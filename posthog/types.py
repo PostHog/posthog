@@ -1,43 +1,45 @@
 from typing import TypeAlias, Union
 
-from posthog.models.filters.filter import Filter
-from posthog.models.filters.path_filter import PathFilter
-from posthog.models.filters.retention_filter import RetentionFilter
-from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.schema import (
     ActionsNode,
     CohortPropertyFilter,
     DataWarehouseNode,
+    DataWarehousePersonPropertyFilter,
+    DataWarehousePropertyFilter,
     ElementPropertyFilter,
     EmptyPropertyFilter,
+    ErrorTrackingIssueFilter,
     EventMetadataPropertyFilter,
     EventPropertyFilter,
     EventsNode,
-    DataWarehousePropertyFilter,
-    DataWarehousePersonPropertyFilter,
     FeaturePropertyFilter,
+    FlagPropertyFilter,
     FunnelCorrelationActorsQuery,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
     FunnelsActorsQuery,
+    FunnelsQuery,
     GroupPropertyFilter,
     HogQLPropertyFilter,
     InsightActorsQuery,
+    LifecycleQuery,
+    LogEntryPropertyFilter,
+    LogPropertyFilter,
+    PathsQuery,
     PersonPropertyFilter,
     RecordingPropertyFilter,
+    RetentionQuery,
     RevenueAnalyticsPropertyFilter,
     SessionPropertyFilter,
-    LogEntryPropertyFilter,
-    TrendsQuery,
-    FunnelsQuery,
-    RetentionQuery,
-    PathsQuery,
-    StickinessQuery,
-    LifecycleQuery,
     StickinessActorsQuery,
-    ErrorTrackingIssueFilter,
-    LogPropertyFilter,
+    StickinessQuery,
+    TrendsQuery,
 )
+
+from posthog.models.filters.filter import Filter
+from posthog.models.filters.path_filter import PathFilter
+from posthog.models.filters.retention_filter import RetentionFilter
+from posthog.models.filters.stickiness_filter import StickinessFilter
 
 FilterType: TypeAlias = Union[Filter, PathFilter, RetentionFilter, StickinessFilter]
 """Legacy insight filters."""
@@ -67,6 +69,7 @@ AnyPropertyFilter: TypeAlias = Union[
     RecordingPropertyFilter,
     GroupPropertyFilter,
     FeaturePropertyFilter,
+    FlagPropertyFilter,
     HogQLPropertyFilter,
     EmptyPropertyFilter,
     DataWarehousePropertyFilter,

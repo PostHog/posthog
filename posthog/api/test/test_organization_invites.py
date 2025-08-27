@@ -1,23 +1,35 @@
 import random
+
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
 from django.core import mail
-from freezegun import freeze_time
+
 from rest_framework import status
 
-from ee.models.explicit_team_membership import ExplicitTeamMembership
+from posthog.constants import AvailableFeature
+from posthog.models import User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.team.team import Team
-from posthog.test.base import APIBaseTest
-from posthog.constants import AvailableFeature
-from posthog.models import User
+
+from ee.models import Role, RoleMembership
+from ee.models.explicit_team_membership import ExplicitTeamMembership
 
 NAME_SEEDS = ["John", "Jane", "Alice", "Bob", ""]
 
 
 class TestOrganizationInvitesAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            *(self.organization.available_product_features or []),
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS},
+        ]
+        self.organization.save()
+
     def helper_generate_bulk_invite_payload(self, count: int):
         payload = []
 
@@ -825,7 +837,10 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.client.force_login(member_user)
 
         # Enable ORGANIZATION_INVITE_SETTINGS feature and set members_can_invite to False
-        self.organization.available_product_features = [{"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS}]
+        self.organization.available_product_features = [
+            *(self.organization.available_product_features or []),
+            {"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS},
+        ]
         self.organization.members_can_invite = False
         self.organization.save()
 
@@ -856,13 +871,15 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         member_user = self._create_user("member@posthog.com")
         self.client.force_login(member_user)
 
-        self.organization.available_product_features = [{"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS}]
+        self.organization.available_product_features = [
+            *(self.organization.available_product_features or []),
+            {"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS},
+        ]
         self.organization.members_can_invite = False
         self.organization.save()
 
         # Create an invite as an admin (so it exists)
         admin_user = self._create_user("admin@posthog.com", level=OrganizationMembership.Level.ADMIN)
-        OrganizationMembership.objects.get(organization=self.organization, user=admin_user)
         invite = OrganizationInvite.objects.create(organization=self.organization, created_by=admin_user)
 
         # Try to delete as member
@@ -877,7 +894,10 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.client.force_login(member_user)
 
         # Enable ORGANIZATION_INVITE_SETTINGS feature and set members_can_invite to True
-        self.organization.available_product_features = [{"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS}]
+        self.organization.available_product_features = [
+            *(self.organization.available_product_features or []),
+            {"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS},
+        ]
         self.organization.members_can_invite = True
         self.organization.save()
 
@@ -980,7 +1000,6 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         # Create an admin user
         admin_user = self._create_user("admin@posthog.com", level=OrganizationMembership.Level.ADMIN)
-        OrganizationMembership.objects.get(organization=self.organization, user=admin_user)
 
         # Login as the admin
         self.client.force_login(admin_user)
@@ -1014,7 +1033,6 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         # Create a member user
         member_user = self._create_user("member@posthog.com", level=OrganizationMembership.Level.MEMBER)
-        OrganizationMembership.objects.get(organization=self.organization, user=member_user)
 
         # Login as the member
         self.client.force_login(member_user)
@@ -1049,13 +1067,12 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         # Create a member user
         member_user = self._create_user("member@posthog.com", level=OrganizationMembership.Level.MEMBER)
-        OrganizationMembership.objects.get(organization=self.organization, user=member_user)
 
         # Login as the member
         self.client.force_login(member_user)
 
         # Make the team private by creating an access control with level 'none'
-        AccessControl.objects.create(team=team, resource="team", resource_id=str(team.id), access_level="none")
+        AccessControl.objects.create(team=team, resource="project", resource_id=str(team.id), access_level="none")
 
         # Try to invite a user to the private team
         response = self.client.post(
@@ -1091,12 +1108,12 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.client.force_login(member_user)
 
         # Make the team private by creating an access control with level 'none'
-        AccessControl.objects.create(team=team, resource="team", resource_id=str(team.id), access_level="none")
+        AccessControl.objects.create(team=team, resource="project", resource_id=str(team.id), access_level="none")
 
         # Give the member admin access to the team
         AccessControl.objects.create(
             team=team,
-            resource="team",
+            resource="project",
             resource_id=str(team.id),
             organization_member=member_membership,
             access_level="admin",
@@ -1182,3 +1199,28 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(OrganizationInvite.objects.count(), 0)
+
+    def test_user_join_with_default_role(self):
+        """Test that new users get assigned the default role when joining an organization"""
+        # Create a role
+        role = Role.objects.create(name="Test Role", organization=self.organization)
+
+        # Set it as the default role
+        self.organization.default_role = role
+        self.organization.save()
+
+        # Create a new user and have them join the organization
+        new_user = User.objects.create(email="test@example.com", first_name="Test")
+        membership = new_user.join(organization=self.organization)
+
+        # Check that the user was assigned to the default role
+        assert RoleMembership.objects.filter(role=role, user=new_user, organization_member=membership).exists()
+
+    def test_user_join_without_default_role(self):
+        """Test that new users don't get assigned any role when no default is set"""
+        # Create a new user and have them join the organization
+        new_user = User.objects.create(email="test@example.com", first_name="Test")
+        new_user.join(organization=self.organization)
+
+        # Check that the user was not assigned to any roles
+        assert RoleMembership.objects.filter(user=new_user).count() == 0

@@ -1,21 +1,22 @@
-import express from 'express'
 import { Server } from 'http'
 import { CompressionCodecs, CompressionTypes } from 'kafkajs'
 import SnappyCodec from 'kafkajs-snappy'
 import LZ4 from 'lz4-kafkajs'
 import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
+import express from 'ultimate-express'
 
+import { setupCommonRoutes, setupExpressApp } from './api/router'
 import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
-import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
+import { CdpAggregationWriterConsumer } from './cdp/consumers/cdp-aggregation-writer.consumer'
+import { CdpBehaviouralEventsConsumer } from './cdp/consumers/cdp-behavioural-events.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
-import { CdpCyclotronWorkerNative } from './cdp/consumers/cdp-cyclotron-worker-native.consumer'
-import { CdpCyclotronWorkerPlugins } from './cdp/consumers/cdp-cyclotron-worker-plugins.consumer'
-import { CdpCyclotronWorkerSegment } from './cdp/consumers/cdp-cyclotron-worker-segment.consumer'
+import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
 import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
+import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
 import { defaultConfig } from './config/config'
 import {
     KAFKA_EVENTS_PLUGIN_INGESTION,
@@ -24,10 +25,10 @@ import {
 } from './config/kafka-topics'
 import { IngestionConsumer } from './ingestion/ingestion-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
+import { onShutdown } from './lifecycle'
 import { startAsyncWebhooksHandlerConsumer } from './main/ingestion-queues/on-event-handler-consumer'
-import { SessionRecordingIngester } from './main/ingestion-queues/session-recording/session-recordings-consumer'
 import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './main/ingestion-queues/session-recording-v2/consumer'
-import { setupCommonRoutes } from './router'
+import { SessionRecordingIngester } from './main/ingestion-queues/session-recording/session-recordings-consumer'
 import { Hub, PluginServerService, PluginsServerConfig } from './types'
 import { ServerCommands } from './utils/commands'
 import { closeHub, createHub } from './utils/db/hub'
@@ -72,8 +73,7 @@ export class PluginServer {
             ...config,
         }
 
-        this.expressApp = express()
-        this.expressApp.use(express.json({ limit: '200kb' }))
+        this.expressApp = setupExpressApp()
         this.nodeInstrumentation = new NodeInstrumentation(this.config)
     }
 
@@ -123,7 +123,6 @@ export class PluginServer {
 
                 for (const consumerOption of consumersOptions) {
                     serviceLoaders.push(async () => {
-                        await initPlugins()
                         const consumer = new IngestionConsumer(hub, {
                             INGESTION_CONSUMER_CONSUME_TOPIC: consumerOption.topic,
                             INGESTION_CONSUMER_GROUP_ID: consumerOption.group_id,
@@ -134,7 +133,6 @@ export class PluginServer {
                 }
             } else if (capabilities.ingestionV2) {
                 serviceLoaders.push(async () => {
-                    await initPlugins()
                     const consumer = new IngestionConsumer(hub)
                     await consumer.start()
                     return consumer.service
@@ -219,6 +217,14 @@ export class PluginServer {
                 })
             }
 
+            if (capabilities.cdpPersonUpdates) {
+                serviceLoaders.push(async () => {
+                    const consumer = new CdpPersonUpdatesConsumer(hub)
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
             if (capabilities.cdpLegacyOnEvent) {
                 serviceLoaders.push(async () => {
                     await initPlugins()
@@ -239,17 +245,9 @@ export class PluginServer {
             }
 
             if (capabilities.cdpCyclotronWorker) {
-                serviceLoaders.push(async () => {
-                    const worker = new CdpCyclotronWorker(hub)
-                    await worker.start()
-                    return worker.service
-                })
-            }
-
-            if (capabilities.cdpCyclotronWorkerPlugins) {
                 await initPlugins()
                 serviceLoaders.push(async () => {
-                    const worker = new CdpCyclotronWorkerPlugins(hub)
+                    const worker = new CdpCyclotronWorker(hub)
                     await worker.start()
                     return worker.service
                 })
@@ -264,24 +262,22 @@ export class PluginServer {
             }
 
             // The service commands is always created
-            serviceLoaders.push(async () => {
+            serviceLoaders.push(() => {
                 const serverCommands = new ServerCommands(hub)
                 this.expressApp.use('/', serverCommands.router())
-                await serverCommands.start()
-                return serverCommands.service
+                return Promise.resolve(serverCommands.service)
             })
 
-            if (capabilities.cdpCyclotronWorkerSegment) {
+            if (capabilities.cdpBehaviouralEvents) {
                 serviceLoaders.push(async () => {
-                    const worker = new CdpCyclotronWorkerSegment(hub)
+                    const worker = new CdpBehaviouralEventsConsumer(hub)
                     await worker.start()
                     return worker.service
                 })
             }
-
-            if (capabilities.cdpCyclotronWorkerNative) {
+            if (capabilities.cdpAggregationWriter) {
                 serviceLoaders.push(async () => {
-                    const worker = new CdpCyclotronWorkerNative(hub)
+                    const worker = new CdpAggregationWriterConsumer(hub)
                     await worker.start()
                     return worker.service
                 })
@@ -295,7 +291,7 @@ export class PluginServer {
             if (!isTestEnv()) {
                 // We don't run http server in test env currently
                 this.httpServer = this.expressApp.listen(this.config.HTTP_SERVER_PORT, () => {
-                    logger.info('🩺', `Status server listening on port ${this.config.HTTP_SERVER_PORT}`)
+                    logger.info('🩺', `HTTP server listening on port ${this.config.HTTP_SERVER_PORT}`)
                 })
             }
 
@@ -354,7 +350,12 @@ export class PluginServer {
         })
 
         logger.info('💤', ' Shutting down services...')
-        await Promise.allSettled([this.pubsub?.stop(), ...this.services.map((s) => s.onShutdown()), posthogShutdown()])
+        await Promise.allSettled([
+            this.pubsub?.stop(),
+            ...this.services.map((s) => s.onShutdown()),
+            posthogShutdown(),
+            onShutdown(),
+        ])
 
         if (this.hub) {
             logger.info('💤', ' Shutting down plugins...')

@@ -1,28 +1,31 @@
+import re
 from datetime import timedelta
 from functools import cached_property
 from typing import Optional, cast
-import re
 
 from django.db.models import Prefetch
 from django.utils.timezone import now
+
 import orjson
 
-from posthog.api.element import ElementSerializer
-from posthog.api.utils import get_pk_or_uuid
+from posthog.schema import CachedEventsQueryResponse, DashboardFilter, EventsQuery, EventsQueryResponse
+
 from posthog.hogql import ast
 from posthog.hogql.ast import Alias
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
-from posthog.hogql.property import action_to_expr, has_aggregation, property_to_expr, map_virtual_properties
+from posthog.hogql.property import action_to_expr, has_aggregation, map_virtual_properties, property_to_expr
+
+from posthog.api.element import ElementSerializer
+from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+from posthog.api.utils import get_pk_or_uuid
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, get_query_runner
 from posthog.models import Action, Person
 from posthog.models.element import chain_to_elements
 from posthog.models.person.person import READ_DB_FOR_PERSONS, get_distinct_ids_for_subquery
 from posthog.models.person.util import get_persons_by_distinct_ids
-from posthog.schema import DashboardFilter, EventsQuery, EventsQueryResponse, CachedEventsQueryResponse
 from posthog.utils import relative_date_parse
-from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 
 # Allow-listed fields returned when you select "*" from events. Person and group fields will be nested later.
 SELECT_STAR_FROM_EVENTS_FIELDS = [
@@ -37,9 +40,8 @@ SELECT_STAR_FROM_EVENTS_FIELDS = [
 ]
 
 
-class EventsQueryRunner(QueryRunner):
+class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
     query: EventsQuery
-    response: EventsQueryResponse
     cached_response: CachedEventsQueryResponse
 
     def __init__(self, *args, **kwargs):
@@ -186,7 +188,24 @@ class EventsQueryRunner(QueryRunner):
             # order by
             with self.timings.measure("order"):
                 if self.query.orderBy is not None:
-                    order_by = [parse_order_expr(column, timings=self.timings) for column in self.query.orderBy]
+                    columns: list[str] = []
+                    for _, col in enumerate(self.query.orderBy):
+                        if col.split("--")[0].strip() == "person_display_name":
+                            property_keys = (
+                                self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+                            )
+                            props = []
+                            for key in property_keys:
+                                if re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", key):
+                                    props.append(f"toString(person.properties.{key})")
+                                else:
+                                    props.append(f"toString(person.properties.`{key}`)")
+                            expr = f"(coalesce({', '.join([*props, 'distinct_id'])}), toString(person.id))"
+                            newCol = re.sub(r"person_display_name -- Person ", expr, col)
+                            columns.append(newCol)
+                        else:
+                            columns.append(col)
+                    order_by = [parse_order_expr(column, timings=self.timings) for column in columns]
                 elif "count()" in select_input:
                     order_by = [ast.OrderExpr(expr=parse_expr("count()"), order="DESC")]
                 elif len(aggregations) > 0:
@@ -259,7 +278,7 @@ class EventsQueryRunner(QueryRunner):
 
                 return stmt
 
-    def calculate(self) -> EventsQueryResponse:
+    def _calculate(self) -> EventsQueryResponse:
         query_result = self.paginator.execute_hogql_query(
             query=self.to_query(),
             team=self.team,

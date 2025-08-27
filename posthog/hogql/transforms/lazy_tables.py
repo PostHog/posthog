@@ -1,10 +1,10 @@
 import dataclasses
-from typing import Optional, cast, Literal
+from typing import Literal, Optional, cast
 
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import LazyTableToAdd, LazyJoinToAdd
+from posthog.hogql.database.models import LazyJoinToAdd, LazyTableToAdd
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import get_long_table_name
@@ -214,7 +214,11 @@ class LazyTableResolver(TraversingVisitor):
             # TODO: the code below needs a good refactor... it's very repetitive
             for table_type in reversed(table_types):
                 if isinstance(table_type, ast.LazyJoinType):
-                    from_table = get_long_table_name(select_type, table_type.table_type)
+                    if isinstance(table_type.table_type, ast.VirtualTableType):
+                        from_table = get_long_table_name(select_type, table_type.table_type.table_type)
+                    else:
+                        from_table = get_long_table_name(select_type, table_type.table_type)
+
                     to_table = get_long_table_name(select_type, table_type)
                     if to_table not in joins_to_add:
                         joins_to_add[to_table] = LazyJoinToAdd(

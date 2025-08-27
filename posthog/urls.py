@@ -1,33 +1,26 @@
 from typing import Any, cast
 from urllib.parse import urlparse
 
-import structlog
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, HttpResponseServerError
 from django.template import loader
 from django.urls import include, path, re_path
 from django.utils.http import url_has_allowed_host_and_scheme
-from django.views.decorators.csrf import (
-    csrf_exempt,
-    ensure_csrf_cookie,
-    requires_csrf_token,
-)
-from django_prometheus.exports import ExportToDjangoView
-from drf_spectacular.views import (
-    SpectacularAPIView,
-    SpectacularRedocView,
-    SpectacularSwaggerView,
-)
+from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie, requires_csrf_token
 
+import structlog
+from django_prometheus.exports import ExportToDjangoView
+from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 from two_factor.urls import urlpatterns as tf_urls
 
 from posthog.api import (
     api_not_found,
     authentication,
-    capture,
     decide,
+    github,
     hog_function_template,
     remote_config,
+    report,
     router,
     sharing,
     signup,
@@ -36,38 +29,42 @@ from posthog.api import (
     uploaded_media,
     user,
 )
-from posthog.api.web_experiment import web_experiments
+from posthog.api.query import progress
+from posthog.api.slack import slack_interactivity_callback
+from posthog.api.survey import public_survey_page, surveys
 from posthog.api.utils import hostname_in_allowed_url_list
-from products.early_access_features.backend.api import early_access_features
-from posthog.api.survey import surveys
+from posthog.api.web_experiment import web_experiments
+from posthog.api.zendesk_orgcheck import ensure_zendesk_organization
 from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.demo.legacy import demo_route
 from posthog.models import User
 from posthog.models.instance_setting import get_instance_setting
+from posthog.oauth2_urls import urlpatterns as oauth2_urls
+
+from products.early_access_features.backend.api import early_access_features
 
 from .utils import opt_slash_path, render_template
 from .views import (
+    api_key_search_view,
     health,
     login_required,
+    preferences_page,
     preflight_check,
     redis_values_view,
     robots_txt,
     security_txt,
     stats,
-    preferences_page,
     update_preferences,
 )
-from posthog.api.query import progress
-
-from posthog.api.slack import slack_interactivity_callback
-from posthog.oauth2_urls import urlpatterns as oauth2_urls
 
 logger = structlog.get_logger(__name__)
 
 ee_urlpatterns: list[Any] = []
 try:
-    from ee.urls import extend_api_router
-    from ee.urls import urlpatterns as ee_urlpatterns
+    from ee.urls import (
+        extend_api_router,
+        urlpatterns as ee_urlpatterns,
+    )
 except ImportError:
     if settings.DEBUG:
         logger.warn(f"Could not import ee.urls", exc_info=True)
@@ -165,6 +162,7 @@ urlpatterns = [
     opt_slash_path("_stats", stats),
     opt_slash_path("_preflight", preflight_check),
     re_path(r"^admin/redisvalues$", redis_values_view, name="redis_values"),
+    path(r"admin/apikeysearch", api_key_search_view, name="api_key_search"),
     # ee
     *ee_urlpatterns,
     # api
@@ -172,6 +170,8 @@ urlpatterns = [
     path("api/environments/<int:team_id>/query/<str:query_uuid>/progress/", progress),
     path("api/environments/<int:team_id>/query/<str:query_uuid>/progress", progress),
     path("api/unsubscribe", unsubscribe.unsubscribe),
+    path("api/alerts/github", github.SecretAlert.as_view()),
+    opt_slash_path("api/support/ensure-zendesk-organization", csrf_exempt(ensure_zendesk_organization)),
     path("api/", include(router.urls)),
     path("", include(tf_urls)),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
@@ -180,6 +180,7 @@ urlpatterns = [
     opt_slash_path("api/early_access_features", early_access_features),
     opt_slash_path("api/web_experiments", web_experiments),
     opt_slash_path("api/surveys", surveys),
+    re_path(r"^external_surveys/(?P<survey_id>[^/]+)/?$", public_survey_page),
     opt_slash_path("api/signup", signup.SignupViewset.as_view()),
     opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
     path("api/signup/<str:invite_id>/", signup.InviteSignupViewset.as_view()),
@@ -219,7 +220,7 @@ urlpatterns = [
     # ingestion
     # NOTE: When adding paths here that should be public make sure to update ALWAYS_ALLOWED_ENDPOINTS in middleware.py
     opt_slash_path("decide", decide.get_decide),
-    opt_slash_path("report", capture.get_csp_event),  # CSP violation reports
+    opt_slash_path("report", report.get_csp_event),  # CSP violation reports
     opt_slash_path("robots.txt", robots_txt),
     opt_slash_path(".well-known/security.txt", security_txt),
     # auth

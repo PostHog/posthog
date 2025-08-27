@@ -1,21 +1,30 @@
-from datetime import UTC, timedelta, datetime
-from typing import cast
+import time
 import uuid
+from datetime import UTC, datetime, timedelta
+from typing import cast
+
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
 from django.conf import settings
 from django.core import mail
 from django.core.cache import cache
 from django.utils import timezone
+
 from django_otp.oath import totp
+from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.util import random_hex
-from freezegun import freeze_time
 from rest_framework import status
+from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.parsers import JSONParser
+from rest_framework.request import Request
+from rest_framework.test import APIRequestFactory
 from social_django.models import UserSocialAuth
 from two_factor.utils import totp_digits
-import time
 
 from posthog.api.authentication import password_reset_token_generator
+from posthog.auth import OAuthAccessTokenAuthentication, ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
 from posthog.models import User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -23,13 +32,6 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
-from posthog.test.base import APIBaseTest
-from django_otp.plugins.otp_static.models import StaticDevice
-from posthog.auth import OAuthAccessTokenAuthentication, ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
-from rest_framework.request import Request
-from rest_framework.test import APIRequestFactory
-from rest_framework.parsers import JSONParser
-
 
 VALID_TEST_PASSWORD = "mighty-strong-secure-1337!!"
 
@@ -1004,19 +1006,15 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         self.assertIsInstance(user, ProjectSecretAPIKeyUser)
         self.assertEqual(user.team, self.team)
 
-    def test_authenticate_with_valid_secret_api_key_in_query_string(self):
-        # Simulate a request with a valid secret API key
+    def test_authenticate_with_secret_api_key_in_query_string_not_supported(self):
+        # Query string authentication should not be supported for security reasons
         wsgi_request = self.factory.get(f"/?secret_api_key={self.team.secret_api_token}")
         request = Request(wsgi_request)  # Wrap the WSGIRequest in a DRF Request
 
         authenticator = ProjectSecretAPIKeyAuthentication()
         result = authenticator.authenticate(request)
-        assert result is not None
-        user, _ = result
 
-        self.assertIsNotNone(user)
-        self.assertIsInstance(user, ProjectSecretAPIKeyUser)
-        self.assertEqual(user.team, self.team)
+        self.assertIsNone(result)
 
     def test_authenticate_with_invalid_secret_api_key(self):
         # Simulate a request with an invalid secret API key
@@ -1037,6 +1035,44 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         result = authenticator.authenticate(request)
 
         self.assertIsNone(result)
+
+    def test_authenticate_with_matching_project_api_key_in_body(self):
+        # Test that when project API key in body matches the secret key's team, it passes
+        wsgi_request = self.factory.post(
+            "/",
+            data=f'{{"project_api_key": "{self.team.api_token}"}}',
+            content_type="application/json",
+            headers={"AUTHORIZATION": f"Bearer {self.team.secret_api_token}"},
+        )
+        request = Request(wsgi_request)
+        request.parsers = [JSONParser()]
+
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        result = authenticator.authenticate(request)
+
+        assert result is not None
+        user, _ = result
+        self.assertIsInstance(user, ProjectSecretAPIKeyUser)
+        self.assertEqual(user.team, self.team)
+
+    def test_authenticate_with_no_project_api_key_in_body_passes(self):
+        # Test that when there's no project API key in body, it still works normally
+        wsgi_request = self.factory.post(
+            "/",
+            data='{"some_other_field": "value"}',
+            content_type="application/json",
+            headers={"AUTHORIZATION": f"Bearer {self.team.secret_api_token}"},
+        )
+        request = Request(wsgi_request)
+        request.parsers = [JSONParser()]
+
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        result = authenticator.authenticate(request)
+
+        assert result is not None
+        user, _ = result
+        self.assertIsInstance(user, ProjectSecretAPIKeyUser)
+        self.assertEqual(user.team, self.team)
 
 
 class TestOAuthAccessTokenAuthentication(APIBaseTest):
@@ -1109,7 +1145,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
 
         authenticator = OAuthAccessTokenAuthentication()
 
-        with self.assertRaises(Exception) as context:
+        with self.assertRaises(AuthenticationFailed) as context:
             authenticator.authenticate(request)
 
         self.assertIn("Access token has expired", str(context.exception))
@@ -1126,7 +1162,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
 
         authenticator = OAuthAccessTokenAuthentication()
 
-        with self.assertRaises(Exception) as context:
+        with self.assertRaises(AuthenticationFailed) as context:
             authenticator.authenticate(request)
 
         self.assertIn("User associated with access token is disabled", str(context.exception))
@@ -1203,7 +1239,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
 
         authenticator = OAuthAccessTokenAuthentication()
 
-        with self.assertRaises(Exception) as context:
+        with self.assertRaises(AuthenticationFailed) as context:
             authenticator.authenticate(request)
 
         self.assertIn("Access token is not associated with a valid application", str(context.exception))
@@ -1228,7 +1264,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
 
         authenticator = OAuthAccessTokenAuthentication()
 
-        with self.assertRaises(Exception) as context:
+        with self.assertRaises(AuthenticationFailed) as context:
             authenticator.authenticate(request)
 
         self.assertIn("User associated with access token not found", str(context.exception))

@@ -1,23 +1,26 @@
-import asyncio
-import collections
-import collections.abc
-import concurrent.futures
-import contextlib
-import gzip
 import io
+import gzip
 import json
 import typing
+import asyncio
+import contextlib
+import collections
+import collections.abc
+import multiprocessing as mp
+import concurrent.futures
+
+from django.conf import settings
 
 import brotli
 import orjson
 import pyarrow as pa
 import pyarrow.parquet as pq
-import structlog
-from django.conf import settings
+
+from posthog.temporal.common.logger import get_write_only_logger
 
 from products.batch_exports.backend.temporal.metrics import ExecutionTimeRecorder
 
-logger = structlog.get_logger()
+logger = get_write_only_logger()
 
 
 class Chunk(typing.NamedTuple):
@@ -95,7 +98,9 @@ class JSONLStreamTransformer:
         """
         current_file_size = 0
 
-        with concurrent.futures.ProcessPoolExecutor(max_workers=self.max_workers) as executor:
+        with concurrent.futures.ProcessPoolExecutor(
+            max_workers=self.max_workers, mp_context=mp.get_context("fork")
+        ) as executor:
             async with _record_batches_producer(
                 record_batches,
                 executor=executor,
@@ -154,9 +159,13 @@ class JSONLBrotliStreamTransformer:
 
         See `JSONLStreamTransformer` for an outline of the pipeline.
         """
+        loop = asyncio.get_running_loop()
+
         current_file_size = 0
 
-        with concurrent.futures.ProcessPoolExecutor(max_workers=self.max_workers) as executor:
+        with concurrent.futures.ProcessPoolExecutor(
+            max_workers=self.max_workers, mp_context=mp.get_context("fork")
+        ) as executor:
             async with _record_batches_producer(
                 record_batches,
                 executor=executor,
@@ -181,13 +190,12 @@ class JSONLBrotliStreamTransformer:
                         self._futures_pending.remove(future)
 
                         for chunk in chunks:
-                            chunk = self._compress(chunk)
-                            await asyncio.sleep(0)  # In case compressing took too long.
+                            chunk = await loop.run_in_executor(None, self._compress, chunk)
 
                             yield Chunk(chunk, False)
 
                             if max_file_size_bytes and current_file_size + len(chunk) > max_file_size_bytes:
-                                data = await asyncio.to_thread(self._finish_brotli_compressor)
+                                data = await loop.run_in_executor(None, self._finish_brotli_compressor)
 
                                 yield Chunk(data, True)
                                 current_file_size = 0
@@ -218,7 +226,9 @@ class JSONLBrotliStreamTransformer:
     @property
     def brotli_compressor(self) -> brotli._brotli.Compressor:
         if self._brotli_compressor is None:
-            self._brotli_compressor = brotli.Compressor()
+            # Quality goes from 0 to 11.
+            # Default is 11, aka maximum compression and worst performance.
+            self._brotli_compressor = brotli.Compressor(quality=5)
         return self._brotli_compressor
 
 
@@ -314,7 +324,7 @@ def dump_dict(d: dict[str, typing.Any]) -> bytes:
             else:
                 # In this case, we fallback to the slower but more permissive stdlib
                 # json.
-                logger.exception("Orjson detected a deeply nested dict: %s", d)
+                logger.exception("Orjson detected a deeply nested dict")
                 dumped = json.dumps(d, default=str).encode("utf-8") + b"\n"
         elif str(err) == "Integer exceeds 64-bit range":
             logger.warning("Failed to encode with orjson: Integer exceeds 64-bit range: %s", d)
@@ -423,7 +433,7 @@ class ParquetStreamTransformer:
     def write_record_batch(self, record_batch: pa.RecordBatch) -> bytes:
         """Write record batch to buffer as Parquet."""
         column_names = self.parquet_writer.schema.names
-        if not self.include_inserted_at:
+        if not self.include_inserted_at and "_inserted_at" in column_names:
             column_names.pop(column_names.index("_inserted_at"))
 
         self.parquet_writer.write_batch(record_batch.select(column_names))

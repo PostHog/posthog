@@ -1,11 +1,13 @@
-import { IconWarning } from '@posthog/icons'
+import React from 'react'
+
+import { IconAI, IconWarning } from '@posthog/icons'
+
 import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
-import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { IconLink } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import React from 'react'
 import { createActionFromEvent } from 'scenes/activity/explore/createActionFromEvent'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -61,6 +63,19 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                             )}
                         >
                             Visit issue
+                        </LemonButton>
+                    ) : null}
+                    {event.event === '$ai_trace' && '$ai_trace_id' in event.properties ? (
+                        <LemonButton
+                            fullWidth
+                            sideIcon={<IconAI />}
+                            data-attr="events-table-trace-link"
+                            to={urls.llmAnalyticsTrace(event.properties.$ai_trace_id, {
+                                event: event.id,
+                                timestamp: event.timestamp,
+                            })}
+                        >
+                            View LLM Trace
                         </LemonButton>
                     ) : null}
                     {insightUrl && (

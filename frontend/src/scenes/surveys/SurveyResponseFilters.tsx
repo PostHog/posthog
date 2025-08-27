@@ -1,17 +1,22 @@
+import { useActions, useValues } from 'kea'
+import React, { useState } from 'react'
+
 import { IconCode, IconCopy, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { allOperatorsMapping } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import React, { useState } from 'react'
 import { QUESTION_TYPE_ICON_MAP, SurveyQuestionLabel } from 'scenes/surveys/constants'
 import { getSurveyEndDateForQuery, getSurveyIdBasedResponseKey, getSurveyStartDateForQuery } from 'scenes/surveys/utils'
 
+import { groupsModel } from '~/models/groupsModel'
 import {
+    AnyPropertyFilter,
     EventPropertyFilter,
     FilterLogicalOperator,
     PropertyFilterType,
@@ -22,8 +27,8 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
-import { surveyLogic } from './surveyLogic'
 import { SurveySQLHelper } from './SurveySQLHelper'
+import { surveyLogic } from './surveyLogic'
 
 type OperatorOption = { label: string; value: PropertyOperator }
 
@@ -76,6 +81,7 @@ function CopyResponseKeyButton({ questionId }: { questionId: string }): JSX.Elem
 export const SurveyResponseFilters = React.memo(function SurveyResponseFilters(): JSX.Element {
     const { survey, answerFilters, propertyFilters, defaultAnswerFilters, dateRange } = useValues(surveyLogic)
     const { setAnswerFilters, setPropertyFilters, setDateRange } = useActions(surveyLogic)
+    const { groupsTaxonomicTypes } = useValues(groupsModel)
     const [sqlHelperOpen, setSqlHelperOpen] = useState(false)
 
     const handleResetFilters = (): void => {
@@ -112,7 +118,7 @@ export const SurveyResponseFilters = React.memo(function SurveyResponseFilters()
     }
 
     const getFilterForQuestion = (questionId: string): EventPropertyFilter | undefined => {
-        const filter = answerFilters.find((f) => f.key === getSurveyIdBasedResponseKey(questionId))
+        const filter = answerFilters.find((f: AnyPropertyFilter) => f.key === getSurveyIdBasedResponseKey(questionId))
         return filter
     }
 
@@ -211,6 +217,14 @@ export const SurveyResponseFilters = React.memo(function SurveyResponseFilters()
                         onChange={setPropertyFilters}
                         pageKey="survey-results"
                         buttonText={questionWithFiltersAvailable.length > 1 ? 'More filters' : 'Add filters'}
+                        taxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.EventProperties,
+                            TaxonomicFilterGroupType.PersonProperties,
+                            TaxonomicFilterGroupType.EventFeatureFlags,
+                            TaxonomicFilterGroupType.Cohorts,
+                            TaxonomicFilterGroupType.HogQLExpression,
+                            ...groupsTaxonomicTypes,
+                        ]}
                     />
                 </div>
                 <LemonButton

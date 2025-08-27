@@ -23,6 +23,11 @@ export class NodeInstrumentation {
             clearInterval(this.threadPerformanceInterval)
         }
 
+        // Initialize the last utilization on first call
+        if (!this.lastEventLoopUtilization) {
+            this.lastEventLoopUtilization = performance.eventLoopUtilization()
+        }
+
         this.threadPerformanceInterval = setInterval(() => {
             const current = performance.eventLoopUtilization()
             const delta = performance.eventLoopUtilization(this.lastEventLoopUtilization, current)

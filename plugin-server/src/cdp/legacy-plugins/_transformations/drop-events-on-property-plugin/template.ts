@@ -1,5 +1,6 @@
-import { LegacyTransformationPlugin } from '../../types'
 import { processEvent } from '.'
+
+import { LegacyTransformationPlugin } from '../../types'
 
 // NOTE: This is a deprecated plugin and should never be shown to new users
 export const dropEventsOnPropertyPlugin: LegacyTransformationPlugin = {
@@ -14,7 +15,8 @@ export const dropEventsOnPropertyPlugin: LegacyTransformationPlugin = {
             'This plugin will drop any events that have a specific key. If you supply a value, it will drop any event with the combination of they key and the value. You will not be billed for any events that this plugin drops.',
         icon_url: 'https://raw.githubusercontent.com/posthog/drop-events-on-property-plugin/main/logo.png',
         category: ['Custom'],
-        hog: `return event`,
+        code_language: 'javascript',
+        code: `return event`,
         inputs_schema: [
             {
                 templating: false,

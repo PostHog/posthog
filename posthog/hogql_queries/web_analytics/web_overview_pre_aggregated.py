@@ -2,8 +2,9 @@ from typing import TYPE_CHECKING
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
-from posthog.hogql_queries.web_analytics.pre_aggregated.query_builder import WebAnalyticsPreAggregatedQueryBuilder
+
 from posthog.hogql_queries.web_analytics.pre_aggregated.properties import WEB_OVERVIEW_SUPPORTED_PROPERTIES
+from posthog.hogql_queries.web_analytics.pre_aggregated.query_builder import WebAnalyticsPreAggregatedQueryBuilder
 
 if TYPE_CHECKING:
     from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
@@ -15,6 +16,8 @@ class WebOverviewPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder
 
     def get_query(self) -> ast.SelectQuery:
         previous_period_filter, current_period_filter = self.get_date_ranges()
+
+        table_name = self.bounces_table
 
         query = parse_select(
             """
@@ -36,9 +39,10 @@ class WebOverviewPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder
 
                 NULL AS revenue,
                 NULL AS previous_revenue
-        FROM web_bounces_combined
+        FROM {table_name}
         """,
             placeholders={
+                "table_name": ast.Field(chain=[table_name]),
                 "unique_persons_current": self._uniq_merge_if("persons_uniq_state", current_period_filter),
                 "unique_persons_previous": self._uniq_merge_if("persons_uniq_state", previous_period_filter),
                 "pageviews_current": self._sum_merge_if("pageviews_count_state", current_period_filter),
@@ -62,7 +66,7 @@ class WebOverviewPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder
 
         assert isinstance(query, ast.SelectQuery)
 
-        filters = self._get_filters(table_name="web_bounces_combined")
+        filters = self._get_filters(table_name=table_name)
         if filters:
             query.where = filters
 

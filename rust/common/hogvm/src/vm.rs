@@ -130,7 +130,7 @@ impl<'a> HogVM<'a> {
                     // But if the first element in the chain didn't exist, this is an error (the mental model here
                     // comes from SQL, where a missing column is an error, but a missing field in a column is, or
                     // at least can be, treated as a null value).
-                    return Err(VmError::UnknownGlobal(format!("{:?}", chain)));
+                    return Err(VmError::UnknownGlobal(format!("{chain:?}")));
                 }
             }
             // We don't implement DeclareFn, because it's not used in the current compiler - it uses
@@ -819,7 +819,7 @@ impl<'a> HogVM<'a> {
     // This is a function on the VM, rather than being standalone, because hog values don't really
     // exist outside of the context of a VM (and specifically a heap). It could be a function on the
     // heap itself, though.
-    fn json_to_hog(&mut self, json: JsonValue) -> Result<HogValue, VmError> {
+    pub fn json_to_hog(&mut self, json: JsonValue) -> Result<HogValue, VmError> {
         self.json_to_hog_impl(json, 0)
     }
 
@@ -858,7 +858,7 @@ impl<'a> HogVM<'a> {
 
     // Convert back from an arbitrary HogValue to a json Value. Again, this function exists on
     // the VM, because HogValues don't really exist in any other context.
-    fn hog_to_json(&self, value: &HogValue) -> Result<JsonValue, VmError> {
+    pub fn hog_to_json(&self, value: &HogValue) -> Result<JsonValue, VmError> {
         self.hog_to_json_impl(value, 0)
     }
 
@@ -913,7 +913,7 @@ pub fn sync_execute(context: &ExecutionContext, print_debug: bool) -> Result<Jso
     let mut i = 0;
     while i < context.max_steps {
         let res = if print_debug {
-            vm.debug_step(&|s| println!("{}", s))
+            vm.debug_step(&|s| println!("{s}"))
                 .map_err(|e| fail(e, Some(&vm), i))?
         } else {
             vm.step().map_err(|e| fail(e, Some(&vm), i))?

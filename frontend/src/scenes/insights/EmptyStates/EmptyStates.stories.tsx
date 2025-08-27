@@ -1,5 +1,6 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { useEffect } from 'react'
+
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
 
@@ -59,6 +60,38 @@ export const ServerError: StoryFn = () => {
     })
 
     return <App />
+}
+
+export const QueryServerError: StoryFn = () => {
+    useStorybookMocks({
+        get: {
+            '/api/environments/:team_id/insights/': (_, __, ctx) => [
+                ctx.delay(100),
+                ctx.status(200),
+                ctx.json({
+                    count: 1,
+                    results: [insight],
+                }),
+            ],
+        },
+        post: {
+            '/api/environments/:team_id/query/': (_, __, ctx) => [
+                ctx.delay(100),
+                ctx.status(500),
+                ctx.json({
+                    type: 'server_error',
+                    detail: 'There is nothing you can do to stop the impending catastrophe.',
+                }),
+            ],
+        },
+    })
+
+    return <App />
+}
+QueryServerError.parameters = {
+    testOptions: {
+        waitForSelector: '[data-attr="insight-retry-button"]',
+    },
 }
 
 export const ValidationError: StoryFn = () => {
@@ -127,10 +160,10 @@ export const LongLoading: StoryFn = () => {
         },
     })
 
-    useEffect(() => {
+    useDelayedOnMountEffect(() => {
         const logic = insightVizDataLogic.findMounted({ dashboardItemId: insight.short_id as InsightShortId })
         logic?.actions.setTimedOutQueryId('a-uuid-query-id') // Show the suggestions immediately
-    }, [])
+    })
 
     return <App />
 }

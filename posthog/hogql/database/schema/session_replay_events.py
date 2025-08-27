@@ -1,17 +1,19 @@
-from posthog.hogql.ast import SelectQuery, JoinExpr
+from datetime import datetime
+
+from posthog.hogql.ast import JoinExpr, SelectQuery
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
-    Table,
-    StringDatabaseField,
+    DatabaseField,
     DateTimeDatabaseField,
+    FieldOrTable,
+    FieldTraverser,
     IntegerDatabaseField,
     LazyJoin,
-    FieldTraverser,
-    DatabaseField,
-    LazyTable,
-    FieldOrTable,
-    LazyTableToAdd,
     LazyJoinToAdd,
+    LazyTable,
+    LazyTableToAdd,
+    StringDatabaseField,
+    Table,
 )
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.log_entries import ReplayConsoleLogsLogEntriesTable
@@ -19,11 +21,8 @@ from posthog.hogql.database.schema.person_distinct_ids import (
     PersonDistinctIdsTable,
     join_with_person_distinct_ids_table,
 )
-from datetime import datetime
-
 from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1, select_from_sessions_table_v1
 from posthog.hogql.database.schema.sessions_v2 import select_from_sessions_table_v2, session_id_to_session_id_v7_expr
-
 from posthog.hogql.errors import ResolutionError
 
 

@@ -1,5 +1,6 @@
 use anyhow::Result;
 use assert_json_diff::assert_json_include;
+use base64::{engine::general_purpose, Engine as _};
 
 use feature_flags::api::types::{FlagsResponse, LegacyFlagsResponse};
 use limiters::redis::ServiceName;
@@ -19,12 +20,54 @@ use feature_flags::utils::test_utils::{
 
 pub mod common;
 
+#[tokio::test]
+async fn it_handles_get_requests_with_minimal_response() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Test GET request without any body - should return 200 with minimal response
+    let get_response = reqwest::get(format!("http://{}/flags?v=2", server.addr)).await?;
+    assert_eq!(get_response.status(), StatusCode::OK);
+
+    let json: FlagsResponse = get_response.json().await?;
+    assert!(!json.errors_while_computing_flags);
+    assert!(json.flags.is_empty());
+    assert!(json.quota_limited.is_none());
+    assert_eq!(json.config.supported_compression, vec!["gzip", "gzip-js"]);
+
+    // Test GET request with token in query params
+    let get_response = reqwest::get(format!(
+        "http://{}/flags?v=2&api_key={}",
+        server.addr, token
+    ))
+    .await?;
+    assert_eq!(get_response.status(), StatusCode::OK);
+
+    // Test legacy version format
+    let get_response = reqwest::get(format!("http://{}/flags?v=1", server.addr)).await?;
+    assert_eq!(get_response.status(), StatusCode::OK);
+    let legacy_json: LegacyFlagsResponse = get_response.json().await?;
+    assert!(!legacy_json.errors_while_computing_flags);
+    assert!(legacy_json.feature_flags.is_empty());
+
+    Ok(())
+}
+
 #[rstest]
-#[case(None)]
 #[case(Some("1"))]
 #[case(Some("banana"))]
 #[tokio::test]
-async fn it_gets_legacy_response_by_default_or_invalid_version(
+async fn it_gets_legacy_response_for_v1_or_invalid_version(
     #[case] version: Option<&str>,
 ) -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
@@ -91,6 +134,93 @@ async fn it_gets_legacy_response_by_default_or_invalid_version(
             "featureFlags": {
                 "test-flag": true
             }
+        })
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn it_gets_v2_response_by_default_when_no_params() -> Result<()> {
+    // When no version and no config params are provided, we default to v=2 and config=true
+    let config = DEFAULT_TEST_CONFIG.clone();
+
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    // Insert a specific flag for the team
+    let flag_json = json!([{
+        "id": 1,
+        "key": "test-flag",
+        "name": "Test Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [
+                {
+                    "properties": [],
+                    "rollout_percentage": 100
+                }
+            ],
+        },
+    }]);
+
+    insert_flags_for_team_in_redis(
+        client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "groups": {"group1": "group1"}
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), None, None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+    // With v=2 default, we get the new response format with config fields
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "test-flag": {
+                    "key": "test-flag",
+                    "enabled": true,
+                    "reason": {
+                        "code": "condition_match",
+                        "condition_index": 0,
+                        "description": "Matched condition set 1"
+                    },
+                    "metadata": {
+                        "id": 1,
+                        "version": 0
+                    }
+                }
+            },
+            "config": {}
         })
     );
 
@@ -229,7 +359,7 @@ async fn it_rejects_invalid_headers_flag_request() -> Result<()> {
 }
 
 #[tokio::test]
-async fn it_rejects_empty_distinct_id() -> Result<()> {
+async fn it_accepts_empty_distinct_id() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
@@ -250,12 +380,18 @@ async fn it_rejects_empty_distinct_id() -> Result<()> {
         "groups": {"group1": "group1"}
     });
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
-    assert_eq!(StatusCode::BAD_REQUEST, res.status());
-    assert_eq!(
-        res.text().await?,
-        "The distinct_id field cannot be empty. Please provide a valid identifier."
+    assert_eq!(StatusCode::OK, res.status());
+
+    // Should return a valid response even with empty distinct_id
+    let json_data = res.json::<Value>().await?;
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "featureFlags": {}
+        })
     );
     Ok(())
 }
@@ -273,7 +409,7 @@ async fn it_rejects_missing_distinct_id() -> Result<()> {
         "groups": {"group1": "group1"}
     });
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::BAD_REQUEST, res.status());
     assert_eq!(
@@ -293,7 +429,7 @@ async fn it_rejects_missing_token() -> Result<()> {
         "groups": {"group1": "group1"}
     });
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::UNAUTHORIZED, res.status());
     assert_eq!(
@@ -314,7 +450,7 @@ async fn it_rejects_invalid_token() -> Result<()> {
         "groups": {"group1": "group1"}
     });
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::UNAUTHORIZED, res.status());
     assert_eq!(
@@ -331,7 +467,7 @@ async fn it_handles_malformed_json() -> Result<()> {
 
     let payload = "{invalid_json}";
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::BAD_REQUEST, res.status());
 
@@ -339,9 +475,101 @@ async fn it_handles_malformed_json() -> Result<()> {
 
     assert!(
         response_text.contains("Failed to decode request: invalid JSON"),
-        "Unexpected error message: {:?}",
-        response_text
+        "Unexpected error message: {response_text:?}"
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn it_handles_base64_auto_detection_fallback() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+
+    // Set up Redis and PostgreSQL clients
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let json_payload = json!({
+        "token": token,
+        "distinct_id": "user123",
+        "disable_flags": false
+    });
+
+    // Test 1: Normal JSON
+    let res = server
+        .send_flags_request(json_payload.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    // Test 2: Base64 encoded JSON with compression not specified
+    let json_string = json_payload.to_string();
+    let base64_payload = general_purpose::STANDARD.encode(json_string.as_bytes());
+
+    let res = server
+        .send_flags_request(base64_payload, Some("2"), None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    // Test 3: Invalid base64 should fail gracefully
+    let invalid_base64 = "this is not valid base64 at all!";
+    let res = server
+        .send_flags_request(invalid_base64.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(StatusCode::BAD_REQUEST, res.status());
+
+    let response_text = res.text().await?;
+    assert!(
+        response_text.contains("Failed to decode request: invalid JSON"),
+        "Should fail with invalid JSON error for invalid base64: {response_text:?}"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn it_handles_disable_flags_without_distinct_id() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+
+    // Set up Redis and PostgreSQL clients
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    insert_flags_for_team_in_redis(client.clone(), team.id, team.project_id, None)
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Request with disable_flags=true but NO distinct_id should succeed
+    let disabled_payload = json!({
+        "token": token,
+        "disable_flags": true
+        // Note: no distinct_id field
+    });
+
+    let res = server
+        .send_flags_request(disabled_payload.to_string(), Some("2"), None)
+        .await;
+
+    assert_eq!(StatusCode::OK, res.status());
+
+    let response_body = res.json::<FlagsResponse>().await?;
+    // Should return empty flags since they're disabled
+    assert!(response_body.flags.is_empty());
+
     Ok(())
 }
 
@@ -369,7 +597,7 @@ async fn it_handles_quota_limiting() -> Result<()> {
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
     let response_body = res.json::<LegacyFlagsResponse>().await?;
@@ -492,7 +720,7 @@ async fn it_handles_multivariate_flags() -> Result<()> {
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -574,7 +802,7 @@ async fn it_handles_flag_with_property_filter() -> Result<()> {
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -599,7 +827,7 @@ async fn it_handles_flag_with_property_filter() -> Result<()> {
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -681,7 +909,7 @@ async fn it_matches_flags_to_a_request_with_group_property_overrides() -> Result
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -711,7 +939,7 @@ async fn it_matches_flags_to_a_request_with_group_property_overrides() -> Result
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -799,7 +1027,7 @@ async fn test_feature_flags_with_json_payloads() -> Result<()> {
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
 
     assert_eq!(StatusCode::OK, res.status());
@@ -915,7 +1143,7 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
         });
 
         let res = server
-            .send_flags_request(payload.to_string(), None, None)
+            .send_flags_request(payload.to_string(), Some("1"), None)
             .await;
         assert_eq!(res.status(), StatusCode::OK);
 
@@ -944,7 +1172,7 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
         });
 
         let res = server
-            .send_flags_request(payload.to_string(), None, None)
+            .send_flags_request(payload.to_string(), Some("1"), None)
             .await;
         assert_eq!(res.status(), StatusCode::OK);
 
@@ -973,7 +1201,7 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
         });
 
         let res = server
-            .send_flags_request(payload.to_string(), None, None)
+            .send_flags_request(payload.to_string(), Some("1"), None)
             .await;
         assert_eq!(res.status(), StatusCode::OK);
 
@@ -1051,7 +1279,7 @@ async fn it_handles_not_contains_property_filter() -> Result<()> {
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -1151,7 +1379,7 @@ async fn it_handles_not_equal_and_not_regex_property_filters() -> Result<()> {
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -1177,7 +1405,7 @@ async fn it_handles_not_equal_and_not_regex_property_filters() -> Result<()> {
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -1203,7 +1431,7 @@ async fn it_handles_not_equal_and_not_regex_property_filters() -> Result<()> {
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -1313,7 +1541,7 @@ async fn test_complex_regex_and_name_match_flag() -> Result<()> {
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -1350,7 +1578,7 @@ async fn test_complex_regex_and_name_match_flag() -> Result<()> {
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -1358,8 +1586,7 @@ async fn test_complex_regex_and_name_match_flag() -> Result<()> {
     let flag_value = json_data["featureFlags"]["complex-flag"].as_str().unwrap();
     assert!(
         ["control", "test"].contains(&flag_value),
-        "Expected either 'control' or 'test' variant, got {}",
-        flag_value
+        "Expected either 'control' or 'test' variant, got {flag_value}"
     );
 
     Ok(())
@@ -1457,7 +1684,7 @@ async fn test_super_condition_with_complex_request() -> Result<()> {
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -1580,7 +1807,7 @@ async fn it_sets_quota_limited_in_legacy_and_v2() -> Result<()> {
 
     // Legacy response (no version param)
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
     let legacy: LegacyFlagsResponse = res.json().await?;
@@ -1658,7 +1885,7 @@ async fn it_only_includes_config_fields_when_requested() -> Result<()> {
         .await;
     if res.status() != StatusCode::OK {
         let text = res.text().await?;
-        panic!("Non-200 response \nBody: {}", text);
+        panic!("Non-200 response \nBody: {text}");
     }
     let json_data = res.json::<Value>().await?;
     assert!(json_data.get("supportedCompression").is_none());
@@ -3085,7 +3312,7 @@ async fn test_disable_flags_returns_empty_response() -> Result<()> {
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -3228,7 +3455,7 @@ async fn test_disable_flags_false_still_returns_flags() -> Result<()> {
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -3569,7 +3796,7 @@ async fn test_numeric_group_ids_work_correctly() -> Result<()> {
         });
 
         let res = server
-            .send_flags_request(payload.to_string(), None, None)
+            .send_flags_request(payload.to_string(), Some("1"), None)
             .await;
         assert_eq!(res.status(), StatusCode::OK);
 
@@ -3596,7 +3823,7 @@ async fn test_numeric_group_ids_work_correctly() -> Result<()> {
         });
 
         let res = server
-            .send_flags_request(payload.to_string(), None, None)
+            .send_flags_request(payload.to_string(), Some("1"), None)
             .await;
         assert_eq!(res.status(), StatusCode::OK);
 
@@ -3623,7 +3850,7 @@ async fn test_numeric_group_ids_work_correctly() -> Result<()> {
         });
 
         let res = server
-            .send_flags_request(payload.to_string(), None, None)
+            .send_flags_request(payload.to_string(), Some("1"), None)
             .await;
         assert_eq!(res.status(), StatusCode::OK);
 
@@ -3650,7 +3877,7 @@ async fn test_numeric_group_ids_work_correctly() -> Result<()> {
         });
 
         let res = server
-            .send_flags_request(payload.to_string(), None, None)
+            .send_flags_request(payload.to_string(), Some("1"), None)
             .await;
         assert_eq!(res.status(), StatusCode::OK);
 
@@ -3751,7 +3978,7 @@ async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
     if res.status() != StatusCode::OK {
         let status = res.status();
         let text = res.text().await?;
-        panic!("Non-200 response: {}\nBody: {}", status, text);
+        panic!("Non-200 response: {status}\nBody: {text}");
     }
 
     let json_data = res.json::<Value>().await?;
@@ -3790,7 +4017,7 @@ async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
     if res_override.status() != StatusCode::OK {
         let status = res_override.status();
         let text = res_override.text().await?;
-        panic!("Non-200 response: {}\nBody: {}", status, text);
+        panic!("Non-200 response: {status}\nBody: {text}");
     }
 
     let json_override = res_override.json::<Value>().await?;
@@ -3840,7 +4067,7 @@ async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
     if res_reverse.status() != StatusCode::OK {
         let status = res_reverse.status();
         let text = res_reverse.text().await?;
-        panic!("Non-200 response: {}\nBody: {}", status, text);
+        panic!("Non-200 response: {status}\nBody: {text}");
     }
 
     let json_reverse = res_reverse.json::<Value>().await?;
@@ -3975,7 +4202,7 @@ async fn test_property_override_bug_real_scenario() -> Result<()> {
     if res.status() != StatusCode::OK {
         let status = res.status();
         let text = res.text().await?;
-        panic!("Non-200 response: {}\nBody: {}", status, text);
+        panic!("Non-200 response: {status}\nBody: {text}");
     }
 
     let json_data = res.json::<Value>().await?;
@@ -4091,7 +4318,7 @@ async fn test_super_condition_with_cohort_filters() -> Result<()> {
     if res.status() != StatusCode::OK {
         let status = res.status();
         let text = res.text().await?;
-        panic!("Non-200 response: {}\nBody: {}", status, text);
+        panic!("Non-200 response: {status}\nBody: {text}");
     }
 
     let json_data = res.json::<Value>().await?;
@@ -4129,7 +4356,7 @@ async fn test_super_condition_with_cohort_filters() -> Result<()> {
     if res_override.status() != StatusCode::OK {
         let status = res_override.status();
         let text = res_override.text().await?;
-        panic!("Non-200 response: {}\nBody: {}", status, text);
+        panic!("Non-200 response: {status}\nBody: {text}");
     }
 
     let json_override = res_override.json::<Value>().await?;
@@ -4170,7 +4397,7 @@ async fn test_super_condition_with_cohort_filters() -> Result<()> {
     if res_false.status() != StatusCode::OK {
         let status = res_false.status();
         let text = res_false.text().await?;
-        panic!("Non-200 response: {}\nBody: {}", status, text);
+        panic!("Non-200 response: {status}\nBody: {text}");
     }
 
     let json_false = res_false.json::<Value>().await?;
@@ -4279,7 +4506,7 @@ async fn test_returns_empty_flags_when_no_active_flags_configured() -> Result<()
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -4393,7 +4620,7 @@ async fn test_group_key_property_matching() -> Result<()> {
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -4419,7 +4646,7 @@ async fn test_group_key_property_matching() -> Result<()> {
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -4442,7 +4669,7 @@ async fn test_group_key_property_matching() -> Result<()> {
     });
 
     let res = server
-        .send_flags_request(payload.to_string(), None, None)
+        .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
@@ -4741,7 +4968,7 @@ async fn test_flag_keys_should_include_dependency_graph() -> Result<()> {
                             {
                                 "key": LEAF_FLAG_ID.to_string(),
                                 "value": true,
-                                "operator": "exact",
+                                "operator": "flag_evaluates_to",
                                 "type": "flag"
                             }
                         ],
@@ -4764,7 +4991,7 @@ async fn test_flag_keys_should_include_dependency_graph() -> Result<()> {
                             {
                                 "key": INTERMEDIATE_FLAG_ID.to_string(),
                                 "value": true,
-                                "operator": "exact",
+                                "operator": "flag_evaluates_to",
                                 "type": "flag"
                             }
                         ],
@@ -4906,6 +5133,1059 @@ async fn test_flag_keys_should_include_dependency_graph() -> Result<()> {
             })
         );
     }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_flag_keys_to_evaluate_parameter() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    // Insert multiple flags for the team
+    let flags = json!([
+        {
+            "id": 1,
+            "key": "flag1",
+            "name": "Flag 1",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 100
+                    }
+                ]
+            }
+        },
+        {
+            "id": 2,
+            "key": "flag2",
+            "name": "Flag 2",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 100
+                    }
+                ]
+            }
+        },
+        {
+            "id": 3,
+            "key": "flag3",
+            "name": "Flag 3",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 100
+                    }
+                ]
+            }
+        }
+    ]);
+
+    insert_flags_for_team_in_redis(
+        client.clone(),
+        team.id,
+        team.project_id,
+        Some(flags.to_string()),
+    )
+    .await
+    .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Test 1: Using flag_keys parameter (currently works)
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "flag_keys": ["flag1", "flag3"]
+    });
+
+    let response = server
+        .send_flags_request(payload.to_string(), Some("1"), None)
+        .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let response_json: LegacyFlagsResponse = response.json().await?;
+
+    assert_eq!(response_json.feature_flags.len(), 2);
+    assert!(response_json.feature_flags.contains_key("flag1"));
+    assert!(response_json.feature_flags.contains_key("flag3"));
+    assert!(!response_json.feature_flags.contains_key("flag2"));
+
+    // Test 2: Using flag_keys_to_evaluate parameter (should work after fix)
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "flag_keys_to_evaluate": ["flag2", "flag3"]
+    });
+
+    let response = server
+        .send_flags_request(payload.to_string(), Some("1"), None)
+        .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let response_json: LegacyFlagsResponse = response.json().await?;
+
+    // This test should fail until we add the alias
+    assert_eq!(
+        response_json.feature_flags.len(),
+        2,
+        "flag_keys_to_evaluate should filter flags"
+    );
+    assert!(response_json.feature_flags.contains_key("flag2"));
+    assert!(response_json.feature_flags.contains_key("flag3"));
+    assert!(!response_json.feature_flags.contains_key("flag1"));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn it_handles_empty_query_parameters() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Create a request with empty query parameters
+    let reqwest_client = reqwest::Client::new();
+    let response = reqwest_client
+        .post(format!(
+            "http://{}/flags/?v=&ip=&_=&ver=&compression=",
+            server.addr
+        ))
+        .header("Content-Type", "application/json")
+        .body(format!(
+            r#"{{"token": "{token}", "distinct_id": "{distinct_id}"}}"#
+        ))
+        .send()
+        .await?;
+
+    assert_eq!(
+        response.status(),
+        200,
+        "Empty query params should be handled gracefully"
+    );
+
+    let response_text = response.text().await?;
+    let response_json: serde_json::Value = serde_json::from_str(&response_text)?;
+
+    assert!(
+        response_json.get("flags").is_some(),
+        "Response should contain flags field"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn it_handles_boolean_query_params_as_truthy() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Test various boolean parameter formats
+    let test_cases = vec![
+        ("config=", "config with empty value should be truthy"),
+        ("config=true", "config=true should be truthy"),
+        ("config=1", "config=1 should be truthy"),
+    ];
+
+    for (query_param, description) in test_cases {
+        let reqwest_client = reqwest::Client::new();
+        let response = reqwest_client
+            .post(format!("http://{}/flags/?{query_param}", server.addr))
+            .header("Content-Type", "application/json")
+            .body(format!(
+                r#"{{"token": "{token}", "distinct_id": "{distinct_id}"}}"#
+            ))
+            .send()
+            .await?;
+
+        assert_eq!(
+            response.status(),
+            200,
+            "{description}: request should succeed"
+        );
+
+        let response_json: serde_json::Value = response.json().await?;
+
+        // When config=true or config=, we should get config fields in response
+        if query_param.starts_with("config") {
+            assert!(
+                response_json.get("config").is_some(),
+                "{description}: config field should be present"
+            );
+        }
+    }
+
+    // Test config=false should NOT include config fields
+    let reqwest_client = reqwest::Client::new();
+    let response = reqwest_client
+        .post(format!("http://{}/flags/?config=false", server.addr))
+        .header("Content-Type", "application/json")
+        .body(format!(
+            r#"{{"token": "{token}", "distinct_id": "{distinct_id}"}}"#
+        ))
+        .send()
+        .await?;
+
+    assert_eq!(
+        response.status(),
+        200,
+        "config=false request should succeed"
+    );
+    let response_json: serde_json::Value = response.json().await?;
+
+    // Config fields should not be present when config=false
+    assert!(
+        response_json.get("config").is_none(),
+        "config fields should not be present when config=false"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_nested_cohort_targeting_with_days_since_paid_plan() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "test_user_with_77_days".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    // Insert person with production-like data - should match via days_since_paid_plan_start condition
+    insert_person_for_team_in_pg(
+        pg_client.clone(),
+        team.id,
+        distinct_id.clone(),
+        Some(json!({
+            "name": "Test User",
+            "email": "test@example.com",
+            "org_id": "test-org-123", // Not in the allowed org list
+            "user_id": "test-user-456",
+            "days_since_paid_plan_start": 77, // < 365, should match this condition
+            "created_at_timestamp": 1747758893, // Set, would match this condition
+            "upgraded_at_timestamp": 1749058908, // Has upgrade timestamp - fails the not_regex condition in cohort 128293
+            "paid_plan_start_date": "2025-06-04",
+            "trial_start_date": "2025-05-20"
+        })),
+    )
+    .await
+    .unwrap();
+
+    let mut conn = pg_client.get_connection().await.unwrap();
+
+    // Create first cohort (ID 128293) - users without upgraded_at_timestamp but with created_at_timestamp
+    let cohort_128293_filters = json!({
+        "properties": {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "OR",
+                    "values": [{
+                        "key": "upgraded_at_timestamp",
+                        "type": "person",
+                        "value": ".+",
+                        "negation": false,
+                        "operator": "not_regex"
+                    }]
+                },
+                {
+                    "type": "AND",
+                    "values": [{
+                        "key": "created_at_timestamp",
+                        "type": "person",
+                        "value": ".+",
+                        "negation": false,
+                        "operator": "is_set"
+                    }]
+                }
+            ]
+        }
+    });
+
+    let cohort_128293_id: i32 = sqlx::query_scalar(
+        r#"INSERT INTO posthog_cohort 
+           (name, description, team_id, deleted, filters, is_calculating, created_by_id, created_at, is_static, last_calculation, errors_calculating, groups, version)
+           VALUES ($1, $2, $3, false, $4, false, NULL, NOW(), false, NOW(), 0, '[]', NULL)
+           RETURNING id"#,
+    )
+    .bind("Base Cohort 128293")
+    .bind("Users without upgraded_at_timestamp but with created_at_timestamp")
+    .bind(team.id)
+    .bind(cohort_128293_filters)
+    .fetch_one(&mut *conn)
+    .await
+    .unwrap();
+
+    // Create second cohort (ID 128397) - Session Recordings Enabled cohort that references the first cohort
+    let cohort_128397_filters = json!({
+        "properties": {
+            "type": "OR",
+            "values": [
+                {
+                    "type": "OR",
+                    "values": [{
+                        "key": "org_id",
+                        "type": "person",
+                        "value": ["67756", "67454", "56258", "59205", "36297"],
+                        "negation": false,
+                        "operator": "exact"
+                    }]
+                },
+                {
+                    "type": "OR",
+                    "values": [{
+                        "key": "days_since_paid_plan_start",
+                        "type": "person",
+                        "value": "365",
+                        "negation": false,
+                        "operator": "lt"
+                    }]
+                },
+                {
+                    "type": "OR",
+                    "values": [{
+                        "key": "id",
+                        "type": "cohort",
+                        "value": cohort_128293_id,
+                        "negation": false
+                    }]
+                }
+            ]
+        }
+    });
+
+    let cohort_128397_id: i32 = sqlx::query_scalar(
+        r#"INSERT INTO posthog_cohort 
+           (name, description, team_id, deleted, filters, is_calculating, created_by_id, created_at, is_static, last_calculation, errors_calculating, groups, version)
+           VALUES ($1, $2, $3, false, $4, false, NULL, NOW(), false, NOW(), 0, '[]', NULL)
+           RETURNING id"#,
+    )
+    .bind("Session Recordings Enabled")
+    .bind("Cohort with multiple OR conditions including nested cohort reference")
+    .bind(team.id)
+    .bind(cohort_128397_filters)
+    .fetch_one(&mut *conn)
+    .await
+    .unwrap();
+
+    // Create feature flag (ID 124068) that targets the Session Recordings Enabled cohort
+    let flag_json = json!([{
+        "id": 124068,
+        "key": "session-recordings-flag",
+        "name": "Session Recordings Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [{
+                "variant": null,
+                "properties": [{
+                    "key": "id",
+                    "type": "cohort",
+                    "value": cohort_128397_id,
+                    "operator": "in",
+                    "cohort_name": "Session Recordings Enabled"
+                }],
+                "rollout_percentage": 100
+            }],
+            "payloads": {},
+            "multivariate": null
+        }
+    }]);
+
+    insert_flags_for_team_in_redis(
+        client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Test with production-like user data - SHOULD match because days_since_paid_plan_start = 77 < 365 (OR condition)
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "session-recordings-flag": {
+                    "key": "session-recordings-flag",
+                    "enabled": true,
+                    "reason": {
+                        "code": "condition_match",
+                        "condition_index": 0
+                    }
+                }
+            }
+        })
+    );
+
+    // Test with user who SHOULD match - has low days_since_paid_plan_start and no upgraded_at_timestamp
+    let matching_distinct_id = "matching_user".to_string();
+    insert_person_for_team_in_pg(
+        pg_client.clone(),
+        team.id,
+        matching_distinct_id.clone(),
+        Some(json!({
+            "days_since_paid_plan_start": 200, // < 365, matches this condition
+            "created_at_timestamp": 1747758893,
+            "org_id": "12345" // Not in special list, but should match via days condition
+            // No upgraded_at_timestamp - this allows them to match base cohort 128293
+        })),
+    )
+    .await
+    .unwrap();
+
+    let matching_payload = json!({
+        "token": token,
+        "distinct_id": matching_distinct_id,
+    });
+
+    let matching_res = server
+        .send_flags_request(matching_payload.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(StatusCode::OK, matching_res.status());
+
+    let matching_json = matching_res.json::<Value>().await?;
+    assert_json_include!(
+        actual: matching_json,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "session-recordings-flag": {
+                    "key": "session-recordings-flag",
+                    "enabled": true,
+                    "reason": {
+                        "code": "condition_match",
+                        "condition_index": 0
+                    }
+                }
+            }
+        })
+    );
+
+    // Test with user who should NOT match the cohort - high days_since_paid_plan_start and has upgraded_at_timestamp
+    let failing_distinct_id = "failing_user".to_string();
+    insert_person_for_team_in_pg(
+        pg_client.clone(),
+        team.id,
+        failing_distinct_id.clone(),
+        Some(json!({
+            "days_since_paid_plan_start": "500", // > 365, fails the lt condition
+            "created_at_timestamp": "2024-01-01T00:00:00Z",
+            "upgraded_at_timestamp": "2024-02-01T00:00:00Z", // has upgrade timestamp, fails the not_regex condition
+            "org_id": "99999" // not in the specific org_id list
+        })),
+    )
+    .await
+    .unwrap();
+
+    let failing_payload = json!({
+        "token": token,
+        "distinct_id": failing_distinct_id,
+    });
+
+    let failing_res = server
+        .send_flags_request(failing_payload.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(StatusCode::OK, failing_res.status());
+
+    let failing_json = failing_res.json::<Value>().await?;
+    assert_json_include!(
+        actual: failing_json,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "session-recordings-flag": {
+                    "key": "session-recordings-flag",
+                    "enabled": false,
+                    "reason": {
+                        "code": "no_condition_match"
+                    }
+                }
+            }
+        })
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_empty_distinct_id_flag_matching() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    // Create multiple flags with different matching conditions
+    let flags_json = json!([
+        {
+            "id": 1,
+            "key": "always-on-flag",
+            "name": "Always On Flag",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [{
+                    "properties": [],
+                    "rollout_percentage": 100
+                }]
+            }
+        },
+        {
+            "id": 2,
+            "key": "property-match-flag",
+            "name": "Property Match Flag",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [{
+                    "properties": [{
+                        "key": "country",
+                        "type": "person",
+                        "value": "US",
+                        "operator": "exact"
+                    }],
+                    "rollout_percentage": 100
+                }]
+            }
+        },
+        {
+            "id": 3,
+            "key": "email-regex-flag",
+            "name": "Email Regex Flag",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [{
+                    "properties": [{
+                        "key": "email",
+                        "type": "person",
+                        "value": "@example.com",
+                        "operator": "regex"
+                    }],
+                    "rollout_percentage": 100
+                }]
+            }
+        },
+        {
+            "id": 4,
+            "key": "premium-user-flag",
+            "name": "Premium User Flag",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [{
+                    "properties": [{
+                        "key": "premium_user",
+                        "type": "person",
+                        "value": true,
+                        "operator": "exact"
+                    }],
+                    "rollout_percentage": 100
+                }]
+            }
+        },
+        {
+            "id": 5,
+            "key": "rollout-percentage-flag",
+            "name": "50% Rollout Flag",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [{
+                    "properties": [],
+                    "rollout_percentage": 50
+                }]
+            }
+        },
+        {
+            "id": 6,
+            "key": "multivariate-flag",
+            "name": "Multivariate Flag",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [{
+                    "properties": [],
+                    "rollout_percentage": 100
+                }],
+                "multivariate": {
+                    "variants": [
+                        {
+                            "key": "control",
+                            "name": "Control",
+                            "rollout_percentage": 33
+                        },
+                        {
+                            "key": "test",
+                            "name": "Test",
+                            "rollout_percentage": 33
+                        },
+                        {
+                            "key": "other",
+                            "name": "Other",
+                            "rollout_percentage": 34
+                        }
+                    ]
+                }
+            }
+        }
+    ]);
+
+    insert_flags_for_team_in_redis(
+        client.clone(),
+        team.id,
+        team.project_id,
+        Some(flags_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Test with empty string distinct ID
+    let payload = json!({
+        "token": token,
+        "distinct_id": "",  // Empty distinct ID in the request
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+
+    assert_eq!(res.status(), StatusCode::OK);
+    let json_data = res.json::<Value>().await?;
+
+    // Verify that flags are actually evaluated, not just all returning false
+    // For empty distinct IDs with no person properties, only non-property-based flags should match
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                // Always-on flag should be true for everyone, even empty distinct IDs
+                "always-on-flag": {
+                    "key": "always-on-flag",
+                    "enabled": true
+                },
+                // Property match flags should be false (no person properties)
+                "property-match-flag": {
+                    "key": "property-match-flag",
+                    "enabled": false  // No person properties
+                },
+                "email-regex-flag": {
+                    "key": "email-regex-flag",
+                    "enabled": false  // No email property
+                },
+                "premium-user-flag": {
+                    "key": "premium-user-flag",
+                    "enabled": false  // No premium_user property
+                }
+            }
+        })
+    );
+
+    // Check that rollout percentage flag returns a consistent result
+    // (should be deterministic based on the empty distinct ID hash)
+    let rollout_flag = json_data["flags"]["rollout-percentage-flag"]["enabled"].as_bool();
+    assert!(
+        rollout_flag.is_some(),
+        "Rollout flag should have a boolean value"
+    );
+
+    // Check that multivariate flag returns a variant
+    let multivariate_flag = &json_data["flags"]["multivariate-flag"];
+    assert!(
+        multivariate_flag["enabled"].as_bool().unwrap_or(false),
+        "Multivariate flag should be enabled"
+    );
+    assert!(
+        multivariate_flag["variant"].is_string(),
+        "Multivariate flag should return a variant for empty distinct ID"
+    );
+
+    // Test consistency: Make the same request again and verify we get the same results
+    let res2 = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+
+    assert_eq!(res2.status(), StatusCode::OK);
+    let json_data2 = res2.json::<Value>().await?;
+
+    // Rollout percentage should be consistent
+    assert_eq!(
+        json_data["flags"]["rollout-percentage-flag"]["enabled"],
+        json_data2["flags"]["rollout-percentage-flag"]["enabled"],
+        "Rollout percentage should be consistent for the same (empty) distinct ID"
+    );
+
+    // Multivariate variant should be consistent
+    assert_eq!(
+        json_data["flags"]["multivariate-flag"]["variant"],
+        json_data2["flags"]["multivariate-flag"]["variant"],
+        "Multivariate variant should be consistent for the same (empty) distinct ID"
+    );
+
+    // Test with empty distinct ID but with person properties provided in the request
+    let payload_with_props = json!({
+        "token": token,
+        "distinct_id": "",  // Still empty distinct ID
+        // Include some person properties in the request
+        "person_properties": {
+            "country": "US",
+            "email": "user@test.org",
+            "premium_user": false
+        }
+    });
+
+    let res3 = server
+        .send_flags_request(payload_with_props.to_string(), Some("2"), None)
+        .await;
+
+    assert_eq!(res3.status(), StatusCode::OK);
+    let json_data3 = res3.json::<Value>().await?;
+
+    // Always-on flag should still work
+    assert_json_include!(
+        actual: json_data3,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "always-on-flag": {
+                    "key": "always-on-flag",
+                    "enabled": true
+                },
+                // Property flags should evaluate based on provided properties
+                "property-match-flag": {
+                    "key": "property-match-flag",
+                    "enabled": true
+                },
+                "premium-user-flag": {
+                    "key": "premium-user-flag",
+                    "enabled": false  // premium_user is false
+                }
+            }
+        })
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_cohort_with_and_negated_cohort_condition() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "test_user_and_cohort".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    // Insert person with email matching our target pattern
+    insert_person_for_team_in_pg(
+        pg_client.clone(),
+        team.id,
+        distinct_id.clone(),
+        Some(json!({
+            "email": "engineer@posthog.com"
+        })),
+    )
+    .await
+    .unwrap();
+
+    let mut conn = pg_client.get_connection().await.unwrap();
+
+    // Create cohort 1001: matches "admin@posthog.com" (for exclusion)
+    let excluded_cohort_filters = json!({
+        "properties": {
+            "type": "OR",
+            "values": [{
+                "type": "OR",
+                "values": [{
+                    "key": "email",
+                    "type": "person",
+                    "value": "admin@posthog.com",
+                    "negation": false,
+                    "operator": "exact"
+                }]
+            }]
+        }
+    });
+
+    let excluded_cohort_id: i32 = sqlx::query_scalar(
+        r#"INSERT INTO posthog_cohort 
+           (name, description, team_id, deleted, filters, is_calculating, created_by_id, created_at, is_static, last_calculation, errors_calculating, groups, version)
+           VALUES ($1, $2, $3, false, $4, false, NULL, NOW(), false, NOW(), 0, '[]', NULL)
+           RETURNING id"#,
+    )
+    .bind("Admin Users")
+    .bind("Matches admin@posthog.com")
+    .bind(team.id)
+    .bind(excluded_cohort_filters)
+    .fetch_one(&mut *conn)
+    .await?;
+
+    // Create cohort 1002: matches "@posthog.com" AND NOT in excluded cohort
+    let main_cohort_filters = json!({
+        "properties": {
+            "type": "OR",
+            "values": [{
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "email",
+                        "type": "person",
+                        "value": "@posthog.com",
+                        "negation": false,
+                        "operator": "regex"
+                    },
+                    {
+                        "key": "id",
+                        "type": "cohort",
+                        "value": excluded_cohort_id,
+                        "negation": true
+                    }
+                ]
+            }]
+        }
+    });
+
+    let main_cohort_id: i32 = sqlx::query_scalar(
+        r#"INSERT INTO posthog_cohort 
+           (name, description, team_id, deleted, filters, is_calculating, created_by_id, created_at, is_static, last_calculation, errors_calculating, groups, version)
+           VALUES ($1, $2, $3, false, $4, false, NULL, NOW(), false, NOW(), 0, '[]', NULL)
+           RETURNING id"#,
+    )
+    .bind("Non-Admin PostHog Users")
+    .bind("Matches @posthog.com but NOT admin")
+    .bind(team.id)
+    .bind(main_cohort_filters)
+    .fetch_one(&mut *conn)
+    .await?;
+
+    // Create flag that matches the main cohort
+    let flag_json = json!([{
+        "id": 1,
+        "key": "non-admin-flag",
+        "name": "Non-Admin Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [{
+                "properties": [{
+                    "key": "id",
+                    "type": "cohort",
+                    "value": main_cohort_id,
+                    "operator": "in"
+                }],
+                "rollout_percentage": 100
+            }]
+        }
+    }]);
+
+    insert_flags_for_team_in_redis(
+        client.clone(),
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Test 1: User with engineer@posthog.com should match
+    // (matches @posthog.com regex AND is NOT in admin cohort)
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+
+    assert_eq!(res.status(), StatusCode::OK);
+    let json_data = res.json::<Value>().await?;
+
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "non-admin-flag": {
+                    "key": "non-admin-flag",
+                    "enabled": true
+                }
+            }
+        })
+    );
+
+    // Test 2: User with admin@posthog.com should NOT match
+    // (matches @posthog.com regex BUT is in admin cohort)
+    let admin_distinct_id = "admin_user".to_string();
+    insert_person_for_team_in_pg(
+        pg_client.clone(),
+        team.id,
+        admin_distinct_id.clone(),
+        Some(json!({
+            "email": "admin@posthog.com"
+        })),
+    )
+    .await
+    .unwrap();
+
+    let admin_payload = json!({
+        "token": token,
+        "distinct_id": admin_distinct_id,
+    });
+
+    let admin_res = server
+        .send_flags_request(admin_payload.to_string(), Some("2"), None)
+        .await;
+
+    assert_eq!(admin_res.status(), StatusCode::OK);
+    let admin_json = admin_res.json::<Value>().await?;
+
+    assert_json_include!(
+        actual: admin_json,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "non-admin-flag": {
+                    "key": "non-admin-flag",
+                    "enabled": false
+                }
+            }
+        })
+    );
+
+    // Test 3: User without @posthog.com should NOT match
+    // (doesn't match regex, regardless of admin status)
+    let external_distinct_id = "external_user".to_string();
+    insert_person_for_team_in_pg(
+        pg_client.clone(),
+        team.id,
+        external_distinct_id.clone(),
+        Some(json!({
+            "email": "user@example.com"
+        })),
+    )
+    .await
+    .unwrap();
+
+    let external_payload = json!({
+        "token": token,
+        "distinct_id": external_distinct_id,
+    });
+
+    let external_res = server
+        .send_flags_request(external_payload.to_string(), Some("2"), None)
+        .await;
+
+    assert_eq!(external_res.status(), StatusCode::OK);
+    let external_json = external_res.json::<Value>().await?;
+
+    assert_json_include!(
+        actual: external_json,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "non-admin-flag": {
+                    "key": "non-admin-flag",
+                    "enabled": false
+                }
+            }
+        })
+    );
 
     Ok(())
 }

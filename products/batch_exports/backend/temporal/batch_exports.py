@@ -1,12 +1,14 @@
-import collections.abc
-import dataclasses
+import uuid
+import typing
 import datetime as dt
 import operator
-import typing
-import uuid
+import dataclasses
+import collections.abc
+
+from django.conf import settings
 
 import pyarrow as pa
-from django.conf import settings
+from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
@@ -14,6 +16,7 @@ from posthog.batch_exports.models import BatchExportBackfill, BatchExportRun
 from posthog.batch_exports.service import (
     BackfillDetails,
     BatchExportField,
+    BatchExportInsertInputs,
     acount_failed_batch_export_runs,
     apause_batch_export,
     cancel_running_batch_export_backfill,
@@ -27,18 +30,11 @@ from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
-from posthog.temporal.common.logger import (
-    bind_contextvars,
-    get_external_logger,
-    get_logger,
-)
-from products.batch_exports.backend.temporal.metrics import (
-    get_export_finished_metric,
-    get_export_started_metric,
-)
-from products.batch_exports.backend.temporal.spmc import (
-    use_distributed_events_recent_table,
-)
+from posthog.temporal.common.logger import get_produce_only_logger, get_write_only_logger
+
+from products.batch_exports.backend.temporal.metrics import get_export_finished_metric, get_export_started_metric
+from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
+from products.batch_exports.backend.temporal.spmc import use_distributed_events_recent_table
 from products.batch_exports.backend.temporal.sql import (
     SELECT_FROM_DISTRIBUTED_EVENTS_RECENT,
     SELECT_FROM_EVENTS_VIEW,
@@ -47,8 +43,8 @@ from products.batch_exports.backend.temporal.sql import (
     SELECT_FROM_EVENTS_VIEW_UNBOUNDED,
 )
 
-LOGGER = get_logger(__name__)
-EXTERNAL_LOGGER = get_external_logger()
+LOGGER = get_write_only_logger(__name__)
+EXTERNAL_LOGGER = get_produce_only_logger("EXTERNAL")
 
 BytesGenerator = collections.abc.Generator[bytes, None, None]
 RecordsGenerator = collections.abc.Generator[pa.RecordBatch, None, None]
@@ -398,6 +394,8 @@ class FinishBatchExportRunInputs:
             See the docstring in 'pause_batch_export_if_over_failure_threshold'.
         failure_check_window: Used when determining to pause a batch export that has failed.
             See the docstring in 'pause_batch_export_if_over_failure_threshold'.
+        bytes_exported: Total number of bytes exported.
+            This is the size of the actual data exported, which takes into account the file type and compression.
     """
 
     id: str
@@ -409,6 +407,7 @@ class FinishBatchExportRunInputs:
     records_total_count: int | None = None
     failure_threshold: int = 10
     failure_check_window: int = 50
+    bytes_exported: int | None = None
 
 
 @activity.defn
@@ -426,7 +425,13 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
     logger = LOGGER.bind()
     external_logger = EXTERNAL_LOGGER.bind()
 
-    not_model_params = ("id", "team_id", "batch_export_id", "failure_threshold", "failure_check_window")
+    not_model_params = (
+        "id",
+        "team_id",
+        "batch_export_id",
+        "failure_threshold",
+        "failure_check_window",
+    )
     update_params = {
         key: value
         for key, value in dataclasses.asdict(inputs).items()
@@ -696,14 +701,12 @@ async def update_batch_export_backfill_model_status(inputs: UpdateBatchExportBac
         )
 
 
-RecordsCompleted = int
-BatchExportActivity = collections.abc.Callable[..., collections.abc.Awaitable[RecordsCompleted]]
+BatchExportActivity = collections.abc.Callable[..., collections.abc.Awaitable[BatchExportResult]]
 
 
 async def execute_batch_export_insert_activity(
     activity: BatchExportActivity,
-    inputs,
-    non_retryable_error_types: list[str],
+    inputs: BatchExportInsertInputs,
     finish_inputs: FinishBatchExportRunInputs,
     interval: str,
     heartbeat_timeout_seconds: int | None = 180,
@@ -720,7 +723,6 @@ async def execute_batch_export_insert_activity(
     Args:
         activity: The 'insert_into_*' activity function to execute.
         inputs: The inputs to the activity.
-        non_retryable_error_types: A list of errors to not retry on when executing the activity.
         finish_inputs: Inputs to the 'finish_batch_export_run' to run at the end.
         interval: The interval of the batch export used to set the start to close timeout.
         maximum_attempts: Maximum number of retries for the 'insert_into_*' activity function.
@@ -752,26 +754,27 @@ async def execute_batch_export_insert_activity(
         initial_interval=dt.timedelta(seconds=initial_retry_interval_seconds),
         maximum_interval=dt.timedelta(seconds=maximum_retry_interval_seconds),
         maximum_attempts=maximum_attempts,
-        non_retryable_error_types=non_retryable_error_types,
     )
 
     try:
-        records_completed = await workflow.execute_activity(
+        result = await workflow.execute_activity(
             activity,
             inputs,
             start_to_close_timeout=start_to_close_timeout,
             heartbeat_timeout=dt.timedelta(seconds=heartbeat_timeout_seconds) if heartbeat_timeout_seconds else None,
             retry_policy=retry_policy,
         )
-        finish_inputs.records_completed = records_completed
+        finish_inputs.records_completed = result.records_completed
+        finish_inputs.bytes_exported = result.bytes_exported
+        if result.error_repr:
+            finish_inputs.latest_error = result.error_repr
+            finish_inputs.status = BatchExportRun.Status.FAILED
 
     except exceptions.ActivityError as e:
         if isinstance(e.cause, exceptions.CancelledError):
             finish_inputs.status = BatchExportRun.Status.CANCELLED
-        elif isinstance(e.cause, exceptions.ApplicationError) and e.cause.type not in non_retryable_error_types:
-            finish_inputs.status = BatchExportRun.Status.FAILED_RETRYABLE
         else:
-            finish_inputs.status = BatchExportRun.Status.FAILED
+            finish_inputs.status = BatchExportRun.Status.FAILED_RETRYABLE
 
         finish_inputs.latest_error = str(e.cause)
         raise

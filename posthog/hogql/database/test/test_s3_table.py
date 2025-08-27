@@ -1,4 +1,7 @@
 from typing import Literal
+
+from posthog.test.base import BaseTest
+
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
@@ -8,7 +11,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
-from posthog.test.base import BaseTest
+
 from posthog.warehouse.models.table import DataWarehouseTable
 
 

@@ -1,0 +1,39 @@
+{% extends "loginas/change_form.html" %}
+
+{% block extrahead %}
+  {{ block.super }}
+
+  <script nonce="{{ request.admin_csp_nonce }}">
+    window.addEventListener("DOMContentLoaded", () => {
+        document.getElementById("send_verification_email_button")?.addEventListener("click", (event) => {
+            // prevent anchor tag from navigating
+            event.preventDefault();
+
+            if (window.confirm("Send verification email?"))
+                document.getElementById("send_verification").submit();
+        });
+
+        document.getElementById("revoke_sessions_button").addEventListener("click", (event) => {
+            // prevent anchor tag from navigating
+            event.preventDefault();
+
+            if (window.confirm("Revoke all sessions? This will log out the user from all devices."))
+                document.getElementById("revoke_sessions").submit();
+        });
+    });
+  </script>
+{% endblock %}
+
+{% block content %}
+    {{ block.super }}
+
+    <form method="POST" id="send_verification">
+        {% csrf_token %}
+        <input type="hidden" name="send_verification" value="1" />
+    </form>
+
+    <form method="POST" id="revoke_sessions">
+        {% csrf_token %}
+        <input type="hidden" name="revoke_sessions" value="1" />
+    </form>
+{% endblock %}

@@ -1,26 +1,25 @@
 from typing import TYPE_CHECKING, cast
 
-
 from rest_framework import exceptions, serializers, status
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
-from posthog.api.documentation import extend_schema
 
-from ee.models.rbac.access_control import AccessControl
-from posthog.scopes import API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
-from posthog.models.team.team import Team
+from posthog.api.documentation import extend_schema
 from posthog.models.organization import OrganizationMembership
+from posthog.models.team.team import Team
 from posthog.rbac.user_access_control import (
     ACCESS_CONTROL_LEVELS_RESOURCE,
-    UserAccessControl,
     AccessSource,
+    UserAccessControl,
     default_access_level,
     highest_access_level,
     ordered_access_levels,
 )
+from posthog.scopes import API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
 
+from ee.models.rbac.access_control import AccessControl
 
 if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet
@@ -161,6 +160,11 @@ class AccessControlViewSetMixin(_GenericViewSet):
             "users_with_access",
         ]:
             return ["access_control:read"]
+        elif request.method == "PUT" and self.action in [
+            "access_controls",
+            "global_access_controls",
+        ]:
+            return ["access_control:write"]
 
         return None
 
@@ -187,7 +191,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
             access_controls = AccessControl.objects.filter(team=team, resource=resource, resource_id=resource_id).all()
 
         serializer = self._get_access_control_serializer(instance=access_controls, many=True)
-        user_access_level = user_access_control.access_level_for_object(obj, resource)
+        user_access_level = user_access_control.get_user_access_level(obj)
 
         return Response(
             {
@@ -225,8 +229,14 @@ class AccessControlViewSetMixin(_GenericViewSet):
         for membership in org_memberships:
             user = membership.user
             user_uac = UserAccessControl(user=user, team=team)
-            access_level = user_uac.access_level_for_object(obj, resource)
-            if access_level is None:
+
+            # Check if user has access to the project first
+            project_access = user_uac.check_access_level_for_object(team, required_level="member")
+            if not project_access:
+                continue
+
+            access_level = user_uac.get_user_access_level(obj)
+            if access_level is None or access_level == "none":
                 continue
 
             access_source = user_uac.get_access_source_for_object(obj, resource) or AccessSource.DEFAULT

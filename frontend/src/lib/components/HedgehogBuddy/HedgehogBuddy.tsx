@@ -1,32 +1,34 @@
 import './HedgehogBuddy.scss'
 
-import { lemonToast, ProfilePicture } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { ForwardedRef, useEffect, useMemo, useRef, useState } from 'react'
+import React from 'react'
+
+import { ProfilePicture, lemonToast } from '@posthog/lemon-ui'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { range, sampleOne, shouldIgnoreInput } from 'lib/utils'
-import { ForwardedRef, useEffect, useMemo, useRef, useState } from 'react'
-import React from 'react'
 import { userLogic } from 'scenes/userLogic'
 
 import { HedgehogConfig, OrganizationMemberType } from '~/types'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
-import { COLOR_TO_FILTER_MAP, hedgehogBuddyLogic } from './hedgehogBuddyLogic'
 import { HedgehogOptions } from './HedgehogOptions'
+import { COLOR_TO_FILTER_MAP, hedgehogBuddyLogic } from './hedgehogBuddyLogic'
 import {
     AccessoryInfo,
     AnimationName,
     OverlayAnimationName,
-    overlayAnimations,
     SHADOW_HEIGHT,
-    skins,
     SPRITE_SHEET_WIDTH,
     SPRITE_SIZE,
-    spriteAccessoryUrl,
     SpriteInfo,
+    overlayAnimations,
+    skins,
+    spriteAccessoryUrl,
     spriteOverlayUrl,
     spriteUrl,
     standardAccessories,
@@ -797,7 +799,7 @@ export class HedgehogActor {
                             ref?.(r)
                         }
                     }}
-                    className="m-0 cursor-pointer HedgehogBuddy"
+                    className="HedgehogBuddy"
                     data-content={preloadContent}
                     onTouchStart={this.static ? undefined : () => onTouchOrMouseStart()}
                     onMouseDown={this.static ? undefined : () => onTouchOrMouseStart()}
@@ -809,6 +811,7 @@ export class HedgehogActor {
                         position: this.static ? 'relative' : 'fixed',
                         left: this.static ? undefined : this.x,
                         bottom: this.static ? undefined : this.y - SHADOW_HEIGHT * 0.5,
+                        zIndex: !this.static ? 'var(--z-hedgehog-buddy)' : undefined,
                         transition: !(this.isDragging || this.followMouse) ? `all ${1000 / FPS}ms` : undefined,
                     }}
                 >
@@ -821,8 +824,8 @@ export class HedgehogActor {
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{
                                 // NOTE: Some styles done here to avoid it showing as an interactable element (via border)
-                                border: '1px solid var(--border-primary)',
-                                backgroundColor: 'var(--bg-surface-primary)',
+                                border: '1px solid var(--color-border-primary)',
+                                backgroundColor: 'var(--color-bg-surface-primary)',
                             }}
                         >
                             {this.tooltip}
@@ -944,7 +947,7 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
         if (currentLocation.pathname.includes('/heatmaps')) {
             actor?.setOnFire()
         }
-    }, [currentLocation.pathname])
+    }, [currentLocation.pathname, actor])
 
     useEffect(() => {
         if (hedgehogConfig) {
@@ -954,15 +957,15 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
                 actor.direction = hedgehogConfig.fixed_direction
             }
         }
-    }, [hedgehogConfig])
+    }, [hedgehogConfig, actor, actor.hedgehogConfig, actor.direction])
 
     useEffect(() => {
         actor.tooltip = tooltip
-    }, [tooltip])
+    }, [tooltip, actor.tooltip])
 
     useEffect(() => {
         actor.static = staticMode ?? false
-    }, [staticMode])
+    }, [staticMode, actor.static])
 
     useEffect(() => {
         let timer: any = null
@@ -977,7 +980,7 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
         return () => {
             clearTimeout(timer)
         }
-    }, [])
+    }, [actor])
 
     useEffect(() => {
         if (actor.isDragging) {
@@ -991,7 +994,7 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
 
     useEffect(() => {
         onPositionChange?.(actor)
-    }, [actor.x, actor.y, actor.direction])
+    }, [actor.x, actor.y, actor.direction, onPositionChange, actor])
 
     const onClick = (): void => {
         !actor.isDragging && _onClick?.(actor)

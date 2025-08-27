@@ -1,9 +1,9 @@
-import datetime
 import os
+import datetime
 import subprocess
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Optional, cast, Literal
+from typing import Any, Literal, Optional, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -11,6 +11,7 @@ from django.core import exceptions
 from django.db import models
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
+
 from rest_framework.exceptions import ValidationError
 from semantic_version.base import SimpleSpec
 
@@ -29,7 +30,8 @@ from posthog.plugins.utils import (
     load_json_file,
     parse_url,
 )
-from .utils import UUIDModel, sane_repr
+
+from .utils import UUIDTModel, sane_repr
 
 try:
     from posthog.clickhouse.client import sync_execute
@@ -450,7 +452,7 @@ class PluginSourceFileManager(models.Manager):
         )
 
 
-class PluginSourceFile(UUIDModel):
+class PluginSourceFile(UUIDTModel):
     class Meta:
         constraints = [models.UniqueConstraint(name="unique_filename_for_plugin", fields=("plugin_id", "filename"))]
 
@@ -537,7 +539,7 @@ def preinstall_plugins_for_new_organization(sender, instance: Organization, crea
                     is_preinstalled=True,
                 )
             except Exception as e:
-                print(
+                print(  # noqa: T201 allow print statement
                     f"⚠️ Cannot preinstall plugin from {plugin_url}, skipping it for organization {instance.name}:\n",
                     e,
                 )

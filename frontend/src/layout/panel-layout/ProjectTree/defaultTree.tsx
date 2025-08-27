@@ -1,3 +1,5 @@
+import React, { CSSProperties } from 'react'
+
 import {
     IconAI,
     IconApp,
@@ -5,6 +7,7 @@ import {
     IconBook,
     IconCalendar,
     IconChevronRight,
+    IconCode,
     IconCursor,
     IconDatabase,
     IconFunnels,
@@ -24,9 +27,9 @@ import {
     IconUserPaths,
     IconWarning,
 } from '@posthog/icons'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCohort } from 'lib/lemon-ui/icons'
-import React, { CSSProperties } from 'react'
 import { urls } from 'scenes/urls'
 
 import {
@@ -42,18 +45,22 @@ import { FileSystemIconColor, PipelineStage, PipelineTab } from '~/types'
 const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: FileSystemIconColor }> = {
     ai: {
         icon: <IconAI />,
-        iconColor: ['var(--product-max-ai-light)'],
+        iconColor: ['var(--color-product-max-ai-light)'],
+    },
+    code: {
+        icon: <IconCode />,
+        iconColor: ['var(--color-product-mcp-server-light)', 'var(--color-product-mcp-server-dark)'],
     },
     cursor: {
         icon: <IconCursor />,
     },
     heatmap: {
         icon: <IconApp />,
-        iconColor: ['var(--product-heatmaps-light)', 'var(--product-heatmaps-dark)'],
+        iconColor: ['var(--color-product-heatmaps-light)', 'var(--color-product-heatmaps-dark)'],
     },
     database: {
         icon: <IconDatabase />,
-        iconColor: ['var(--product-data-warehouse-light)'],
+        iconColor: ['var(--color-product-data-warehouse-light)'],
     },
     definitions: {
         icon: <IconApps />,
@@ -66,7 +73,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     live: {
         icon: <IconLive />,
-        iconColor: ['var(--product-logs-light)'],
+        iconColor: ['var(--color-product-logs-light)'],
     },
     notification: {
         icon: <IconNotification />,
@@ -74,89 +81,105 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     pieChart: {
         icon: <IconPieChart />,
-        iconColor: ['var(--product-web-analytics-light)', 'var(--product-web-analytics-dark)'],
+        iconColor: ['var(--color-product-web-analytics-light)', 'var(--color-product-web-analytics-dark)'],
     },
     piggyBank: {
         icon: <IconPiggyBank />,
-        iconColor: ['var(--product-revenue-analytics-light)', 'var(--product-revenue-analytics-dark)'],
+        iconColor: ['var(--color-product-revenue-analytics-light)', 'var(--color-product-revenue-analytics-dark)'],
     },
     plug: {
         icon: <IconPlug />,
-        iconColor: ['var(--product-data-pipeline-light)'],
+        iconColor: ['var(--color-product-data-pipeline-light)'],
     },
     sql: {
         icon: <IconServer />,
-        iconColor: ['var(--product-data-warehouse-light)'],
+        iconColor: ['var(--color-product-data-warehouse-light)'],
     },
     warning: {
         icon: <IconWarning />,
     },
     errorTracking: {
         icon: <IconWarning />,
-        iconColor: ['var(--product-error-tracking-light)', 'var(--product-error-tracking-dark)'],
+        iconColor: ['var(--color-product-error-tracking-light)', 'var(--color-product-error-tracking-dark)'],
     },
     insightFunnel: {
         icon: <IconFunnels />,
-        iconColor: ['var(--insight-funnel-light)'],
+        iconColor: ['var(--color-insight-funnel-light)'],
     },
     insightTrends: {
         icon: <IconTrends />,
-        iconColor: ['var(--insight-trends-light)'],
+        iconColor: ['var(--color-insight-trends-light)'],
     },
     insightRetention: {
         icon: <IconRetention />,
-        iconColor: ['var(--insight-retention-light)'],
+        iconColor: ['var(--color-insight-retention-light)'],
     },
     insightUserPaths: {
         icon: <IconUserPaths />,
-        iconColor: ['var(--insight-user-paths-light)', 'var(--insight-user-paths-dark)'],
+        iconColor: ['var(--color-insight-user-paths-light)', 'var(--color-user-paths-dark)'],
     },
     insightLifecycle: {
         icon: <IconLifecycle />,
-        iconColor: ['var(--insight-lifecycle-light)'],
+        iconColor: ['var(--color-insight-lifecycle-light)'],
     },
     insightStickiness: {
         icon: <IconStickiness />,
-        iconColor: ['var(--insight-stickiness-light)'],
+        iconColor: ['var(--color-insight-stickiness-light)'],
     },
     insightHogQL: {
         icon: <IconHogQL />,
-        iconColor: ['var(--insight-sql-light)'],
+        iconColor: ['var(--color-insight-sql-light)'],
     },
     insightCalendarHeatmap: {
         icon: <IconCalendar className="mt-[2px]" />,
-        iconColor: ['var(--insight-calendar-heatmap-light)', 'var(--insight-calendar-heatmap-dark)'],
+        iconColor: ['var(--color-insight-calendar-heatmap-light)', 'var(--color-insight-calendar-heatmap-dark)'],
     },
     cohort: {
         icon: <IconCohort />,
     },
     insight: {
         icon: <IconGraph />,
-        iconColor: ['var(--product-product-analytics-light)'],
+        iconColor: ['var(--color-product-product-analytics-light)'],
     },
 }
 
-const getIconColor = (type?: string): FileSystemIconColor => {
+const getIconColor = (type?: string, colorOverride?: FileSystemIconColor): FileSystemIconColor => {
+    // Get the official icon color
+    const iconTypeColor = type && iconTypes[type as keyof typeof iconTypes]?.iconColor
+
+    // fallback: Get the file system color
     const fileSystemColor = (fileSystemTypes as unknown as Record<string, { iconColor?: FileSystemIconColor }>)[
         type as keyof typeof fileSystemTypes
     ]?.iconColor
 
-    const iconTypeColor = type && iconTypes[type as keyof typeof iconTypes]?.iconColor
-
-    const color = iconTypeColor ?? fileSystemColor ?? ['currentColor']
+    // If we have a color override, use it
+    // Otherwise, use the official icon color, then the file system color and finally if all else is undefined use the inherited default color
+    const color = colorOverride ?? iconTypeColor ?? fileSystemColor ?? ['currentColor', 'currentColor']
     return color.length === 1 ? [color[0], color[0]] : (color as FileSystemIconColor)
 }
 
-const ProductIconWrapper = ({ type, children }: { type?: string; children: React.ReactNode }): JSX.Element => {
-    const [lightColor, darkColor] = getIconColor(type)
+type ProductIconWrapperProps = {
+    type?: string
+    children: React.ReactNode
+    // Light and dark color overrides
+    colorOverride?: FileSystemIconColor
+}
+
+export const ProductIconWrapper = ({ type, children, colorOverride }: ProductIconWrapperProps): JSX.Element => {
+    const [lightColor, darkColor] = getIconColor(type, colorOverride)
 
     // By default icons will not be colorful, to add color, wrap the icon with the class: "group/colorful-product-icons colorful-product-icons-true"
     return (
         <span
-            className="group-[.colorful-product-icons-true]/colorful-product-icons:text-[var(--product-icon-color-light)] dark:group-[.colorful-product-icons-true]/colorful-product-icons:text-[var(--product-icon-color-dark)]"
+            className="flex items-center group-[.colorful-product-icons-true]/colorful-product-icons:text-[var(--product-icon-color-light)] dark:group-[.colorful-product-icons-true]/colorful-product-icons:text-[var(--product-icon-color-dark)]"
             // eslint-disable-next-line react/forbid-dom-props
             style={
-                { '--product-icon-color-light': lightColor, '--product-icon-color-dark': darkColor } as CSSProperties
+                (colorOverride
+                    ? { '--product-icon-color-light': colorOverride[0], '--product-icon-color-dark': colorOverride[1] }
+                    : {
+                          '--product-icon-color-light': lightColor,
+                          '--product-icon-color-dark': darkColor,
+                      }) as CSSProperties
             }
         >
             {children}
@@ -164,10 +187,10 @@ const ProductIconWrapper = ({ type, children }: { type?: string; children: React
     )
 }
 
-export function iconForType(type?: string): JSX.Element {
+export function iconForType(type?: string, colorOverride?: FileSystemIconColor): JSX.Element {
     if (!type) {
         return (
-            <ProductIconWrapper type={type}>
+            <ProductIconWrapper type={type} colorOverride={colorOverride}>
                 <IconBook />
             </ProductIconWrapper>
         )
@@ -176,17 +199,25 @@ export function iconForType(type?: string): JSX.Element {
     // Then check fileSystemTypes
     if (type in fileSystemTypes && fileSystemTypes[type as keyof typeof fileSystemTypes]?.icon) {
         const IconElement = fileSystemTypes[type as keyof typeof fileSystemTypes].icon
-        return <ProductIconWrapper type={type}>{IconElement}</ProductIconWrapper>
+        return (
+            <ProductIconWrapper type={type} colorOverride={colorOverride}>
+                {IconElement}
+            </ProductIconWrapper>
+        )
     }
 
     if (type in iconTypes) {
-        return <ProductIconWrapper type={type}>{iconTypes[type as keyof typeof iconTypes].icon}</ProductIconWrapper>
+        return (
+            <ProductIconWrapper type={type} colorOverride={colorOverride}>
+                {iconTypes[type as keyof typeof iconTypes].icon}
+            </ProductIconWrapper>
+        )
     }
 
     // Handle hog_function types
     if (type.startsWith('hog_function/')) {
         return (
-            <ProductIconWrapper type="plug">
+            <ProductIconWrapper type="plug" colorOverride={colorOverride}>
                 <IconPlug />
             </ProductIconWrapper>
         )
@@ -194,7 +225,7 @@ export function iconForType(type?: string): JSX.Element {
 
     // Default
     return (
-        <ProductIconWrapper type={type}>
+        <ProductIconWrapper type={type} colorOverride={colorOverride}>
             <IconBook />
         </ProductIconWrapper>
     )
@@ -246,6 +277,12 @@ export const getDefaultTreeData = (): FileSystemImport[] => [
         href: urls.annotations(),
     },
     {
+        path: 'Comments',
+        category: 'Metadata',
+        iconType: 'notification',
+        href: urls.comments(),
+    },
+    {
         path: 'Ingestion warnings',
         category: 'Pipeline',
         iconType: 'warning',
@@ -290,6 +327,12 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             type: 'notebook',
             href: urls.notebooks(),
         },
+        {
+            path: 'MCP Server',
+            category: 'Tools',
+            iconType: 'code',
+            href: 'https://posthog.com/docs/model-context-protocol',
+        } as FileSystemImport,
         {
             path: `Data pipelines`,
             category: 'Tools',

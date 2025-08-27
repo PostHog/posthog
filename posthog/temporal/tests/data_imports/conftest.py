@@ -1,23 +1,27 @@
-import functools
 import json
 import uuid
+import functools
 from concurrent.futures import ThreadPoolExecutor
+
+import pytest
 from unittest import mock
 
-import aioboto3
-import pytest
-import pytest_asyncio
-from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.test import override_settings
+
+import aioboto3
+import pytest_asyncio
+from asgiref.sync import sync_to_async
 from dlt.common.configuration.specs.aws_credentials import AwsCredentials
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
-from posthog.hogql.query import execute_hogql_query
 from posthog.schema import HogQLQueryResponse
+
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
 from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
 from posthog.temporal.data_imports.settings import ACTIVITIES
 from posthog.temporal.utils import ExternalDataWorkflowInputs
@@ -92,6 +96,7 @@ async def run_external_data_job_workflow(
     with (
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
+            BUCKET_PATH=BUCKET_NAME,
             AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
             AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
             AIRBYTE_BUCKET_REGION="us-east-1",
@@ -937,6 +942,37 @@ def stripe_credit_note():
                     "total": 1000,
                     "type": "post_payment",
                     "voided_at": null
+                }
+            ]
+        }
+        """
+    )
+
+
+@pytest.fixture
+def stripe_customer_balance_transaction():
+    return json.loads(
+        """
+        {
+            "object": "list",
+            "url": "/v1/credit_notes",
+            "has_more": false,
+            "data": [
+                {
+                    "amount": 123,
+                    "checkout_session": null,
+                    "created": 1744275509,
+                    "credit_note": null,
+                    "currency": "usd",
+                    "customer": "cus_OyUnzb0sjasdsd",
+                    "description": "Credit expired",
+                    "ending_balance": 0,
+                    "id": "cbtxn_1RCGwLEuIatRXSdz53OwYsdfsd",
+                    "invoice_id": null,
+                    "livemode": true,
+                    "metadata": {},
+                    "object": "customer_balance_transaction",
+                    "type": "adjustment"
                 }
             ]
         }

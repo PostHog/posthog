@@ -1,23 +1,14 @@
-from typing import Any
 from collections.abc import AsyncIterator
+from typing import Any
 
 from langgraph.config import get_stream_writer
 from pydantic import BaseModel, Field
 
+from posthog.schema import AssistantMessage, AssistantToolCallMessage, VisualizationMessage
+
 from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
 from ee.hogai.tool import MaxTool
 from ee.hogai.utils.types import AssistantState
-from posthog.schema import (
-    AssistantFunnelsQuery,
-    AssistantHogQLQuery,
-    AssistantMessage,
-    AssistantRetentionQuery,
-    AssistantToolCallMessage,
-    AssistantTrendsQuery,
-    VisualizationMessage,
-)
-
-QueryResult = AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
 
 
 class EditCurrentInsightArgs(BaseModel):
@@ -37,7 +28,15 @@ class EditCurrentInsightTool(MaxTool):
         "Update the insight the user is currently working on, based on the current insight's JSON schema."
     )
     thinking_message: str = "Editing your insight"
-    root_system_prompt_template: str = "The user is currently editing an insight (aka query). Here is that insight's current definition, which can be edited using the `create_and_query_insight` tool:\n```json\n{current_query}\n```"
+    root_system_prompt_template: str = """The user is currently editing an insight (aka query). Here is that insight's current definition, which can be edited using the `create_and_query_insight` tool:
+
+```json
+{current_query}
+```
+
+IMPORTANT: DO NOT REMOVE ANY FIELDS FROM THE CURRENT INSIGHT DEFINITION. DO NOT CHANGE ANY OTHER FIELDS THAN THE ONES THE USER ASKED FOR. KEEP THE REST AS IS.
+""".strip()
+
     args_schema: type[BaseModel] = EditCurrentInsightArgs
 
     async def _arun_impl(self, query_kind: str, query_description: str) -> tuple[str, None]:
@@ -55,7 +54,6 @@ class EditCurrentInsightTool(MaxTool):
             raise ValueError("Last message has no tool calls")
 
         state.root_tool_insight_plan = query_description
-        state.root_tool_insight_type = query_kind
         state.root_tool_call_id = last_message.tool_calls[0].id
 
         writer = get_stream_writer()

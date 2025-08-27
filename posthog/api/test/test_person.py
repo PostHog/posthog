@@ -1,23 +1,8 @@
 import json
 from typing import Optional, cast
-from unittest import mock
-from unittest.mock import patch
 from uuid import uuid4
-from flaky import flaky
 
-from django.utils import timezone
 from freezegun.api import freeze_time
-from rest_framework import status
-
-import posthog.models.person.deletion
-from posthog.clickhouse.client import sync_execute
-from posthog.models import Cohort, Organization, Person, Team, PropertyDefinition
-from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.person import PersonDistinctId
-from posthog.models.person.sql import PERSON_DISTINCT_ID2_TABLE
-from posthog.models.person.util import create_person, create_person_distinct_id
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
-from posthog.models.utils import generate_random_token_personal
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -28,6 +13,23 @@ from posthog.test.base import (
     override_settings,
     snapshot_clickhouse_queries,
 )
+from unittest import mock
+from unittest.mock import patch
+
+from django.utils import timezone
+
+from flaky import flaky
+from rest_framework import status
+
+import posthog.models.person.deletion
+from posthog.clickhouse.client import sync_execute
+from posthog.models import Cohort, Organization, Person, PropertyDefinition, Team
+from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.person import PersonDistinctId
+from posthog.models.person.sql import PERSON_DISTINCT_ID2_TABLE
+from posthog.models.person.util import create_person, create_person_distinct_id
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.utils import generate_random_token_personal
 
 
 class TestPerson(ClickhouseTestMixin, APIBaseTest):
@@ -543,8 +545,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             self.validation_error_response("required", "This field is required.", "properties"),
         )
 
-    @mock.patch("posthog.api.person.new_capture_internal")
-    def test_new_update_single_person_property(self, mock_new_capture) -> None:
+    @mock.patch("posthog.api.person.capture_internal")
+    def test_new_update_single_person_property(self, mock_capture) -> None:
         person = _create_person(
             team=self.team,
             distinct_ids=["some_distinct_id"],
@@ -554,21 +556,20 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         self.client.post(f"/api/person/{person.uuid}/update_property", {"key": "foo", "value": "bar"})
 
-        mock_new_capture.assert_called_once_with(
-            self.team.api_token,
-            "some_distinct_id",
-            {
-                "event": "$set",
-                "properties": {
-                    "$set": {"foo": "bar"},
-                },
-                "timestamp": mock.ANY,
+        mock_capture.assert_called_once_with(
+            token=self.team.api_token,
+            event_name="$set",
+            event_source="person_viewset",
+            distinct_id="some_distinct_id",
+            timestamp=mock.ANY,
+            properties={
+                "$set": {"foo": "bar"},
             },
-            True,
+            process_person_profile=True,
         )
 
-    @mock.patch("posthog.api.person.new_capture_internal")
-    def test_new_delete_person_properties(self, mock_new_capture) -> None:
+    @mock.patch("posthog.api.person.capture_internal")
+    def test_new_delete_person_properties(self, mock_capture) -> None:
         person = _create_person(
             team=self.team,
             distinct_ids=["some_distinct_id"],
@@ -578,17 +579,16 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         self.client.post(f"/api/person/{person.uuid}/delete_property", {"$unset": "foo"})
 
-        mock_new_capture.assert_called_once_with(
-            self.team.api_token,
-            "some_distinct_id",
-            {
-                "event": "$delete_person_property",
-                "properties": {
-                    "$unset": ["foo"],
-                },
-                "timestamp": mock.ANY,
+        mock_capture.assert_called_once_with(
+            token=self.team.api_token,
+            event_name="$delete_person_property",
+            event_source="person_viewset",
+            distinct_id="some_distinct_id",
+            timestamp=mock.ANY,
+            properties={
+                "$unset": ["foo"],
             },
-            True,
+            process_person_profile=True,
         )
 
     def test_return_non_anonymous_name(self) -> None:
@@ -926,7 +926,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                 "team_id": self.team.pk,
                 "scope": "burst",
                 "rate": "5/minute",
-                "path": f"/api/projects/TEAM_ID/feature_flags",
+                "route": "/api/projects/TEAM_ID/feature_flags/",
                 "hashed_personal_api_key": hash_key_value(personal_api_key),
             },
         )
@@ -969,7 +969,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                 "team_id": self.team.pk,
                 "scope": "persons",
                 "rate": "6/minute",
-                "path": f"/api/projects/TEAM_ID/persons/",
+                "route": "/api/projects/TEAM_ID/persons/",
                 "hashed_personal_api_key": hash_key_value(personal_api_key),
             },
         )

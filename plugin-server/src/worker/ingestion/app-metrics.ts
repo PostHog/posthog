@@ -7,7 +7,7 @@ import { TeamId, TimestampFormat } from '../../types'
 import { cleanErrorStackTrace } from '../../utils/db/error'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
-import { castTimestampOrNow, UUIDT } from '../../utils/utils'
+import { UUIDT, castTimestampOrNow } from '../../utils/utils'
 
 export interface AppMetricIdentifier {
     teamId: TeamId
