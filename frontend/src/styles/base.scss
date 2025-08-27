@@ -609,12 +609,12 @@
     --data-color-15: #30d5c8;
 
     // Lifecycle series (compiled)
-    --color-lifecycle-new: #388600;
-    --color-lifecycle-returning: #1d4aff;
+    --color-lifecycle-new: #1d4aff;
+    --color-lifecycle-returning: #388600;
     --color-lifecycle-resurrecting: #a56eff;
     --color-lifecycle-dormant: #db3707;
-    --color-lifecycle-new-hover: #254d08;
-    --color-lifecycle-returning-hover: #0024b6;
+    --color-lifecycle-new-hover: #0024b6;
+    --color-lifecycle-returning-hover: #254d08;
     --color-lifecycle-resurrecting-hover: #6608ff;
     --color-lifecycle-dormant-hover: #781e04;
 
@@ -1221,27 +1221,6 @@
                 }
             }
         }
-    }
-
-    .page-title-row {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.5rem 1rem;
-        align-items: center;
-        min-height: 2.5rem;
-        margin: 1rem 0 0.25rem;
-
-        @include screen($md) {
-            flex-wrap: nowrap;
-        }
-    }
-
-    .page-title {
-        min-width: 0;
-        margin: 0;
-        font-size: 28px;
-        font-weight: 600;
-        line-height: 34px;
     }
 
     .page-caption {
