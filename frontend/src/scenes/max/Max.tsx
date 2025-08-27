@@ -18,7 +18,9 @@ import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconArrowUp, IconLink } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -37,8 +39,6 @@ import { ThreadAutoScroller } from './components/ThreadAutoScroller'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from './maxThreadLogic'
-import { IconArrowUp, IconLink } from 'lib/lemon-ui/icons'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 export const scene: SceneExport = {
     component: Max,

@@ -28,6 +28,7 @@ import { maxContextLogic } from 'scenes/max/maxContextLogic'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { openNotebook } from '~/models/notebooksModel'
@@ -56,7 +57,6 @@ import {
     isReasoningMessage,
 } from './utils'
 import { getRandomThinkingMessage } from './utils/thinkingMessages'
-import { userLogic } from 'scenes/userLogic'
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 

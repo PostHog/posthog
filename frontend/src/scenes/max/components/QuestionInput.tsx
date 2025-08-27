@@ -122,10 +122,10 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                     conversation && isSharedThread
                                         ? `This thread was shared with you by ${conversation.user.first_name} ${conversation.user.last_name}`
                                         : threadLoading
-                                        ? 'Thinking…'
-                                        : isFloating
-                                        ? placeholder || 'Ask follow-up (/ for commands)'
-                                        : 'Ask away (/ for commands)'
+                                          ? 'Thinking…'
+                                          : isFloating
+                                            ? placeholder || 'Ask follow-up (/ for commands)'
+                                            : 'Ask away (/ for commands)'
                                 }
                                 onPressEnter={() => {
                                     if (question && !submissionDisabledReason && !threadLoading) {
@@ -196,7 +196,9 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         </AIConsentPopoverWrapper>
                     </div>
                 </div>
-                {!isSharedThread && <ToolsDisplay isFloating={isFloating} tools={tools} bottomActions={bottomActions} />}
+                {!isSharedThread && (
+                    <ToolsDisplay isFloating={isFloating} tools={tools} bottomActions={bottomActions} />
+                )}
             </div>
         </div>
     )
