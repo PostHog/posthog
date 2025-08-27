@@ -301,7 +301,8 @@ class InsightSearchNode(AssistantNode):
                     last_progress_time = current_time
 
                 # Certain insights may take too long
-                if (current_time - last_progress_time) > 5:
+                # Certain insights may take too long - check against db_start instead of last_progress_time
+                if (current_time - db_start) > 5 and insight_count == 1:
                     logger.warning(f"Slow insight processing detected for page {page_number}, insight #{insight_count}")
 
             logger.warning(f"Async iteration completed for page {page_number}, total insights: {insight_count}")
