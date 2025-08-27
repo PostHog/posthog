@@ -66,9 +66,6 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
         let mut metrics_interval = tokio::time::interval(Duration::from_secs(10));
 
         loop {
-            // Process completions at the start of each loop iteration to keep counts accurate
-            self.tracker.process_completions().await;
-
             tokio::select! {
                 // Check for shutdown signal
                 _ = &mut self.shutdown_rx => {
@@ -81,8 +78,6 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
                     match msg_result {
                         Ok(Ok(msg)) => {
                             self.handle_message(msg).await?;
-                            // Process completions after each message to keep counts accurate
-                            self.tracker.process_completions().await;
                         }
                         Ok(Err(e)) => {
                             error!("Error receiving message: {}", e);
@@ -98,20 +93,35 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
                 // Publish metrics every 10 seconds
                 _ = metrics_interval.tick() => {
                     info!("📊 Starting metrics publication cycle");
-                    
-                    // Process any pending completions first to get accurate stats
-                    self.tracker.process_completions().await;
 
                     let stats = self.tracker.get_stats().await;
                     let available_permits = self.tracker.available_permits();
-                    
+                    let partition_health = self.tracker.get_partition_health().await;
+
                     info!(
-                        "📈 Metrics: in_flight={}, completed={}, failed={}, memory={}MB, available_permits={}",
-                        stats.in_flight, stats.completed, stats.failed, 
+                        "📈 Global Metrics: in_flight={}, completed={}, failed={}, memory={}MB, available_permits={}",
+                        stats.in_flight, stats.completed, stats.failed,
                         stats.memory_usage / (1024 * 1024),
                         available_permits
                     );
                     
+                    // Log partition health status
+                    for health in &partition_health {
+                        let status = if health.in_flight_count > 1000 {
+                            "⚠️ HIGH"
+                        } else if health.in_flight_count > 100 {
+                            "🔶 MODERATE"
+                        } else {
+                            "✅ HEALTHY"
+                        };
+                        
+                        info!(
+                            "📍 Partition {}-{}: last_committed={}, in_flight={} {}",
+                            health.topic, health.partition, 
+                            health.last_committed_offset, health.in_flight_count, status
+                        );
+                    }
+
                     stats.publish_metrics();
 
                     // Also publish semaphore permit metrics from the tracker
@@ -179,10 +189,10 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
                     topic, partition, offset,
                     self.tracker.in_flight_count().await
                 );
-                
-                // Process completions to potentially free up permits
-                self.tracker.process_completions().await;
-                
+
+                // Give PartitionTrackers a moment to process completions
+                tokio::time::sleep(Duration::from_millis(10)).await;
+
                 // Try once more with a short timeout
                 match tokio::time::timeout(
                     Duration::from_millis(100),

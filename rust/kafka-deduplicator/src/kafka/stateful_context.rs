@@ -337,7 +337,7 @@ mod tests {
         context.pre_rebalance(&consumer, &rebalance);
 
         // Give async tasks time to complete
-        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         assert_eq!(handler.revoked_count.load(Ordering::SeqCst), 1);
         assert_eq!(handler.pre_rebalance_count.load(Ordering::SeqCst), 1);
@@ -552,7 +552,7 @@ mod tests {
         context.post_rebalance(&consumer, &rebalance_assign);
 
         // Give async tasks time to complete
-        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         // Verify handlers were still called
         assert_eq!(

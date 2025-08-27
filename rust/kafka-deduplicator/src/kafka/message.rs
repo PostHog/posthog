@@ -5,6 +5,7 @@ use tokio::sync::OwnedSemaphorePermit;
 use tracing::{error, info, warn};
 
 use crate::kafka::tracker::{MessageCompletion, MessageHandle};
+use crate::rocksdb::metrics_consts::MESSAGES_AUTO_NACKED;
 
 /// Result of message processing - simple success/failure
 #[derive(Debug, Clone)]
@@ -99,7 +100,7 @@ impl Drop for AckableMessage {
         if !self.acked {
             error!(
                 "💀 MESSAGE DROPPED WITHOUT ACK: id={}, offset={}, topic={}, partition={}",
-                self.handle.message_id, 
+                self.handle.message_id,
                 self.handle.offset,
                 self.message.topic(),
                 self.message.partition()
@@ -115,15 +116,15 @@ impl Drop for AckableMessage {
             if self.handle.completion_tx.send(completion).is_err() {
                 error!(
                     "💀💀 CRITICAL: Failed to send auto-nack for dropped message: id={}, offset={}",
-                    self.handle.message_id,
-                    self.handle.offset
+                    self.handle.message_id, self.handle.offset
                 );
             } else {
                 warn!(
                     "⚠️ Auto-nacked dropped message: id={}, offset={}",
-                    self.handle.message_id,
-                    self.handle.offset
+                    self.handle.message_id, self.handle.offset
                 );
+                // Increment auto-nack counter
+                metrics::counter!(MESSAGES_AUTO_NACKED).increment(1);
             }
         }
     }
@@ -155,7 +156,8 @@ mod tests {
     use super::*;
     use crate::kafka::InFlightTracker;
     use rdkafka::message::{OwnedHeaders, OwnedMessage, Timestamp};
-    use std::sync::Arc;
+    use std::{sync::Arc, time::Duration};
+    use tokio::time::sleep;
 
     fn create_test_message(
         topic: &str,
@@ -193,8 +195,8 @@ mod tests {
         // Ack the message
         ackable.ack().await;
 
-        // Process completions
-        tracker.process_completions().await;
+        // Give PartitionTracker time to process the completion
+        sleep(Duration::from_millis(10)).await;
 
         // Verify message is completed
         assert_eq!(tracker.in_flight_count().await, 0);
@@ -220,8 +222,8 @@ mod tests {
         // Nack the message
         ackable.nack("test error".to_string()).await;
 
-        // Process completions
-        tracker.process_completions().await;
+        // Give PartitionTracker time to process the completion
+        sleep(Duration::from_millis(10)).await;
 
         // Verify message is completed with failure
         assert_eq!(tracker.in_flight_count().await, 0);
