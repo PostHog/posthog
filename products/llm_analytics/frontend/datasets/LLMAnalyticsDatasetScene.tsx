@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 
 import { IconTrash } from '@posthog/icons'
@@ -8,6 +9,7 @@ import { LemonButton, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
@@ -54,7 +56,7 @@ export function LLMAnalyticsDatasetScene(): JSX.Element {
     }
 
     return (
-        <div>
+        <Form id="early-access-feature" formKey="datasetForm" logic={llmAnalyticsDatasetLogic}>
             <PageHeader
                 buttons={
                     !datasetLoading ? (
@@ -156,29 +158,27 @@ export function LLMAnalyticsDatasetScene(): JSX.Element {
             <div className={clsx(isEditingDataset || isNewDataset ? 'max-w-160' : null)}>
                 <div className="flex flex-col gap-4 flex-2 min-w-[15rem]">
                     {isNewDataset && (
-                        <div className="mb-4">
-                            <label className="block text-sm font-medium mb-2">Name</label>
+                        <LemonField name="name" label="Name" htmlFor="dataset-name">
                             <LemonInput
                                 data-attr="dataset-name"
                                 value={datasetForm.name}
                                 onChange={(value) => setDatasetFormValue('name', value)}
                                 placeholder="Enter dataset name"
                             />
-                        </div>
+                        </LemonField>
                     )}
 
                     <div className="flex flex-wrap gap-4 items-start">
                         <div className="flex-1 min-w-[20rem]">
                             {isEditingDataset || isNewDataset ? (
-                                <div className="mb-4">
-                                    <label className="block text-sm font-medium mb-2">Description (optional)</label>
+                                <LemonField name="description" label="Description" showOptional>
                                     <LemonTextArea
                                         className="ph-ignore-input"
                                         placeholder="Describe what this dataset contains"
                                         value={datasetForm.description}
                                         onChange={(value) => setDatasetFormValue('description', value)}
                                     />
-                                </div>
+                                </LemonField>
                             ) : (
                                 <div className="mb-2">
                                     <b>Description</b>
@@ -196,9 +196,14 @@ export function LLMAnalyticsDatasetScene(): JSX.Element {
 
                     <div className="flex flex-col gap-4">
                         <div>
-                            <b>Metadata</b>
                             {isEditingDataset || isNewDataset ? (
-                                <div className="mt-2">
+                                <LemonField
+                                    name="metadata"
+                                    label="Metadata"
+                                    htmlFor="dataset-metadata"
+                                    showOptional
+                                    help="Additional key-value pairs to store with the dataset"
+                                >
                                     <JSONEditorInput
                                         value={datasetForm.metadata}
                                         onChange={(code) => {
@@ -206,19 +211,22 @@ export function LLMAnalyticsDatasetScene(): JSX.Element {
                                         }}
                                         placeholder="Enter JSON metadata"
                                     />
-                                </div>
+                                </LemonField>
                             ) : (
-                                <div className="mt-2">
-                                    <JSONEditorInput
-                                        value={JSON.stringify(dataset?.metadata || {}, null, 2)}
-                                        readOnly={true}
-                                    />
-                                </div>
+                                <>
+                                    <b>Metadata</b>
+                                    <div className="mt-2">
+                                        <JSONEditorInput
+                                            value={JSON.stringify(dataset?.metadata || {}, null, 2)}
+                                            readOnly={true}
+                                        />
+                                    </div>
+                                </>
                             )}
                         </div>
                     </div>
                 </div>
             </div>
-        </div>
+        </Form>
     )
 }

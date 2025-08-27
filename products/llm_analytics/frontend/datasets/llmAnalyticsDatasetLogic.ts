@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -6,7 +6,7 @@ import { router } from 'kea-router'
 import api, { ApiError } from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from '~/scenes/urls'
-import { Dataset } from '~/types'
+import { Breadcrumb, Dataset } from '~/types'
 
 import type { llmAnalyticsDatasetLogicType } from './llmAnalyticsDatasetLogicType'
 import { llmAnalyticsDatasetsLogic } from './llmAnalyticsDatasetsLogic'
@@ -32,10 +32,6 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
 
     key(({ datasetId }) => `dataset-${datasetId}`),
 
-    connect(() => ({
-        values: [llmAnalyticsDatasetsLogic, ['datasets']],
-    })),
-
     actions({
         setDataset: (dataset: Dataset | DatasetFormValues) => ({ dataset }),
         editDataset: (editing: boolean) => ({ editing }),
@@ -59,32 +55,6 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
         ],
     })),
 
-    defaults(({ values, props }) => {
-        if (props.datasetId === 'new') {
-            const defaultDataset = {
-                name: '',
-                description: '',
-                metadata: '{\n  \n}',
-            }
-            return {
-                dataset: defaultDataset,
-                datasetForm: defaultDataset,
-            }
-        }
-
-        const existingDataset = values.datasets.results.find((dataset) => dataset.id === props.datasetId)
-        if (existingDataset) {
-            return {
-                dataset: existingDataset,
-                datasetForm: getDatasetFormDefaults(existingDataset),
-            }
-        }
-
-        return {
-            dataset: null,
-        }
-    }),
-
     loaders(({ props }) => ({
         dataset: {
             loadDataset: async () => {
@@ -107,9 +77,8 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
         datasetForm: {
             defaults: { name: '', description: '', metadata: '' } as DatasetFormValues,
 
-            errors: ({ name, description, metadata }) => ({
+            errors: ({ name, metadata }) => ({
                 name: !name?.trim() ? 'Dataset name is required' : undefined,
-                description: !description?.trim() ? 'Dataset description is required' : undefined,
                 metadata: !isMetadataValid(metadata)
                     ? 'Dataset metadata must contain a valid JSON object or be empty'
                     : undefined,
@@ -156,10 +125,13 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
 
         breadcrumbs: [
             (s) => [s.dataset],
-            (dataset): any[] => [
-                { name: 'LLM Analytics', href: urls.llmAnalyticsDashboard() },
-                { name: 'Datasets', href: urls.llmAnalyticsDatasets() },
-                { name: dataset && 'name' in dataset ? dataset.name : 'New Dataset' },
+            (dataset): Breadcrumb[] => [
+                { name: 'LLM Analytics', path: urls.llmAnalyticsDashboard(), key: 'LLMAnalytics' },
+                { name: 'Datasets', path: urls.llmAnalyticsDatasets(), key: 'LLMAnalyticsDatasets' },
+                {
+                    name: dataset && 'name' in dataset ? dataset.name : 'New Dataset',
+                    key: 'LLMAnalyticsDataset',
+                },
             ],
         ],
     }),
@@ -185,10 +157,43 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
         },
     })),
 
-    afterMount(({ actions, values }) => {
-        if (!values.dataset) {
-            actions.loadDataset()
+    // TRICKY: Order matters here. Keep it in the bottom.
+    defaults(({ props }) => {
+        const defaultDataset = {
+            name: '',
+            description: '',
+            metadata: '{\n  \n}',
         }
+
+        if (props.datasetId === 'new') {
+            return {
+                dataset: defaultDataset,
+                datasetForm: defaultDataset,
+            }
+        }
+
+        // Don't show a loader if the dataset has already been loaded.
+        const existingDataset = llmAnalyticsDatasetsLogic
+            .findMounted()
+            ?.values.datasets.results.find((dataset) => dataset.id === props.datasetId)
+
+        if (existingDataset) {
+            return {
+                dataset: existingDataset,
+                datasetForm: getDatasetFormDefaults(existingDataset),
+            }
+        }
+
+        return {
+            dataset: null,
+            datasetForm: defaultDataset,
+        }
+    }),
+
+    // TRICKY: Order matters here. Keep it in the bottom.
+    afterMount(({ actions }) => {
+        // Load dataset in any case, as it might be stale.
+        actions.loadDataset()
     }),
 ])
 
