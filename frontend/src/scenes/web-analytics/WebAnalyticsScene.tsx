@@ -20,7 +20,7 @@ export function WebAnalyticsScene(): JSX.Element {
                     description="Analyze and understand your web analytics data to understand your website performance and user behavior."
                     resourceType={{
                         type: 'web',
-                        typePlural: 'Web Analytics',
+                        typePlural: 'Web analytics',
                         forceIcon: <IconPieChart />,
                         forceIconColorOverride: [
                             'var(--color-product-web-analytics-light)',
