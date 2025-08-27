@@ -3,6 +3,7 @@ import './LemonMarkdown.scss'
 import clsx from 'clsx'
 import React, { memo, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
@@ -59,6 +60,7 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
         <ReactMarkdown
             renderers={renderers}
             disallowedTypes={['html']} // Don't want to deal with the security considerations of HTML
+            plugins={[remarkGfm]}
         >
             {children}
         </ReactMarkdown>
