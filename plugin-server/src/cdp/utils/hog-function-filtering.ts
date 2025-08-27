@@ -300,26 +300,20 @@ export function convertToHogFunctionFilterGlobal(
 
 const HOG_FILTERING_TIMEOUT_MS = 100
 
-function shouldBePreFilteredBasedOnEventName(
-    filters: HogFunctionType['filters'],
-    filterGlobals: HogFunctionFilterGlobals
-): boolean {
+function preFilterResult(filters: HogFunctionType['filters'], filterGlobals: HogFunctionFilterGlobals): boolean {
     // If event filter is present check for a match
-    if (filters?.events?.length) {
-        const eventMatches = filters.events.some((eventFilter) => {
-            // We need to test if the id is null (all events) or if it is in the list of event matchers
-            return eventFilter.id === null || eventFilter.id === filterGlobals.event
-        })
+    const eventMatches = filters?.events?.some((eventFilter) => {
+        // We need to test if the id is null (all events) or if it is in the list of event matchers
+        return eventFilter.id === null || eventFilter.id === filterGlobals.event
+    })
 
-        // If none of the event filters match, we can early exit
-        if (!eventMatches) {
-            return true
-        }
-        // If we get here, there is at least one event filter and it checks this event type
+    // If none of the event filters match we return false
+    if (!eventMatches) {
         return false
     }
-    // If we get here, we have no event filters, so we cannot early exit based on the event name
-    return false
+    // If we get here, there is at least one event filter and it checks this event type
+    // hence our we say its a match and return true
+    return true
 }
 
 /**
@@ -349,37 +343,20 @@ export async function filterFunctionInstrumented(options: {
         metrics,
     }
 
-    // Track whether pre-filtering would have filtered this event
-    let wouldHavePreFiltered = false
+    let preFilterMatch = null
 
     try {
         // If there are no filters (only bytecode exists then on the filter object)
         // everything matches no need to execute bytecode (lets save those cpu cycles)
         if (filters && Object.keys(filters).length === 1 && 'bytecode' in filters) {
-            //result.match = true
-            //return result
+            // if we have no filters we assume we match all events hence match = true
+            preFilterMatch = true
         }
 
-        // Check if pre-filter would skip this event
-        wouldHavePreFiltered = shouldBePreFilteredBasedOnEventName(filters, filterGlobals)
-
-        // For now, we'll always execute bytecode to validate our logic
-        // Once we're confident, we can uncomment the early return below
-        /*
-        if (wouldHavePreFiltered) {
-            // Event definitely doesn't match, skip bytecode execution
-            hogFunctionPreFilterCounter.inc({ result: 'skipped' })
-            metrics.push({
-                team_id: fn.team_id,
-                app_source_id: fn.id,
-                metric_kind: 'other',
-                metric_name: 'filtered',
-                count: 1,
-            })
-            result.match = false
-            return result
+        // check whether we have a match with our pre-filter
+        if (filters?.events?.length) {
+            preFilterMatch = preFilterResult(filters, filterGlobals)
         }
-        */
 
         if (!filters?.bytecode) {
             throw new Error('Filters were not compiled correctly and so could not be executed')
@@ -412,15 +389,14 @@ export async function filterFunctionInstrumented(options: {
 
         result.match = typeof execHogOutcome.execResult.result === 'boolean' && execHogOutcome.execResult.result
 
-        // Pre-filter was wrong - either filtered an event that matched, or didn't filter one that didn't match
-        const matchesPreFilter = wouldHavePreFiltered === result.match
-        let result = matchesPreFilter ? 'match' : 'mismatch_safe'
-        
-        if (wouldHavePreFiltered && !matchesPreFilter) {
-          result = 'mismatch_unsafe'
+        // if our filter was not used we don't wanna do any comparison
+        if (preFilterMatch !== null) {
+            if (preFilterMatch === false && result.match === true) {
+                // we would have filtered out this event but it actually matched the bytecode filter
+                // this would mean we dropped a valid event
+                hogFunctionPreFilterCounter.inc({ result: 'mismatch_unsafe' })
+            }
         }
-        
-        hogFunctionPreFilterCounter.inc({ result: 'mismatch' })
 
         if (!result.match) {
             metrics.push({
