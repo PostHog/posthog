@@ -56,17 +56,18 @@ impl TimeSource for FixedTimeSource {
 }
 
 async fn setup_billing_limited_router(token: &str, is_limited: bool) -> (Router, MemorySink) {
-    setup_router_with_limits(token, is_limited, false).await
+    setup_router_with_limits(token, is_limited, false, false).await
 }
 
 async fn setup_survey_limited_router(token: &str, is_survey_limited: bool) -> (Router, MemorySink) {
-    setup_router_with_limits(token, false, is_survey_limited).await
+    setup_router_with_limits(token, false, is_survey_limited, false).await
 }
 
 async fn setup_router_with_limits(
     token: &str,
     is_billing_limited: bool,
     is_survey_limited: bool,
+    is_ai_limited: bool,
 ) -> (Router, MemorySink) {
     let liveness = HealthRegistry::new("billing_limit_tests");
     let sink = MemorySink::default();
@@ -113,15 +114,27 @@ async fn setup_router_with_limits(
     )
     .unwrap();
 
+    // Set up AI events limiter with its own Redis client
+    let ai_key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, "llm_events");
+    let ai_redis = Arc::new(MockRedisClient::new().zrangebyscore_ret(
+        &ai_key,
+        if is_ai_limited {
+            vec![token.to_string()]
+        } else {
+            vec![]
+        },
+    ));
+
     let llm_events_limiter = RedisLimiter::new(
         Duration::from_secs(60),
-        redis.clone(),
+        ai_redis,
         QUOTA_LIMITER_CACHE_KEY.to_string(),
         None,
         QuotaResource::LLMEvents,
         ServiceName::Capture,
     )
     .unwrap();
+    
     let app = router(
         timesource,
         liveness,
@@ -399,6 +412,48 @@ async fn test_billing_limit_retains_survey_events_on_i_endpoint() {
     assert!(!event_names.contains(&"pageview".to_string()));
 }
 
+// Test with /i/v0/e endpoint for AI events
+#[tokio::test]
+async fn test_billing_limit_retains_ai_events_on_i_endpoint() {
+    let token = "test_token_i_endpoint_ai";
+    let (router, sink) = setup_billing_limited_router(token, true).await; // Only billing limited, not AI limited
+    let client = TestClient::new(router);
+
+    let events = ["$ai_generation", "pageview", "$ai_span", "click", "$ai_trace"];
+    let payload = create_batch_payload_with_token(&events, token);
+
+    let response = client
+        .post("/i/v0/e")
+        .body(payload)
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
+
+    // Should return OK even when billing limited
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Check that only AI events were retained when billing limited
+    let captured_events = sink.events();
+    assert_eq!(captured_events.len(), 3); // Only AI events should be retained
+
+    // Parse the event data to check the event names
+    let event_names: Vec<String> = captured_events
+        .iter()
+        .map(|e| {
+            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
+            event_data["event"].as_str().unwrap().to_string()
+        })
+        .collect();
+
+    assert!(event_names.contains(&"$ai_generation".to_string()));
+    assert!(event_names.contains(&"$ai_span".to_string()));
+    assert!(event_names.contains(&"$ai_trace".to_string()));
+    // Regular events should NOT be present when billing limited
+    assert!(!event_names.contains(&"pageview".to_string()));
+    assert!(!event_names.contains(&"click".to_string()));
+}
+
 // Tests for check_survey_quota_and_filter function
 //
 // These tests verify that the survey-specific quota limiting works correctly.
@@ -572,7 +627,7 @@ async fn test_survey_quota_limit_ignores_non_survey_events() {
 #[tokio::test]
 async fn test_both_billing_and_survey_limits_applied() {
     let token = "test_token_both_limits";
-    let (router, sink) = setup_router_with_limits(token, true, true).await; // Both billing and survey limited
+    let (router, sink) = setup_router_with_limits(token, true, true, false).await; // Both billing and survey limited
     let client = TestClient::new(router);
 
     let events = [
@@ -1297,7 +1352,13 @@ async fn test_ai_events_quota_limit_filters_only_ai_events() {
         ]
     });
 
-    let res = client.post("/i/v0/e").json(&ai_event).send().await;
+    let res = client
+        .post("/e")
+        .body(ai_event.to_string())
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
     assert_eq!(res.status(), StatusCode::OK);
 
     let events = sink.events();
@@ -1333,7 +1394,13 @@ async fn test_ai_events_quota_limit_returns_error_when_only_ai_events() {
         ]
     });
 
-    let res = client.post("/i/v0/e").json(&ai_only_event).send().await;
+    let res = client
+        .post("/e")
+        .body(ai_only_event.to_string())
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
     assert_eq!(res.status(), StatusCode::PAYMENT_REQUIRED);
 }
 
@@ -1352,7 +1419,13 @@ async fn test_ai_events_quota_allows_ai_events_when_not_limited() {
         ]
     });
 
-    let res = client.post("/i/v0/e").json(&ai_event).send().await;
+    let res = client
+        .post("/e")
+        .body(ai_event.to_string())
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
     assert_eq!(res.status(), StatusCode::OK);
 
     let events = sink.events();
@@ -1386,7 +1459,13 @@ async fn test_ai_events_quota_ignores_non_ai_events() {
         ]
     });
 
-    let res = client.post("/i/v0/e").json(&non_ai_event).send().await;
+    let res = client
+        .post("/e")
+        .body(non_ai_event.to_string())
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
     assert_eq!(res.status(), StatusCode::OK);
 
     let events = sink.events();
@@ -1395,108 +1474,13 @@ async fn test_ai_events_quota_ignores_non_ai_events() {
 
 // Helper function to set up router with AI limiting
 async fn setup_ai_limited_router(token: &str, is_ai_limited: bool) -> (Router, MemorySink) {
-    setup_router_with_all_limits(token, false, false, is_ai_limited).await
-}
-
-// Helper function to set up router with all types of limits
-async fn setup_router_with_all_limits(
-    token: &str,
-    is_billing_limited: bool,
-    is_survey_limited: bool,
-    is_ai_limited: bool,
-) -> (Router, MemorySink) {
-    let liveness = HealthRegistry::new("ai_limit_tests");
-    let sink = MemorySink::default();
-    let timesource = FixedTimeSource {
-        time: "2025-07-31T12:00:00Z".to_string(),
-    };
-
-    // Set up a single Redis client with all limits configured
-    let mut redis_client = MockRedisClient::new();
-
-    // Configure billing limits
-    let billing_key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, "events");
-    if is_billing_limited {
-        redis_client = redis_client.zrangebyscore_ret(&billing_key, vec![token.to_string()]);
-    } else {
-        redis_client = redis_client.zrangebyscore_ret(&billing_key, vec![]);
-    }
-
-    // Configure survey limits
-    let survey_key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, "surveys");
-    if is_survey_limited {
-        redis_client = redis_client.zrangebyscore_ret(&survey_key, vec![token.to_string()]);
-    } else {
-        redis_client = redis_client.zrangebyscore_ret(&survey_key, vec![]);
-    }
-
-    // Configure AI events limits
-    let ai_key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, "llm_events");
-    if is_ai_limited {
-        redis_client = redis_client.zrangebyscore_ret(&ai_key, vec![token.to_string()]);
-    } else {
-        redis_client = redis_client.zrangebyscore_ret(&ai_key, vec![]);
-    }
-
-    let redis = Arc::new(redis_client);
-
-    let billing_limiter = RedisLimiter::new(
-        Duration::from_secs(60),
-        redis.clone(),
-        QUOTA_LIMITER_CACHE_KEY.to_string(),
-        None,
-        QuotaResource::Events,
-        ServiceName::Capture,
-    )
-    .unwrap();
-
-    let survey_limiter = RedisLimiter::new(
-        Duration::from_secs(60),
-        redis.clone(),
-        QUOTA_LIMITER_CACHE_KEY.to_string(),
-        None,
-        QuotaResource::Surveys,
-        ServiceName::Capture,
-    )
-    .unwrap();
-
-    let llm_events_limiter = RedisLimiter::new(
-        Duration::from_secs(60),
-        redis.clone(),
-        QUOTA_LIMITER_CACHE_KEY.to_string(),
-        None,
-        QuotaResource::LLMEvents,
-        ServiceName::Capture,
-    )
-    .unwrap();
-
-    let app = router(
-        timesource,
-        liveness,
-        sink.clone(),
-        redis,
-        billing_limiter,
-        survey_limiter,
-        llm_events_limiter,
-        TokenDropper::default(),
-        false,
-        CaptureMode::Events,
-        None,
-        1024 * 1024,
-        false,
-        1,
-        None,
-        false,
-        0.0,
-    );
-
-    (app, sink)
+    setup_router_with_limits(token, false, false, is_ai_limited).await
 }
 
 #[tokio::test]
 async fn test_both_billing_and_ai_limits_applied() {
     let token = "test_token";
-    let (app, sink) = setup_router_with_all_limits(token, true, false, true).await;
+    let (app, sink) = setup_router_with_limits(token, true, false, true).await;
     let client = TestClient::new(app);
 
     let mixed_event = serde_json::json!({
@@ -1508,7 +1492,13 @@ async fn test_both_billing_and_ai_limits_applied() {
         ]
     });
 
-    let res = client.post("/i/v0/e").json(&mixed_event).send().await;
+    let res = client
+        .post("/e")
+        .body(mixed_event.to_string())
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
     assert_eq!(res.status(), StatusCode::OK);
 
     let events = sink.events();
@@ -1528,8 +1518,11 @@ async fn test_both_billing_and_ai_limits_applied() {
 
 #[tokio::test]
 async fn test_ai_and_survey_limits_interaction() {
+    eprintln!("[DEBUG TEST] Starting test_ai_and_survey_limits_interaction");
     let token = "test_token";
-    let (app, sink) = setup_router_with_all_limits(token, false, true, true).await;
+    eprintln!("[DEBUG TEST] About to setup router with survey and AI limits...");
+    let (app, sink) = setup_router_with_limits(token, false, true, true).await;
+    eprintln!("[DEBUG TEST] Router setup complete, creating test client...");
     let client = TestClient::new(app);
 
     let mixed_event = serde_json::json!({
@@ -1542,8 +1535,24 @@ async fn test_ai_and_survey_limits_interaction() {
         ]
     });
 
-    let res = client.post("/i/v0/e").json(&mixed_event).send().await;
-    assert_eq!(res.status(), StatusCode::OK);
+    eprintln!("[DEBUG TEST] Sending POST request to /e...");
+    let res = client
+        .post("/e")
+        .body(mixed_event.to_string())
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
+    let status = res.status();
+    eprintln!("[DEBUG TEST] Response status: {}", status);
+    
+    // If we got an error, let's see what it is
+    if status != StatusCode::OK {
+        let body = res.text().await;
+        eprintln!("[DEBUG TEST] Response body: {}", body);
+    }
+    
+    assert_eq!(status, StatusCode::OK);
 
     let events = sink.events();
     assert_eq!(events.len(), 2); // Only regular events should remain
@@ -1564,7 +1573,7 @@ async fn test_ai_and_survey_limits_interaction() {
 #[tokio::test]
 async fn test_all_three_limits_applied() {
     let token = "test_token";
-    let (app, sink) = setup_router_with_all_limits(token, true, true, true).await;
+    let (app, sink) = setup_router_with_limits(token, true, true, true).await;
     let client = TestClient::new(app);
 
     let mixed_event = serde_json::json!({
@@ -1577,7 +1586,13 @@ async fn test_all_three_limits_applied() {
         ]
     });
 
-    let res = client.post("/i/v0/e").json(&mixed_event).send().await;
+    let res = client
+        .post("/e")
+        .body(mixed_event.to_string())
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
     assert_eq!(res.status(), StatusCode::OK);
 
     let events = sink.events();
@@ -1628,7 +1643,13 @@ async fn test_ai_event_name_detection() {
             ]
         });
 
-        let res = client.post("/i/v0/e").json(&event).send().await;
+        let res = client
+            .post("/e")
+            .body(event.to_string())
+            .header("Content-Type", "application/json")
+            .header("X-Forwarded-For", "127.0.0.1")
+            .send()
+            .await;
         assert_eq!(res.status(), StatusCode::OK);
 
         let events = sink.events();
@@ -1774,7 +1795,13 @@ async fn test_ai_quota_with_empty_batch() {
         "batch": []
     });
 
-    let res = client.post("/i/v0/e").json(&empty_event).send().await;
+    let res = client
+        .post("/e")
+        .body(empty_event.to_string())
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
     assert_eq!(res.status(), StatusCode::OK); // Empty batch should succeed
 }
 
@@ -1860,7 +1887,13 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
         ]
     });
 
-    let res = client.post("/i/v0/e").json(&ai_event).send().await;
+    let res = client
+        .post("/e")
+        .body(ai_event.to_string())
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
     assert_eq!(res.status(), StatusCode::OK);
 
     // Redis error should fail open - but AI quota limit still applies
@@ -1886,7 +1919,13 @@ async fn test_ai_quota_cross_batch_consistency() {
         ]
     });
 
-    let res = client.post("/i/v0/e").json(&first_batch).send().await;
+    let res = client
+        .post("/e")
+        .body(first_batch.to_string())
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
     assert_eq!(res.status(), StatusCode::OK);
 
     // Second batch - AI events should still be filtered consistently
@@ -1898,7 +1937,13 @@ async fn test_ai_quota_cross_batch_consistency() {
         ]
     });
 
-    let res = client.post("/i/v0/e").json(&second_batch).send().await;
+    let res = client
+        .post("/e")
+        .body(second_batch.to_string())
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
     assert_eq!(res.status(), StatusCode::OK);
 
     // Both batches should have AI events filtered out consistently
@@ -1940,7 +1985,13 @@ async fn test_ai_quota_all_ai_event_types_count() {
         ]
     });
 
-    let res = client.post("/i/v0/e").json(&ai_event).send().await;
+    let res = client
+        .post("/e")
+        .body(ai_event.to_string())
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
     assert_eq!(res.status(), StatusCode::OK);
 
     let events = sink.events();
@@ -1990,7 +2041,13 @@ async fn test_ai_quota_empty_null_field_handling() {
         ]
     });
 
-    let res = client.post("/i/v0/e").json(&ai_event).send().await;
+    let res = client
+        .post("/e")
+        .body(ai_event.to_string())
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
     // Request might fail due to null event, but should handle gracefully
     // The important thing is no panic/crash
     assert!(res.status() == StatusCode::OK || res.status() == StatusCode::BAD_REQUEST);
