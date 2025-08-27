@@ -87,8 +87,9 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
     snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
     _timestamp SimpleAggregateFunction(max, DateTime),
-    -- CH will pick any value of retention_period for the session
-    -- the retention period should _always_ be the same across all blocks in a session so any will do
+    -- CH will pick the value for retention_period from any block, provided there is only 1 non-null value across all blocks
+    -- Otherwise the retention_period will be NULL
+    -- The retention period should _always_ be the same across all blocks in a session, unless something exceptional has occurred
     retention_period Nullable(String)
 ) ENGINE = {engine}
 """
@@ -169,7 +170,7 @@ sum(event_count) as event_count,
 argMinState(snapshot_source, first_timestamp) as snapshot_source,
 argMinState(snapshot_library, first_timestamp) as snapshot_library,
 max(_timestamp) as _timestamp,
-anyRespectNulls(retention_period) as retention_period
+singleValueOrNull(retention_period) as retention_period
 FROM {database}.kafka_session_replay_events
 group by session_id, team_id
 """.format(
@@ -195,7 +196,8 @@ group by session_id, team_id
 `event_count` Int64,
 `snapshot_source` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
 `snapshot_library` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-`_timestamp` Nullable(DateTime)
+`_timestamp` Nullable(DateTime),
+`retention_period` Nullable(String)
 )""",
     )
 )
