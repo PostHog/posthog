@@ -84,9 +84,13 @@ class PersonDBRouter:
         Make sure the person models only appear in the 'persons_db'
         database. All other models migrate normally on 'default'.
         """
-        # persons_database app migrations should only migrate against persons_db_writer
-        if app_label == self.PERSONS_DB_APP_LABEL and settings.ENABLE_PERSONS_DB_MIGRATIONS:
-            return db == "persons_db_writer"
+        # persons_database app migrations should only migrate against persons_db_writer when enabled
+        if app_label == self.PERSONS_DB_APP_LABEL:
+            if settings.ENABLE_PERSONS_DB_MIGRATIONS:
+                return db == "persons_db_writer"
+            else:
+                # When migrations are disabled, don't run them on any database
+                return False
 
         # explicitly deny all other apps from migrating to persons_db_writer
         if db == "persons_db_writer":

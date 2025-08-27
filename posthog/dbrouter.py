@@ -50,5 +50,5 @@ class ReplicaRouter:
         Do not run migrations for the persons_database app against the default db
         """
         if app_label == self.PERSONS_DB_APP_LABEL:
-            return db == "persons_db_writer"
+            return False
         return True
