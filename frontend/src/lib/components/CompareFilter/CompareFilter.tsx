@@ -13,7 +13,7 @@ type CompareFilterProps = {
     compareFilter?: CompareFilterType | null
     updateCompareFilter: (compareFilter: CompareFilterType) => void
     disabled?: boolean
-    disableReason?: string
+    disableReason?: string | null
 }
 
 export function CompareFilter({

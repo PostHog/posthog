@@ -400,10 +400,10 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         isUsingPathsV1: [(s) => [s.featureFlags], (featureFlags) => !featureFlags[FEATURE_FLAGS.PATHS_V2]],
         isUsingPathsV2: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.PATHS_V2]],
         hasOverrides: [
-            (_, p) => [p.filtersOverride, p.variablesOverride],
-            (filtersOverride, variablesOverride) =>
-                (isObject(filtersOverride) && !isEmptyObject(filtersOverride)) ||
-                (isObject(variablesOverride) && !isEmptyObject(variablesOverride)),
+            () => [(_, props) => props],
+            (props) =>
+                (isObject(props.filtersOverride) && !isEmptyObject(props.filtersOverride)) ||
+                (isObject(props.variablesOverride) && !isEmptyObject(props.variablesOverride)),
         ],
         editingDisabledReason: [
             (s) => [s.hasOverrides],

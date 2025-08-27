@@ -60,7 +60,7 @@ export function IntervalFilter({ disabled }: IntervalFilterProps): JSX.Element {
 
 interface IntervalFilterStandaloneProps {
     disabled?: boolean
-    disabledReason?: string
+    disabledReason?: string | null
     interval: IntervalType | undefined
     onIntervalChange: (interval: IntervalType) => void
     options?: LemonSelectOption<IntervalType>[]

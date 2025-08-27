@@ -6,7 +6,7 @@ type SeriesCheckColumnTitleProps = {
     canCheckUncheckSeries: boolean
     getTrendsHidden: (dataset: IndexedTrendResult) => boolean
     toggleAllResultsHidden: (datasets: IndexedTrendResult[], hidden: boolean) => void
-    disabledReason?: string
+    disabledReason?: string | null
 }
 
 export function SeriesCheckColumnTitle({
@@ -41,7 +41,7 @@ type SeriesCheckColumnItemProps = {
     isHidden: boolean
     toggleResultHidden: (dataset: IndexedTrendResult) => void
     label?: JSX.Element
-    disabledReason?: string
+    disabledReason?: string | null
 }
 
 export function SeriesCheckColumnItem({
