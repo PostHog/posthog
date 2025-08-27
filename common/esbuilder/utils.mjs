@@ -9,7 +9,8 @@ import { sassPlugin } from 'esbuild-sass-plugin'
 import express from 'express'
 import fse from 'fs-extra'
 import fs from 'node:fs/promises'
-import * as path from 'path'
+import * as path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import postcss from 'postcss'
 import postcssPresetEnv from 'postcss-preset-env'
 import ts from 'typescript'
@@ -125,7 +126,11 @@ export function createHashlessEntrypoints(absWorkingDir, entrypoints) {
 }
 
 const tsconfigPath = isDev ? 'tsconfig.dev.json' : 'tsconfig.json'
-const { config: tsconfig } = ts.readConfigFile(path.resolve(process.cwd(), '..', tsconfigPath), ts.sys.readFile)
+
+const { config: tsconfig } = ts.readConfigFile(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', tsconfigPath),
+    ts.sys.readFile
+)
 
 /** @type {import('esbuild').BuildOptions} */
 export const commonConfig = {
