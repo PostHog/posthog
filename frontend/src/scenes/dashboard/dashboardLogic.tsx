@@ -452,6 +452,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 loadDashboard: () => true,
                 loadDashboardSuccess: () => false,
                 loadDashboardFailure: () => false,
+            },
+        ],
+        dashboardStreaming: [
+            false,
+            {
                 loadDashboardStreaming: () => true,
                 tileStreamingComplete: () => false,
                 tileStreamingFailure: () => false,
@@ -1037,10 +1042,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         textTiles: [(s) => [s.tiles], (tiles) => tiles.filter((t) => !!t.text)],
         itemsLoading: [
-            (s) => [s.dashboardLoading, s.refreshStatus, s.initialVariablesLoaded],
-            (dashboardLoading, refreshStatus, initialVariablesLoaded) => {
+            (s) => [s.dashboardLoading, s.dashboardStreaming, s.refreshStatus, s.initialVariablesLoaded],
+            (dashboardLoading, dashboardStreaming, refreshStatus, initialVariablesLoaded) => {
                 return (
                     dashboardLoading ||
+                    dashboardStreaming ||
                     Object.values(refreshStatus).some((s) => s.loading || s.queued) ||
                     (SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams && !initialVariablesLoaded)
                 )
