@@ -1,8 +1,9 @@
-import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { afterMountAndTeam } from 'lib/utils/kea-logic-builders'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -219,7 +220,7 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
             },
         ],
     }),
-    afterMount(({ actions }) => {
+    afterMountAndTeam(({ actions }) => {
         actions.loadResourceAccessControls()
     }),
 ])
