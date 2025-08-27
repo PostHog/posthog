@@ -8,6 +8,8 @@ from loginas.utils import is_impersonated_session
 from rest_framework.exceptions import PermissionDenied
 from two_factor.utils import default_device
 
+from posthog.settings.web import AUTHENTICATION_BACKENDS
+
 # Enforce Two-Factor Authentication only on sessions created after this date
 TWO_FACTOR_ENFORCEMENT_FROM_DATE = datetime.datetime(2025, 8, day=27)
 
@@ -71,6 +73,9 @@ def enforce_two_factor(request, user):
     if is_path_whitelisted(request.path):
         return
 
+    if is_sso_authentication_backend(request._request):
+        return
+
     organization = getattr(user, "organization", None)
     if organization and organization.enforce_2fa:
         if is_domain_sso_enforced(request._request):
@@ -119,3 +124,21 @@ def is_domain_sso_enforced(request: HttpRequest):
         return False
 
     return bool(OrganizationDomain.objects.get_sso_enforcement_for_email_address(request.user.email))
+
+
+def is_sso_authentication_backend(request: HttpRequest):
+    SSO_AUTHENTICATION_BACKENDS = []
+    NON_SSO_AUTHENTICATION_BACKENDS = ["axes.backends.AxesBackend", "django.contrib.auth.backends.ModelBackend"]
+
+    # Check if we're in EE, if yes, use the EE settings, otherwise use the posthog settings
+    try:
+        from ee import settings
+
+        SSO_AUTHENTICATION_BACKENDS = settings.AUTHENTICATION_BACKENDS
+    except ImportError:
+        SSO_AUTHENTICATION_BACKENDS = AUTHENTICATION_BACKENDS
+
+    # Remove the non-SSO backends from the list
+    SSO_AUTHENTICATION_BACKENDS = list(set(SSO_AUTHENTICATION_BACKENDS) - set(NON_SSO_AUTHENTICATION_BACKENDS))
+
+    return request.session.get("_auth_user_backend") in SSO_AUTHENTICATION_BACKENDS
