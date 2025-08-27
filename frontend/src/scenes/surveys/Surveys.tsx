@@ -132,7 +132,7 @@ function Surveys(): JSX.Element {
     const shouldShowEmptyState = !dataLoading && surveys.length === 0
 
     return (
-        <SceneContent forceNewSpacing>
+        <SceneContent>
             <PageHeader
                 buttons={
                     <>
