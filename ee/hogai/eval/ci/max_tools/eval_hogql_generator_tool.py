@@ -12,7 +12,7 @@ from posthog.hogql.database.database import create_hogql_database
 
 from posthog.sync import database_sync_to_async
 
-from products.data_warehouse.backend.max_tools import HogQLGeneratorArgs, HogQLGeneratorTool
+from products.data_warehouse.backend.max_tools import HogQLGeneratorArgs, HogQLGeneratorNode, HogQLGeneratorTool
 
 from ee.hogai.eval.base import MaxPublicEval
 from ee.hogai.eval.scorers import SQLSemanticsCorrectness, SQLSyntaxCorrectness
@@ -131,8 +131,8 @@ async def eval_tool_generate_hogql_query(call_generate_hogql_query, database_sch
             EvalCase(
                 input=EvalInput(
                     instructions="how many bills did users pay from Australia? Output just a single number.",
-                    apply_patch=lambda tool: patch.object(
-                        tool,
+                    apply_patch=lambda _: patch.object(
+                        HogQLGeneratorNode,
                         "_aget_core_memory_text",
                         return_value='Use "paid_bill" event from the events table joined by "events.person_id = persons.id". The person properties have the "$geoip_country_code" field with two-letter country codes (uppercase).',
                     ).start(),
@@ -159,6 +159,13 @@ async def eval_tool_generate_hogql_query(call_generate_hogql_query, database_sch
                     instructions="Count the browser versions currently used by all users, and finally there are three columns: browser, browser version, and number of users",
                 ),
                 expected="SELECT person.properties.$browser AS browser, person.properties.$browser_version AS browser_version, count(DISTINCT person.id) AS number_of_users FROM events WHERE timestamp >= now() - INTERVAL 30 DAY GROUP BY browser, browser_version ORDER BY number_of_users DESC",
+                metadata=metadata,
+            ),
+            EvalCase(
+                input=EvalInput(
+                    instructions="Count the browser languages currently used by users that signed up, and finally there are three columns: browser, browser language, and number of users. Include the time period from the 1st of January 2025 to the 1st of February 2025",
+                ),
+                expected="SELECT properties.$browser AS browser, properties.$browser_language AS browser_language, count(DISTINCT person_id) AS number_of_users FROM events WHERE event = 'signed_up' AND timestamp >= '2025-01-01T00:00:00:000' AND timestamp <= '2025-02-01T23:59:59:999' GROUP BY browser, browser_language ORDER BY number_of_users DESC",
                 metadata=metadata,
             ),
             EvalCase(
