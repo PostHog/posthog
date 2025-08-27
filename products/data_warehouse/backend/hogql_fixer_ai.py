@@ -250,6 +250,9 @@ The newly updated query gave us this error:
         try:
             result.query = result.query.rstrip(";").strip()
             print_ast(parse_select(result.query), context=hogql_context, dialect="clickhouse", loose_syntax=True)
+            result.query = print_ast(
+                parse_select(result.query), context=hogql_context, dialect="hogql", loose_syntax=True
+            )
         except (ExposedHogQLError, ResolutionError) as err:
             err_msg = str(err)
             if err_msg.startswith("no viable alternative"):

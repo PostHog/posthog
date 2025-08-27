@@ -95,7 +95,7 @@ class HogQLGeneratorMixin(AssistantContextMixin):
                 if finder.has_filters:
                     dummy_placeholders["filters"] = ast.Constant(value=1)
                 parsed_query = cast(ast.SelectQuery, replace_placeholders(parsed_query, dummy_placeholders))
-
+            print_ast(parsed_query, context=hogql_context, dialect="clickhouse", loose_syntax=True)
             return print_ast(parsed_query, context=hogql_context, dialect="hogql", loose_syntax=True)
         except (ExposedHogQLError, HogQLNotImplementedError, ResolutionError) as err:
             err_msg = str(err)
