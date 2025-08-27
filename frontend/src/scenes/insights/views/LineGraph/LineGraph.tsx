@@ -83,7 +83,8 @@ export function ensureTooltip(): [Root, HTMLElement] {
                     isMouseOverTooltip = false
                     hideTooltipTimeout = setTimeout(() => {
                         if (tooltipEl && !isMouseOverTooltip) {
-                            tooltipEl.classList.add('opacity-0', 'invisible')
+                            tooltipEl.style.opacity = '0'
+                            tooltipEl.style.visibility = 'hidden'
                         }
                     }, 100)
                 },
@@ -108,7 +109,8 @@ export function hideTooltip(): void {
     hideTooltipTimeout = setTimeout(() => {
         const tooltipEl = document.getElementById('InsightTooltipWrapper')
         if (tooltipEl && !isMouseOverTooltip) {
-            tooltipEl.classList.add('opacity-0', 'invisible')
+            tooltipEl.style.opacity = '0'
+            tooltipEl.style.visibility = 'hidden'
         }
     }, 100)
 }
@@ -749,7 +751,8 @@ export function LineGraph_({
                         if (tooltip.opacity === 0) {
                             // Don't hide if mouse is over tooltip
                             if (!isMouseOverTooltip) {
-                                tooltipEl.classList.add('opacity-0', 'invisible')
+                                tooltipEl.style.opacity = '0'
+                                tooltipEl.style.visibility = 'hidden'
                             }
                             return
                         }
@@ -763,7 +766,8 @@ export function LineGraph_({
                         // Reference: https://www.chartjs.org/docs/master/configuration/tooltip.html
                         tooltipEl.classList.remove('above', 'below', 'no-transform')
                         tooltipEl.classList.add(tooltip.yAlign || 'no-transform')
-                        tooltipEl.classList.remove('opacity-0', 'invisible')
+                        tooltipEl.style.opacity = '1'
+                        tooltipEl.style.visibility = 'visible'
 
                         if (tooltip.body) {
                             const referenceDataPoint = tooltip.dataPoints[0] // Use this point as reference to get the date
