@@ -1,12 +1,3 @@
-import { Meta, StoryFn } from '@storybook/react'
-import { useActions, useValues } from 'kea'
-import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
-import { useEffect } from 'react'
-import { twMerge } from 'tailwind-merge'
-
-import { FunnelsQuery, TrendsQuery } from '~/queries/schema/schema-general'
-import { InsightShortId } from '~/types'
-
 import {
     CONVERSATION_ID,
     chatResponseChunk,
@@ -17,13 +8,20 @@ import {
     humanMessage,
     longResponseChunk,
 } from './__mocks__/chatResponse.mocks'
+import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
+import { Meta, StoryFn } from '@storybook/react'
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+import { twMerge } from 'tailwind-merge'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+import { FunnelsQuery, TrendsQuery } from '~/queries/schema/schema-general'
+import { InsightShortId } from '~/types'
 
 import { MaxInstance, MaxInstanceProps } from './Max'
 import { MaxFloatingInput } from './MaxFloatingInput'
