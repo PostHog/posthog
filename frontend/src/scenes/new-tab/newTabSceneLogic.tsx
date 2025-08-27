@@ -1,4 +1,5 @@
-import { actions, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
 
 import { IconDatabase, IconHogQL } from '@posthog/icons'
 
@@ -22,12 +23,32 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
     key((props) => props.tabId || 'default'),
     actions({
         setSearch: (search: string) => ({ search }),
+        selectNext: true,
+        selectPrevious: true,
+        onFocus: true,
+        onBlur: true,
+        onSubmit: true,
     }),
     reducers({
         search: [
             '',
             {
                 setSearch: (_, { search }) => search,
+            },
+        ],
+        rawSelectedIndex: [
+            0,
+            {
+                selectNext: (state) => state + 1,
+                selectPrevious: (state) => state - 1,
+                setSearch: () => 0,
+            },
+        ],
+        focused: [
+            false,
+            {
+                onFocus: () => true,
+                onBlur: () => false,
             },
         ],
     }),
@@ -75,16 +96,16 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         types: [{ name: 'SQL', icon: <IconDatabase />, href: '/sql' }, ...newInsightItems],
                     },
                     {
-                        category: 'Explore products',
-                        types: [...products],
-                    },
-                    {
-                        category: 'More things you can create',
+                        category: 'Create new ...',
                         types: [
                             ...newOtherItems,
                             ...newDataItems,
                             { name: 'Hog program', icon: <IconHogQL />, href: '/debug/hog' },
                         ],
+                    },
+                    {
+                        category: 'Apps',
+                        types: [...products],
                     },
                     {
                         category: 'Data in or out',
@@ -118,5 +139,41 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     .filter(({ types }) => types.length > 0)
             },
         ],
+        filteredItemsList: [
+            (s) => [s.filteredItemsGrid],
+            (filteredItemsGrid): { category: string; type: { name: string; icon?: JSX.Element; href?: string } }[] =>
+                filteredItemsGrid.flatMap(({ category, types }) =>
+                    types.map((type) => ({
+                        category,
+                        type,
+                    }))
+                ),
+        ],
+        selectedIndex: [
+            (s) => [s.rawSelectedIndex, s.filteredItemsList],
+            (rawSelectedIndex, filteredItemsList): number | null => {
+                if (filteredItemsList.length === 0) {
+                    return null
+                }
+                return (
+                    ((rawSelectedIndex % filteredItemsList.length) + filteredItemsList.length) %
+                    filteredItemsList.length
+                )
+            },
+        ],
+        selectedItem: [
+            (s) => [s.selectedIndex, s.filteredItemsList],
+            (selectedIndex, filteredItemsList) =>
+                selectedIndex !== null && selectedIndex < filteredItemsList.length
+                    ? filteredItemsList[selectedIndex]
+                    : null,
+        ],
     }),
+    listeners(({ values }) => ({
+        onSubmit: () => {
+            if (values.selectedItem?.type?.href) {
+                router.actions.push(values.selectedItem.type.href)
+            }
+        },
+    })),
 ])
