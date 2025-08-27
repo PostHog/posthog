@@ -438,7 +438,6 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
                 database.persons.fields[field_name] = ast.FieldTraverser(chain=chain)
                 poe.fields[field_name] = ast.FieldTraverser(chain=chain)
 
-    # Add path cleaning virtual field for events
     with timings.measure("path_cleaned_pathname"):
         field_name = "$virt_path_cleaned_pathname"
         database.events.fields[field_name] = create_path_cleaned_pathname(
