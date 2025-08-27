@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { LemonInput } from '~/lib/lemon-ui/LemonInput'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
-import { createdAtColumn, createdByColumn, updatedAtColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
+import { createdAtColumn, updatedAtColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
 import { Dataset } from '~/types'
 
 import { DATASETS_PER_PAGE, llmAnalyticsDatasetsLogic } from './llmAnalyticsDatasetsLogic'
@@ -23,7 +24,7 @@ export function LLMAnalyticsDatasetsScene(): JSX.Element {
             title: 'Name',
             dataIndex: 'name',
             key: 'name',
-            sorter: true,
+            width: '20%',
             render: function renderName(name) {
                 return <span className="font-medium">{name}</span>
             },
@@ -32,22 +33,35 @@ export function LLMAnalyticsDatasetsScene(): JSX.Element {
             title: 'Description',
             dataIndex: 'description',
             key: 'description',
+            width: '50%',
             render: function renderDescription(description) {
-                return <span className="text-muted">{description || <i>No description</i>}</span>
+                return <span className="text-muted">{description || <i>–</i>}</span>
             },
         },
-        createdByColumn<Dataset>() as LemonTableColumn<Dataset, keyof Dataset | undefined>,
+        {
+            title: 'Created by',
+            dataIndex: 'created_by',
+            render: function renderCreatedBy(_: any, item) {
+                const { created_by } = item
+                return (
+                    <div className="flex flex-row items-center flex-nowrap">
+                        {created_by && <ProfilePicture user={created_by} size="md" showName />}
+                    </div>
+                )
+            },
+        },
         createdAtColumn<Dataset>() as LemonTableColumn<Dataset, keyof Dataset | undefined>,
         updatedAtColumn<Dataset>() as LemonTableColumn<Dataset, keyof Dataset | undefined>,
     ]
 
+    const { currentPage, pageSize, entryCount } = pagination
+
+    const start = (currentPage - 1) * pageSize + 1
+    const end = Math.min(currentPage * pageSize, entryCount)
+
     return (
         <div className="space-y-4">
-            <div className="flex justify-between items-center">
-                <h1 className="text-2xl font-semibold">Datasets</h1>
-            </div>
-
-            <div className="flex justify-between items-center gap-4">
+            <div className="flex gap-x-4 gap-y-2 items-center flex-wrap py-4 -mt-4 mb-4 border-b justify-between">
                 <LemonInput
                     type="search"
                     placeholder="Search datasets..."
@@ -56,7 +70,9 @@ export function LLMAnalyticsDatasetsScene(): JSX.Element {
                     className="max-w-md"
                 />
                 <div className="text-muted-alt">
-                    {datasets.count} dataset{datasets.count === 1 ? '' : 's'}
+                    {entryCount === 0
+                        ? '0 datasets'
+                        : `${start}-${end} of ${entryCount} dataset${entryCount === 1 ? '' : 's'}`}
                 </div>
             </div>
 

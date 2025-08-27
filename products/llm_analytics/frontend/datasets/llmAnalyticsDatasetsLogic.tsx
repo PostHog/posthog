@@ -24,7 +24,7 @@ function cleanFilters(values: Partial<DatasetFilters>): DatasetFilters {
     return {
         page: parseInt(String(values.page)) || 1,
         search: String(values.search || ''),
-        order_by: values.order_by || '-updated_at',
+        order_by: values.order_by || '-created_at',
     }
 }
 
