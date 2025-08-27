@@ -13948,7 +13948,7 @@
             "required": ["results"],
             "type": "object"
         },
-        "HogQLQueryResponse<def-interface-974149753-110873-110982-974149753-0-118834[]>": {
+        "HogQLQueryResponse<def-interface-974149753-111393-111502-974149753-0-119354[]>": {
             "additionalProperties": false,
             "properties": {
                 "clickhouse": {
