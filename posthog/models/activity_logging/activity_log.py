@@ -126,6 +126,8 @@ class ActivityDetailEncoder(json.JSONEncoder):
             return str(obj)
         if hasattr(obj, "__class__") and obj.__class__.__name__ == "User":
             return {"first_name": obj.first_name, "email": obj.email}
+        if hasattr(obj, "__class__") and obj.__class__.__name__ == "DataWarehouseTable":
+            return obj.name
         if isinstance(obj, float):
             # more precision than we'll need but avoids rounding too unnecessarily
             return format(obj, ".6f").rstrip("0").rstrip(".")
