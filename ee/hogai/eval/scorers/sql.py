@@ -33,13 +33,13 @@ class SQLSyntaxCorrectness(Scorer):
     def _name(self):
         return "sql_syntax_correctness"
 
-    async def _run_eval_async(self, output: str | None, team: Team | None = None, **kwargs):
+    async def _run_eval_async(self, output: str | None, team: Team | str | None = None, **kwargs):
         return await sync_to_async(self._evaluate)(output, team)
 
-    def _run_eval_sync(self, output: str | None, team: Team | None = None, **kwargs):
+    def _run_eval_sync(self, output: str | None, team: Team | str | None = None, **kwargs):
         return self._evaluate(output, team)
 
-    def _evaluate(self, output: str | None, team: Team | None = None) -> Score:
+    def _evaluate(self, output: str | None, team: Team | str | None = None) -> Score:
         return evaluate_sql_query(self._name(), output, team)
 
 
