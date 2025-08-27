@@ -16,7 +16,7 @@ export function WebAnalyticsScene(): JSX.Element {
             <PageHeader buttons={<WebAnalyticsHeaderButtons />} />
             <SceneContent>
                 <SceneTitleSection
-                    name="Web Analytics"
+                    name="Web analytics"
                     description="Analyze and understand your web analytics data to understand your website performance and user behavior."
                     resourceType={{
                         type: 'web',
