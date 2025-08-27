@@ -269,7 +269,7 @@ impl DeduplicationStore {
                 }
             }
 
-            // Extract library info and emit duplicate metric with labels including similarity
+            // Extract library info and emit duplicate metric with labels
             let (lib_name, lib_version) = extract_library_info(raw_event);
             self.metrics
                 .counter(DUPLICATE_EVENTS_TOTAL_COUNTER)
@@ -297,6 +297,16 @@ impl DeduplicationStore {
                 .with_label("lib", &lib_name)
                 .with_label("lib_version", &lib_version)
                 .record(similarity.different_property_count as f64);
+
+            // Emit individual counters for each mismatched field
+            for field in &similarity.different_fields {
+                self.metrics
+                    .counter("deduplication_field_mismatch_total")
+                    .with_label("field", field)
+                    .with_label("lib", &lib_name)
+                    .with_label("lib_version", &lib_version)
+                    .increment(1);
+            }
 
             // Store updated metrics
             let serialized_metadata = VersionedMetadata::serialize_metadata(&metadata)?;

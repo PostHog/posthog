@@ -104,7 +104,7 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
                         stats.memory_usage / (1024 * 1024),
                         available_permits
                     );
-                    
+
                     // Log partition health status
                     for health in &partition_health {
                         let status = if health.in_flight_count > 1000 {
@@ -114,10 +114,10 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
                         } else {
                             "✅ HEALTHY"
                         };
-                        
+
                         info!(
                             "📍 Partition {}-{}: last_committed={}, in_flight={} {}",
-                            health.topic, health.partition, 
+                            health.topic, health.partition,
                             health.last_committed_offset, health.in_flight_count, status
                         );
                     }

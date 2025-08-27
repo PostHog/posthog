@@ -192,7 +192,7 @@ impl ConsumerContext for StatefulConsumerContext {
                         (topic, partition)
                     })
                     .collect();
-                
+
                 info!("📋 Total partitions assigned: {:?}", partition_infos);
 
                 // Send assignment event to async worker

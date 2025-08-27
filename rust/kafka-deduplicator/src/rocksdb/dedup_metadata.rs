@@ -238,10 +238,8 @@ impl EventSimilarity {
         }
 
         // Compare properties
-        let (properties_similarity, different_properties) = Self::compare_properties(
-            &original.properties,
-            &new.properties,
-        );
+        let (properties_similarity, different_properties) =
+            Self::compare_properties(&original.properties, &new.properties);
 
         let different_field_count = different_fields.len() as u32;
         let different_property_count = different_properties.len() as u32;
@@ -253,7 +251,7 @@ impl EventSimilarity {
         } else {
             1.0
         };
-        
+
         let overall_score = field_similarity * 0.7 + properties_similarity * 0.3;
 
         Ok(EventSimilarity {
@@ -271,10 +269,10 @@ impl EventSimilarity {
         new: &HashMap<String, serde_json::Value>,
     ) -> (f64, Vec<String>) {
         let mut different_properties = Vec::new();
-        
+
         // Get all unique keys from both maps
         let all_keys: HashSet<&String> = original.keys().chain(new.keys()).collect();
-        
+
         if all_keys.is_empty() {
             return (1.0, different_properties);
         }
@@ -296,7 +294,7 @@ impl MetadataVersion for MetadataV1 {
     /// Update metrics when a duplicate is detected
     fn update_duplicate(&mut self, new_event: &RawEvent) {
         self.duplicate_count += 1;
-        
+
         // Track UUID if present
         if let Some(uuid) = new_event.uuid {
             self.seen_uuids.insert(uuid.to_string());
@@ -500,7 +498,7 @@ mod tests {
 
         let event2 = RawEvent {
             uuid: Some(uuid::Uuid::new_v4()), // Different UUID (expected)
-            event: "page_view".to_string(), // Same event
+            event: "page_view".to_string(),   // Same event
             distinct_id: Some(serde_json::Value::String("user123".to_string())), // Same distinct_id
             token: Some("token123".to_string()), // Same token
             properties: {
@@ -517,11 +515,15 @@ mod tests {
         let similarity = EventSimilarity::calculate(&event1, &event2).unwrap();
 
         assert_eq!(similarity.different_field_count, 1); // Only timestamp differs
-        assert!(similarity.different_fields.contains(&"timestamp".to_string()));
+        assert!(similarity
+            .different_fields
+            .contains(&"timestamp".to_string()));
 
         assert_eq!(similarity.different_property_count, 2); // url differs, browser is new
         assert!(similarity.different_properties.contains(&"url".to_string()));
-        assert!(similarity.different_properties.contains(&"browser".to_string()));
+        assert!(similarity
+            .different_properties
+            .contains(&"browser".to_string()));
 
         assert!(similarity.properties_similarity > 0.0 && similarity.properties_similarity < 1.0);
         assert!(similarity.overall_score > 0.0 && similarity.overall_score < 1.0);
@@ -631,7 +633,7 @@ mod tests {
 
         // Create metadata
         let mut metadata = MetadataV1::new(&original_event);
-        
+
         // First duplicate - different UUID, slightly different properties
         let uuid2 = uuid::Uuid::new_v4();
         let duplicate1 = RawEvent {
@@ -682,7 +684,7 @@ mod tests {
 
         // Properties are quite different
         assert!(similarity2.different_property_count >= 2);
-        
+
         // Check final state
         assert_eq!(metadata.duplicate_count, 2);
         assert_eq!(metadata.seen_uuids.len(), 2); // Only 2 unique UUIDs
@@ -720,9 +722,9 @@ mod tests {
                 props
             },
             timestamp: Some("2222222222".to_string()), // Different
-            offset: Some(200), // Different
-            set: None, // Different
-            set_once: Some(HashMap::new()), // Different
+            offset: Some(200),                         // Different
+            set: None,                                 // Different
+            set_once: Some(HashMap::new()),            // Different
         };
 
         let similarity = EventSimilarity::calculate(&event1, &event2).unwrap();

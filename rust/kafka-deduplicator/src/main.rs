@@ -89,7 +89,7 @@ async fn main() -> Result<()> {
     // Load configuration first to get OTEL settings
     let config = Config::init_with_defaults()
         .context("Failed to load configuration from environment variables. Please check your environment setup.")?;
-    
+
     // Only initialize regular tracing if tokio-console is not enabled
     #[cfg(not(feature = "tokio-console"))]
     {

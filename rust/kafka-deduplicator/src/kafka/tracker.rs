@@ -12,9 +12,9 @@ use tracing::{debug, info, warn};
 use crate::kafka::message::{AckableMessage, MessageResult};
 use crate::rocksdb::metrics_consts::{
     KAFKA_CONSUMER_IN_FLIGHT_MEMORY_BYTES, KAFKA_CONSUMER_IN_FLIGHT_MESSAGES,
-    PARTITION_PENDING_COMPLETIONS, PARTITION_OFFSET_GAP_SIZE, PARTITION_OFFSET_GAP_DETECTED,
-    PARTITION_SECONDS_SINCE_LAST_COMMIT, MESSAGE_COMPLETION_DURATION, PARTITION_LAST_COMMITTED_OFFSET,
-    OUT_OF_ORDER_COMPLETIONS,
+    MESSAGE_COMPLETION_DURATION, OUT_OF_ORDER_COMPLETIONS, PARTITION_LAST_COMMITTED_OFFSET,
+    PARTITION_OFFSET_GAP_DETECTED, PARTITION_OFFSET_GAP_SIZE, PARTITION_PENDING_COMPLETIONS,
+    PARTITION_SECONDS_SINCE_LAST_COMMIT,
 };
 
 /// Type alias for fenced partitions mapping
@@ -38,13 +38,14 @@ impl GlobalStats {
             memory_usage: AtomicU64::new(0),
         }
     }
-    
+
     /// Called when a message has been processed (either successfully or with failure)
     pub fn message_processed(&self, result: &MessageResult, memory_size: usize) {
         // Decrement in-flight counters
         self.in_flight_count.fetch_sub(1, Ordering::SeqCst);
-        self.memory_usage.fetch_sub(memory_size as u64, Ordering::SeqCst);
-        
+        self.memory_usage
+            .fetch_sub(memory_size as u64, Ordering::SeqCst);
+
         // Update success/failure counters
         match result {
             MessageResult::Success => {
@@ -55,11 +56,12 @@ impl GlobalStats {
             }
         }
     }
-    
+
     /// Called when a message starts being tracked
     pub fn message_tracked(&self, memory_size: usize) {
         self.in_flight_count.fetch_add(1, Ordering::SeqCst);
-        self.memory_usage.fetch_add(memory_size as u64, Ordering::SeqCst);
+        self.memory_usage
+            .fetch_add(memory_size as u64, Ordering::SeqCst);
     }
 }
 
@@ -97,49 +99,56 @@ impl Drop for PartitionTracker {
 impl PartitionTracker {
     fn new(topic: String, partition: i32, global_stats: Arc<GlobalStats>) -> Self {
         let (completion_tx, mut completion_rx) = mpsc::unbounded_channel::<MessageCompletion>();
-        
+
         let last_committed_offset = Arc::new(RwLock::new(-1));
         let initial_offset = Arc::new(RwLock::new(None));
         let in_flight_count = Arc::new(AtomicU64::new(0));
-        
+
         // Clone for the processing task
         let last_committed_clone = last_committed_offset.clone();
         let initial_offset_clone = initial_offset.clone();
         let in_flight_clone = in_flight_count.clone();
-        
+
         // Spawn dedicated task to process completions for this partition
         let processor_handle = tokio::spawn(async move {
             let mut pending_completions: HashMap<i64, MessageCompletion> = HashMap::new();
             let mut last_commit_time = Instant::now();
-            
-            info!("Started completion processor for partition {}-{}", topic, partition);
-            
+
+            info!(
+                "Started completion processor for partition {}-{}",
+                topic, partition
+            );
+
             while let Some(completion) = completion_rx.recv().await {
                 let processing_start = Instant::now();
                 // Update global statistics
                 global_stats.message_processed(&completion.result, completion.memory_size);
-                
+
                 // Decrement partition's in-flight count
                 in_flight_clone.fetch_sub(1, Ordering::SeqCst);
-                
+
                 // Process the completion
                 let mut last_committed = last_committed_clone.write().await;
                 let mut initial = initial_offset_clone.write().await;
-                
+
                 // Set initial offset if this is the first message
                 if initial.is_none() && *last_committed == -1 {
                     *initial = Some(completion.offset);
-                    info!("Set initial offset for partition {}-{}: {}", topic, partition, completion.offset);
+                    info!(
+                        "Set initial offset for partition {}-{}: {}",
+                        topic, partition, completion.offset
+                    );
                 }
-                
+
                 // Check if this offset can be committed
                 let is_next_sequential = completion.offset == *last_committed + 1;
-                let is_initial_offset = *last_committed == -1 && *initial == Some(completion.offset);
-                
+                let is_initial_offset =
+                    *last_committed == -1 && *initial == Some(completion.offset);
+
                 if is_next_sequential || is_initial_offset {
                     *last_committed = completion.offset;
                     last_commit_time = Instant::now();
-                    
+
                     // Process any pending completions that can now be committed
                     loop {
                         let next_offset = *last_committed + 1;
@@ -149,76 +158,87 @@ impl PartitionTracker {
                             break;
                         }
                     }
-                    
+
                     // Emit metrics for successful commit
-                    metrics::gauge!(PARTITION_LAST_COMMITTED_OFFSET, 
-                        "topic" => topic.clone(), 
+                    metrics::gauge!(PARTITION_LAST_COMMITTED_OFFSET,
+                        "topic" => topic.clone(),
                     "partition" => partition.to_string()
-                    ).set(*last_committed as f64);
-                    
+                    )
+                    .set(*last_committed as f64);
+
                     debug!(
                         "Partition {}-{}: committed offset {}",
                         topic, partition, *last_committed
                     );
-                } else if completion.offset > *last_committed + 1 
-                    || (*last_committed == -1 && *initial != Some(completion.offset)) {
+                } else if completion.offset > *last_committed + 1
+                    || (*last_committed == -1 && *initial != Some(completion.offset))
+                {
                     // Out of order - store for later
                     let offset = completion.offset;
                     pending_completions.insert(offset, completion);
-                    
+
                     // Increment out-of-order counter
                     metrics::counter!(OUT_OF_ORDER_COMPLETIONS,
                         "topic" => topic.clone(),
                         "partition" => partition.to_string()
-                    ).increment(1);
-                    
+                    )
+                    .increment(1);
+
                     // Log gap if significant
-                    let expected = if *last_committed == -1 { 
-                        initial.unwrap_or(0) 
-                    } else { 
-                        *last_committed + 1 
+                    let expected = if *last_committed == -1 {
+                        initial.unwrap_or(0)
+                    } else {
+                        *last_committed + 1
                     };
-                    
+
                     let gap_size = offset - expected;
                     if gap_size > 10 {
                         warn!(
                             "🔴 Partition {}-{}: OFFSET GAP - expected={}, received={}, gap={}, pending={}",
-                            topic, partition, expected, offset, 
+                            topic, partition, expected, offset,
                             gap_size, pending_completions.len()
                         );
-                        
+
                         // Emit gap metrics
                         metrics::gauge!(PARTITION_OFFSET_GAP_SIZE,
                             "topic" => topic.clone(),
                             "partition" => partition.to_string()
-                        ).set(gap_size as f64);
-                        
+                        )
+                        .set(gap_size as f64);
+
                         metrics::counter!(PARTITION_OFFSET_GAP_DETECTED,
                             "topic" => topic.clone(),
                             "partition" => partition.to_string()
-                        ).increment(1);
+                        )
+                        .increment(1);
                     }
                 }
                 // If offset <= last_committed, it's a duplicate - ignore
-                
+
                 // Emit metrics for pending completions and processing time
                 metrics::gauge!(PARTITION_PENDING_COMPLETIONS,
                     "topic" => topic.clone(),
                     "partition" => partition.to_string()
-                ).set(pending_completions.len() as f64);
-                
+                )
+                .set(pending_completions.len() as f64);
+
                 metrics::gauge!(PARTITION_SECONDS_SINCE_LAST_COMMIT,
                     "topic" => topic.clone(),
                     "partition" => partition.to_string()
-                ).set(last_commit_time.elapsed().as_secs_f64());
-                
+                )
+                .set(last_commit_time.elapsed().as_secs_f64());
+
                 metrics::histogram!(MESSAGE_COMPLETION_DURATION,
                     "topic" => topic.clone(),
                     "partition" => partition.to_string()
-                ).record(processing_start.elapsed().as_secs_f64());
+                )
+                .record(processing_start.elapsed().as_secs_f64());
             }
-            
-            info!("Completion processor for partition {}-{} stopped", topic, partition);
+
+            info!(
+                "Completion processor for partition {}-{} stopped",
+                topic, partition
+            );
         });
 
         Self {
@@ -229,7 +249,7 @@ impl PartitionTracker {
             _processor_handle: processor_handle,
         }
     }
-    
+
     /// Get the number of in-flight messages for this partition
     fn get_in_flight_count(&self) -> usize {
         self.in_flight_count.load(Ordering::SeqCst) as usize
@@ -319,7 +339,6 @@ impl InFlightTracker {
         }
     }
 
-
     /// Track a message and return an AckableMessage that owns the permit
     pub async fn track_message(
         &self,
@@ -339,10 +358,10 @@ impl InFlightTracker {
             let mut partitions = self.partitions.write().await;
             let partition_key = (topic.clone(), partition);
 
-            let tracker = partitions
-                .entry(partition_key)
-                .or_insert_with(|| PartitionTracker::new(topic.clone(), partition, self.global_stats.clone()));
-            
+            let tracker = partitions.entry(partition_key).or_insert_with(|| {
+                PartitionTracker::new(topic.clone(), partition, self.global_stats.clone())
+            });
+
             // Set initial offset if this is the first message for this partition
             {
                 let mut initial = tracker.initial_offset.write().await;
@@ -357,7 +376,7 @@ impl InFlightTracker {
 
             // Increment partition's in-flight count
             tracker.in_flight_count.fetch_add(1, Ordering::SeqCst);
-            
+
             tracker.completion_tx.clone()
         };
 
@@ -367,14 +386,14 @@ impl InFlightTracker {
             if let Some(tracker) = partitions.get(&(topic.clone(), partition)) {
                 let last_committed = *tracker.last_committed_offset.read().await;
                 let in_flight = self.global_stats.in_flight_count.load(Ordering::SeqCst) as i64;
-                
+
                 let expected_offset = if last_committed == -1 {
                     // First message for this partition - use initial offset
                     tracker.initial_offset.read().await.unwrap_or(0)
                 } else {
                     last_committed + 1
                 };
-                
+
                 if offset != expected_offset && last_committed != -1 {
                     warn!(
                         "⚠️ TRACKING NON-SEQUENTIAL OFFSET: topic={}, partition={}, offset={}, expected={}, last_committed={}, global_in_flight={}",
@@ -383,7 +402,7 @@ impl InFlightTracker {
                 }
             }
         }
-        
+
         debug!(
             "Tracking message with permit: topic={}, partition={}, offset={}, memory={}, available_permits={}",
             topic, partition, offset, memory_size, self.in_flight_semaphore.available_permits()
@@ -413,14 +432,12 @@ impl InFlightTracker {
         // Collect safe offsets from each partition
         for ((topic, partition), tracker) in partitions.iter() {
             let last_committed = *tracker.last_committed_offset.read().await;
-            
+
             info!(
                 "Partition {}:{} - last_committed_offset={}",
-                topic,
-                partition,
-                last_committed,
+                topic, partition, last_committed,
             );
-            
+
             if last_committed >= 0 {
                 safe_offsets.insert((topic.clone(), *partition), last_committed);
             }
@@ -476,16 +493,16 @@ impl InFlightTracker {
     pub fn in_flight_semaphore_clone(&self) -> Arc<Semaphore> {
         self.in_flight_semaphore.clone()
     }
-    
+
     /// Get health status of all partitions for monitoring
     pub async fn get_partition_health(&self) -> Vec<PartitionHealth> {
         let partitions = self.partitions.read().await;
         let mut health_reports = Vec::new();
-        
+
         for ((topic, partition), tracker) in partitions.iter() {
             let last_committed = *tracker.last_committed_offset.read().await;
             let in_flight = tracker.get_in_flight_count();
-            
+
             health_reports.push(PartitionHealth {
                 topic: topic.clone(),
                 partition: *partition,
@@ -493,7 +510,7 @@ impl InFlightTracker {
                 in_flight_count: in_flight,
             });
         }
-        
+
         health_reports
     }
 
@@ -538,10 +555,13 @@ impl InFlightTracker {
             revoked.insert((topic.clone(), *partition));
             // Remove from fenced map as it's now fully revoked
             fenced.remove(&(topic.clone(), *partition));
-            
+
             // IMPORTANT: Remove the PartitionTracker to clean up resources
             // This will drop the tracker and its completion processor task
-            if partition_trackers.remove(&(topic.clone(), *partition)).is_some() {
+            if partition_trackers
+                .remove(&(topic.clone(), *partition))
+                .is_some()
+            {
                 info!(
                     "Removed PartitionTracker for revoked partition {}:{}",
                     topic, partition
@@ -561,10 +581,13 @@ impl InFlightTracker {
             revoked.remove(&(topic.clone(), *partition));
             // Remove any fencing
             fenced.remove(&(topic.clone(), *partition));
-            
+
             // Remove any old tracker to ensure clean state when partition is reassigned
             // The new tracker will be created when the first message arrives
-            if partition_trackers.remove(&(topic.clone(), *partition)).is_some() {
+            if partition_trackers
+                .remove(&(topic.clone(), *partition))
+                .is_some()
+            {
                 info!(
                     "Removed old PartitionTracker for newly assigned partition {}:{} to ensure clean state",
                     topic, partition
