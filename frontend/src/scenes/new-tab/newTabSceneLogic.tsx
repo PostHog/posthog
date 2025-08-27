@@ -1,4 +1,4 @@
-import { kea, path, selectors } from 'kea'
+import { actions, kea, path, reducers, selectors } from 'kea'
 
 import { IconDatabase, IconHogQL } from '@posthog/icons'
 
@@ -18,7 +18,17 @@ export interface ItemsGridItem {
 
 export const newTabSceneLogic = kea<newTabSceneLogicType>([
     path(['scenes', 'new-tab', 'newTabSceneLogic']),
-
+    actions({
+        setSearch: (search: string) => ({ search }),
+    }),
+    reducers({
+        search: [
+            '',
+            {
+                setSearch: (_, { search }) => search,
+            },
+        ],
+    }),
     selectors({
         itemsGrid: [
             () => [],
@@ -80,6 +90,21 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     },
                 ]
                 return queryTree
+            },
+        ],
+        filteredItemsGrid: [
+            (s) => [s.itemsGrid, s.search],
+            (itemsGrid, search): ItemsGridItem[] => {
+                if (!search.trim()) {
+                    return itemsGrid
+                }
+                const lowerSearch = search.toLowerCase()
+                return itemsGrid
+                    .map(({ category, types }) => ({
+                        category,
+                        types: types.filter((t) => t.name.toLowerCase().includes(lowerSearch)),
+                    }))
+                    .filter(({ types }) => types.length > 0)
             },
         ],
     }),
