@@ -1524,11 +1524,8 @@ async fn test_both_billing_and_ai_limits_applied() {
 
 #[tokio::test]
 async fn test_ai_and_survey_limits_interaction() {
-    eprintln!("[DEBUG TEST] Starting test_ai_and_survey_limits_interaction");
     let token = "test_token";
-    eprintln!("[DEBUG TEST] About to setup router with survey and AI limits...");
     let (app, sink) = setup_router_with_limits(token, false, true, true).await;
-    eprintln!("[DEBUG TEST] Router setup complete, creating test client...");
     let client = TestClient::new(app);
 
     let mixed_event = serde_json::json!({
@@ -1541,7 +1538,6 @@ async fn test_ai_and_survey_limits_interaction() {
         ]
     });
 
-    eprintln!("[DEBUG TEST] Sending POST request to /e...");
     let res = client
         .post("/e")
         .body(mixed_event.to_string())
@@ -1550,13 +1546,6 @@ async fn test_ai_and_survey_limits_interaction() {
         .send()
         .await;
     let status = res.status();
-    eprintln!("[DEBUG TEST] Response status: {}", status);
-
-    // If we got an error, let's see what it is
-    if status != StatusCode::OK {
-        let body = res.text().await;
-        eprintln!("[DEBUG TEST] Response body: {}", body);
-    }
 
     assert_eq!(status, StatusCode::OK);
 
