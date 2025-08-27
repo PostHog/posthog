@@ -11,8 +11,8 @@ from ee.hogai.graph import AssistantGraph
 from ee.hogai.utils.types import AssistantMessageUnion, AssistantNodeName, AssistantState
 from ee.models.assistant import Conversation
 
-from .conftest import MaxEval
-from .scorers import ToolRelevance
+from ..base import MaxPublicEval
+from ..scorers import ToolRelevance
 
 
 @pytest.fixture
@@ -47,7 +47,7 @@ def call_root(demo_org_team_user):
 
 @pytest.mark.django_db
 async def eval_root(call_root, pytestconfig):
-    await MaxEval(
+    await MaxPublicEval(
         experiment_name="root",
         task=call_root,
         scores=[ToolRelevance(semantic_similarity_args={"query_description"})],
@@ -453,6 +453,54 @@ async def eval_root(call_root, pytestconfig):
                     name="search_documentation",
                     args={},
                     id="call_doc_search_32",
+                ),
+            ),
+            # Ensure calls docs, not insights
+            EvalCase(
+                input="Is there a field on a person I can use to show the last time they interacted with the platform?",
+                expected=AssistantToolCall(
+                    name="search_documentation",
+                    args={},
+                    id="call_doc_search_33",
+                ),
+            ),
+            EvalCase(
+                input="Can I see which browser or device type a user is using from the default event properties?",
+                expected=AssistantToolCall(
+                    name="search_documentation",
+                    args={},
+                    id="call_doc_search_34",
+                ),
+            ),
+            EvalCase(
+                input="What geographic information does PostHog automatically capture about my users?",
+                expected=AssistantToolCall(
+                    name="search_documentation",
+                    args={},
+                    id="call_doc_search_35",
+                ),
+            ),
+            # Ensure calls insights, not documentation
+            EvalCase(
+                input="Show me all events where the default $browser property equals Chrome",
+                expected=AssistantToolCall(
+                    name="create_and_query_insight",
+                    args={
+                        "query_kind": "sql",
+                        "query_description": "Show all events where the $browser property equals Chrome",
+                    },
+                    id="call_insight_default_props_1",
+                ),
+            ),
+            EvalCase(
+                input="How many unique users have the default $device_type property as mobile?",
+                expected=AssistantToolCall(
+                    name="create_and_query_insight",
+                    args={
+                        "query_kind": "sql",
+                        "query_description": "Count unique users who have the $device_type property set to mobile",
+                    },
+                    id="call_insight_default_props_2",
                 ),
             ),
         ],

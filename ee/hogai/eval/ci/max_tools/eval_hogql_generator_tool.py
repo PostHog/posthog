@@ -14,9 +14,8 @@ from posthog.sync import database_sync_to_async
 
 from products.data_warehouse.backend.max_tools import HogQLGeneratorArgs, HogQLGeneratorTool
 
-from ee.hogai.eval.conftest import MaxEval
-from ee.hogai.eval.eval_sql import SQLSyntaxCorrectness
-from ee.hogai.eval.scorers import SQLSemanticsCorrectness
+from ee.hogai.eval.base import MaxPublicEval
+from ee.hogai.eval.scorers import SQLSemanticsCorrectness, SQLSyntaxCorrectness
 from ee.hogai.utils.markdown import remove_markdown
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.warehouse import serialize_database_schema
@@ -73,7 +72,8 @@ async def database_schema(demo_org_team_user):
     return await serialize_database_schema(database, context)
 
 
-async def sql_semantics_scorer(input: EvalInput, expected: str, output: str, metadata: dict) -> Score:
+async def sql_semantics_scorer(input: EvalInput, expected: str, output: str, **kwargs) -> Score:
+    metadata: dict = kwargs["metadata"]
     metric = SQLSemanticsCorrectness()
     return await metric.eval_async(
         input=input.instructions, expected=expected, output=output, database_schema=metadata["schema"]
@@ -84,7 +84,7 @@ async def sql_semantics_scorer(input: EvalInput, expected: str, output: str, met
 async def eval_tool_generate_hogql_query(call_generate_hogql_query, database_schema, pytestconfig):
     metadata = {"schema": database_schema}
 
-    await MaxEval(
+    await MaxPublicEval(
         experiment_name="tool_generate_hogql_query",
         task=call_generate_hogql_query,
         scores=[SQLSyntaxCorrectness(), sql_semantics_scorer],
@@ -175,6 +175,25 @@ async def eval_tool_generate_hogql_query(call_generate_hogql_query, database_sch
                     instructions="Tweak the current one to satisfy this request: List all devices, grouping by lowercased description, and for each group, use the description from the most recent event as 'dispositivo'. Exclude devices where the description contains 'piero', 'test', 'local', or 'totem' (case-insensitive). Show columns: 'dispositivo' (description from the most recent event), 'status' ('online' if latest event is 'enter', else 'offline'), and 'last event ts' (timestamp). Order by status ('online' first), then by dispositivo ASC. The current query is: \nSELECT anyLast(la.description) AS dispositivo, if(anyLast(cl.event) = 'enter', 'online', 'offline') AS status, anyLast(cl.timestamp) AS 'last event ts' FROM (SELECT license_activation_id, event,timestamp FROM postgres.connection_logs WHERE license_activation_id IS NOT NULL ORDER BY timestamp ASC) AS cl JOIN postgres.license_activations AS la ON cl.license_activation_id = la.id WHERE  NOT (lower(la.description) LIKE '%piero%' OR lower(la.description) LIKE '%test%' OR lower(la.description) LIKE '%local%' OR lower(la.description) LIKE '%totem%') GROUP BY lower(la.description) ORDER BY status DESC, dispositivo ASC",
                 ),
                 expected="SELECT anyLast(properties.description) AS dispositivo, if(anyLast(event) = 'enter', 'online', 'offline') AS status, anyLast(timestamp) AS last event ts FROM events WHERE properties.description IS NOT NULL AND NOT ( lower(properties.description) LIKE '%piero%' OR lower(properties.description) LIKE '%test%' OR lower(properties.description) LIKE '%local%' OR lower(properties.description) LIKE '%totem%' ) AND timestamp >= now() - INTERVAL 30 DAY GROUP BY lower(properties.description) ORDER BY status DESC, dispositivo ASC",
+                metadata=metadata,
+            ),
+            EvalCase(
+                input=EvalInput(instructions="How many unique users visited our site last week?"),
+                expected="SELECT count(DISTINCT distinct_id) FROM events WHERE event = '$pageview' AND timestamp >= now() - INTERVAL 7 DAY",
+                metadata=metadata,
+            ),
+            EvalCase(
+                input=EvalInput(
+                    instructions="Show me the number of unique registered users who performed a purchase event in the last 30 days"
+                ),
+                expected="SELECT count(DISTINCT person_id) FROM events WHERE event = 'purchase' AND timestamp >= now() - INTERVAL 30 DAY",
+                metadata=metadata,
+            ),
+            EvalCase(
+                input=EvalInput(
+                    instructions="Get the daily count of unique users (including anonymous) who triggered any event, broken down by day for the past 2 weeks"
+                ),
+                expected="SELECT toStartOfDay(timestamp) AS day, count(DISTINCT distinct_id) AS unique_users FROM events WHERE timestamp >= now() - INTERVAL 14 DAY GROUP BY day ORDER BY day DESC",
                 metadata=metadata,
             ),
         ],

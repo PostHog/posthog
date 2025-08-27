@@ -1,7 +1,7 @@
 import asyncio
 from datetime import timedelta
 
-from posthog.test.base import NonAtomicBaseTest
+from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.utils import timezone
@@ -28,12 +28,29 @@ from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.models.assistant import Conversation
 
 
-# TRICKY: Preserve the non-atomic setup for the test. Otherwise, threads would stall because
-# `query_executor.arun_and_format_query` spawns threads with a new connection.
-class TestInsightSearchNode(NonAtomicBaseTest):
-    # TRICKY: See above.
-    CLASS_DATA_LEVEL_SETUP = False
+def create_mock_query_executor():
+    """Mock query executor instead of querying ClickHouse (since we are using NonAtomicBaseTest)"""
+    mock_executor = MagicMock()
 
+    async def mock_arun_and_format_query(query_obj):
+        """Return mocked query results based on query type."""
+        if isinstance(query_obj, TrendsQuery):
+            return "Mocked trends query results: Daily pageviews = 1000", {}
+        elif isinstance(query_obj, FunnelsQuery):
+            return "Mocked funnel query results: Conversion rate = 25%", {}
+        elif isinstance(query_obj, RetentionQuery):
+            return "Mocked retention query results: Day 1 retention = 40%", {}
+        elif isinstance(query_obj, HogQLQuery):
+            return "Mocked HogQL query results: Result count = 42", {}
+        else:
+            return "Mocked query results", {}
+
+    mock_executor.arun_and_format_query = mock_arun_and_format_query
+    return mock_executor
+
+
+@patch("ee.hogai.graph.insights.nodes.AssistantQueryExecutor", create_mock_query_executor)
+class TestInsightSearchNode(BaseTest):
     def setUp(self):
         super().setUp()
         self.node = InsightSearchNode(self.team, self.user)
