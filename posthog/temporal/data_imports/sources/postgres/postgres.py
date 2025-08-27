@@ -215,6 +215,24 @@ def _build_query(
         return sql.SQL(query_str).format(incremental_field=sql.Identifier(incremental_field))
 
 
+def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: FilteringBoundLogger):
+    logger.debug(f"Running EXPLAIN on {query.as_string()}")
+
+    try:
+        query_with_explain = sql.SQL("EXPLAIN {}").format(query)
+        cursor.execute(query_with_explain)
+        rows = cursor.fetchall()
+        explain_result: str = ""
+        # Build up a single string of the EXPLAIN output
+        for row in rows:
+            for col in row:
+                explain_result += f"\n{col}"
+        logger.debug(f"EXPLAIN result: {explain_result}")
+    except Exception as e:
+        capture_exception(e)
+        logger.debug(f"EXPLAIN raised an exception: {e}")
+
+
 def _get_primary_keys(
     cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger
 ) -> list[str] | None:
@@ -232,6 +250,7 @@ def _get_primary_keys(
             AND tc.table_name = {table}
             AND tc.constraint_type = 'PRIMARY KEY'""").format(schema=sql.Literal(schema), table=sql.Literal(table_name))
 
+    _explain_query(cursor, query, logger)
     logger.debug(f"Running query: {query.as_string()}")
     cursor.execute(query)
     rows = cursor.fetchall()
@@ -261,6 +280,7 @@ def _has_duplicate_primary_keys(
         query = sql.SQL(sql_query).format(
             *[sql.Identifier(key) for key in primary_keys], sql.Identifier(schema), sql.Identifier(table_name)
         )
+        _explain_query(cursor, query, logger)
         logger.debug(f"Running query: {query.as_string()}")
         cursor.execute(query)
         row = cursor.fetchone()
@@ -279,6 +299,7 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
             SELECT SUM(pg_column_size(t)) / COUNT(*) FROM ({}) as t
         """).format(inner_query)
 
+        _explain_query(cursor, query, logger)
         logger.debug(f"Running query: {query.as_string()}")
         cursor.execute(query)
         row = cursor.fetchone()
@@ -312,6 +333,7 @@ def _get_rows_to_sync(cursor: psycopg.Cursor, inner_query: sql.Composed, logger:
             SELECT COUNT(*) FROM ({}) as t
         """).format(inner_query)
 
+        _explain_query(cursor, query, logger)
         logger.debug(f"Running query: {query.as_string()}")
         cursor.execute(query)
         row = cursor.fetchone()
@@ -356,6 +378,7 @@ def _get_partition_settings(
     )
 
     try:
+        _explain_query(cursor, query, logger)
         logger.debug(f"Running query: {query.as_string()}")
         cursor.execute(query)
     except psycopg.errors.QueryCanceled:
@@ -460,7 +483,9 @@ class PostgreSQLColumn(Column):
         return pa.field(self.name, arrow_type, nullable=self.nullable)
 
 
-def _get_table(cursor: psycopg.Cursor, schema: str, table_name: str) -> Table[PostgreSQLColumn]:
+def _get_table(
+    cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger
+) -> Table[PostgreSQLColumn]:
     is_mat_view_query = sql.SQL(
         "select {table} in (select matviewname from pg_matviews where schemaname = {schema}) as res"
     ).format(schema=sql.Literal(schema), table=sql.Literal(table_name))
@@ -511,6 +536,8 @@ def _get_table(cursor: psycopg.Cursor, schema: str, table_name: str) -> Table[Po
                 table_schema = {schema}
                 AND table_name = {table}""").format(schema=sql.Literal(schema), table=sql.Literal(table_name))
 
+    _explain_query(cursor, query, logger)
+    logger.debug(f"Running query: {query.as_string()}")
     cursor.execute(query)
 
     numeric_data_types = {"numeric", "decimal"}
@@ -600,7 +627,7 @@ def postgres_source(
                     logger.debug("Getting primary keys...")
                     primary_keys = _get_primary_keys(cursor, schema, table_name, logger)
                     logger.debug("Getting table types...")
-                    table = _get_table(cursor, schema, table_name)
+                    table = _get_table(cursor, schema, table_name, logger)
                     logger.debug("Getting table chunk size...")
                     chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
                     logger.debug("Getting rows to sync...")
