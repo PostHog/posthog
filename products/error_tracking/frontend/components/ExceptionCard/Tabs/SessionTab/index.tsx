@@ -93,7 +93,7 @@ export function SessionTimelineTab(): JSX.Element {
             return undefined
         }
         const timestampDayJs = dayjs(timestamp).add(1, 'millisecond')
-        const collector = new ItemCollector(sessionId, timestampDayJs.add(1, 'millisecond'))
+        const collector = new ItemCollector(sessionId, timestampDayJs)
         collector.addCategory(
             ItemCategory.ERROR_TRACKING,
             exceptionRenderer,
