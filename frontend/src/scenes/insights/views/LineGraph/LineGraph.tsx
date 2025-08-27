@@ -1098,6 +1098,8 @@ export function LineGraph_({
         showMultipleYAxes,
         _goalLines,
         theme,
+        type,
+        isArea,
         showTrendLines,
     ]) // oxlint-disable-line react-hooks/exhaustive-deps
 
