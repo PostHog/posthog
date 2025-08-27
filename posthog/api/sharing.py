@@ -10,7 +10,8 @@ from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
 
 from loginas.utils import is_impersonated_session
-from rest_framework import mixins, response, serializers, viewsets
+from rest_framework import mixins, response, serializers, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import SAFE_METHODS
 from rest_framework.request import Request
@@ -25,7 +26,7 @@ from posthog.api.shared import TeamPublicSerializer
 from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import AvailableFeature
-from posthog.models import InsightViewed, SessionRecording, SharingConfiguration, Team
+from posthog.models import InsightViewed, SessionRecording, SharePassword, SharingConfiguration, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset, asset_for_token, get_content_response
@@ -107,11 +108,34 @@ def build_shared_app_context(team: Team, request: Request) -> dict[str, Any]:
     }
 
 
+class SharePasswordSerializer(serializers.ModelSerializer):
+    created_by_email = serializers.EmailField(source="created_by.email", read_only=True)
+
+    class Meta:
+        model = SharePassword
+        fields = ["id", "created_at", "note", "created_by_email", "is_active"]
+        read_only_fields = ["id", "created_at", "created_by_email", "is_active"]
+
+
+class SharePasswordCreateSerializer(serializers.Serializer):
+    raw_password = serializers.CharField(
+        required=False, allow_blank=True, help_text="If not provided, a random password will be generated"
+    )
+    note = serializers.CharField(required=False, allow_blank=True, max_length=100)
+
+    def validate_raw_password(self, value):
+        if value and len(value) < 8:
+            raise serializers.ValidationError("Password must be at least 8 characters long.")
+        return value
+
+
 class SharingConfigurationSerializer(serializers.ModelSerializer):
+    share_passwords = SharePasswordSerializer(many=True, read_only=True)
+
     class Meta:
         model = SharingConfiguration
-        fields = ["created_at", "enabled", "access_token", "password", "password_required"]
-        read_only_fields = ["created_at", "access_token"]
+        fields = ["created_at", "enabled", "access_token", "password", "password_required", "share_passwords"]
+        read_only_fields = ["created_at", "access_token", "share_passwords"]
 
 
 class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
@@ -239,6 +263,73 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
 
         return response.Response(serializer.data)
 
+    @action(detail=False, methods=["post"], url_path="passwords")
+    def create_password(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
+        """Create a new password for the sharing configuration."""
+        context = self.get_serializer_context()
+        sharing_config = self._get_sharing_configuration(context)
+
+        check_can_edit_sharing_configuration(self, request, sharing_config)
+
+        if not sharing_config.password_required:
+            return response.Response(
+                {"error": "Password protection must be enabled before creating passwords"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
+            return response.Response(
+                {"error": "Password management requires the Advanced Permissions feature"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Save the sharing config if it's new
+        if not sharing_config.id:
+            sharing_config.save()
+
+        serializer = SharePasswordCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        share_password, raw_password = SharePassword.create_password(
+            sharing_configuration=sharing_config,
+            created_by=cast(User, request.user),
+            raw_password=serializer.validated_data.get("raw_password") or None,
+            note=serializer.validated_data.get("note", ""),
+        )
+
+        return response.Response(
+            {
+                "id": share_password.id,
+                "password": raw_password,  # Only returned once on creation
+                "note": share_password.note,
+                "created_at": share_password.created_at,
+                "created_by_email": share_password.created_by.email,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(detail=False, methods=["delete"], url_path="passwords/(?P<password_id>[^/.]+)")
+    def delete_password(self, request: Request, password_id: str, *args: Any, **kwargs: Any) -> response.Response:
+        """Delete a password from the sharing configuration."""
+        context = self.get_serializer_context()
+        sharing_config = self._get_sharing_configuration(context)
+
+        check_can_edit_sharing_configuration(self, request, sharing_config)
+
+        if not self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
+            return response.Response(
+                {"error": "Password management requires the Advanced Permissions feature"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            share_password = sharing_config.share_passwords.get(id=password_id, is_active=True)
+            share_password.is_active = False
+            share_password.save()
+            return response.Response(status=status.HTTP_204_NO_CONTENT)
+        except SharePassword.DoesNotExist:
+            raise NotFound("Password not found")
+
 
 def custom_404_response(request):
     """Returns a custom 404 page."""
@@ -286,6 +377,16 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 return sharing_configuration
 
         return None
+
+    def _validate_share_password(self, sharing_configuration: SharingConfiguration, raw_password: str) -> bool:
+        """
+        Validate password against SharePassword entries.
+        """
+        for share_password in sharing_configuration.share_passwords.filter(is_active=True):
+            if share_password.check_password(raw_password):
+                return True
+
+        return False
 
     def post(self, request: Request, *args: Any, **kwargs: Any) -> Any:
         return self.retrieve(request, *args, **kwargs)
@@ -340,7 +441,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 # Continue processing to add dashboard/insight data to exported_data
                 pass
             elif request.method == "POST" and (
-                "password" not in request.data or request.data["password"] != resource.password
+                "password" not in request.data or not self._validate_share_password(resource, request.data["password"])
             ):
                 return response.Response({"error": "Incorrect password"}, status=401)
             elif request.method == "POST":

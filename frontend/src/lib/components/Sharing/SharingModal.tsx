@@ -7,16 +7,8 @@ import posthog from 'posthog-js'
 import { ReactNode, useEffect, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconCollapse, IconCopy, IconExpand, IconInfo, IconLock } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonDivider,
-    LemonInput,
-    LemonModal,
-    LemonSkeleton,
-    LemonSwitch,
-} from '@posthog/lemon-ui'
+import { IconCollapse, IconExpand, IconInfo, IconLock } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonDivider, LemonModal, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TemplateLinkSection } from 'lib/components/Sharing/TemplateLinkSection'
@@ -50,6 +42,7 @@ import {
 
 import { AccessControlAction, accessLevelSatisfied } from '../AccessControlAction'
 import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
+import { SharePasswordsTable } from './SharePasswordsTable'
 import { sharingLogic } from './sharingLogic'
 
 export const SHARING_MODAL_WIDTH = 600
@@ -118,8 +111,6 @@ export function SharingModalContent({
     const hasEditAccess = userAccessLevel
         ? accessLevelSatisfied(resource as AccessControlResourceType, userAccessLevel, AccessControlLevel.Editor)
         : true
-
-    const setPasswordDebounced = useDebouncedCallback((value: string) => setPassword(value), 300)
 
     useEffect(() => {
         setIframeLoaded(false)
@@ -223,26 +214,13 @@ export function SharingModalContent({
                                             checked={sharingConfiguration.password_required}
                                         />
                                         {sharingConfiguration.password_required && (
-                                            <LemonInput
-                                                type="password"
-                                                className="ph-ignore-input w-full"
-                                                placeholder="••••••••••"
-                                                defaultValue={sharingConfiguration.password}
-                                                onChange={setPasswordDebounced}
-                                                suffix={
-                                                    <LemonButton
-                                                        data-attr="copy-code-button"
-                                                        icon={<IconCopy />}
-                                                        onClick={() => {
-                                                            void copyToClipboard(
-                                                                sharingConfiguration.password,
-                                                                'password for shared ' + resource
-                                                            )
-                                                        }}
-                                                        noPadding
-                                                    />
-                                                }
-                                            />
+                                            <div className="mt-4">
+                                                <SharePasswordsTable
+                                                    dashboardId={dashboardId}
+                                                    insightShortId={insightShortId}
+                                                    recordingId={recordingId}
+                                                />
+                                            </div>
                                         )}
                                     </div>
                                     <LemonButton
