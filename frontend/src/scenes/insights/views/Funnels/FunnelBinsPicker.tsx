@@ -99,9 +99,14 @@ export function FunnelBinsPicker(): JSX.Element {
                 overlay={overlay}
                 className="w-32"
                 placement="bottom-end"
-                disabledReason={editingDisabledReason}
             >
-                <LemonButton size="small" type="secondary" icon={<IconGraph />} onClick={() => setVisible(true)}>
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    icon={<IconGraph />}
+                    onClick={() => setVisible(true)}
+                    disabledReason={editingDisabledReason}
+                >
                     {selectedOption?.label}
                 </LemonButton>
             </LemonDropdown>
