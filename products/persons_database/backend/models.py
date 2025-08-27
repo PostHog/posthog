@@ -1,6 +1,6 @@
 from typing import Any, Optional
 
-from django.db import models, transaction, connections
+from django.db import connections, models, transaction
 
 from posthog.models.utils import UUIDT
 
