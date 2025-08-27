@@ -6,10 +6,8 @@ import { polyfillCountryFlagEmojis } from 'country-flag-emoji-polyfill'
 import { createRoot } from 'react-dom/client'
 
 import { Exporter } from '~/exporter/Exporter'
-import { ExporterLogin } from '~/exporter/ExporterLogin'
 import { ExportedData } from '~/exporter/types'
 import { initKea } from '~/initKea'
-import { ApiConfig } from '~/lib/api'
 import { loadPostHogJS } from '~/loadPostHogJS'
 
 import { ErrorBoundary } from '../layout/ErrorBoundary'
@@ -20,25 +18,7 @@ import { ErrorBoundary } from '../layout/ErrorBoundary'
 window.JS_POSTHOG_API_KEY = undefined
 
 loadPostHogJS()
-initKea()
-
-// Initialize API configuration if team context is available
-if (window.POSTHOG_APP_CONTEXT?.current_team) {
-    const team = window.POSTHOG_APP_CONTEXT.current_team
-
-    ApiConfig.setCurrentTeamId(team.id)
-    ApiConfig.setCurrentProjectId(team.project_id)
-
-    // Also set organization ID if available (needed for some API calls)
-    if (window.POSTHOG_APP_CONTEXT.current_user?.organization?.id) {
-        ApiConfig.setCurrentOrganizationId(window.POSTHOG_APP_CONTEXT.current_user.organization.id)
-    }
-} else {
-    // For password-protected shares, team context won't be available initially
-    // It will be set after authentication via JWT
-    console.warn('POSTHOG_APP_CONTEXT.current_team not available at exporter initialization')
-    console.warn('API calls will fail until team context is set via authentication')
-}
+initKea({ replaceInitialPathInWindow: false })
 
 // On Chrome + Windows, the country flag emojis don't render correctly. This is a polyfill for that.
 // It won't be applied on other platforms.
@@ -54,11 +34,7 @@ function renderApp(): void {
     if (root) {
         createRoot(root).render(
             <ErrorBoundary>
-                {exportedData.type === 'unlock' ? (
-                    <ExporterLogin whitelabel={exportedData.whitelabel} />
-                ) : (
-                    <Exporter {...exportedData} />
-                )}
+                <Exporter {...exportedData} />
             </ErrorBoundary>
         )
     } else {

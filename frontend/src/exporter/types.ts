@@ -1,3 +1,6 @@
+import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+
+import { SharingConfigurationSettings } from '~/queries/schema/schema-general'
 import { DashboardType, DataColorThemeModel, InsightModel, SessionRecordingType } from '~/types'
 
 export enum ExportType {
@@ -7,26 +10,17 @@ export enum ExportType {
     Unlock = 'unlock',
 }
 
-export interface ExportOptions {
-    whitelabel?: boolean
-    noHeader?: boolean
-    legend?: boolean
-    detailed?: boolean
-    hideExtraDetails?: boolean
-    // Recording options
-    showInspector?: boolean
-    mode?: any // SessionRecordingPlayerMode
-    autoplay?: boolean
-    noBorder?: boolean
-}
-
-export interface ExportedData extends ExportOptions {
+export interface ExportedData extends SharingConfigurationSettings {
     accessToken?: string
     shareToken?: string // JWT token for password-protected shares
-    exportToken?: string
     type: ExportType
     dashboard?: DashboardType
     insight?: InsightModel
     themes?: DataColorThemeModel[]
     recording?: SessionRecordingType
+    autoplay?: boolean
+    /** Player adds border by default - we want to remove it **/
+    noBorder?: boolean
+    mode?: SessionRecordingPlayerMode
+    exportToken?: string
 }

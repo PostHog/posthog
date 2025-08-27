@@ -12,35 +12,34 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { ERROR_MESSAGES } from 'scenes/authentication/Login'
 import { SupportModalButton } from 'scenes/authentication/SupportModalButton'
 
-import { Exporter } from '~/exporter/Exporter'
-import { ExportedData } from '~/exporter/types'
-
-import type { loginLogicType } from './ExporterLoginType'
+// No separate type file needed - TypeScript will infer types
 
 export interface LoginForm {
     password: string
 }
 
-export const loginLogic = kea<loginLogicType>([
+export const loginLogic = kea([
     path(['exporter', 'ExporterLogin']),
     actions({
         setGeneralError: (code: string, detail: string) => ({ code, detail }),
         clearGeneralError: true,
-        setData: (data: any) => ({ data }),
+        setSuccess: true,
     }),
     reducers({
-        data: [
-            null as ExportedData | null,
-            {
-                setData: (_, { data }) => data,
-            },
-        ],
         // This is separate from the login form, so that the form can be submitted even if a general error is present
         generalError: [
             null as { code: string; detail: string } | null,
             {
                 setGeneralError: (_, error) => error,
                 clearGeneralError: () => null,
+                setSuccess: () => null, // Clear error on success
+            },
+        ],
+        isSuccess: [
+            false,
+            {
+                setSuccess: () => true,
+                clearGeneralError: () => false,
             },
         ],
     }),
@@ -61,103 +60,10 @@ export const loginLogic = kea<loginLogicType>([
                 })
                 if (response.status == 200) {
                     const data = await response.json()
-
-                    // If we have a shareToken, make XHR request with JWT to get dashboard data
-                    if (data.shareToken) {
-                        try {
-                            const dashboardResponse = await fetch(window.location.href, {
-                                method: 'GET',
-                                headers: {
-                                    Authorization: `Bearer ${data.shareToken}`,
-                                    Accept: 'application/json',
-                                },
-                            })
-
-                            if (dashboardResponse.ok) {
-                                const dashboardData = await dashboardResponse.json()
-
-                                // CRITICAL: Set up API configuration BEFORE setting data
-                                // This ensures the config is ready before Exporter component mounts
-                                try {
-                                    const { ApiConfig } = await import('lib/api')
-
-                                    // Set POSTHOG_APP_CONTEXT if it's provided in the response
-                                    if (dashboardData.app_context) {
-                                        window.POSTHOG_APP_CONTEXT = dashboardData.app_context
-
-                                        if (dashboardData.app_context.current_team) {
-                                            ApiConfig.setCurrentTeamId(dashboardData.app_context.current_team.id)
-                                            ApiConfig.setCurrentProjectId(
-                                                dashboardData.app_context.current_team.project_id
-                                            )
-
-                                            // Trigger teamLogic to reload with the new context
-                                            try {
-                                                const { teamLogic } = await import('scenes/teamLogic')
-                                                teamLogic.actions.loadCurrentTeam()
-                                            } catch (error) {
-                                                console.warn('Could not reload teamLogic:', error)
-                                            }
-                                        }
-
-                                        if (dashboardData.app_context.current_user?.organization?.id) {
-                                            ApiConfig.setCurrentOrganizationId(
-                                                dashboardData.app_context.current_user.organization.id
-                                            )
-                                        } else if (dashboardData.app_context.current_organization?.id) {
-                                            // Try current_organization as alternative
-                                            ApiConfig.setCurrentOrganizationId(
-                                                dashboardData.app_context.current_organization.id
-                                            )
-                                        }
-                                    } else {
-                                        // This should not happen once backend is updated
-                                        console.error('WARNING: app_context not provided in JWT response!')
-                                        console.error(
-                                            'The backend should include app_context with the same structure as POSTHOG_APP_CONTEXT'
-                                        )
-
-                                        // Fallback: use dashboard team_id if app_context not provided
-                                        if (dashboardData.dashboard?.team_id) {
-                                            ApiConfig.setCurrentTeamId(dashboardData.dashboard.team_id)
-                                            ApiConfig.setCurrentProjectId(dashboardData.dashboard.team_id)
-                                        } else {
-                                            console.error('No team data available in response!')
-                                        }
-                                    }
-                                } catch (error) {
-                                    console.error('Failed to set API configuration:', error)
-                                    actions.setGeneralError(
-                                        'Configuration error',
-                                        'Failed to initialize application context'
-                                    )
-                                    return
-                                }
-
-                                // Ensure we have all required data before proceeding
-                                if (!dashboardData.dashboard) {
-                                    console.error('No dashboard in response:', dashboardData)
-                                    actions.setGeneralError('Invalid response', 'Dashboard data is missing')
-                                    return
-                                }
-
-                                // Use small delay to ensure API config changes have propagated
-                                // before mounting the Exporter component and making API calls
-                                setTimeout(() => {
-                                    actions.setData(dashboardData)
-                                }, 10)
-                            } else {
-                                actions.setGeneralError(
-                                    'Failed to load dashboard',
-                                    'Unable to access dashboard with provided token'
-                                )
-                            }
-                        } catch {
-                            actions.setGeneralError('Network error', 'Unable to load dashboard data')
-                        }
-                        return
-                    }
-                    actions.setData(data)
+                    // Store token in sessionStorage for API calls
+                    sessionStorage.setItem('posthog_share_token', data.shareToken)
+                    actions.setSuccess()
+                    window.location.reload()
                 } else {
                     actions.setGeneralError(response.statusText, (await response.json()).error)
                 }
@@ -171,12 +77,7 @@ export interface ExporterLoginProps {
 }
 
 export function ExporterLogin(props: ExporterLoginProps): JSX.Element {
-    const { data, isLoginSubmitting, generalError } = useValues(loginLogic())
-
-    // Only render Exporter if we have data AND the API config is properly set
-    if (data && window.POSTHOG_APP_CONTEXT?.current_team) {
-        return <Exporter {...data} />
-    }
+    const { isLoginSubmitting, generalError, isSuccess } = useValues(loginLogic())
 
     const login = (
         <div className="space-y-4">
@@ -214,15 +115,16 @@ export function ExporterLogin(props: ExporterLoginProps): JSX.Element {
 
                 <LemonButton
                     type="primary"
-                    status="alt"
+                    status={isSuccess ? 'success' : 'alt'}
                     htmlType="submit"
                     data-attr="password-login"
                     fullWidth
                     center
-                    loading={isLoginSubmitting}
+                    loading={isLoginSubmitting && !isSuccess}
                     size="large"
+                    disabled={isSuccess}
                 >
-                    Unlock
+                    {isSuccess ? 'Access granted!' : 'Unlock'}
                 </LemonButton>
             </Form>
             <div className="text-center mt-4">Don't have a password? Ask the person who shared this with you!</div>

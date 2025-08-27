@@ -312,8 +312,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             values.currentTeam ||
                             (window.POSTHOG_APP_CONTEXT?.current_team
                                 ? {
-                                      id: teamId,
                                       ...window.POSTHOG_APP_CONTEXT.current_team,
+                                      id: teamId, // Override with the teamId we need
                                   }
                                 : { id: teamId })
                         const response = await getConcurrencyController(query, teamForQuery as TeamType).run({

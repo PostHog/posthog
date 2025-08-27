@@ -15,6 +15,7 @@ import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/ses
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ExportedInsight } from '~/exporter/ExportedInsight/ExportedInsight'
+import { ExporterLogin } from '~/exporter/ExporterLogin'
 import { ExportType, ExportedData } from '~/exporter/types'
 import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
 import { Logo } from '~/toolbar/assets/Logo'
@@ -26,8 +27,7 @@ export function Exporter(props: ExportedData): JSX.Element {
     // NOTE: Mounting the logic is important as it is used by sub-logics
     const { exportedData } = useValues(exporterViewLogic(props))
 
-    const { type, dashboard, insight, recording, themes, accessToken, shareToken, exportToken, ...exportOptions } =
-        exportedData
+    const { type, dashboard, insight, recording, themes, accessToken, exportToken, ...exportOptions } = exportedData
     const { whitelabel, showInspector = false } = exportOptions
 
     const { currentTeam } = useValues(teamLogic)
@@ -40,6 +40,10 @@ export function Exporter(props: ExportedData): JSX.Element {
     }, [height, width])
 
     useThemedHtml(false)
+
+    if (type === ExportType.Unlock) {
+        return <ExporterLogin whitelabel={whitelabel} />
+    }
 
     return (
         <div
@@ -95,7 +99,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                     autoPlay={exportedData.autoplay ?? false}
                     noInspector={!showInspector}
                     noBorder={exportedData.noBorder ?? false}
-                    accessToken={exportToken || shareToken}
+                    accessToken={exportToken}
                 />
             ) : (
                 <h1 className="text-center p-4">Something went wrong...</h1>

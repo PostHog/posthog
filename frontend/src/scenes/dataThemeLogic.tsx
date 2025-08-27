@@ -121,10 +121,6 @@ export const dataThemeLogic = kea<dataThemeLogicType>([
         ],
     }),
     afterMount(({ actions }) => {
-        // Don't load in shared/exporter mode
-        if (window.POSTHOG_EXPORTED_DATA) {
-            return
-        }
         actions.loadThemes()
     }),
 ])
