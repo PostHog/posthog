@@ -6,16 +6,13 @@ from braintrust_core.score import Scorer
 
 from posthog.schema import AssistantHogQLQuery, NodeKind
 
-from posthog.hogql.errors import BaseHogQLError
+from posthog.models import Team
 
-from posthog.errors import InternalCHQueryError
-from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
-from posthog.models.team.team import Team
-
+from ee.hogai.eval.scorers.sql import evaluate_sql_query
 from ee.hogai.graph.sql.toolkit import SQL_SCHEMA
 
-from .conftest import MaxEval
-from .scorers import PlanAndQueryOutput, PlanCorrectness, QueryAndPlanAlignment, QueryKindSelection, TimeRangeRelevancy
+from ..base import MaxPublicEval
+from ..scorers import PlanAndQueryOutput, PlanCorrectness, QueryAndPlanAlignment, QueryKindSelection, TimeRangeRelevancy
 
 QUERY_GENERATION_MAX_RETRIES = 3
 
@@ -43,57 +40,23 @@ class RetryEfficiency(Scorer):
         return Score(name=self._name(), score=score, metadata={"query_generation_retry_count": retry_count})
 
 
-class SQLSyntaxCorrectness(Scorer):
-    """Evaluate if the generated SQL query has correct syntax."""
-
+class HogQLQuerySyntaxCorrectness(Scorer):
     def _name(self):
         return "sql_syntax_correctness"
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        if not output:
-            return Score(
-                name=self._name(), score=None, metadata={"reason": "No SQL query to verify, skipping evaluation"}
-            )
-        query = {"query": output}
-        team = await Team.objects.alatest("created_at")
-        try:
-            # Try to parse, print, and run the query
-            await sync_to_async(HogQLQueryRunner(query, team).calculate)()
-        except BaseHogQLError as e:
-            return Score(name=self._name(), score=0.0, metadata={"reason": f"HogQL-level error: {str(e)}"})
-        except InternalCHQueryError as e:
-            return Score(name=self._name(), score=0.5, metadata={"reason": f"ClickHouse-level error: {str(e)}"})
-        else:
-            return Score(name=self._name(), score=1.0)
+    async def _run_eval_async(self, output: PlanAndQueryOutput, *args, **kwargs):
+        return await sync_to_async(self._evaluate)(output)
 
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        if not output:
-            return Score(
-                name=self._name(), score=None, metadata={"reason": "No SQL query to verify, skipping evaluation"}
-            )
-        query = {"query": output}
+    def _run_eval_sync(self, output: PlanAndQueryOutput, *args, **kwargs):
+        return self._evaluate(output)
+
+    def _evaluate(self, output: PlanAndQueryOutput) -> Score:
         team = Team.objects.latest("created_at")
-        try:
-            # Try to parse, print, and run the query
-            HogQLQueryRunner(query, team).calculate()
-        except BaseHogQLError as e:
-            return Score(name=self._name(), score=0.0, metadata={"reason": f"HogQL-level error: {str(e)}"})
-        except InternalCHQueryError as e:
-            return Score(name=self._name(), score=0.5, metadata={"reason": f"ClickHouse-level error: {str(e)}"})
+        if isinstance(output["query"], AssistantHogQLQuery):
+            query = output["query"].query
         else:
-            return Score(name=self._name(), score=1.0)
-
-
-class HogQLQuerySyntaxCorrectness(SQLSyntaxCorrectness):
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        return await super()._run_eval_async(
-            output["query"].query if output and output.get("query") else None, expected, **kwargs
-        )
-
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        return super()._run_eval_sync(
-            output["query"].query if output and output.get("query") else None, expected, **kwargs
-        )
+            query = None
+        return evaluate_sql_query(self._name(), query, team)
 
 
 @pytest.mark.django_db
@@ -697,7 +660,7 @@ ORDER BY ABS(corr(toFloat(uploads_30d), toFloat(churned))) DESC
         ),
     ]
 
-    await MaxEval(
+    await MaxPublicEval(
         experiment_name="sql",
         task=call_root_for_insight_generation,
         scores=[

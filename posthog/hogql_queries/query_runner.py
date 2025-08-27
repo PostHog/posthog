@@ -79,6 +79,8 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_cache import count_query_cache_hit
 from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
 from posthog.hogql_queries.query_cache_factory import get_query_cache_manager
+from posthog.hogql_queries.query_metadata import extract_query_metadata
+from posthog.hogql_queries.utils.event_usage import log_event_usage_from_query_metadata
 from posthog.models import Team, User
 from posthog.models.team import WeekStartDay
 from posthog.schema_helpers import to_dict
@@ -884,6 +886,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 if tags.scene:
                     posthoganalytics.tag("scene", tags.scene)
 
+            trigger: str | None = get_query_tag_value("trigger")
+
             self.query_id = query_id or self.query_id
             CachedResponse: type[CR] = self.cached_response_type
             cache_manager = get_query_cache_manager(
@@ -907,6 +911,17 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     execution_mode=execution_mode, cache_manager=cache_manager, user=user
                 )
                 if results:
+                    if (
+                        isinstance(results, CachedResponse)
+                        and (not trigger or not trigger.startswith("warming"))
+                        and results.query_metadata
+                    ):
+                        log_event_usage_from_query_metadata(
+                            results.query_metadata,
+                            team_id=self.team.id,
+                            user_id=user.id if user else None,
+                        )
+
                     return results
 
             last_refresh = datetime.now(UTC)
@@ -952,8 +967,27 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                             "timezone": self.team.timezone,
                             "cache_target_age": target_age,
                         }
-            if get_query_tag_value("trigger"):
-                fresh_response_dict["calculation_trigger"] = get_query_tag_value("trigger")
+
+            try:
+                query_metadata = extract_query_metadata(query=self.query, team=self.team).model_dump()
+                fresh_response_dict["query_metadata"] = query_metadata
+
+                # Don't log usage for warming queries
+                if not trigger or not trigger.startswith("warming"):
+                    log_event_usage_from_query_metadata(
+                        query_metadata,
+                        team_id=self.team.id,
+                        user_id=user.id if user else None,
+                    )
+            except Exception as e:
+                # fail silently if we can't extract query metadata
+                capture_exception(
+                    e, {"query": self.query, "team_id": self.team.pk, "context": "query_metadata_extract"}
+                )
+
+            if trigger:
+                fresh_response_dict["calculation_trigger"] = trigger
+
             fresh_response = CachedResponse(**fresh_response_dict)
 
             # Don't cache debug queries with errors and export queries

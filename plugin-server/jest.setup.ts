@@ -32,7 +32,7 @@ beforeEach(() => {
     jest.mocked(logger.debug).mockClear()
     jest.mocked(logger.error).mockClear()
 
-    const responsesToUrls = {
+    const responsesToUrls: Record<string, any> = {
         'https://google.com/results.json?query=fetched': { count: 2, query: 'bla', results: [true, true] },
         'https://mmdbcdn.posthog.net/': readFileSync(join(__dirname, 'tests', 'assets', 'GeoLite2-City-Test.mmdb.br')),
         'https://app.posthog.com/api/event?token=THIS+IS+NOT+A+TOKEN+FOR+TEAM+2': { hello: 'world' },
@@ -40,7 +40,7 @@ beforeEach(() => {
         'https://www.example.com': { example: 'data' },
     }
 
-    const headersToUrls = {
+    const headersToUrls: Record<string, Map<string, string>> = {
         'https://mmdbcdn.posthog.net/': new Map([
             ['content-type', 'vnd.maxmind.maxmind-db'],
             ['content-disposition', `attachment; filename="GeoLite2-City-${DateTime.local().toISODate()}.mmdb"`],
@@ -48,7 +48,7 @@ beforeEach(() => {
     }
 
     // Create a proper Response-like object factory
-    const createMockResponse = (url, options = {}) => {
+    const createMockResponse = (url: string, options: any = {}): any => {
         const responseBody = responsesToUrls[url] || { fetch: 'mock' }
         const responseHeaders = headersToUrls[url] || new Map()
         const responseText =
@@ -63,13 +63,13 @@ beforeEach(() => {
             statusText: 'OK',
             ok: true,
             headers: {
-                get: (name) => {
+                get: (name: string) => {
                     if (responseHeaders instanceof Map) {
                         return responseHeaders.get(name) || null
                     }
                     return null
                 },
-                forEach: (callback) => {
+                forEach: (callback: (value: string, key: string) => void) => {
                     if (responseHeaders instanceof Map) {
                         responseHeaders.forEach((value, key) => callback(value, key))
                     }
@@ -88,7 +88,7 @@ beforeEach(() => {
         }
     }
 
-    jest.mocked(fetch).mockImplementation((url, options = {}) => {
+    jest.mocked(fetch as any).mockImplementation((url: string, options: any = {}) => {
         return Promise.resolve(createMockResponse(url, options))
     })
 })
