@@ -34,12 +34,7 @@ from posthog.temporal.ai.session_summary.activities.patterns import (
     get_patterns_from_redis_outside_workflow,
     split_session_summaries_into_chunks_for_patterns_extraction_activity,
 )
-from posthog.temporal.ai.session_summary.state import (
-    StateActivitiesEnum,
-    generate_state_key,
-    get_ready_summaries_from_db,
-    store_data_in_redis,
-)
+from posthog.temporal.ai.session_summary.state import StateActivitiesEnum, generate_state_key, store_data_in_redis
 from posthog.temporal.ai.session_summary.summarize_session import get_llm_single_session_summary_activity
 from posthog.temporal.ai.session_summary.types.group import (
     SessionGroupSummaryInputs,
@@ -72,6 +67,7 @@ from ee.hogai.session_summaries.session_group.summary_notebooks import (
     format_single_sessions_status,
 )
 from ee.hogai.session_summaries.utils import logging_session_ids
+from ee.models.session_summaries import SingleSessionSummary
 
 logger = structlog.get_logger(__name__)
 
@@ -111,12 +107,12 @@ async def fetch_session_batch_events_activity(
     fetched_session_ids = []
     redis_client = get_async_client()
     # Find sessions that have summaries already and stored in the DB
-    ready_summaries = await database_sync_to_async(get_ready_summaries_from_db)(
+    summaries_exist = await database_sync_to_async(SingleSessionSummary.objects.summaries_exist)(
         team_id=inputs.team_id,
         session_ids=inputs.session_ids,
         extra_summary_context=inputs.extra_summary_context,
     )
-    fetched_session_ids.extend([s.session_id for s in ready_summaries])
+    fetched_session_ids.extend([session_id for session_id, exist in summaries_exist.items() if exist])
     # Keep session ids that don't have summaries yet
     session_ids_to_fetch = [s for s in inputs.session_ids if s not in fetched_session_ids]
     # If all sessions already cached

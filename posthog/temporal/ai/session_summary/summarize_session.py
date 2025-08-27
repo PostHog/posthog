@@ -124,12 +124,12 @@ async def get_llm_single_session_summary_activity(
         state_id=inputs.session_id,
     )
     # Check if summary is already in the DB (in case of race conditions/multiple group summaries running in parallel/etc.)
-    ready_summary = await database_sync_to_async(SingleSessionSummary.objects.get_summary)(
-        session_id=inputs.session_id,
+    summary_exists = await database_sync_to_async(SingleSessionSummary.objects.summaries_exist)(
         team_id=inputs.team_id,
+        session_ids=[inputs.session_id],
         extra_summary_context=inputs.extra_summary_context,
     )
-    if ready_summary is not None:
+    if summary_exists.get(inputs.session_id):
         # Stored successfully, no need to summarize again
         return None
     # If not yet - generate the summary with LLM
