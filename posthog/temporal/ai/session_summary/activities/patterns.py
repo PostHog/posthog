@@ -10,12 +10,13 @@ from temporalio.client import WorkflowHandle
 from temporalio.exceptions import ApplicationError
 
 from posthog.redis import get_async_client
+from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.state import (
     StateActivitiesEnum,
     generate_state_id_from_session_ids,
     generate_state_key,
     get_data_class_from_redis,
-    get_data_str_from_redis,
+    get_ready_summaries_from_db,
     get_redis_state_client,
     store_data_in_redis,
 )
@@ -47,7 +48,7 @@ from ee.hogai.session_summaries.session_group.patterns import (
     combine_patterns_assignments_from_single_session_summaries,
     combine_patterns_ids_with_events_context,
     combine_patterns_with_events_context,
-    load_session_summary_from_string,
+    serialize_session_summary,
 )
 from ee.hogai.session_summaries.session_group.summarize_session_group import (
     generate_session_group_patterns_assignment_prompt,
@@ -96,37 +97,6 @@ def _get_session_ids_from_inputs(inputs: SessionGroupSummaryOfSummariesInputs) -
     )
 
 
-async def _get_session_summaries_str_from_inputs(
-    redis_client: aioredis.Redis, inputs: SessionGroupSummaryOfSummariesInputs
-) -> list[str]:
-    """Fetch stringified session summaries for all input sessions from Redis."""
-    async with asyncio.TaskGroup() as tg:
-        tasks = [
-            tg.create_task(
-                get_data_str_from_redis(
-                    redis_client=redis_client,
-                    redis_key=generate_state_key(
-                        key_base=single_session_input.redis_key_base,
-                        label=StateActivitiesEnum.SESSION_SUMMARY,
-                        state_id=single_session_input.session_id,
-                    ),
-                    label=StateActivitiesEnum.SESSION_SUMMARY,
-                )
-            )
-            for single_session_input in inputs.single_session_summaries_inputs
-        ]
-    results = []
-    for i, task in enumerate(tasks):
-        result = task.result()
-        if result is None:
-            single_session_input = inputs.single_session_summaries_inputs[i]
-            raise ValueError(
-                f"Stringified session summary not found in Redis for session {single_session_input.session_id}"
-            )
-        results.append(result)
-    return results
-
-
 async def get_patterns_from_redis_outside_workflow(
     redis_output_keys: list[str],
     redis_client: aioredis.Redis,
@@ -160,7 +130,6 @@ async def split_session_summaries_into_chunks_for_patterns_extraction_activity(
     """
     if not inputs.single_session_summaries_inputs:
         return []
-    redis_client = get_async_client()
     # Calculate token count for the prompt templates, providing empty context
     prompt = generate_session_group_patterns_extraction_prompt(
         session_summaries_str=[""], extra_summary_context=inputs.extra_summary_context
@@ -169,17 +138,21 @@ async def split_session_summaries_into_chunks_for_patterns_extraction_activity(
     base_template_tokens = estimate_tokens_from_strings(
         strings=[prompt.system_prompt, prompt.patterns_prompt], model=SESSION_SUMMARIES_SYNC_MODEL
     )
-    # Get session summaries from Redis
-    session_summaries_str = await _get_session_summaries_str_from_inputs(redis_client=redis_client, inputs=inputs)
+    # Get ready session summaries from DB
+    ready_summaries = await database_sync_to_async(get_ready_summaries_from_db)(
+        team_id=inputs.team_id,
+        session_ids=inputs.session_ids,
+        extra_summary_context=inputs.extra_summary_context,
+    )
     # Ensure we got all the summaries, as it's crucial to keep the order of sessions to match them with ids
-    if len(session_summaries_str) != len(inputs.single_session_summaries_inputs):
+    if len(ready_summaries) != len(inputs.single_session_summaries_inputs):
         raise ValueError(
-            f"Expected {len(inputs.single_session_summaries_inputs)} session summaries, got {len(session_summaries_str)}, when splitting into chunks for patterns extraction"
+            f"Expected {len(inputs.single_session_summaries_inputs)} session summaries, got {len(ready_summaries)}, when splitting into chunks for patterns extraction"
         )
     # Remove excessive content from summaries for token estimation, and convert to strings
     intermediate_session_summaries_str = [
-        json.dumps(remove_excessive_content_from_session_summary_for_llm(summary).data)
-        for summary in session_summaries_str
+        json.dumps(remove_excessive_content_from_session_summary_for_llm(summary.summary).data)
+        for summary in ready_summaries
     ]
     # Calculate tokens for each session summary
     session_tokens = [
@@ -256,12 +229,16 @@ async def extract_session_group_patterns_activity(inputs: SessionGroupSummaryOfS
     if success is not None:
         # Cached successfully
         return redis_output_key
-    # Get session summaries from Redis
-    session_summaries_str = await _get_session_summaries_str_from_inputs(redis_client=redis_client, inputs=inputs)
+    # Get ready session summaries from DB
+    ready_summaries = await database_sync_to_async(get_ready_summaries_from_db)(
+        team_id=inputs.team_id,
+        session_ids=inputs.session_ids,
+        extra_summary_context=inputs.extra_summary_context,
+    )
     # Remove excessive content (like UUIDs) from session summaries when using them as a context for group summaries (and not a final step)
     intermediate_session_summaries_str = [
-        json.dumps(remove_excessive_content_from_session_summary_for_llm(session_summary_str).data)
-        for session_summary_str in session_summaries_str
+        json.dumps(remove_excessive_content_from_session_summary_for_llm(summary.summary).data)
+        for summary in ready_summaries
     ]
     patterns_extraction_prompt = generate_session_group_patterns_extraction_prompt(
         session_summaries_str=intermediate_session_summaries_str, extra_summary_context=inputs.extra_summary_context
@@ -395,12 +372,16 @@ async def assign_events_to_patterns_activity(
     # Return if it's processed already
     if patterns_with_events_context:
         return patterns_with_events_context
-    # Get session summaries from Redis
-    session_summaries_str = await _get_session_summaries_str_from_inputs(redis_client=redis_client, inputs=inputs)
+    # Get ready session summaries from DB
+    ready_summaries = await database_sync_to_async(get_ready_summaries_from_db)(
+        team_id=inputs.team_id,
+        session_ids=inputs.session_ids,
+        extra_summary_context=inputs.extra_summary_context,
+    )
     # Remove excessive content (like UUIDs) from session summaries when using them as a context for group summaries (and not a final step)
     intermediate_session_summaries_str = [
-        json.dumps(remove_excessive_content_from_session_summary_for_llm(session_summary_str).data)
-        for session_summary_str in session_summaries_str
+        json.dumps(remove_excessive_content_from_session_summary_for_llm(summary.summary).data)
+        for summary in ready_summaries
     ]
     # Split sessions summaries into chunks to keep context small-enough for LLM for proper assignment
     # TODO: Run activity for each chunk instead to avoid retrying the whole activity if one chunk fails
@@ -449,9 +430,7 @@ async def assign_events_to_patterns_activity(
         ],
     )
     # Convert session summaries strings to objects to extract event-related data
-    session_summaries = [
-        load_session_summary_from_string(session_summary_str) for session_summary_str in session_summaries_str
-    ]
+    session_summaries = [serialize_session_summary(summary.summary) for summary in ready_summaries]
     # Combine event ids mappings from all the sessions to identify events and sessions assigned to patterns
     combined_event_ids_mappings = combine_event_ids_mappings_from_single_session_summaries(
         single_session_summaries_inputs=single_session_summaries_llm_inputs

@@ -1,7 +1,7 @@
-import json
 import dataclasses
 from enum import Enum
 from math import ceil
+from typing import Any
 
 import yaml
 import structlog
@@ -413,13 +413,13 @@ def combine_patterns_with_events_context(
     return EnrichedSessionGroupSummaryPatternsList(patterns=combined_patterns)
 
 
-def load_session_summary_from_string(session_summary_str: str) -> SessionSummarySerializer:
-    """Deserialize a stored session summary JSON string."""
+def serialize_session_summary(session_summary_dict: dict[str, Any]) -> SessionSummarySerializer:
+    """Serialize a stored session summary JSON string."""
     try:
-        session_summary = SessionSummarySerializer(data=json.loads(session_summary_str))
+        session_summary = SessionSummarySerializer(data=session_summary_dict)
         session_summary.is_valid(raise_exception=True)
         return session_summary
     except ValidationError as err:
         raise SummaryValidationError(
-            f"Error validating session summary against the schema ({err}): {session_summary_str}"
+            f"Error validating session summary against the schema ({err}): {session_summary_dict}"
         ) from err

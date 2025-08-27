@@ -88,7 +88,7 @@ class SingleSessionSummaryManager(models.Manager["SingleSessionSummary"]):
 
     def get_bulk_summaries(
         self,
-        team: Team,
+        team_id: int,
         session_ids: list[str],
         extra_summary_context: ExtraSummaryContext | None = None,
         # Summaries could be up to 50kb in JSON, so playing it safe
@@ -96,7 +96,7 @@ class SingleSessionSummaryManager(models.Manager["SingleSessionSummary"]):
         offset: int = 0,
     ) -> SessionSummaryPage:
         """Get multiple session summaries with pagination"""
-        queryset = self.filter(team=team, session_id__in=session_ids)
+        queryset = self.filter(team_id=team_id, session_id__in=session_ids)
         # Filter by context presence at DB level
         if extra_summary_context is not None:
             # Should have context

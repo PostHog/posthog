@@ -34,7 +34,12 @@ from posthog.temporal.ai.session_summary.activities.patterns import (
     get_patterns_from_redis_outside_workflow,
     split_session_summaries_into_chunks_for_patterns_extraction_activity,
 )
-from posthog.temporal.ai.session_summary.state import StateActivitiesEnum, generate_state_key, store_data_in_redis
+from posthog.temporal.ai.session_summary.state import (
+    StateActivitiesEnum,
+    generate_state_key,
+    get_ready_summaries_from_db,
+    store_data_in_redis,
+)
 from posthog.temporal.ai.session_summary.summarize_session import get_llm_single_session_summary_activity
 from posthog.temporal.ai.session_summary.types.group import (
     SessionGroupSummaryInputs,
@@ -67,7 +72,6 @@ from ee.hogai.session_summaries.session_group.summary_notebooks import (
     format_single_sessions_status,
 )
 from ee.hogai.session_summaries.utils import logging_session_ids
-from ee.models.session_summaries import SingleSessionSummary
 
 logger = structlog.get_logger(__name__)
 
@@ -93,27 +97,6 @@ def _get_db_events_per_page(
     return response
 
 
-def _get_ready_summaries_from_db(
-    session_ids: list[str], team: Team, extra_summary_context: ExtraSummaryContext | None
-) -> list[SingleSessionSummary]:
-    has_next = True
-    offset = 0
-    ready_summaries = []
-    while has_next:
-        summaries = SingleSessionSummary.objects.get_bulk_summaries(
-            team=team,
-            session_ids=session_ids,
-            extra_summary_context=extra_summary_context,
-            limit=100,
-            offset=offset,
-        )
-        ready_summaries.extend(summaries.results)
-        if not summaries.has_next:
-            has_next = False
-        offset += 100
-    return ready_summaries
-
-
 def _get_db_columns(response_columns: list) -> list[str]:
     """Get the columns from the response and remove the properties prefix for backwards compatibility."""
     columns = [str(x).replace("properties.", "") for x in response_columns]
@@ -127,11 +110,9 @@ async def fetch_session_batch_events_activity(
     """Fetch batch events for multiple sessions using query runner and store per-session data in Redis. Returns a list of successful sessions."""
     fetched_session_ids = []
     redis_client = get_async_client()
-    # Get the team
-    team = await database_sync_to_async(get_team)(team_id=inputs.team_id)
     # Find sessions that have summaries already and stored in the DB
-    ready_summaries = await database_sync_to_async(_get_ready_summaries_from_db)(
-        team=team,
+    ready_summaries = await database_sync_to_async(get_ready_summaries_from_db)(
+        team_id=inputs.team_id,
         session_ids=inputs.session_ids,
         extra_summary_context=inputs.extra_summary_context,
     )
@@ -141,6 +122,8 @@ async def fetch_session_batch_events_activity(
     # If all sessions already cached
     if not session_ids_to_fetch:
         return fetched_session_ids
+    # Get the team
+    team = await database_sync_to_async(get_team)(team_id=inputs.team_id)
     # Fetch metadata for all sessions at once
     metadata_dict = await database_sync_to_async(SessionReplayEvents().get_group_metadata)(
         session_ids=session_ids_to_fetch,
@@ -462,6 +445,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 chunk_summaries_input = SessionGroupSummaryOfSummariesInputs(
                     single_session_summaries_inputs=chunk_inputs,
                     user_id=inputs.user_id,
+                    team_id=inputs.team_id,
                     model_to_use=inputs.model_to_use,
                     extra_summary_context=inputs.extra_summary_context,
                     redis_key_base=inputs.redis_key_base,
@@ -504,6 +488,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 redis_keys_of_chunks_to_combine=redis_keys_of_chunks_to_combine,
                 session_ids=session_ids_with_patterns_extracted,
                 user_id=inputs.user_id,
+                team_id=inputs.team_id,
                 redis_key_base=inputs.redis_key_base,
                 extra_summary_context=inputs.extra_summary_context,
             ),
@@ -522,6 +507,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         db_session_inputs = await self._fetch_session_group_data(inputs)
         # Generate single-session summaries for each session
         self._current_status = (SessionSummaryStep.WATCHING_SESSIONS, f"Watching sessions (0/{self._total_sessions})")
+        # TODO: Ensure to include already cached summaries in the input to use in the next steps
         summaries_session_inputs = await self._run_summaries(db_session_inputs)
         # Extract patterns from session summaries (with chunking if needed)
         self._current_status = (
@@ -532,6 +518,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             SessionGroupSummaryOfSummariesInputs(
                 single_session_summaries_inputs=summaries_session_inputs,
                 user_id=inputs.user_id,
+                team_id=inputs.team_id,
                 model_to_use=inputs.model_to_use,
                 extra_summary_context=inputs.extra_summary_context,
                 redis_key_base=inputs.redis_key_base,
@@ -558,6 +545,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             SessionGroupSummaryOfSummariesInputs(
                 single_session_summaries_inputs=single_session_summaries_inputs,
                 user_id=inputs.user_id,
+                team_id=inputs.team_id,
                 model_to_use=inputs.model_to_use,
                 extra_summary_context=inputs.extra_summary_context,
                 redis_key_base=inputs.redis_key_base,
