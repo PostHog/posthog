@@ -311,7 +311,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             exported_data.update({"whitelabel": True})
 
         if isinstance(resource, SharingConfiguration) and resource.password_required:
-            # Check if user is already authenticated via JWT token
+            # Check if user is already authenticated via JWT token (Bearer or cookie)
             from posthog.auth import SharingPasswordProtectedAuthentication
 
             is_jwt_authenticated = isinstance(request.successful_authenticator, SharingPasswordProtectedAuthentication)
@@ -328,11 +328,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                         "add_og_tags": None,
                     },
                 )
-            elif (
-                request.method == "GET" and is_jwt_authenticated and request.headers.get("Accept") == "application/json"
-            ):
-                # JWT authenticated GET request with JSON Accept header - return dashboard data as JSON
-                exported_data["shareToken"] = request.META.get("HTTP_AUTHORIZATION", "").replace("Bearer ", "")
+            elif request.method == "GET" and is_jwt_authenticated:
+                # JWT authenticated (via cookie or Bearer) - render full app context
                 exported_data.pop("accessToken", None)  # Remove access_token to prevent direct API access
                 # Add app_context so frontend can initialize properly (same structure as POSTHOG_APP_CONTEXT)
                 exported_data["app_context"] = build_shared_app_context(resource.team, request)
@@ -343,9 +340,19 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             ):
                 return response.Response({"error": "Incorrect password"}, status=401)
             elif request.method == "POST":
-                # Password is correct - generate JWT token and return ONLY the token
+                # Password is correct - generate JWT token, set cookie, and return token
                 jwt_token = resource.generate_password_protected_token()
-                return response.Response({"shareToken": jwt_token})
+                response_data = response.Response({"shareToken": jwt_token})
+                # Set HTTP-only cookie that expires with the JWT (24 hours)
+                response_data.set_cookie(
+                    "posthog_sharing_token",
+                    jwt_token,
+                    max_age=24 * 60 * 60,  # 24 hours in seconds
+                    httponly=True,
+                    secure=request.is_secure(),
+                    samesite="Lax",
+                )
+                return response_data
 
         if isinstance(resource, SharingConfiguration) and request.path.endswith(f".png"):
             exported_data["accessToken"] = resource.access_token

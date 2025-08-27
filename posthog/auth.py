@@ -354,7 +354,8 @@ class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
 
 class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
     """
-    JWT-based authentication for password-protected shared resources
+    JWT-based authentication for password-protected shared resources.
+    Supports both Bearer token (for API calls) and cookie (for rendering decisions).
     """
 
     sharing_configuration: SharingConfiguration
@@ -367,12 +368,17 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
         if not (is_shared_endpoint or is_insight_endpoint):
             return None
 
-        # Look for JWT token in Authorization header
+        # Look for JWT token in Authorization header first (for API calls)
+        sharing_jwt_token = None
         auth_header = request.META.get("HTTP_AUTHORIZATION", "")
-        if not auth_header.startswith("Bearer "):
-            return None
+        if auth_header.startswith("Bearer "):
+            sharing_jwt_token = auth_header[7:]  # Remove 'Bearer ' prefix
+        # If no Bearer token, check for JWT in cookie (for rendering decisions)
+        elif hasattr(request, "COOKIES") and request.COOKIES.get("posthog_sharing_token"):
+            sharing_jwt_token = request.COOKIES.get("posthog_sharing_token")
 
-        sharing_jwt_token = auth_header[7:]  # Remove 'Bearer ' prefix
+        if not sharing_jwt_token:
+            return None
 
         if request.method not in ["GET", "HEAD"]:
             raise AuthenticationFailed(detail="Sharing JWT token can only be used for GET requests.")

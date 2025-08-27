@@ -16,6 +16,12 @@
                 window.POSTHOG_EXPORTED_DATA = {}
             }
 
+            // Merge shareToken from sessionStorage (for password-protected shares after unlock)
+            const sessionShareToken = sessionStorage.getItem('posthog_share_token')
+            if (sessionShareToken && !window.POSTHOG_EXPORTED_DATA.shareToken) {
+                window.POSTHOG_EXPORTED_DATA.shareToken = sessionShareToken
+            }
+
             if (window.POSTHOG_EXPORTED_DATA.rootClassName) {
                 document.documentElement.className += ' ' + window.POSTHOG_EXPORTED_DATA.rootClassName
             }
