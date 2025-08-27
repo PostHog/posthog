@@ -28,7 +28,7 @@ const hogFunctionFilterDuration = new Histogram({
 
 const hogFunctionPreFilterCounter = new Counter({
     name: 'cdp_hog_function_prefilter_result',
-    help: 'Count of pre-filter results (skipped vs executed)',
+    help: 'Count of pre-filter results',
     labelNames: ['result'],
 })
 
@@ -349,7 +349,7 @@ export async function filterFunctionInstrumented(options: {
         // everything matches no need to execute bytecode (lets save those cpu cycles)
         if (filters && Object.keys(filters).length === 1 && 'bytecode' in filters) {
             // if we have no filters we assume we match all events hence match = true
-            preFilterMatch = true
+            hogFunctionPreFilterCounter.inc({ result: 'no_filters' })
         }
 
         // check whether we have a match with our pre-filter
