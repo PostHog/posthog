@@ -361,8 +361,11 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         insightName: [(s) => [s.insight, s.derivedName], (insight, derivedName) => insight.name || derivedName],
         insightId: [(s) => [s.insight], (insight) => insight?.id || null],
         canEditInsight: [
-            (s) => [s.insight],
-            (insight) => {
+            (s) => [s.insight, s.hasOverrides],
+            (insight, hasOverrides) => {
+                if (hasOverrides) {
+                    return false
+                }
                 return insight.user_access_level
                     ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, 'editor')
                     : true

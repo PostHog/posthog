@@ -70,7 +70,10 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element | null {
                 {hasOverrides && (
                     <LemonBanner type="warning" className="mb-4">
                         <div className="flex flex-row items-center justify-between gap-2">
-                            <span>You are viewing this insight with filter/variable overrides</span>
+                            <span>
+                                You are viewing this insight with filter/variable overrides. Discard them to edit the
+                                insight.
+                            </span>
 
                             <LemonButton type="secondary" to={urls.insightView(insightId as InsightShortId)}>
                                 Discard overrides
