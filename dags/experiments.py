@@ -12,10 +12,10 @@ from typing import Any
 
 import dagster
 
-from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric
+from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentTimeseriesDataPoint
 
 from posthog.hogql_queries.experiments.experiment_timeseries import ExperimentTimeseries
-from posthog.models.experiment import Experiment
+from posthog.models.experiment import Experiment, ExperimentTimeseriesResult
 
 from dags.common import JobOwners
 
@@ -125,32 +125,62 @@ def experiment_timeseries(context: dagster.AssetExecutionContext) -> dict[str, A
     else:
         raise dagster.Failure(f"Unknown metric type: {metric_type}")
 
-    timeseries_calculator = ExperimentTimeseries(experiment, metric_obj)
-    timeseries_results = timeseries_calculator.get_result()
+    try:
+        timeseries_calculator = ExperimentTimeseries(experiment, metric_obj)
+        timeseries_results: list[ExperimentTimeseriesDataPoint] = timeseries_calculator.get_result()
+        computed_at = datetime.now(UTC)
 
-    # Add metadata for Dagster UI display
-    context.add_output_metadata(
-        metadata={
+        timeseries_dicts = [result.model_dump() for result in timeseries_results]
+
+        ExperimentTimeseriesResult.objects.update_or_create(
+            experiment_id=experiment_id,
+            metric_uuid=metric_uuid,
+            defaults={
+                "status": ExperimentTimeseriesResult.Status.COMPLETED,
+                "timeseries": timeseries_dicts,
+                "computed_at": computed_at,
+                "error_message": None,
+            },
+        )
+
+        # Add metadata for Dagster UI display
+        context.add_output_metadata(
+            metadata={
+                "experiment_id": experiment_id,
+                "metric_uuid": metric_uuid,
+                "metric_type": metric_type,
+                "metric_name": metric.get("name", f"Metric {metric_uuid}"),
+                "experiment_name": experiment.name,
+                "metric_definition": str(metric),
+                "computed_at": computed_at.isoformat(),
+                "results_status": "success",
+                "results_count": len(timeseries_results),
+                "timeseries": timeseries_dicts,
+            }
+        )
+
+        return {
             "experiment_id": experiment_id,
             "metric_uuid": metric_uuid,
-            "metric_type": metric_type,
-            "metric_name": metric.get("name", f"Metric {metric_uuid}"),
-            "experiment_name": experiment.name,
-            "metric_definition": str(metric),
-            "computed_at": datetime.now(UTC).isoformat(),
-            "results_status": "success",
-            "results_count": len(timeseries_results),
-            "timeseries": timeseries_results,
+            "metric_definition": metric,
+            "timeseries": timeseries_dicts,
+            "computed_at": computed_at.isoformat(),
         }
-    )
 
-    return {
-        "experiment_id": experiment_id,
-        "metric_uuid": metric_uuid,
-        "metric_definition": metric,
-        "timeseries": timeseries_results,
-        "computed_at": datetime.now(UTC).isoformat(),
-    }
+    except Exception as e:
+        ExperimentTimeseriesResult.objects.update_or_create(
+            experiment_id=experiment_id,
+            metric_uuid=metric_uuid,
+            defaults={
+                "status": ExperimentTimeseriesResult.Status.FAILED,
+                "timeseries": None,
+                "computed_at": None,
+                "error_message": str(e),
+            },
+        )
+
+        # Re-raise the exception for Dagster to handle
+        raise dagster.Failure(f"Failed to compute timeseries: {e}")
 
 
 # =============================================================================

@@ -8239,6 +8239,18 @@ class ExperimentExposureQuery(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class ExperimentTimeseriesDataPoint(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    baseline: Optional[ExperimentStatsBaseValidated] = None
+    date: str
+    error: Optional[str] = None
+    variant_results: Optional[
+        Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
+    ] = None
+
+
 class FunnelCorrelationResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",

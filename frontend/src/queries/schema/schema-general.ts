@@ -2656,6 +2656,13 @@ export interface ExperimentExposureQueryResponse {
     date_range: DateRange
 }
 
+export interface ExperimentTimeseriesDataPoint {
+    date: string
+    baseline?: ExperimentStatsBaseValidated
+    variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
+    error?: string
+}
+
 export type CachedExperimentQueryResponse = CachedQueryResponse<ExperimentQueryResponse>
 export type CachedLegacyExperimentQueryResponse = CachedQueryResponse<LegacyExperimentQueryResponse>
 export type CachedNewExperimentQueryResponse = CachedQueryResponse<NewExperimentQueryResponse>

@@ -32,6 +32,7 @@ import { DetailsButton } from './DetailsButton'
 import { DetailsModal } from './DetailsModal'
 import { GridLines } from './GridLines'
 import { renderTooltipContent } from './MetricRowGroupTooltip'
+import { TimeseriesModal } from './TimeseriesModal'
 import {
     CELL_HEIGHT,
     CHART_CELL_VIEW_BOX_HEIGHT,
@@ -77,6 +78,13 @@ export function MetricRowGroup({
     showDetailsModal,
 }: MetricRowGroupProps): JSX.Element {
     const [isModalOpen, setIsModalOpen] = useState(false)
+    const [timeseriesModalState, setTimeseriesModalState] = useState<{
+        isOpen: boolean
+        variantResult: ExperimentVariantResult | null
+    }>({
+        isOpen: false,
+        variantResult: null,
+    })
     const [tooltipState, setTooltipState] = useState<{
         isVisible: boolean
         variantResult: ExperimentVariantResult | null
@@ -168,6 +176,20 @@ export function MetricRowGroup({
                 }))
             }
         }
+    }
+
+    const handleTimeseriesClick = (variantResult: ExperimentVariantResult): void => {
+        setTimeseriesModalState({
+            isOpen: true,
+            variantResult,
+        })
+    }
+
+    const handleTimeseriesModalClose = (): void => {
+        setTimeseriesModalState({
+            isOpen: false,
+            variantResult: null,
+        })
     }
 
     // Handle loading or error states
@@ -459,10 +481,20 @@ export function MetricRowGroup({
                             isAlternatingRow={isAlternatingRow}
                             isLastRow={isLastRow}
                             isSecondary={isSecondary}
+                            onTimeseriesClick={() => handleTimeseriesClick(variant)}
                         />
                     </tr>
                 )
             })}
+            {timeseriesModalState.variantResult && (
+                <TimeseriesModal
+                    isOpen={timeseriesModalState.isOpen}
+                    onClose={handleTimeseriesModalClose}
+                    metric={metric}
+                    variantResult={timeseriesModalState.variantResult}
+                    experiment={experiment}
+                />
+            )}
         </>
     )
 }

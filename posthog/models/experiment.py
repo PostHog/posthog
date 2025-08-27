@@ -162,3 +162,29 @@ class ExperimentToSavedMetric(models.Model):
 
     def __str__(self):
         return f"{self.experiment.name} - {self.saved_metric.name} - {self.metadata}"
+
+
+class ExperimentTimeseriesResult(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+
+    experiment = models.ForeignKey("Experiment", on_delete=models.CASCADE)
+    metric_uuid = models.CharField(max_length=255)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    timeseries = models.JSONField(null=True, blank=True)
+    computed_at = models.DateTimeField(null=True, blank=True)
+    error_message = models.TextField(null=True, blank=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ["experiment", "metric_uuid"]
+        indexes = [
+            models.Index(fields=["experiment", "metric_uuid"]),
+            models.Index(fields=["status"]),
+        ]
+
+    def __str__(self):
+        return f"ExperimentTimeseriesResult({self.experiment_id}, {self.metric_uuid}, {self.status})"

@@ -1,12 +1,13 @@
 import logging
 from datetime import datetime, timedelta
-from typing import Any, Union
+from typing import Union
 
 from posthog.schema import (
     ExperimentDataWarehouseNode,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentStatsBase,
+    ExperimentTimeseriesDataPoint,
     IntervalType,
 )
 
@@ -535,7 +536,7 @@ class ExperimentTimeseries:
 
         return dates
 
-    def get_result(self) -> list[dict[str, Any]]:
+    def get_result(self) -> list[ExperimentTimeseriesDataPoint]:
         experiment_query = self._get_experiment_timeseries_query()
 
         timings = HogQLTimings()
@@ -581,12 +582,18 @@ class ExperimentTimeseries:
                             test_variants=test_variants,
                         )
 
-                    daily_result_dict = {"date": date_key, **daily_result.model_dump()}
-                except Exception as e:
-                    daily_result_dict = {"date": date_key, "error": str(e)}
-            else:
-                daily_result_dict = {"date": date_key}
+                    timeseries_data_point = ExperimentTimeseriesDataPoint(
+                        date=date_key,
+                        baseline=daily_result.baseline,
+                        variant_results=daily_result.variant_results,
+                    )
+                    timeseries.append(timeseries_data_point)
 
-            timeseries.append(daily_result_dict)
+                except Exception as e:
+                    timeseries_data_point = ExperimentTimeseriesDataPoint(date=date_key, error=str(e))
+                    timeseries.append(timeseries_data_point)
+            else:
+                timeseries_data_point = ExperimentTimeseriesDataPoint(date=date_key)
+                timeseries.append(timeseries_data_point)
 
         return timeseries

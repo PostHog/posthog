@@ -11624,6 +11624,38 @@
             "enum": ["not-enough-exposures", "baseline-mean-is-zero", "not-enough-metric-data"],
             "type": "string"
         },
+        "ExperimentTimeseriesDataPoint": {
+            "additionalProperties": false,
+            "properties": {
+                "baseline": {
+                    "$ref": "#/definitions/ExperimentStatsBaseValidated"
+                },
+                "date": {
+                    "type": "string"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "variant_results": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantResultFrequentist"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantResultBayesian"
+                            },
+                            "type": "array"
+                        }
+                    ]
+                }
+            },
+            "required": ["date"],
+            "type": "object"
+        },
         "ExperimentTrendsQuery": {
             "additionalProperties": false,
             "properties": {

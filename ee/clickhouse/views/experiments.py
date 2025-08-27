@@ -18,7 +18,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
-from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
+from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric, ExperimentTimeseriesResult
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.signals import model_activity_signal
@@ -27,6 +27,22 @@ from posthog.models.team.team import Team
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
+
+
+class ExperimentTimeseriesResultSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ExperimentTimeseriesResult
+        fields = [
+            "experiment_id",
+            "metric_uuid",
+            "status",
+            "timeseries",
+            "computed_at",
+            "error_message",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
 
 
 class ExperimentSerializer(serializers.ModelSerializer):
@@ -684,6 +700,40 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
         experiment.exposure_cohort = cohort
         experiment.save(update_fields=["exposure_cohort"])
         return Response({"cohort": cohort_serializer.data}, status=201)
+
+    @action(methods=["GET"], detail=True, required_scopes=["experiment:read"])
+    def timeseries_results(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Retrieve timeseries results for a specific experiment-metric combination.
+
+        Query parameters:
+        - metric_uuid (required): The UUID of the metric to retrieve results for
+        """
+        experiment = self.get_object()
+        metric_uuid = request.query_params.get("metric_uuid")
+
+        if not metric_uuid:
+            raise ValidationError("metric_uuid query parameter is required")
+
+        metrics = experiment.metrics or []
+        metrics_secondary = experiment.metrics_secondary or []
+        all_metrics = metrics + metrics_secondary
+
+        metric_exists = any(m.get("uuid") == metric_uuid for m in all_metrics)
+        if not metric_exists:
+            raise ValidationError(f"Metric with UUID {metric_uuid} not found in experiment")
+
+        try:
+            timeseries_result = ExperimentTimeseriesResult.objects.get(
+                experiment_id=experiment.id, metric_uuid=metric_uuid
+            )
+            serializer = ExperimentTimeseriesResultSerializer(timeseries_result)
+            return Response(serializer.data)
+        except ExperimentTimeseriesResult.DoesNotExist:
+            return Response(
+                {"detail": f"No timeseries results found for experiment {experiment.id} and metric {metric_uuid}"},
+                status=404,
+            )
 
 
 @receiver(model_activity_signal, sender=Experiment)
