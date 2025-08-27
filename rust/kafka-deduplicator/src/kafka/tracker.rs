@@ -164,6 +164,26 @@ impl InFlightTracker {
             tracker.completion_tx.clone()
         };
 
+        // Check if this is the expected next offset
+        {
+            let partitions = self.partitions.read().await;
+            if let Some(tracker) = partitions.get(&(topic.clone(), partition)) {
+                let expected_offset = if tracker.last_committed_offset == -1 {
+                    // First message for this partition
+                    0
+                } else {
+                    tracker.last_committed_offset + tracker.in_flight_count as i64 + 1
+                };
+                
+                if offset != expected_offset && tracker.last_committed_offset != -1 {
+                    warn!(
+                        "⚠️ TRACKING NON-SEQUENTIAL OFFSET: topic={}, partition={}, offset={}, expected={}, last_committed={}, in_flight={}",
+                        topic, partition, offset, expected_offset, tracker.last_committed_offset, tracker.in_flight_count
+                    );
+                }
+            }
+        }
+        
         debug!(
             "Tracking message with permit: id={}, topic={}, partition={}, offset={}, memory={}, available_permits={}",
             message_id, topic, partition, offset, memory_size, self.in_flight_semaphore.available_permits()
@@ -222,9 +242,19 @@ impl InFlightTracker {
                     tracker
                         .pending_completions
                         .insert(completion.offset, completion.result);
-                    debug!(
-                        "Stored out-of-order completion: topic={}, partition={}, offset={}",
-                        topic, partition, completion.offset
+                    
+                    // Log gaps in offset sequence
+                    let expected_offset = if tracker.last_committed_offset == -1 { 
+                        0 
+                    } else { 
+                        tracker.last_committed_offset + 1 
+                    };
+                    
+                    warn!(
+                        "🔴 OFFSET GAP DETECTED: topic={}, partition={}, expected_offset={}, received_offset={}, gap_size={}, pending_count={}",
+                        topic, partition, expected_offset, completion.offset, 
+                        completion.offset - expected_offset,
+                        tracker.pending_completions.len()
                     );
                 }
                 // If offset <= last_committed_offset, it's a duplicate or old message - ignore
@@ -578,7 +608,6 @@ mod tests {
             .await
             .unwrap();
 
-        // Use the new API that returns AckableMessage
         let ackable1 = tracker.track_message(msg1, 100, permit1).await;
         let ackable2 = tracker.track_message(msg2, 200, permit2).await;
         let ackable3 = tracker.track_message(msg3, 150, permit3).await;
@@ -843,7 +872,6 @@ mod tests {
             .await
             .unwrap();
 
-        // Use the new API that returns AckableMessage
         let ackable1 = tracker.track_message(msg1, 100, permit1).await;
         let ackable2 = tracker.track_message(msg2, 100, permit2).await;
         let ackable3 = tracker.track_message(msg3, 100, permit3).await;
@@ -904,7 +932,6 @@ mod tests {
             .await
             .unwrap();
 
-        // Use the new API that returns AckableMessage
         let ackable1 = tracker.track_message(msg1, 100, permit1).await;
         let ackable2 = tracker.track_message(msg2, 100, permit2).await;
         let ackable3 = tracker.track_message(msg3, 100, permit3).await;

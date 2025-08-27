@@ -489,7 +489,6 @@ async fn test_factory_method_integration() -> Result<()> {
     let test_topic = format!("{}-factory-{}", TEST_TOPIC, uuid::Uuid::new_v4());
     let group_id = format!("test-group-factory-{}", uuid::Uuid::new_v4());
 
-    // Test that the new factory method creates a working consumer
     let processor = Arc::new(TestProcessor::new());
     let rebalance_handler = Arc::new(TestRebalanceHandler::default());
 

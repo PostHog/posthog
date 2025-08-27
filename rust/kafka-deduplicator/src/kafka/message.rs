@@ -1,7 +1,8 @@
 use anyhow::Result;
 use rdkafka::message::OwnedMessage;
+use rdkafka::Message;
 use tokio::sync::OwnedSemaphorePermit;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 use crate::kafka::tracker::{MessageCompletion, MessageHandle};
 
@@ -96,9 +97,12 @@ impl AckableMessage {
 impl Drop for AckableMessage {
     fn drop(&mut self) {
         if !self.acked {
-            warn!(
-                "Message dropped without acking: id={}",
-                self.handle.message_id
+            error!(
+                "💀 MESSAGE DROPPED WITHOUT ACK: id={}, offset={}, topic={}, partition={}",
+                self.handle.message_id, 
+                self.handle.offset,
+                self.message.topic(),
+                self.message.partition()
             );
 
             // Auto-nack on drop to prevent hanging
@@ -109,9 +113,16 @@ impl Drop for AckableMessage {
             };
 
             if self.handle.completion_tx.send(completion).is_err() {
+                error!(
+                    "💀💀 CRITICAL: Failed to send auto-nack for dropped message: id={}, offset={}",
+                    self.handle.message_id,
+                    self.handle.offset
+                );
+            } else {
                 warn!(
-                    "Failed to send auto-nack for dropped message: id={}",
-                    self.handle.message_id
+                    "⚠️ Auto-nacked dropped message: id={}, offset={}",
+                    self.handle.message_id,
+                    self.handle.offset
                 );
             }
         }
@@ -173,7 +184,6 @@ mod tests {
             .await
             .unwrap();
 
-        // Use the new API that returns AckableMessage directly
         let ackable = tracker.track_message(message, 100, permit).await;
 
         // Verify message is tracked
@@ -205,7 +215,6 @@ mod tests {
             .await
             .unwrap();
 
-        // Use the new API that returns AckableMessage directly
         let ackable = tracker.track_message(message, 50, permit).await;
 
         // Nack the message

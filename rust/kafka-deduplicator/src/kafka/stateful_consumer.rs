@@ -97,18 +97,28 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
 
                 // Publish metrics every 10 seconds
                 _ = metrics_interval.tick() => {
+                    info!("📊 Starting metrics publication cycle");
+                    
                     // Process any pending completions first to get accurate stats
                     self.tracker.process_completions().await;
 
                     let stats = self.tracker.get_stats().await;
+                    let available_permits = self.tracker.available_permits();
+                    
+                    info!(
+                        "📈 Metrics: in_flight={}, completed={}, failed={}, memory={}MB, available_permits={}",
+                        stats.in_flight, stats.completed, stats.failed, 
+                        stats.memory_usage / (1024 * 1024),
+                        available_permits
+                    );
+                    
                     stats.publish_metrics();
 
                     // Also publish semaphore permit metrics from the tracker
                     metrics::gauge!("kafka_consumer_available_permits")
-                        .set(self.tracker.available_permits() as f64);
+                        .set(available_permits as f64);
 
-                    debug!("Published metrics: {}, available_permits={}",
-                        stats, self.tracker.available_permits());
+                    info!("✅ Metrics published successfully");
                 }
 
                 // Commit offsets periodically
@@ -153,48 +163,47 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
             return Ok(());
         }
 
-        // First check if we have permits available
-        if self.tracker.available_permits() == 0 {
-            debug!(
-                "No permits available, applying backpressure. Topic {} partition {} offset {}. In-flight: {}",
-                topic, partition, offset,
-                self.tracker.in_flight_count().await
-            );
-            // Process completions to potentially free up permits
-            self.tracker.process_completions().await;
-
-            // Check again after processing completions
-            if self.tracker.available_permits() == 0 {
-                // Still no permits - apply backpressure by not consuming this message
-                return Ok(());
-            }
-        }
-
         // Calculate size before detaching
         let estimated_size = msg.payload().map(|p| p.len()).unwrap_or(0)
             + msg.key().map(|k| k.len()).unwrap_or(0)
             + topic.len();
 
         // Try to acquire a permit BEFORE detaching the message
-        // This way we never lose a message
-        let permit = match tokio::time::timeout(
-            Duration::from_secs(1),
-            self.tracker.in_flight_semaphore_clone().acquire_owned(),
-        )
-        .await
-        {
-            Ok(Ok(permit)) => permit,
-            Ok(Err(_)) => {
-                error!("Semaphore was closed - this is a fatal error");
-                return Err(anyhow::anyhow!("Semaphore closed"));
-            }
+        // Use try_acquire_owned for immediate response, avoiding blocking
+        let permit = match self.tracker.in_flight_semaphore_clone().try_acquire_owned() {
+            Ok(permit) => permit,
             Err(_) => {
-                // Timeout - apply backpressure
+                // No permits available - process completions and try once more
                 debug!(
-                    "Timeout acquiring permit, applying backpressure. Topic {} partition {} offset {}",
-                    topic, partition, offset
+                    "No permits available, processing completions. Topic {} partition {} offset {}. In-flight: {}",
+                    topic, partition, offset,
+                    self.tracker.in_flight_count().await
                 );
-                return Ok(());
+                
+                // Process completions to potentially free up permits
+                self.tracker.process_completions().await;
+                
+                // Try once more with a short timeout
+                match tokio::time::timeout(
+                    Duration::from_millis(100),
+                    self.tracker.in_flight_semaphore_clone().acquire_owned(),
+                )
+                .await
+                {
+                    Ok(Ok(permit)) => permit,
+                    Ok(Err(_)) => {
+                        error!("Semaphore was closed - this is a fatal error");
+                        return Err(anyhow::anyhow!("Semaphore closed"));
+                    }
+                    Err(_) => {
+                        // Still no permits - apply backpressure
+                        debug!(
+                            "Still no permits after processing completions, applying backpressure. Topic {} partition {} offset {}",
+                            topic, partition, offset
+                        );
+                        return Ok(());
+                    }
+                }
             }
         };
 
