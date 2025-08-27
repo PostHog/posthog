@@ -44,7 +44,9 @@ class HogQLGeneratorMixin(AssistantContextMixin):
         return self._database_instance
 
     def _get_default_hogql_context(self, database: Database):
-        hogql_context = HogQLContext(team=self._team, database=database, enable_select_queries=True)
+        hogql_context = HogQLContext(
+            team=self._team, database=database, enable_select_queries=True, limit_top_select=False
+        )
         return hogql_context
 
     async def _construct_system_prompt(self) -> ChatPromptTemplate:
@@ -95,7 +97,6 @@ class HogQLGeneratorMixin(AssistantContextMixin):
                 if finder.has_filters:
                     dummy_placeholders["filters"] = ast.Constant(value=1)
                 parsed_query = cast(ast.SelectQuery, replace_placeholders(parsed_query, dummy_placeholders))
-            print_ast(parsed_query, context=hogql_context, dialect="clickhouse", loose_syntax=True)
             return print_ast(parsed_query, context=hogql_context, dialect="hogql", loose_syntax=True)
         except (ExposedHogQLError, HogQLNotImplementedError, ResolutionError) as err:
             err_msg = str(err)
