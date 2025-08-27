@@ -1,0 +1,12 @@
+services:
+  web:
+    environment:
+      DEBUG: "0"
+      SECRET_KEY: "change-me-please-dev"
+      IS_BEHIND_PROXY: "true"
+      SECURE_SSL_REDIRECT: "false"
+      DISABLE_SECURE_SSL_HOST_CHECK: "true"
+      E2E_TESTING: "true"
+  migrate:
+    environment:
+      DEBUG: "0"
