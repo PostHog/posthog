@@ -1,12 +1,12 @@
-from unittest.mock import patch, MagicMock, call
-
 from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
+from unittest.mock import MagicMock, call, patch
+
 from rest_framework import status
 
 from posthog.models import Team
 from posthog.models.utils import uuid7
 from posthog.session_recordings.models.session_recording import SessionRecording
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
 # this is the utf-16 surrogate pass encoded, gzipped and base64 encoded version of the above
 # see: https://github.com/PostHog/posthog/blob/8ff764bb573c6a98368b2ae3503890551a1c3842/posthog/session_recordings/session_recording_helpers.py#L277
@@ -17,8 +17,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     def setUp(self):
         super().setUp()
 
-        # Create a new team each time to ensure no clashing between tests
-        self.team = Team.objects.create(organization=self.organization, name="New Team")
+        self.team = Team.objects.create(
+            organization=self.organization, name="Create a new team each time to ensure no clashing between tests"
+        )
 
     @freeze_time("2023-01-01T00:00:00Z")
     @patch(
