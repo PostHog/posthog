@@ -230,6 +230,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         }}
                         docsURL="https://posthog.com/docs/data/cohorts"
                         canEdit
+                        forceEdit={isNewCohort}
                     />
 
                     <SceneDivider />

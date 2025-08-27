@@ -629,6 +629,7 @@ export function DashboardHeader(): JSX.Element | null {
                 canEdit={canEditDashboard}
                 isLoading={dashboardLoading}
                 forceEdit={dashboardMode === DashboardMode.Edit || isInitiallyNew}
+                renameDebounceMs={1000}
             />
             <SceneDivider />
         </>
