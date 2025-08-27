@@ -112,6 +112,7 @@ export function FunnelLineGraph({
                               })
                           }
                 }
+                hideAnnotations={inSharedMode}
             />
         </LineGraphWrapper>
     )
