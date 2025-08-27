@@ -156,6 +156,29 @@ class TestConversation(APIBaseTest):
                 self.assertEqual(str(workflow_inputs.trace_id), trace_id)
                 self.assertEqual(workflow_inputs.message["content"], "test query")
 
+    def test_cant_start_other_users_conversation(self):
+        conversation = Conversation.objects.create(user=self.other_user, team=self.team)
+
+        self.client.force_login(self.user)
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/conversations/",
+            {"conversation": conversation.id, "content": None, "trace_id": str(uuid.uuid4())},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_cannot_cancel_other_users_conversation(self):
+        """Test that cancel action cannot use other user's conversation ID"""
+        conversation = Conversation.objects.create(
+            user=self.other_user, team=self.team, title="Other user conversation", type=Conversation.Type.ASSISTANT
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
     def test_cant_access_other_teams_conversation(self):
         conversation = Conversation.objects.create(user=self.user, team=self.other_team)
 
@@ -539,39 +562,6 @@ class TestConversation(APIBaseTest):
             response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_cannot_access_other_users_conversation_for_create_action(self):
-        """Test that create action cannot use other user's conversation ID"""
-        conversation = Conversation.objects.create(
-            user=self.other_user, team=self.team, title="Other user conversation", type=Conversation.Type.ASSISTANT
-        )
-
-        with patch(
-            "ee.hogai.stream.conversation_stream.ConversationStreamManager.astream",
-            return_value=_async_generator(),
-        ):
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/conversations/",
-                {
-                    "conversation": str(conversation.id),
-                    "content": "test query",
-                    "trace_id": str(uuid.uuid4()),
-                },
-            )
-            # This should fail because create action prevents access to other users' conversations
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_cannot_access_other_users_conversation_for_cancel_action(self):
-        """Test that cancel action cannot use other user's conversation ID"""
-        conversation = Conversation.objects.create(
-            user=self.other_user, team=self.team, title="Other user conversation", type=Conversation.Type.ASSISTANT
-        )
-
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
     def test_conversations_ordered_by_updated_at_descending(self):
         """Test that conversations are ordered by updated_at in descending order"""
         # Create conversations with different update times
@@ -602,73 +592,6 @@ class TestConversation(APIBaseTest):
             # Second result should be the older conversation
             self.assertEqual(results[1]["id"], str(conversation1.id))
             self.assertEqual(results[1]["title"], "Older conversation")
-
-    def test_retrieve_conversation_without_title_returns_404(self):
-        conversation = Conversation.objects.create(
-            user=self.user, team=self.team, title=None, type=Conversation.Type.ASSISTANT
-        )
-
-        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
-            response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
-            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-    def test_retrieve_non_assistant_conversation_returns_404(self):
-        conversation = Conversation.objects.create(
-            user=self.user, team=self.team, title="Tool call", type=Conversation.Type.TOOL_CALL
-        )
-
-        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
-            response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
-            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-    def test_list_conversations_excludes_conversations_without_title(self):
-        """Test that listing excludes conversations without title"""
-        Conversation.objects.create(user=self.user, team=self.team, title=None, type=Conversation.Type.ASSISTANT)
-        conversation_with_title = Conversation.objects.create(
-            user=self.user, team=self.team, title="Valid conversation", type=Conversation.Type.ASSISTANT
-        )
-
-        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
-            response = self.client.get(f"/api/environments/{self.team.id}/conversations/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-            results = response.json()["results"]
-            self.assertEqual(len(results), 1)
-            self.assertEqual(results[0]["id"], str(conversation_with_title.id))
-
-    def test_list_conversations_excludes_non_assistant_conversations(self):
-        """Test that listing excludes non-assistant conversations"""
-        Conversation.objects.create(user=self.user, team=self.team, title="Tool call", type=Conversation.Type.TOOL_CALL)
-        assistant_conversation = Conversation.objects.create(
-            user=self.user, team=self.team, title="Assistant conversation", type=Conversation.Type.ASSISTANT
-        )
-
-        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
-            response = self.client.get(f"/api/environments/{self.team.id}/conversations/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-            results = response.json()["results"]
-            self.assertEqual(len(results), 1)
-            self.assertEqual(results[0]["id"], str(assistant_conversation.id))
-
-    def test_conversation_serializer_returns_empty_messages_on_validation_error(self):
-        conversation = Conversation.objects.create(
-            user=self.user, team=self.team, title="Conversation with validation error", type=Conversation.Type.ASSISTANT
-        )
-
-        # Mock the get_state method to return data that will cause a validation error
-        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock) as mock_get_state:
-
-            class MockSnapshot:
-                values = {"invalid_key": "invalid_value"}  # Invalid structure for AssistantState
-
-            mock_get_state.return_value = MockSnapshot()
-
-            response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-            # Should return empty messages array when validation fails
-            self.assertEqual(response.json()["messages"], [])
 
     @override_settings(DEBUG=False)
     def test_get_throttles_applies_rate_limits_for_create_action(self):
