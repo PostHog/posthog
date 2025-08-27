@@ -146,8 +146,6 @@ impl ServerHandle {
             let app = feature_flags::router::router(
                 redis_reader_client,
                 redis_writer_client,
-                reader,
-                writer,
                 database_pools,
                 cohort_cache,
                 geoip_service,

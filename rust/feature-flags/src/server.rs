@@ -67,10 +67,6 @@ where
         }
     };
 
-    // Keep legacy reader/writer for backward compatibility
-    let reader = database_pools.non_persons_reader.clone();
-    let writer = database_pools.non_persons_writer.clone();
-
     let geoip_service = match GeoIpClient::new(config.get_maxmind_db_path()) {
         Ok(service) => Arc::new(service),
         Err(e) => {
@@ -84,7 +80,7 @@ where
     };
 
     let cohort_cache = Arc::new(CohortCacheManager::new(
-        reader.clone(),
+        database_pools.non_persons_reader.clone(),
         Some(config.cache_max_cohort_entries),
         Some(config.cache_ttl_seconds),
     ));
@@ -98,7 +94,7 @@ where
     tokio::spawn(liveness_loop(simple_loop));
 
     // Start database pool monitoring
-    let db_monitor = DatabasePoolMonitor::new(reader.clone(), writer.clone());
+    let db_monitor = DatabasePoolMonitor::new(database_pools.clone());
     tokio::spawn(async move {
         db_monitor.start_monitoring().await;
     });
@@ -150,8 +146,6 @@ where
     let app = router::router(
         redis_reader_client,
         redis_writer_client,
-        reader,
-        writer,
         database_pools,
         cohort_cache,
         geoip_service,
