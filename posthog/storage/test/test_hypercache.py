@@ -5,6 +5,7 @@ from unittest.mock import Mock
 
 from django.core.cache import cache
 
+from posthog.models.team.team import Team
 from posthog.storage import object_storage
 from posthog.storage.hypercache import DEFAULT_CACHE_MISS_TTL, DEFAULT_CACHE_TTL, HyperCache, HyperCacheStoreMissing
 
@@ -23,7 +24,14 @@ class HyperCacheTestBase:
         def load_fn(team):
             return {"default": "data"}
 
-        return HyperCache(namespace="test_namespace", value="test_value", load_fn=load_fn)
+        return HyperCache(namespace="test_namespace", value="test_value", load_fn=load_fn, token_based=False)
+
+    @property
+    def token_based_hypercache(self) -> HyperCache:
+        def load_fn(team):
+            return {"default": "data"}
+
+        return HyperCache(namespace="test_namespace", value="test_value", load_fn=load_fn, token_based=True)
 
     def setUp(self):
         # Clear the cache for the commonly used hypercache
@@ -36,6 +44,12 @@ class TestCacheKey(HyperCacheTestBase):
         """Test that cache key is formatted correctly"""
         key = self.hypercache.get_cache_key(123)
         assert key == "cache/teams/123/test_namespace/test_value"
+
+    def test_token_based_cache_key_format(self):
+        """Test that cache key is formatted correctly"""
+        team = Team(api_token="phc_someprojectapitoken", id=123)
+        key = self.token_based_hypercache.get_cache_key(team)
+        assert key == "cache/team_tokens/phc_someprojectapitoken/test_namespace/test_value"
 
 
 class TestHyperCache(HyperCacheTestBase):

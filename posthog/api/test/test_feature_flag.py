@@ -5805,7 +5805,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Check that cache is now populated (using HyperCache format)
-        cache_key = f"cache/teams/{self.team.id}/feature_flags/flags_without_cohorts.json"
+        cache_key = f"cache/team_tokens/{self.team.api_token}/feature_flags/flags_without_cohorts.json"
         cached_data = cache.get(cache_key)
         self.assertIsNotNone(cached_data)
         cached_json = json.loads(cached_data)
@@ -5848,8 +5848,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Check separate cache key for cohorts version (using HyperCache format)
-        cache_key_cohorts = f"cache/teams/{self.team.id}/feature_flags/flags_with_cohorts.json"
-        cache_key_regular = f"cache/teams/{self.team.id}/feature_flags/flags_without_cohorts.json"
+        cache_key_cohorts = f"cache/team_tokens/{self.team.api_token}/feature_flags/flags_with_cohorts.json"
+        cache_key_regular = f"cache/team_tokens/{self.team.api_token}/feature_flags/flags_without_cohorts.json"
 
         cached_cohorts = cache.get(cache_key_cohorts)
         cached_regular = cache.get(cache_key_regular)
@@ -5881,8 +5881,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Verify cache is populated and get original content
-        cache_key = f"cache/teams/{self.team.id}/feature_flags/flags_without_cohorts.json"
-        cache_key_cohorts = f"cache/teams/{self.team.id}/feature_flags/flags_with_cohorts.json"
+        cache_key = f"cache/team_tokens/{self.team.api_token}/feature_flags/flags_without_cohorts.json"
+        cache_key_cohorts = f"cache/team_tokens/{self.team.api_token}/feature_flags/flags_with_cohorts.json"
         original_cache = cache.get(cache_key)
         self.assertIsNotNone(original_cache)
 

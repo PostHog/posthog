@@ -5,6 +5,7 @@ from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.feature_flag.local_evaluation import (
     clear_flag_caches,
     flags_hypercache,
+    flags_without_cohorts_hypercache,
     get_flags_response_for_local_evaluation,
     update_flag_caches,
 )
@@ -190,3 +191,14 @@ class TestLocalEvaluationCache(BaseTest):
         response, source = flags_hypercache.get_from_cache_with_source(self.team)
         assert source == "redis"
         self._assert_payload_valid_with_cohorts(response)
+
+    def test_flag_keys(self):
+        flags_hypercache.get_from_cache(self.team)
+        assert (
+            flags_hypercache.get_cache_key(self.team)
+            == f"cache/team_tokens/{self.team.api_token}/feature_flags/flags_with_cohorts.json"
+        )
+        assert (
+            flags_without_cohorts_hypercache.get_cache_key(self.team.api_token)
+            == f"cache/team_tokens/{self.team.api_token}/feature_flags/flags_without_cohorts.json"
+        )
