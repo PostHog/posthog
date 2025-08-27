@@ -20,12 +20,9 @@ class ResourceNotebook(UUIDTModel):
     # Relationships (exactly one must be set)
     # When adding a new foreign key, make sure to add the foreign key field and append field name
     # to the `RELATED_OBJECTS` tuple above.
-    group = models.ForeignKey(
-        "Group",
-        on_delete=models.CASCADE,
+    group = models.IntegerField(
         null=True,
         blank=True,
-        related_name="notebooks",
     )
 
     class Meta:
