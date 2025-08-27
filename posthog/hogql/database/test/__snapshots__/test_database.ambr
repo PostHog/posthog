@@ -1411,6 +1411,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "expression"
+              },
+              "$virt_path_cleaned_pathname": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_path_cleaned_pathname`",
+                  "id": null,
+                  "name": "$virt_path_cleaned_pathname",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               }
           },
           "id": "events",
@@ -2807,6 +2817,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "expression"
+              },
+              "$virt_path_cleaned_pathname": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_path_cleaned_pathname`",
+                  "id": null,
+                  "name": "$virt_path_cleaned_pathname",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               }
           },
           "id": "events",
