@@ -42,6 +42,7 @@ from posthog.hogql.functions import (
 from posthog.hogql.functions.mapping import (
     ALL_EXPOSED_FUNCTION_NAMES,
     HOGQL_COMPARISON_MAPPING,
+    find_correct_function_name,
     is_allowed_parametric_function,
     validate_function_args,
 )
@@ -109,7 +110,9 @@ def print_ast(
     pretty: bool = False,
     loose_syntax: bool = False,
 ) -> str:
-    prepared_ast = prepare_ast_for_printing(node=node, context=context, dialect=dialect, stack=stack, settings=settings)
+    prepared_ast = prepare_ast_for_printing(
+        node=node, context=context, dialect=dialect, stack=stack, settings=settings, loose_syntax=loose_syntax
+    )
     if prepared_ast is None:
         return ""
     return print_prepared_ast(
@@ -129,6 +132,7 @@ def prepare_ast_for_printing(
     dialect: Literal["hogql", "clickhouse"],
     stack: Optional[list[ast.SelectQuery]] = None,
     settings: Optional[HogQLGlobalSettings] = None,
+    loose_syntax: bool = False,
 ) -> _T_AST | None:
     if context.database is None:
         with context.timings.measure("create_hogql_database"):
@@ -146,7 +150,13 @@ def prepare_ast_for_printing(
         with context.timings.measure("resolve_in_cohorts_conjoined"):
             resolve_in_cohorts_conjoined(node, dialect, context, stack)
     with context.timings.measure("resolve_types"):
-        node = resolve_types(node, context, dialect=dialect, scopes=[node.type for node in stack] if stack else None)
+        node = resolve_types(
+            node,
+            context,
+            dialect=dialect,
+            scopes=[node.type for node in stack] if stack else None,
+            loose_syntax=loose_syntax,
+        )
 
     if dialect == "clickhouse":
         with context.timings.measure("resolve_property_types"):
@@ -1071,6 +1081,10 @@ class _Printer(Visitor[str]):
         return None  # nothing to optimize
 
     def visit_call(self, node: ast.Call):
+        if self.loose_syntax:
+            corrected_name = find_correct_function_name(node.name)
+            if corrected_name != node.name:
+                node.name = corrected_name
         # If the argument(s) are part of a property group, special optimizations may apply here to ensure that data
         # skipping indexes can be used when possible.
         if optimized_property_group_call := self.__get_optimized_property_group_call(node):
@@ -1392,13 +1406,6 @@ class _Printer(Visitor[str]):
             return f"{node.name}({', '.join(args)})"
         else:
             close_matches = get_close_matches(node.name, ALL_EXPOSED_FUNCTION_NAMES, 1)
-            # If loose_syntax is enabled, try to correct the function name before throwing an error
-            if self.loose_syntax and len(close_matches) > 0:
-                corrected_name = close_matches[0]
-                if corrected_name != node.name:
-                    # Found a function name that is close to the one we tried to use, use it
-                    return f"{corrected_name}({', '.join([self.visit(arg) for arg in node.args])})"
-
             if len(close_matches) > 0:
                 raise QueryError(
                     f"Unsupported function call '{node.name}(...)'. Perhaps you meant '{close_matches[0]}(...)'?"

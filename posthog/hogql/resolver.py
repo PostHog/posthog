@@ -88,8 +88,9 @@ def resolve_types(
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
     scopes: Optional[list[ast.SelectQueryType]] = None,
+    loose_syntax: bool = False,
 ) -> _T_AST:
-    return Resolver(scopes=scopes, context=context, dialect=dialect).visit(node)
+    return Resolver(scopes=scopes, context=context, dialect=dialect, loose_syntax=loose_syntax).visit(node)
 
 
 class AliasCollector(TraversingVisitor):
@@ -110,6 +111,7 @@ class Resolver(CloningVisitor):
         context: HogQLContext,
         dialect: Literal["hogql", "clickhouse"] = "clickhouse",
         scopes: Optional[list[ast.SelectQueryType]] = None,
+        loose_syntax: bool = False,
     ):
         super().__init__()
         # Each SELECT query creates a new scope (type). Store all of them in a list as we traverse the tree.
@@ -119,6 +121,7 @@ class Resolver(CloningVisitor):
         self.dialect = dialect
         self.database = context.database
         self.cte_counter = 0
+        self.loose_syntax = loose_syntax
 
     def visit(self, node: ast.AST | None):
         if isinstance(node, ast.Expr) and node.type is not None:
@@ -209,7 +212,11 @@ class Resolver(CloningVisitor):
             elif isinstance(new_expr.type, ast.CallType):
                 from posthog.hogql.printer import print_prepared_ast
 
-                alias = safe_identifier(print_prepared_ast(node=new_expr, context=self.context, dialect="hogql"))
+                alias = safe_identifier(
+                    print_prepared_ast(
+                        node=new_expr, context=self.context, dialect="hogql", loose_syntax=self.loose_syntax
+                    )
+                )
             else:
                 alias = None
 
