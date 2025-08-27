@@ -27,6 +27,7 @@ export const manifest: ProductManifest = {
             path: 'Revenue analytics',
             category: 'Analytics',
             href: urls.revenueAnalytics(),
+            type: 'revenue',
             tags: ['beta'],
             flag: FEATURE_FLAGS.REVENUE_ANALYTICS,
         },
