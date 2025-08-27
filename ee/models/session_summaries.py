@@ -124,6 +124,38 @@ class SingleSessionSummaryManager(models.Manager["SingleSessionSummary"]):
             has_next=has_next,
         )
 
+    def summaries_exist(
+        self,
+        team_id: int,
+        session_ids: list[str],
+        extra_summary_context: ExtraSummaryContext | None = None,
+    ) -> dict[str, bool]:
+        """Check if summaries exist for given session IDs without fetching the full data"""
+        result: dict[str, bool] = {session_id: False for session_id in session_ids}
+        queryset = self.filter(team_id=team_id, session_id__in=session_ids)
+        # Filter by context presence at DB level
+        if extra_summary_context is not None:
+            # Should have context
+            queryset = queryset.filter(extra_summary_context__isnull=False)
+        else:
+            # No context to match
+            queryset = queryset.filter(extra_summary_context__isnull=True)
+        # Get the latest summary per session_id, but only fetch minimal data
+        queryset = queryset.order_by("session_id", "-created_at").distinct("session_id")
+        # Need to fetch context to verify exact match
+        if extra_summary_context is not None:
+            extra_summary_context_dict = asdict(extra_summary_context)
+            existing_summaries = queryset.values_list("session_id", "extra_summary_context")
+            for session_id, context in existing_summaries:
+                if context == extra_summary_context_dict:
+                    result[session_id] = True
+        # Simple case - just check existence
+        else:
+            existing_session_ids = set(queryset.values_list("session_id", flat=True))
+            for session_id in existing_session_ids:
+                result[session_id] = True
+        return result
+
 
 class SingleSessionSummary(ModelActivityMixin, UUIDModel):
     """

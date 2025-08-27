@@ -395,3 +395,159 @@ class TestSingleSessionSummaryBatch(BaseTest):
 
         self.assertEqual(len(result.results), 0)
         self.assertFalse(result.has_next)
+
+    def test_summaries_exist_single_without_context(self) -> None:
+        # Test with non-existent session
+        result: dict[str, bool] = SingleSessionSummary.objects.summaries_exist(
+            team_id=self.team.id,
+            session_ids=["non-existent"],
+            extra_summary_context=None,
+        )
+        self.assertEqual(result, {"non-existent": False})
+        # Add a summary and test again
+        SingleSessionSummary.objects.add_summary(
+            team_id=self.team.id,
+            session_id="test-session-1",
+            summary={"content": "test"},
+            exception_event_ids=[],
+        )
+        result = SingleSessionSummary.objects.summaries_exist(
+            team_id=self.team.id,
+            session_ids=["test-session-1"],
+            extra_summary_context=None,
+        )
+        self.assertEqual(result, {"test-session-1": True})
+
+    def test_summaries_exist_multiple_without_context(self) -> None:
+        # Use existing test data - sessions 0-4 have summaries without context
+        result: dict[str, bool] = SingleSessionSummary.objects.summaries_exist(
+            team_id=self.team.id,
+            session_ids=[self.session_ids[0], self.session_ids[1], self.session_ids[8], "non-existent"],
+            extra_summary_context=None,
+        )
+        self.assertEqual(
+            result,
+            {
+                self.session_ids[0]: True,
+                self.session_ids[1]: True,
+                self.session_ids[8]: False,  # Has no summary
+                "non-existent": False,
+            },
+        )
+
+    def test_summaries_exist_with_context(self) -> None:
+        # Use existing test data - sessions 3-6 have summaries with auth context
+        result: dict[str, bool] = SingleSessionSummary.objects.summaries_exist(
+            team_id=self.team.id,
+            session_ids=[self.session_ids[3], self.session_ids[5], self.session_ids[0], self.session_ids[9]],
+            extra_summary_context=self.extra_context,
+        )
+        self.assertEqual(
+            result,
+            {
+                self.session_ids[3]: True,  # Has auth context
+                self.session_ids[5]: True,  # Has auth context
+                self.session_ids[0]: False,  # Has no context
+                self.session_ids[9]: False,  # Has no summary
+            },
+        )
+
+    def test_summaries_exist_context_mismatch(self) -> None:
+        different_context: ExtraSummaryContext = ExtraSummaryContext(focus_area="checkout")
+        # Session 7 has checkout context (from _setup_test_data)
+        result: dict[str, bool] = SingleSessionSummary.objects.summaries_exist(
+            team_id=self.team.id,
+            session_ids=[self.session_ids[7]],
+            extra_summary_context=different_context,
+        )
+        self.assertEqual(result, {self.session_ids[7]: True})
+        # But not auth context
+        result = SingleSessionSummary.objects.summaries_exist(
+            team_id=self.team.id,
+            session_ids=[self.session_ids[7]],
+            extra_summary_context=self.extra_context,
+        )
+        self.assertEqual(result, {self.session_ids[7]: False})
+
+    def test_summaries_exist_team_isolation(self) -> None:
+        other_team: Team = Organization.objects.bootstrap(None)[2]
+        # Add summary for other team
+        SingleSessionSummary.objects.add_summary(
+            team_id=other_team.id,
+            session_id="cross-team-session",
+            summary={"content": "other team"},
+            exception_event_ids=[],
+        )
+        # Should not be visible from our team
+        result: dict[str, bool] = SingleSessionSummary.objects.summaries_exist(
+            team_id=self.team.id,
+            session_ids=["cross-team-session"],
+            extra_summary_context=None,
+        )
+        self.assertEqual(result, {"cross-team-session": False})
+        # Should be visible from the other team
+        result = SingleSessionSummary.objects.summaries_exist(
+            team_id=other_team.id,
+            session_ids=["cross-team-session"],
+            extra_summary_context=None,
+        )
+        self.assertEqual(result, {"cross-team-session": True})
+
+    def test_summaries_exist_latest_only(self) -> None:
+        # Sessions 3-4 have both old (no context) and new (auth context) summaries
+        # The latest should have auth context
+        result: dict[str, bool] = SingleSessionSummary.objects.summaries_exist(
+            team_id=self.team.id,
+            session_ids=[self.session_ids[3], self.session_ids[4]],
+            extra_summary_context=self.extra_context,
+        )
+        self.assertEqual(
+            result,
+            {
+                self.session_ids[3]: True,
+                self.session_ids[4]: True,
+            },
+        )
+        # Should not match no context since latest has context
+        result = SingleSessionSummary.objects.summaries_exist(
+            team_id=self.team.id,
+            session_ids=[self.session_ids[3], self.session_ids[4]],
+            extra_summary_context=None,
+        )
+        self.assertEqual(
+            result,
+            {
+                self.session_ids[3]: False,
+                self.session_ids[4]: False,
+            },
+        )
+
+    def test_summaries_exist_empty_list(self) -> None:
+        result: dict[str, bool] = SingleSessionSummary.objects.summaries_exist(
+            team_id=self.team.id,
+            session_ids=[],
+            extra_summary_context=None,
+        )
+        self.assertEqual(result, {})
+
+    def test_summaries_exist_large_batch(self) -> None:
+        # Create many sessions
+        large_session_ids: list[str] = [f"large-batch-{i:04d}" for i in range(200)]
+        # Add summaries for half of them
+        for i in range(100):
+            SingleSessionSummary.objects.add_summary(
+                team_id=self.team.id,
+                session_id=large_session_ids[i],
+                summary={"content": f"Summary {i}"},
+                exception_event_ids=[],
+            )
+        # Check all at once
+        result: dict[str, bool] = SingleSessionSummary.objects.summaries_exist(
+            team_id=self.team.id,
+            session_ids=large_session_ids,
+            extra_summary_context=None,
+        )
+        # First 100 should exist, last 100 should not
+        for i in range(200):
+            expected = i < 100
+            self.assertEqual(result[large_session_ids[i]], expected, f"Session {i} existence check failed")
