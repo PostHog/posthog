@@ -1,6 +1,5 @@
 import { BuiltLogic, afterMount, listeners } from 'kea'
 
-import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
 /**
@@ -17,29 +16,6 @@ export function permanentlyMount(): (logic: BuiltLogic) => void {
     }
 }
 
-/**
- * Runs callback after mount and when organization loads, only if organization exists.
- * This abstracts the common pattern of checking for organizationLogic.values.currentOrganization before executing logic.
- */
-export function afterMountAndOrganization(
-    callback: (props: { actions: any; values: any; props: any }) => void
-): (logic: BuiltLogic) => void {
-    return (logic) => {
-        listeners(() => ({
-            [organizationLogic.actionTypes.loadCurrentOrganizationSuccess]: ({ currentOrganization }) => {
-                if (currentOrganization) {
-                    callback({ actions: logic.actions, values: logic.values, props: logic.props })
-                }
-            },
-        }))(logic)
-
-        afterMount(({ actions, values, props }) => {
-            if (organizationLogic.values.currentOrganization) {
-                callback({ actions, values, props })
-            }
-        })(logic)
-    }
-}
 /**
  * Runs callback after mount and when project loads, only if project exists.
  * This mirrors afterMountAndOrganization for project-level data.
