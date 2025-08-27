@@ -63,7 +63,7 @@ class QuotaResource(Enum):
     API_QUERIES = "api_queries_read_bytes"
     SURVEYS = "surveys"
     CDP_INVOCATIONS = "cdp_invocations"
-    ROWS_EXPORTS = "rows_exports"
+    ROWS_EXPORTED = "rows_exported"
 
 
 class QuotaLimitingCaches(Enum):
@@ -80,7 +80,7 @@ OVERAGE_BUFFER = {
     QuotaResource.API_QUERIES: 0,
     QuotaResource.SURVEYS: 0,
     QuotaResource.CDP_INVOCATIONS: 0,
-    QuotaResource.ROWS_EXPORTS: 0,
+    QuotaResource.ROWS_EXPORTED: 0,
 }
 
 TRUST_SCORE_KEYS = {
@@ -92,7 +92,7 @@ TRUST_SCORE_KEYS = {
     QuotaResource.API_QUERIES: "api_queries",
     QuotaResource.SURVEYS: "surveys",
     QuotaResource.CDP_INVOCATIONS: "cdp_invocations",
-    QuotaResource.ROWS_EXPORTS: "rows_exports",
+    QuotaResource.ROWS_EXPORTED: "rows_exported",
 }
 
 

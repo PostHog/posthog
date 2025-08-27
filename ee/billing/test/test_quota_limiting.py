@@ -47,12 +47,14 @@ class TestQuotaLimiting(BaseTest):
         self.redis_client.delete(f"@posthog/quota-limits/rows_synced")
         self.redis_client.delete(f"@posthog/quota-limits/api_queries_read_bytes")
         self.redis_client.delete(f"@posthog/quota-limits/surveys")
+        self.redis_client.delete(f"@posthog/quota-limits/rows_exported")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/events")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/exceptions")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/recordings")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/rows_synced")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/api_queries_read_bytes")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/surveys")
+        self.redis_client.delete(f"@posthog/quota-limiting-suspended/rows_exported")
 
     @patch("posthoganalytics.capture")
     @patch("posthoganalytics.feature_enabled", return_value=True)
@@ -340,6 +342,7 @@ class TestQuotaLimiting(BaseTest):
                 "quota_limited_feature_flags": None,
                 "quota_limited_surveys": None,
                 "quota_limited_cdp_invocations": None,
+                "quota_limited_rows_exported": None,
             }
             assert org_action_call.kwargs.get("groups") == {
                 "instance": "http://localhost:8010",
@@ -368,6 +371,7 @@ class TestQuotaLimiting(BaseTest):
                 "feature_flags": 0,
                 TRUST_SCORE_KEYS[QuotaResource.API_QUERIES]: 0,
                 "surveys": 0,
+                "rows_exported": 0,
             }
             self.organization.save()
             quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
