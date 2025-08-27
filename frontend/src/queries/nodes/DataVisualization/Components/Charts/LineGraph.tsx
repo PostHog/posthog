@@ -98,6 +98,7 @@ const getYAxisSettings = (
 // LineGraph displays a graph using either x and y data or series breakdown data
 export const LineGraph = (): JSX.Element => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
+    const chartId = useRef(`linegraph-dataviz-${Math.random().toString(36).substring(2, 11)}`)
     const { ref: containerRef, height } = useResizeObserver()
     const colors = getGraphColors()
 
@@ -350,7 +351,7 @@ export const LineGraph = (): JSX.Element => {
                             return
                         }
 
-                        const [tooltipRoot, tooltipEl] = ensureTooltip()
+                        const [tooltipRoot, tooltipEl] = ensureTooltip(chartId.current)
                         if (tooltip.opacity === 0) {
                             tooltipEl.style.opacity = '0'
                             return

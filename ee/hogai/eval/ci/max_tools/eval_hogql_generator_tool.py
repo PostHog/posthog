@@ -72,6 +72,12 @@ async def database_schema(demo_org_team_user):
     return await serialize_database_schema(database, context)
 
 
+async def sql_syntax_scorer(input: EvalInput, expected: str, output: str, **kwargs) -> Score:
+    metadata: dict = kwargs["metadata"]
+    metric = SQLSyntaxCorrectness()
+    return await metric._run_eval_async(output=output, team=metadata["team"])
+
+
 async def sql_semantics_scorer(input: EvalInput, expected: str, output: str, **kwargs) -> Score:
     metadata: dict = kwargs["metadata"]
     metric = SQLSemanticsCorrectness()
@@ -81,13 +87,14 @@ async def sql_semantics_scorer(input: EvalInput, expected: str, output: str, **k
 
 
 @pytest.mark.django_db
-async def eval_tool_generate_hogql_query(call_generate_hogql_query, database_schema, pytestconfig):
-    metadata = {"schema": database_schema}
+async def eval_tool_generate_hogql_query(call_generate_hogql_query, database_schema, demo_org_team_user, pytestconfig):
+    _, team, _ = demo_org_team_user
+    metadata = {"schema": database_schema, "team": team}
 
     await MaxPublicEval(
         experiment_name="tool_generate_hogql_query",
         task=call_generate_hogql_query,
-        scores=[SQLSyntaxCorrectness(), sql_semantics_scorer],
+        scores=[sql_syntax_scorer, sql_semantics_scorer],
         data=[
             EvalCase(
                 input=EvalInput(instructions="List all events from the last 7 days"),
