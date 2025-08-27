@@ -156,18 +156,6 @@ class TestConversation(APIBaseTest):
                 self.assertEqual(str(workflow_inputs.trace_id), trace_id)
                 self.assertEqual(workflow_inputs.message["content"], "test query")
 
-    def test_can_access_other_users_conversation_in_same_project(self):
-        conversation = Conversation.objects.create(user=self.other_user, team=self.team)
-
-        self.client.force_login(self.user)
-        with patch("ee.api.conversation.Assistant.astream", return_value=_async_generator()):
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/conversations/",
-                {"conversation": conversation.id, "content": "test query", "trace_id": str(uuid.uuid4())},
-            )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
     def test_cant_access_other_teams_conversation(self):
         conversation = Conversation.objects.create(user=self.user, team=self.other_team)
 
@@ -319,9 +307,8 @@ class TestConversation(APIBaseTest):
         response = self.client.patch(
             f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
         )
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        conversation.refresh_from_db()
-        self.assertEqual(conversation.status, Conversation.Status.CANCELING)
+        # This should now fail because cancel action also filters by user
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_cancel_other_teams_conversation(self):
         conversation = Conversation.objects.create(user=self.user, team=self.other_team)
@@ -558,7 +545,10 @@ class TestConversation(APIBaseTest):
             user=self.other_user, team=self.team, title="Other user conversation", type=Conversation.Type.ASSISTANT
         )
 
-        with patch("ee.api.conversation.Assistant.astream", return_value=_async_generator()):
+        with patch(
+            "ee.hogai.stream.conversation_stream.ConversationStreamManager.astream",
+            return_value=_async_generator(),
+        ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/conversations/",
                 {
@@ -567,8 +557,8 @@ class TestConversation(APIBaseTest):
                     "trace_id": str(uuid.uuid4()),
                 },
             )
-            # This should fail because create action filters by user=self.request.user
-            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+            # This should fail because create action prevents access to other users' conversations
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_cannot_access_other_users_conversation_for_cancel_action(self):
         """Test that cancel action cannot use other user's conversation ID"""
@@ -579,7 +569,7 @@ class TestConversation(APIBaseTest):
         response = self.client.patch(
             f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
         )
-        # This should fail because cancel action filters by user=self.request.user
+
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_conversations_ordered_by_updated_at_descending(self):
