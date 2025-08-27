@@ -387,7 +387,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 size: messages.length,
             })
 
-            return await this.runInstrumented('handleEachBatch', async () => {
+            return await instrumentFn('cdpConsumer.handleEachBatch', async () => {
                 const invocationGlobals = await this._parseKafkaBatch(messages)
                 const { backgroundTask } = await this.processBatch(invocationGlobals)
 
