@@ -89,7 +89,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
             {surveyLoading ? (
                 <LemonSkeleton />
             ) : (
-                <SceneContent forceNewSpacing>
+                <SceneContent>
                     <PageHeader
                         buttons={
                             <div className="flex gap-2 items-center">
