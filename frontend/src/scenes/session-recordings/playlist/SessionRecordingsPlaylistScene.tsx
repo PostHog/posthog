@@ -63,14 +63,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
             return false
         }
 
-        // A playlist is considered new if:
-        // 1. It has no name (empty/null), OR
-        // 2. It was created recently (within last 30 seconds), OR
-        const now = new Date()
-        const createdAt = new Date(playlist.created_at)
-        const isRecentlyCreated = now.getTime() - createdAt.getTime() < 30000 // 30 seconds
-
-        return !playlist.name || isRecentlyCreated
+        return !playlist.name
     }, [playlist, playlistLoading])
 
     if (playlistLoading) {
