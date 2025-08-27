@@ -12,11 +12,15 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
@@ -84,7 +88,7 @@ const Tiles = (): JSX.Element => {
 
 const IngestionStatusCheck = (): JSX.Element | null => {
     return (
-        <LemonBanner type="warning" className="mt-2">
+        <LemonBanner type="warning">
             <p>
                 <strong>No LLM generation events have been detected!</strong>
             </p>
@@ -251,6 +255,8 @@ export function LLMAnalyticsScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
 
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
+
     const tabs: LemonTab<string>[] = [
         {
             key: 'dashboard',
@@ -310,8 +316,25 @@ export function LLMAnalyticsScene(): JSX.Element {
                 }
             />
 
-            {!hasSentAiGenerationEventLoading && !hasSentAiGenerationEvent && <IngestionStatusCheck />}
-            <LemonTabs activeKey={activeTab} data-attr="llm-analytics-tabs" tabs={tabs} />
+            <SceneContent>
+                {!hasSentAiGenerationEventLoading && !hasSentAiGenerationEvent && <IngestionStatusCheck />}
+                <SceneTitleSection
+                    name="LLM Analytics"
+                    description="Analyze and understand your LLM usage and performance."
+                    resourceType={{
+                        type: 'ai',
+                        typePlural: 'LLM Analytics',
+                    }}
+                />
+                <SceneDivider />
+
+                <LemonTabs
+                    activeKey={activeTab}
+                    data-attr="llm-analytics-tabs"
+                    tabs={tabs}
+                    sceneInset={newSceneLayout}
+                />
+            </SceneContent>
         </BindLogic>
     )
 }

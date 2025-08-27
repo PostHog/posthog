@@ -8,15 +8,24 @@ import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION } from '@opentelemetry/semantic
 import { defaultConfig } from '~/config/config'
 import { logger } from '~/utils/logger'
 
+import { CappedSiblingsExporter } from './config/capped-siblings-exporter'
+
+const baseExporter = new OTLPTraceExporter({
+    url: defaultConfig.OTEL_EXPORTER_OTLP_ENDPOINT,
+})
+
+const traceExporter = new CappedSiblingsExporter(baseExporter, {
+    maxPerGroup: defaultConfig.OTEL_MAX_SPANS_PER_GROUP, // keep 2 siblings per (traceId,parent,name)
+    minDurationMs: defaultConfig.OTEL_MIN_SPAN_DURATION_MS, // always keep >=50ms
+})
+
 // W3C is default; keep it for header interop
 const sdk = new NodeSDK({
     resource: resourceFromAttributes({
         [ATTR_SERVICE_NAME]: `node-${defaultConfig.PLUGIN_SERVER_MODE ?? 'plugin-server'}`,
         [ATTR_SERVICE_VERSION]: process.env.COMMIT_SHA ?? 'dev',
     }),
-    traceExporter: new OTLPTraceExporter({
-        url: defaultConfig.OTEL_EXPORTER_OTLP_ENDPOINT,
-    }),
+    traceExporter,
     instrumentations: [getNodeAutoInstrumentations()],
     sampler: new ParentBasedSampler({
         root: new TraceIdRatioBasedSampler(defaultConfig.OTEL_TRACES_SAMPLER_ARG),
