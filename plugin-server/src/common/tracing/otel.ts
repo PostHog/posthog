@@ -32,7 +32,6 @@ export const initTracing = (): void => {
         minDurationMs: defaultConfig.OTEL_MIN_SPAN_DURATION_MS, // always keep >=50ms
     })
 
-    // W3C is default; keep it for header interop
     sdk = new NodeSDK({
         resource: resourceFromAttributes({
             [ATTR_SERVICE_NAME]: `node-${defaultConfig.PLUGIN_SERVER_MODE ?? 'plugin-server'}`,
@@ -43,8 +42,6 @@ export const initTracing = (): void => {
         sampler: new ParentBasedSampler({
             root: new TraceIdRatioBasedSampler(defaultConfig.OTEL_TRACES_SAMPLER_ARG),
         }),
-
-        // add your DB/HTTP instrumentations as needed
     })
     sdk.start()
 }
