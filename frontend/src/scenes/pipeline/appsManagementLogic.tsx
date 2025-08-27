@@ -1,9 +1,10 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { afterMountAndOrganization } from 'lib/utils/kea-logic-builders'
 import { userLogic } from 'scenes/userLogic'
 
 import { PluginInstallationType, PluginType } from '~/types'
@@ -247,7 +248,7 @@ export const appsManagementLogic = kea<appsManagementLogicType>([
             actions.checkedForUpdates()
         },
     })),
-    afterMount(({ actions }) => {
+    afterMountAndOrganization(({ actions }) => {
         actions.loadPlugins()
         actions.loadUnusedPlugins()
         actions.checkForUpdates()

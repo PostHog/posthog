@@ -1,10 +1,11 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { afterMountAndOrganization } from 'lib/utils/kea-logic-builders'
 import { membershipLevelToName } from 'lib/utils/permissioning'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
@@ -190,7 +191,7 @@ export const teamMembersLogic = kea<teamMembersLogicType>([
             actions.resetAddMembers()
         },
     })),
-    afterMount(({ actions }) => {
+    afterMountAndOrganization(({ actions }) => {
         actions.loadMembers()
         membersLogic.actions.ensureAllMembersLoaded()
     }),
