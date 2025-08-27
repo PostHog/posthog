@@ -743,6 +743,35 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "status": StringDatabaseField(name="status"),
         "transfer_reversal": StringDatabaseField(name="transfer_reversal"),
     },
+    "stripe_customerbalancetransaction": {
+        "amount": IntegerDatabaseField(name="amount"),
+        "checkout_session_id": StringDatabaseField(name="checkout_session"),
+        "__created": IntegerDatabaseField(name="created", hidden=True),
+        "created_at": ast.ExpressionField(
+            isolate_scope=True,
+            expr=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Call(
+                        name="toString",
+                        args=[ast.Field(chain=["__created"])],
+                    )
+                ],
+            ),
+            name="created_at",
+        ),
+        "credit_note": StringDatabaseField(name="credit_note"),
+        "currency": StringDatabaseField(name="currency"),
+        "description": StringDatabaseField(name="description"),
+        "ending_balance": IntegerDatabaseField(name="ending_balance"),
+        "id": StringDatabaseField(name="id"),
+        "customer_id": StringDatabaseField(name="customer"),
+        "invoice_id": StringDatabaseField(name="invoice"),
+        "livemode": BooleanDatabaseField(name="livemode"),
+        "metadata": StringJSONDatabaseField(name="metadata"),
+        "object": StringDatabaseField(name="object"),
+        "type": StringDatabaseField(name="type"),
+    },
     "zendesk_brands": {
         "id": IntegerDatabaseField(name="id"),
         "url": StringDatabaseField(name="url"),
