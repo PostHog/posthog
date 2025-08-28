@@ -1119,7 +1119,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
         },
         markViewed: async ({ delay }, breakpoint) => {
-            // Triggered on first paint
             breakpoint()
             if (
                 props.playerKey?.startsWith('file-') ||
