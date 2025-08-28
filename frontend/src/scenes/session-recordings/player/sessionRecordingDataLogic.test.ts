@@ -39,16 +39,10 @@ import { MUTATION_CHUNK_SIZE } from './snapshot-processing/chunk-large-mutations
 const sortedRecordingSnapshotsJson = sortedRecordingSnapshots()
 
 const BLOB_SOURCE: SessionRecordingSnapshotSource = {
-    source: 'blob',
+    source: 'blob_v2',
     start_timestamp: '2023-08-11T12:03:36.097000Z',
     end_timestamp: '2023-08-11T12:04:52.268000Z',
-    blob_key: '1691755416097-1691755492268',
-}
-const REALTIME_SOURCE: SessionRecordingSnapshotSource = {
-    source: 'realtime',
-    start_timestamp: '2024-01-28T21:19:49.217000Z',
-    end_timestamp: undefined,
-    blob_key: undefined,
+    blob_key: '0',
 }
 
 describe('sessionRecordingDataLogic', () => {
@@ -59,28 +53,15 @@ describe('sessionRecordingDataLogic', () => {
         useMocks({
             get: {
                 '/api/environments/:team_id/session_recordings/:id/snapshots': async (req, res, ctx) => {
-                    // with no sources, returns sources...
-                    if (req.url.searchParams.get('source') === 'blob') {
-                        return res(ctx.text(snapshotsAsJSONLines()))
-                    } else if (req.url.searchParams.get('source') === 'realtime') {
-                        if (req.params.id === 'has-only-empty-realtime') {
-                            return res(ctx.json([]))
-                        }
+                    if (req.url.searchParams.get('source') === 'blob_v2') {
                         return res(ctx.text(snapshotsAsJSONLines()))
                     }
 
                     // with no source requested should return sources
-                    let sources = [BLOB_SOURCE]
-                    if (req.params.id === 'has-real-time-too') {
-                        sources.push(REALTIME_SOURCE)
-                    }
-                    if (req.params.id === 'has-only-empty-realtime') {
-                        sources = [REALTIME_SOURCE]
-                    }
                     return [
                         200,
                         {
-                            sources,
+                            sources: [BLOB_SOURCE],
                         },
                     ]
                 },
@@ -96,8 +77,7 @@ describe('sessionRecordingDataLogic', () => {
         initKeaTests()
         logic = sessionRecordingDataLogic({
             sessionRecordingId: '2',
-            // we don't want to wait for the default real-time polling interval in tests
-            realTimePollingIntervalMilliseconds: 10,
+            pollingDisabled: true,
         })
         logic.mount()
         // Most of these tests assume the metadata is being loaded upfront which is the typical case
@@ -212,8 +192,7 @@ describe('sessionRecordingDataLogic', () => {
             initKeaTests()
             logic = sessionRecordingDataLogic({
                 sessionRecordingId: '2',
-                // we don't want to wait for the default real time polling interval in tests
-                realTimePollingIntervalMilliseconds: 10,
+                pollingDisabled: true,
             })
             logic.mount()
             logic.actions.loadRecordingMeta()
@@ -288,7 +267,7 @@ describe('sessionRecordingDataLogic', () => {
     describe('deduplicateSnapshots', () => {
         const sources: SessionRecordingSnapshotSource[] = [
             {
-                source: 'blob',
+                source: 'blob_v2',
                 start_timestamp: '2025-05-14T15:37:18.897000Z',
                 end_timestamp: '2025-05-14T15:42:18.378000Z',
                 blob_key: '1',
@@ -358,20 +337,19 @@ describe('sessionRecordingDataLogic', () => {
         })
     })
 
-    describe('blob and realtime loading', () => {
+    describe('blob loading', () => {
         beforeEach(async () => {
             // load a different session
             logic = sessionRecordingDataLogic({
-                sessionRecordingId: 'has-real-time-too',
-                // we don't want to wait for the default real time polling interval in tests
-                realTimePollingIntervalMilliseconds: 10,
+                sessionRecordingId: '2',
+                pollingDisabled: true,
             })
             logic.mount()
             // Most of these tests assume the metadata is being loaded upfront which is the typical case
             logic.actions.loadRecordingMeta()
         })
 
-        it('loads each source, and on success reports recording viewed', async () => {
+        it('loads each source', async () => {
             await expectLogic(logic, () => {
                 logic.actions.loadSnapshots()
                 // loading the snapshots will trigger a loadSnapshotsForSourceSuccess
@@ -383,45 +361,7 @@ describe('sessionRecordingDataLogic', () => {
                 // the response to that triggers loading of the first item which is the blob source
                 (action) =>
                     action.type === logic.actionTypes.loadSnapshotsForSource &&
-                    action.payload.sources?.[0]?.source === 'blob',
-                'loadSnapshotsForSourceSuccess',
-                // the response to the success action triggers loading of the second item which is the realtime source
-                (action) =>
-                    action.type === logic.actionTypes.loadSnapshotsForSource &&
-                    action.payload.sources?.[0]?.source === 'realtime',
-                'loadSnapshotsForSourceSuccess',
-                // having loaded any real time data we start polling to check for more
-                'pollRealtimeSnapshots',
-                // which in turn triggers another load
-                (action) =>
-                    action.type === logic.actionTypes.loadSnapshotsForSource &&
-                    action.payload.sources?.[0]?.source === 'realtime',
-                'loadSnapshotsForSourceSuccess',
-            ])
-        })
-    })
-
-    describe('empty realtime loading', () => {
-        beforeEach(async () => {
-            logic = sessionRecordingDataLogic({
-                sessionRecordingId: 'has-only-empty-realtime',
-                // we don't want to wait for the default real time polling interval in tests
-                realTimePollingIntervalMilliseconds: 10,
-            })
-            logic.mount()
-            // Most of these tests assume the metadata is being loaded upfront which is the typical case
-            logic.actions.loadRecordingMeta()
-        })
-
-        it('should start polling even though realtime is empty', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.loadSnapshots()
-            }).toDispatchActions([
-                'loadSnapshots',
-                'loadSnapshotSourcesSuccess',
-                'loadNextSnapshotSource',
-                'pollRealtimeSnapshots',
-                'loadSnapshotsForSource',
+                    action.payload.sources?.[0]?.source === 'blob_v2',
                 'loadSnapshotsForSourceSuccess',
             ])
         })
@@ -452,7 +392,6 @@ describe('sessionRecordingDataLogic', () => {
         })
     })
 
-    // TODO need chunking tests for blob_v2 sources before we deprecate blob_v1
     describe('mutation chunking', () => {
         const createMutationSnapshot = (addsCount: number): RecordingSnapshot =>
             ({
