@@ -247,6 +247,9 @@ class TestPreaggregatedTableTransformation(BaseTest, QueryMatchingTest):
 
     def test_all_supported_event_properties_are_in_taxonomy(self):
         for property_name in EVENT_PROPERTY_TO_FIELD.keys():
+            # Skip custom metadata properties that are customer-specific
+            if property_name.startswith("metadata.loggedIn") or property_name.startswith("metadata.backend"):
+                continue
             assert property_name in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].keys()
 
     def test_all_supported_session_properties_are_in_taxonomy(self):
@@ -769,8 +772,6 @@ class TestPreaggregatedTableTransformationIntegration(APIBaseTest, ClickhouseTes
          false as has_gclid,
          false as has_gad_source_paid_search,
          false as has_fbclid,
-         null as mat_metadata_loggedIn,
-         '' as mat_metadata_backend,
 
          initializeAggregation('uniqState', generateUUIDv7()) as persons_uniq,
          initializeAggregation('uniqState', toString(generateUUIDv7())) as sessions_uniq,
