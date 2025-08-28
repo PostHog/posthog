@@ -512,7 +512,7 @@ class TestSummarizeSessionGroupWorkflow:
         self,
         session_ids: list[str],
         mock_call_llm: Callable,
-        mock_team: MagicMock,
+        team: Team,
         mock_raw_metadata: dict[str, Any],
         mock_valid_event_ids: list[str],
         mock_patterns_extraction_yaml_response: str,
@@ -550,7 +550,7 @@ class TestSummarizeSessionGroupWorkflow:
                 new=AsyncMock(side_effect=call_llm_side_effects),
             ),
             # Mock DB calls
-            patch("posthog.temporal.ai.session_summary.summarize_session_group.get_team", return_value=mock_team),
+            patch("posthog.temporal.ai.session_summary.summarize_session_group.get_team", return_value=team),
             patch(
                 "posthog.temporal.ai.session_summary.summarize_session_group.SessionReplayEvents.get_group_metadata",
                 return_value=MockMetadataDict(),
@@ -575,7 +575,7 @@ class TestSummarizeSessionGroupWorkflow:
         self,
         session_ids: list[str],
         mock_call_llm: Callable,
-        mock_team: MagicMock,
+        team: Team,
         mock_raw_metadata: dict[str, Any],
         mock_valid_event_ids: list[str],
         mock_patterns_extraction_yaml_response: str,
@@ -587,7 +587,7 @@ class TestSummarizeSessionGroupWorkflow:
         with self.execute_test_environment(
             session_ids,
             mock_call_llm,
-            mock_team,
+            team,
             mock_raw_metadata,
             mock_valid_event_ids,
             mock_patterns_extraction_yaml_response,
@@ -617,8 +617,8 @@ class TestSummarizeSessionGroupWorkflow:
         mock_session_id: str,
         mock_session_group_summary_inputs: Callable,
         identifier_suffix: str,
-        mock_user: MagicMock,
-        mock_team: MagicMock,
+        user_id: int,
+        team_id: int,
     ) -> tuple[list[str], str, SessionGroupSummaryInputs]:
         # Prepare test data
         session_ids = [
@@ -626,9 +626,7 @@ class TestSummarizeSessionGroupWorkflow:
             f"{mock_session_id}-2-{identifier_suffix}",
         ]
         redis_input_key_base = f"test_group_fetch_{identifier_suffix}_base"
-        workflow_input = mock_session_group_summary_inputs(
-            session_ids, mock_team.id, mock_user.id, redis_input_key_base
-        )
+        workflow_input = mock_session_group_summary_inputs(session_ids, team_id, user_id, redis_input_key_base)
         workflow_id = f"test_workflow_{identifier_suffix}_{uuid.uuid4()}"
         return session_ids, workflow_id, workflow_input
 
@@ -692,7 +690,8 @@ class TestSummarizeSessionGroupWorkflow:
         self,
         mocker: MockerFixture,
         mock_session_id: str,
-        mock_team: MagicMock,
+        auser: User,
+        ateam: Team,
         mock_call_llm: Callable,
         mock_raw_metadata: dict[str, Any],
         mock_valid_event_ids: list[str],
@@ -701,18 +700,34 @@ class TestSummarizeSessionGroupWorkflow:
         mock_patterns_assignment_yaml_response: str,
         mock_cached_session_batch_events_query_response_factory: Callable,
         redis_test_setup: AsyncRedisTestContext,
+        mock_session_summary_serializer: SessionSummarySerializer,
     ):
         """Test that the workflow completes successfully and returns the expected result"""
         session_ids, workflow_id, workflow_input = self.setup_workflow_test(
-            mock_session_id, mock_session_group_summary_inputs, "success"
+            mock_session_id, mock_session_group_summary_inputs, "success", auser.id, ateam.id
         )
-        # Set up spies to track Redis operations
+
+        # Store session summaries in DB for each session (following the new approach)
+        for session_id in session_ids:
+            await database_sync_to_async(SingleSessionSummary.objects.add_summary)(
+                team_id=ateam.id,
+                session_id=session_id,
+                summary=mock_session_summary_serializer,
+                exception_event_ids=[],
+                extra_summary_context=workflow_input.extra_summary_context,
+                created_by=auser,
+            )
+
+        # Set up spies to track Redis and DB operations
         spy_get = mocker.spy(redis_test_setup.redis_client, "get")
         spy_setex = mocker.spy(redis_test_setup.redis_client, "setex")
+        spy_db_summaries_exist = mocker.spy(SingleSessionSummary.objects, "summaries_exist")
+        spy_db_add_summary = mocker.spy(SingleSessionSummary.objects, "add_summary")
+        spy_db_get_bulk_summaries = mocker.spy(SingleSessionSummary.objects, "get_bulk_summaries")
         async with self.temporal_workflow_test_environment(
             session_ids,
             mock_call_llm,
-            mock_team,
+            ateam,
             mock_raw_metadata,
             mock_valid_event_ids,
             mock_patterns_extraction_yaml_response,
@@ -730,27 +745,36 @@ class TestSummarizeSessionGroupWorkflow:
             # Verify the result is of the correct type
             assert isinstance(result, EnrichedSessionGroupSummaryPatternsList)
             # Verify Redis operations
-            # Operations: session data storage (2) + session summaries (2) + pattern extraction (1) + pattern assignment (1)
-            assert spy_setex.call_count == 6
-            # Operations:
-            # - try to get cached DB data for 2 sessions (2) - fetch_session_batch_events_activity
-            # - try to get cached single-session summaries for 2 sessions (2) - fetch_session_batch_events_activity
-            # - get cached DB data for 2 sessions (2) - fetch_session_batch_events_activity
-            # - get cached DB data for 2 sessions (2) - split_session_summaries_into_chunks_for_patterns_extraction_activity
-            # - nothing from combine_patterns_from_chunks_activity, as only one chunk, so no combination step
-            # - try to get cached extracted patterns from all sessions (1) - extract_session_group_patterns_activity
-            # - get cached single-session summaries for 2 sessions (2) - extract_session_group_patterns_activity
-            # - try to get cached patterns assignments for all sessions (1) - assign_events_to_patterns_activity
-            # - get cached extracted patterns for all sessions (1) - assign_events_to_patterns_activity
-            # - get cached single-session summaries for 2 sessions (2) - assign_events_to_patterns_activity
-            # - get cached DB data for 2 sessions (2) - assign_events_to_patterns_activity
-            assert spy_get.call_count == 17
+            # Since summaries are pre-stored in DB, only pattern-related Redis operations occur:
+            # setex operations: pattern extraction (1) + pattern assignment (1)
+            assert spy_setex.call_count == 2
+            # get operations:
+            # - check if patterns already cached (1) - extract_session_group_patterns_activity
+            # - check if pattern assignments already cached (1) - assign_events_to_patterns_activity
+            # - get extracted patterns for assignment (1) - assign_events_to_patterns_activity
+            # - get patterns for progress tracking (2) - from workflow status queries
+            assert spy_get.call_count == 5
+            # Verify DB operations
+            # summaries_exist checks:
+            # - check which sessions have summaries as batch (1) - fetch_session_batch_events_activity
+            # - check for individual sessions (2) - from workflow status queries/debugging
+            assert spy_db_summaries_exist.call_count == 3
+            # get_bulk_summaries calls:
+            # - split into chunks activity (1) via get_ready_summaries_from_db
+            # - pattern extraction activity (1 retry, 3 total calls) via get_ready_summaries_from_db
+            # - pattern assignment activity (1) via get_ready_summaries_from_db
+            assert spy_db_get_bulk_summaries.call_count == 5
+            # add_summary calls:
+            # - initial test setup added 2 summaries (not counted as they happen before spy setup)
+            # - no additional summaries should be added during workflow execution
+            assert spy_db_add_summary.call_count == 0
 
     @pytest.mark.asyncio
     async def test_workflow_progress_tracking(
         self,
         mock_session_id: str,
-        mock_team: MagicMock,
+        auser: User,
+        ateam: Team,
         mock_call_llm: Callable,
         mock_raw_metadata: dict[str, Any],
         mock_valid_event_ids: list[str],
@@ -759,17 +783,29 @@ class TestSummarizeSessionGroupWorkflow:
         mock_patterns_assignment_yaml_response: str,
         mock_cached_session_batch_events_query_response_factory: Callable,
         redis_test_setup: AsyncRedisTestContext,
+        mock_session_summary_serializer: SessionSummarySerializer,
     ):
         """Test that workflow progress tracking updates status correctly throughout execution"""
         session_ids, workflow_id, workflow_input = self.setup_workflow_test(
-            mock_session_id, mock_session_group_summary_inputs, "progress"
+            mock_session_id, mock_session_group_summary_inputs, "progress", auser.id, ateam.id
         )
+
+        # Store session summaries in DB for each session (following the new approach)
+        for session_id in session_ids:
+            await database_sync_to_async(SingleSessionSummary.objects.add_summary)(
+                team_id=ateam.id,
+                session_id=session_id,
+                summary=mock_session_summary_serializer,
+                exception_event_ids=[],
+                extra_summary_context=workflow_input.extra_summary_context,
+                created_by=auser,
+            )
         # Track status updates during workflow execution
         status_updates: list[tuple[tuple[str, str], int]] = []
         async with self.temporal_workflow_test_environment(
             session_ids,
             mock_call_llm,
-            mock_team,
+            ateam,
             mock_raw_metadata,
             mock_valid_event_ids,
             mock_patterns_extraction_yaml_response,
