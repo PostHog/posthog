@@ -16,7 +16,7 @@ def add_attribution_fields_to_table(table_name: str) -> str:
 
 
 ADD_MAT_METADATA_FIELDS_SQL = """
-ALTER TABLE IF EXISTS {table_name}
+ALTER TABLE {table_name}
 ADD COLUMN IF NOT EXISTS
 mat_metadata_loggedIn Nullable(Bool),
 ADD COLUMN IF NOT EXISTS

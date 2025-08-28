@@ -48,6 +48,42 @@ def HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, ttl=None, on_cluster=Tr
     """
 
 
+def _DROP_TABLE_TEMPLATE(table_name: str):
+    return f"DROP TABLE IF EXISTS {table_name} {ON_CLUSTER_CLAUSE()}"
+
+
+def DROP_WEB_STATS_SQL():
+    return _DROP_TABLE_TEMPLATE("web_pre_aggregated_stats")
+
+
+def DROP_WEB_BOUNCES_SQL():
+    return _DROP_TABLE_TEMPLATE("web_pre_aggregated_bounces")
+
+
+def DROP_WEB_STATS_DAILY_SQL():
+    return _DROP_TABLE_TEMPLATE("web_stats_daily")
+
+
+def DROP_WEB_BOUNCES_DAILY_SQL():
+    return _DROP_TABLE_TEMPLATE("web_bounces_daily")
+
+
+def DROP_WEB_STATS_HOURLY_SQL():
+    return _DROP_TABLE_TEMPLATE("web_stats_hourly")
+
+
+def DROP_WEB_BOUNCES_HOURLY_SQL():
+    return _DROP_TABLE_TEMPLATE("web_bounces_hourly")
+
+
+def DROP_WEB_STATS_STAGING_SQL():
+    return _DROP_TABLE_TEMPLATE("web_pre_aggregated_stats_staging")
+
+
+def DROP_WEB_BOUNCES_STAGING_SQL():
+    return _DROP_TABLE_TEMPLATE("web_pre_aggregated_bounces_staging")
+
+
 WEB_ANALYTICS_DIMENSIONS = [
     "entry_pathname",
     "end_pathname",
@@ -81,12 +117,8 @@ def get_dimension_columns(dimensions):
     for d in dimensions:
         if d in ["viewport_width", "viewport_height"]:
             column_definitions.append(f"{d} Int64")
-        elif d in ["has_gclid", "has_gad_source_paid_search", "has_fbclid"]:
+        elif d in ["has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_loggedIn"]:
             column_definitions.append(f"{d} Bool")
-        elif d == "mat_metadata_loggedIn":
-            column_definitions.append(f"{d} Nullable(Bool)")
-        elif d == "mat_metadata_backend":
-            column_definitions.append(f"{d} Nullable(String)")
         else:
             column_definitions.append(f"{d} String")
     return ",\n".join(column_definitions)

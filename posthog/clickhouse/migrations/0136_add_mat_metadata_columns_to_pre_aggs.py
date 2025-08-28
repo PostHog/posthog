@@ -25,6 +25,7 @@ operations = [
         node_role=NodeRole.ALL,
         is_alter_on_replicated_table=True,
     ),
+    # Below are the v1 tables, let's keep the same schema on them to keep things compatible
     run_sql_with_exceptions(
         add_mat_metadata_fields_to_table("web_stats_hourly"),
         node_role=NodeRole.ALL,

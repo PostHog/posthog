@@ -237,7 +237,6 @@ class TestWebPreaggregatedInserts(WebAnalyticsPreAggregatedTestBase):
             )
 
     def test_insert_queries_can_execute(self, date_start: str = "2024-01-01", date_end: str = "2024-01-02"):
-
         bounces_insert = WEB_BOUNCES_INSERT_SQL(
             date_start=date_start,
             date_end=date_end,
