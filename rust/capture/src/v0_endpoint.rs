@@ -14,7 +14,9 @@ use serde_json::json;
 use serde_json::Value;
 use tracing::{debug, error, instrument, warn, Span};
 
-use crate::prometheus::{report_dropped_events, report_internal_error_metrics};
+use crate::prometheus::{
+    report_dropped_events, report_internal_error_metrics, report_quota_limit_exceeded,
+};
 use crate::v0_request::{
     DataType, ProcessedEvent, ProcessedEventMetadata, ProcessingContext, RawRequest,
 };
@@ -46,6 +48,41 @@ fn is_ai_event(event_name: &str) -> bool {
     event_name.starts_with("$ai_")
 }
 
+/// Check for billing quota limiting and filter out billing events if quota exceeded
+/// IMPORTANT: this should be the LAST LIMITER CHECK APPLIED in the event processing pipeline!
+/// TODO: remove EXCEPTION EVENT filtering and replace with a billing limiter for exceptions
+async fn check_billing_quota_and_filter(
+    state: &crate::router::State,
+    context: &ProcessingContext,
+    events: Vec<RawEvent>,
+) -> Result<Vec<RawEvent>, CaptureError> {
+    let billing_limited = state
+        .billing_limiter
+        .is_limited(context.token.as_str())
+        .await;
+
+    if billing_limited {
+        let (retained_events, dropped_events): (Vec<_>, Vec<_>) = events
+            .into_iter()
+            // TODO: remove retention of $exception events once we have a billing limiter for exceptions
+            .partition(|e| e.event == "$exception");
+
+        let dropped_count = dropped_events.len() as u64;
+        if dropped_count > 0 {
+            report_quota_limit_exceeded("billing", dropped_count);
+            report_dropped_events("billing_over_quota", dropped_count);
+        }
+
+        if retained_events.is_empty() {
+            return Err(CaptureError::BillingLimit);
+        }
+
+        return Ok(retained_events);
+    }
+
+    Ok(events)
+}
+
 /// Check for survey quota limiting and filter out survey events if quota exceeded
 /// Simple all-or-nothing operation: if survey quota is exceeded, drop all survey events.
 async fn check_survey_quota_and_filter(
@@ -64,9 +101,10 @@ async fn check_survey_quota_and_filter(
             .into_iter()
             .partition(|event| is_survey_event(&event.event));
 
-        let dropped_count = survey_events.len();
+        let dropped_count = survey_events.len() as u64;
         if dropped_count > 0 {
-            report_dropped_events("survey_over_quota", dropped_count as u64);
+            report_quota_limit_exceeded("survey", dropped_count);
+            report_dropped_events("survey_over_quota", dropped_count);
         }
 
         // If no events remain, return billing limit error
@@ -98,9 +136,10 @@ async fn check_llm_events_quota_and_filter(
             .into_iter()
             .partition(|event| is_ai_event(&event.event));
 
-        let dropped_count = llm_events.len();
+        let dropped_count = llm_events.len() as u64;
         if dropped_count > 0 {
-            report_dropped_events("llm_events_over_quota", dropped_count as u64);
+            report_quota_limit_exceeded("llm_events", dropped_count);
+            report_dropped_events("llm_events_over_quota", dropped_count);
         }
 
         // If no events remain, return billing limit error
@@ -298,29 +337,18 @@ async fn handle_event_payload(
         user_agent: Some(user_agent.to_string()),
     };
 
-    let billing_limited = state
-        .billing_limiter
-        .is_limited(context.token.as_str())
-        .await;
+    debug!(context=?context, "handle_event_payload: evaluating quota limits");
 
-    if billing_limited {
-        let start_len = events.len();
-        // TODO - right now the exception billing limits are applied only in ET's pipeline,
-        // we should apply both ET and PA limits here, and remove both types of events as needed.
-        events.retain(|e| {
-            e.event == "$exception" || is_survey_event(&e.event) || is_ai_event(&e.event)
-        });
-        report_dropped_events("over_quota", (start_len - events.len()) as u64);
-        if events.is_empty() {
-            return Err(CaptureError::BillingLimit);
-        }
-    }
-
-    // Check for survey quota limiting if any events are survey-related
+    // Apply survey quota limiting
     events = check_survey_quota_and_filter(state, &context, events).await?;
 
-    // Check for AI events quota limiting if any events are AI-related
+    // Apply LLM events quota limiting
     events = check_llm_events_quota_and_filter(state, &context, events).await?;
+
+    // add more quota limiters here (e.g. error tracking!)
+
+    // Apply billing quota limiting (IMPORTANT: this should ALWAYS be evaluated last!)
+    events = check_billing_quota_and_filter(state, &context, events).await?;
 
     debug!(context=?context,
         event_count=?events.len(),
