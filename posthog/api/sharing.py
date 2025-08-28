@@ -471,10 +471,14 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 jwt_token = resource.generate_password_protected_token()
                 response_data = response.Response({"shareToken": jwt_token})
                 # Set HTTP-only cookie that expires with the JWT (24 hours)
+                # Scope the cookie to this specific share path to avoid conflicts between shares
+                access_token = self.kwargs.get("access_token", "").split(".")[0]
+                cookie_path = f"/shared/{access_token}"
                 response_data.set_cookie(
                     "posthog_sharing_token",
                     jwt_token,
                     max_age=24 * 60 * 60,  # 24 hours in seconds
+                    path=cookie_path,
                     httponly=True,
                     secure=request.is_secure(),
                     samesite="Lax",
