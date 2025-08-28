@@ -1149,6 +1149,8 @@ class ExperimentMetricMathType(StrEnum):
     MIN = "min"
     MAX = "max"
     AVG = "avg"
+    DAU = "dau"
+    UNIQUE_GROUP = "unique_group"
     HOGQL = "hogql"
 
 

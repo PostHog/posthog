@@ -87,6 +87,14 @@ def get_source_value_expr(source: Union[EventsNode, ActionsNode, ExperimentDataW
                 return ast.Call(name="toFloat", args=[ast.Field(chain=["properties", metric_property])])
         elif hasattr(source, "math") and source.math == ExperimentMetricMathType.UNIQUE_SESSION:
             return ast.Field(chain=["$session_id"])
+        elif hasattr(source, "math") and source.math == ExperimentMetricMathType.DAU:
+            return ast.Field(chain=["person_id"])
+        elif (
+            hasattr(source, "math")
+            and source.math == ExperimentMetricMathType.UNIQUE_GROUP
+            and source.math_group_type_index
+        ):
+            return ast.Field(chain=[f"$group_{int(source.math_group_type_index)}"])
         elif (
             hasattr(source, "math")
             and source.math == ExperimentMetricMathType.HOGQL
@@ -561,7 +569,11 @@ def get_source_aggregation_expr(
     """
     if isinstance(source, EventsNode) or isinstance(source, ActionsNode):
         math_type = getattr(source, "math", None)
-        if math_type == ExperimentMetricMathType.UNIQUE_SESSION:
+        if math_type in [
+            ExperimentMetricMathType.UNIQUE_SESSION,
+            ExperimentMetricMathType.DAU,
+            ExperimentMetricMathType.UNIQUE_GROUP,
+        ]:
             # Clickhouse count NULL and empty values as distinct, so need to explicitly exclude them here
             return parse_expr(
                 f"toFloat(countDistinctIf({table_alias}.value, {table_alias}.value is not null and {table_alias}.value != ''))"
