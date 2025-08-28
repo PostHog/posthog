@@ -1615,6 +1615,7 @@ def team_api_test_factory():
 
             self.organization.available_product_features = [
                 {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "limit": 100},
+                {"key": AvailableFeature.ENVIRONMENTS, "limit": 100},
             ]
             self.organization.save()
 
