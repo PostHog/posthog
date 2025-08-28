@@ -341,12 +341,12 @@ function truncateValue(value: unknown): string {
     if (value === null || value === undefined) {
         return '-'
     }
-    
+
     const stringValue = String(value)
-    
+
     if (stringValue.length <= 12) {
         return stringValue
     }
-    
+
     return stringValue.slice(0, 4) + '...' + stringValue.slice(-4)
 }
