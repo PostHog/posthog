@@ -109,7 +109,10 @@ def build_shared_app_context(team: Team, request: Request) -> dict[str, Any]:
 
 
 class SharePasswordSerializer(serializers.ModelSerializer):
-    created_by_email = serializers.EmailField(source="created_by.email", read_only=True)
+    created_by_email = serializers.SerializerMethodField()
+
+    def get_created_by_email(self, obj):
+        return obj.created_by.email if obj.created_by else "deleted user"
 
     class Meta:
         model = SharePassword
@@ -307,7 +310,7 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
                 "password": raw_password,  # Only returned once on creation
                 "note": share_password.note,
                 "created_at": share_password.created_at,
-                "created_by_email": share_password.created_by.email,
+                "created_by_email": share_password.created_by.email if share_password.created_by else "deleted user",
             },
             status=status.HTTP_201_CREATED,
         )

@@ -41,7 +41,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action, format_paginated_url
-from posthog.auth import SharingAccessTokenAuthentication
+from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 from posthog.caching.fetch_from_cache import InsightResult
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
@@ -850,7 +850,6 @@ class InsightViewSet(
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
-        from posthog.auth import SharingPasswordProtectedAuthentication
 
         context["is_shared"] = isinstance(
             self.request.successful_authenticator,
@@ -867,8 +866,6 @@ class InsightViewSet(
         queryset = self.queryset.filter(team__project_id=self.team.project_id)
 
         include_deleted = False
-
-        from posthog.auth import SharingPasswordProtectedAuthentication
 
         if isinstance(
             self.request.successful_authenticator,

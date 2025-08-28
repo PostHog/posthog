@@ -26,7 +26,9 @@ class SharePassword(models.Model):
     password_hash = models.CharField(max_length=128)
 
     # Metadata about who created this password
-    created_by = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="created_share_passwords")
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, related_name="created_share_passwords"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     # Optional note for the creator to identify this password
@@ -40,7 +42,8 @@ class SharePassword(models.Model):
 
     def __str__(self) -> str:
         note_part = f" ({self.note})" if self.note else ""
-        return f"Password by {self.created_by.email}{note_part} - {self.created_at.strftime('%Y-%m-%d')}"
+        creator = self.created_by.email if self.created_by else "deleted user"
+        return f"Password by {creator}{note_part} - {self.created_at.strftime('%Y-%m-%d')}"
 
     def set_password(self, raw_password: str) -> None:
         """Hash and set the password."""

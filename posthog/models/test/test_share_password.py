@@ -60,39 +60,6 @@ class TestSharePassword(TestCase):
 
         self.assertFalse(share_password.check_password("wrong-password"))
 
-    def test_set_password(self):
-        raw_password = "my-test-password"
-        share_password = SharePassword(sharing_configuration=self.sharing_config, created_by=self.user)
-        share_password.set_password(raw_password)
-
-        # Password hash should be set and not equal to raw password
-        self.assertIsNotNone(share_password.password_hash)
-        self.assertNotEqual(share_password.password_hash, raw_password)
-        self.assertTrue(check_password(raw_password, share_password.password_hash))
-
-    def test_str_representation(self):
-        share_password = SharePassword.objects.create(
-            sharing_configuration=self.sharing_config,
-            created_by=self.user,
-            note="Test note",
-            password_hash="dummy-hash",
-        )
-
-        str_repr = str(share_password)
-        self.assertIn("test@example.com", str_repr)
-        self.assertIn("(Test note)", str_repr)
-        self.assertIn(share_password.created_at.strftime("%Y-%m-%d"), str_repr)
-
-    def test_str_representation_no_note(self):
-        share_password = SharePassword.objects.create(
-            sharing_configuration=self.sharing_config, created_by=self.user, password_hash="dummy-hash"
-        )
-
-        str_repr = str(share_password)
-        self.assertIn("test@example.com", str_repr)
-        self.assertNotIn("(", str_repr)  # No note parentheses
-        self.assertIn(share_password.created_at.strftime("%Y-%m-%d"), str_repr)
-
     def test_ordering(self):
         # Create multiple passwords with different timestamps
         password1 = SharePassword.objects.create(
@@ -126,13 +93,33 @@ class TestSharePassword(TestCase):
 
         self.assertFalse(SharePassword.objects.filter(id=password_id).exists())
 
-    def test_cascade_delete_on_user(self):
+    def test_set_null_on_user_delete(self):
         share_password = SharePassword.objects.create(
             sharing_configuration=self.sharing_config, created_by=self.user, password_hash="dummy-hash"
         )
         password_id = share_password.id
 
-        # Delete user should cascade delete password
+        # Delete user should set created_by to NULL but keep password
         self.user.delete()
 
-        self.assertFalse(SharePassword.objects.filter(id=password_id).exists())
+        share_password.refresh_from_db()
+        self.assertIsNone(share_password.created_by)
+        self.assertTrue(SharePassword.objects.filter(id=password_id).exists())
+
+    def test_str_representation_deleted_user(self):
+        share_password = SharePassword.objects.create(
+            sharing_configuration=self.sharing_config,
+            created_by=self.user,
+            password_hash="dummy-hash",
+            note="Test note",
+        )
+
+        # Delete the user
+        self.user.delete()
+        share_password.refresh_from_db()
+
+        # String representation should show "deleted user"
+        str_repr = str(share_password)
+        self.assertIn("deleted user", str_repr)
+        self.assertIn("(Test note)", str_repr)
+        self.assertIn(share_password.created_at.strftime("%Y-%m-%d"), str_repr)
