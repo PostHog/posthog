@@ -2,7 +2,6 @@ from collections.abc import AsyncGenerator, Callable
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock
 
 import pytest_asyncio
 from redis import (
@@ -23,14 +22,7 @@ from ee.hogai.session_summaries.constants import (
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
 from ee.hogai.session_summaries.tests.conftest import *
-from ee.models.session_summaries import (
-    ExtraSummaryContext,
-    SessionSummaryPage,
-    SessionSummaryRunMeta,
-    SingleSessionSummary,
-)
-
-# TODO: Check for unused fixtures
+from ee.models.session_summaries import ExtraSummaryContext, SessionSummaryRunMeta, SingleSessionSummary
 
 
 @pytest.fixture
@@ -348,133 +340,3 @@ def mock_single_session_summary(
     )
     assert summary is not None, "Summary should exist in DB"
     return summary
-
-
-@pytest.fixture
-def bulk_single_session_summaries(
-    create_single_session_summary,
-    team,
-    user,
-    mock_session_summary_serializer: SessionSummarySerializer,
-) -> Callable:
-    """Factory to create multiple SingleSessionSummary instances."""
-
-    def _create_bulk(
-        session_ids: list[str],
-        extra_summary_context: ExtraSummaryContext | None = None,
-    ) -> list[SingleSessionSummary]:
-        for session_id in session_ids:
-            create_single_session_summary(
-                team_id=team.id,
-                session_id=session_id,
-                summary=mock_session_summary_serializer,
-                exception_event_ids=[],
-                extra_summary_context=extra_summary_context,
-                created_by=user,
-            )
-
-        page = SingleSessionSummary.objects.get_bulk_summaries(
-            team_id=team.id,
-            session_ids=session_ids,
-            extra_summary_context=extra_summary_context,
-            limit=len(session_ids),
-        )
-        return page.results
-
-    return _create_bulk
-
-
-@pytest.fixture
-def mock_single_session_summary_manager(mocker):
-    """Mock SingleSessionSummary.objects manager for unit tests without database"""
-    mock_manager = mocker.patch("ee.models.session_summaries.SingleSessionSummary.objects")
-
-    # Default mock behaviors
-    mock_manager.get_summary.return_value = None
-    mock_manager.add_summary.return_value = None
-    mock_manager.get_bulk_summaries.return_value = SessionSummaryPage(
-        limit=100,
-        has_next=False,
-        results=[],
-    )
-    mock_manager.summaries_exist.return_value = {}
-
-    return mock_manager
-
-
-@pytest.fixture
-def mock_single_session_summary_with_data(
-    mock_single_session_summary_manager,
-    mock_single_session_summary_instance,
-    mock_session_id: str,
-):
-    """Configure mock SingleSessionSummary.objects to return data."""
-    mock_single_session_summary_manager.get_summary.return_value = mock_single_session_summary_instance
-    mock_single_session_summary_manager.get_bulk_summaries.return_value = SessionSummaryPage(
-        limit=100,
-        has_next=False,
-        results=[mock_single_session_summary_instance],
-    )
-    mock_single_session_summary_manager.summaries_exist.return_value = {mock_session_id: True}
-    return mock_single_session_summary_instance
-
-
-@pytest.fixture
-def mock_single_session_summary_instance(
-    mock_session_id: str,
-    mock_session_summary_serializer: SessionSummarySerializer,
-) -> MagicMock:
-    """Create a mock SingleSessionSummary instance."""
-    mock_summary = MagicMock(spec=SingleSessionSummary)
-    mock_summary.session_id = mock_session_id
-    mock_summary.summary = mock_session_summary_serializer.data
-    mock_summary.exception_event_ids = []
-    mock_summary.extra_summary_context = None
-    mock_summary.run_metadata = {}
-    return mock_summary
-
-
-@pytest.fixture
-def mock_get_ready_summaries_from_db(
-    mocker,
-    mock_session_summary_serializer: SessionSummarySerializer,
-):
-    """Mock get_ready_summaries_from_db function for unit tests."""
-    mock_func = mocker.patch("posthog.temporal.ai.session_summary.state.get_ready_summaries_from_db")
-    mock_func.return_value = []
-    return mock_func
-
-
-@pytest.fixture
-def mock_get_ready_summaries_with_data(
-    mock_get_ready_summaries_from_db,
-    mock_single_session_summary_instance,
-):
-    """Configure mock get_ready_summaries_from_db to return test data."""
-    mock_get_ready_summaries_from_db.return_value = [mock_single_session_summary_instance]
-    return mock_get_ready_summaries_from_db
-
-
-@pytest.fixture
-def mock_multiple_ready_summaries(
-    mock_get_ready_summaries_from_db,
-    mock_session_summary_serializer: SessionSummarySerializer,
-):
-    """Factory to configure mock to return multiple summaries."""
-
-    def _configure(session_ids: list[str]):
-        summaries = [
-            MagicMock(
-                spec=SingleSessionSummary,
-                session_id=session_id,
-                summary=mock_session_summary_serializer.data,
-                exception_event_ids=[],
-                extra_summary_context=None,
-                run_metadata={},
-            )
-            for session_id in session_ids
-        ]
-        mock_get_ready_summaries_from_db.return_value = summaries
-        return summaries
-
-    return _configure
