@@ -10,12 +10,7 @@ import { modalsLogic } from 'scenes/experiments/modalsLogic'
 import { Experiment, ExperimentIdType, FunnelExperimentVariant, InsightType, TrendExperimentVariant } from '~/types'
 
 import { VariantTag } from '../../ExperimentView/components'
-import {
-    EXPERIMENT_MAX_PRIMARY_METRICS,
-    EXPERIMENT_MAX_SECONDARY_METRICS,
-    EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS,
-    EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS,
-} from '../../constants'
+import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS } from '../../constants'
 import { experimentLogic } from '../../experimentLogic'
 import {
     calculateDelta,
@@ -520,7 +515,6 @@ export function DeltaChart({
         featureFlags,
         primaryMetricsLengthWithSharedMetrics,
         hasMinimumExposureForResults,
-        secondaryMetricsLengthWithSharedMetrics,
     } = useValues(experimentLogic)
 
     const { duplicateMetric, updateExperimentMetrics } = useActions(experimentLogic)
@@ -558,11 +552,6 @@ export function DeltaChart({
             metric={metric}
             metricType={metricType}
             isPrimaryMetric={!isSecondary}
-            canDuplicateMetric={
-                isSecondary
-                    ? secondaryMetricsLengthWithSharedMetrics < EXPERIMENT_MAX_SECONDARY_METRICS
-                    : primaryMetricsLengthWithSharedMetrics < EXPERIMENT_MAX_PRIMARY_METRICS
-            }
             onDuplicateMetricClick={() => {
                 duplicateMetric({ metricIndex, isSecondary })
                 updateExperimentMetrics()

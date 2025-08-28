@@ -1,17 +1,19 @@
-import asyncio
-import collections.abc
-import contextlib
-import dataclasses
-import datetime as dt
 import io
 import json
 import typing
+import asyncio
+import datetime as dt
+import contextlib
+import dataclasses
+import collections.abc
+
+from django.conf import settings
 
 import pyarrow as pa
-from django.conf import settings
 from google.api_core.exceptions import Forbidden
 from google.cloud import bigquery
 from google.oauth2 import service_account
+from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -25,11 +27,8 @@ from posthog.batch_exports.service import (
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import (
-    bind_contextvars,
-    get_external_logger,
-    get_logger,
-)
+from posthog.temporal.common.logger import get_produce_only_logger, get_write_only_logger
+
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
     StartBatchExportRunInputs,
@@ -47,12 +46,8 @@ from products.batch_exports.backend.temporal.pipeline.consumer import (
     Consumer as ConsumerFromStage,
     run_consumer_from_stage,
 )
-from products.batch_exports.backend.temporal.pipeline.entrypoint import (
-    execute_batch_export_using_internal_stage,
-)
-from products.batch_exports.backend.temporal.pipeline.producer import (
-    Producer as ProducerFromInternalStage,
-)
+from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
+from products.batch_exports.backend.temporal.pipeline.producer import Producer as ProducerFromInternalStage
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.record_batch_model import resolve_batch_exports_model
 from products.batch_exports.backend.temporal.spmc import (
@@ -62,10 +57,7 @@ from products.batch_exports.backend.temporal.spmc import (
     run_consumer,
     wait_for_schema_or_producer,
 )
-from products.batch_exports.backend.temporal.temporary_file import (
-    BatchExportTemporaryFile,
-    WriterFormat,
-)
+from products.batch_exports.backend.temporal.temporary_file import BatchExportTemporaryFile, WriterFormat
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
     handle_non_retryable_errors,
@@ -89,8 +81,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     "MissingRequiredPermissionsError",
 )
 
-LOGGER = get_logger(__name__)
-EXTERNAL_LOGGER = get_external_logger()
+LOGGER = get_write_only_logger(__name__)
+EXTERNAL_LOGGER = get_produce_only_logger("EXTERNAL")
 
 
 class MissingRequiredPermissionsError(Exception):
@@ -1214,7 +1206,10 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             destination_default_fields=bigquery_default_fields(),
         )
 
-        if str(inputs.team_id) in settings.BATCH_EXPORT_BIGQUERY_USE_STAGE_TEAM_IDS:
+        if (
+            str(inputs.team_id) in settings.BATCH_EXPORT_BIGQUERY_USE_STAGE_TEAM_IDS
+            or inputs.team_id % 100 < settings.BATCH_EXPORT_BIGQUERY_USE_INTERNAL_STAGE_ROLLOUT_PERCENTAGE
+        ):
             await execute_batch_export_using_internal_stage(
                 insert_into_bigquery_activity_from_stage,
                 insert_inputs,

@@ -26,10 +26,9 @@ export function DashboardEditBar(): JSX.Element {
         showEditBarApplyPopover,
         loadingPreview,
         cancellingPreview,
-        hasTemporaryFilters,
+        hasUrlFilters,
     } = useValues(dashboardLogic)
-    const { setDates, setProperties, setBreakdownFilter, setDashboardMode, previewTemporaryFilters } =
-        useActions(dashboardLogic)
+    const { setDates, setProperties, setBreakdownFilter, setDashboardMode, applyFilters } = useActions(dashboardLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const insightProps: InsightLogicProps = {
@@ -54,7 +53,7 @@ export function DashboardEditBar(): JSX.Element {
                     <LemonButton
                         onClick={() =>
                             setDashboardMode(
-                                hasTemporaryFilters ? dashboardMode : null,
+                                hasUrlFilters ? dashboardMode : null,
                                 DashboardEventSource.DashboardHeaderDiscardChanges
                             )
                         }
@@ -64,7 +63,7 @@ export function DashboardEditBar(): JSX.Element {
                     >
                         Cancel
                     </LemonButton>
-                    <LemonButton onClick={previewTemporaryFilters} loading={loadingPreview} type="primary" size="small">
+                    <LemonButton onClick={applyFilters} loading={loadingPreview} type="primary" size="small">
                         Apply filters and preview
                     </LemonButton>
                 </div>

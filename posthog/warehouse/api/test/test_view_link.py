@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest, FuzzyInt
+
 from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseTable
 from posthog.warehouse.models.credential import DataWarehouseCredential
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema

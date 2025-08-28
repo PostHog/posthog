@@ -15,14 +15,15 @@ import {
     RevenueAnalyticsPropertyFilters,
     RevenueAnalyticsTopCustomersGroupBy,
 } from '~/queries/schema/schema-general'
-import { Breadcrumb, InsightLogicProps } from '~/types'
+import { Breadcrumb, InsightLogicProps, SimpleIntervalType } from '~/types'
 
 import type { revenueAnalyticsLogicType } from './revenueAnalyticsLogicType'
 import { revenueAnalyticsSettingsLogic } from './settings/revenueAnalyticsSettingsLogic'
 
 export enum RevenueAnalyticsQuery {
     OVERVIEW,
-    REVENUE,
+    MRR,
+    GROSS_REVENUE,
     METRICS,
     GROWTH_RATE,
     TOP_CUSTOMERS,
@@ -35,10 +36,15 @@ export const buildDashboardItemId = (queryType: RevenueAnalyticsQuery): InsightL
     return `new-AdHoc.revenue-analytics.${queryType}`
 }
 
+const getDefaultRevenueAnalyticsInterval = (dateFrom: string | null, dateTo: string | null): SimpleIntervalType => {
+    const interval = getDefaultInterval(dateFrom, dateTo)
+    return interval === 'day' ? 'day' : 'month'
+}
+
 const INITIAL_REVENUE_ANALYTICS_FILTER = [] as RevenueAnalyticsPropertyFilters
 const INITIAL_DATE_FROM = 'yStart' as string | null
 const INITIAL_DATE_TO = null as string | null
-const INITIAL_INTERVAL = getDefaultInterval(INITIAL_DATE_FROM, INITIAL_DATE_TO)
+const INITIAL_INTERVAL: SimpleIntervalType = getDefaultRevenueAnalyticsInterval(INITIAL_DATE_FROM, INITIAL_DATE_TO)
 const INITIAL_DATE_FILTER = {
     dateFrom: INITIAL_DATE_FROM,
     dateTo: INITIAL_DATE_TO,
@@ -110,7 +116,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                 setDates: (_, { dateTo, dateFrom }) => ({
                     dateTo,
                     dateFrom,
-                    interval: getDefaultInterval(dateFrom, dateTo),
+                    interval: getDefaultRevenueAnalyticsInterval(dateFrom, dateTo),
                 }),
             },
         ],
@@ -146,7 +152,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             {
                 setGrowthRateDisplayMode: (_, { displayMode }) => displayMode,
                 setDates: (state, { dateTo, dateFrom }) => {
-                    const interval = getDefaultInterval(dateFrom, dateTo)
+                    const interval = getDefaultRevenueAnalyticsInterval(dateFrom, dateTo)
                     if (interval !== 'month') {
                         return 'table'
                     }
@@ -161,7 +167,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             {
                 setTopCustomersDisplayMode: (_, { displayMode }) => displayMode,
                 setDates: (state, { dateTo, dateFrom }) => {
-                    const interval = getDefaultInterval(dateFrom, dateTo)
+                    const interval = getDefaultRevenueAnalyticsInterval(dateFrom, dateTo)
                     if (interval !== 'month') {
                         return 'table'
                     }
@@ -240,8 +246,15 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                         properties: revenueAnalyticsFilter,
                         dateRange,
                     },
-                    [RevenueAnalyticsQuery.REVENUE]: {
-                        kind: NodeKind.RevenueAnalyticsRevenueQuery,
+                    [RevenueAnalyticsQuery.MRR]: {
+                        kind: NodeKind.RevenueAnalyticsMRRQuery,
+                        properties: revenueAnalyticsFilter,
+                        groupBy,
+                        interval,
+                        dateRange,
+                    },
+                    [RevenueAnalyticsQuery.GROSS_REVENUE]: {
+                        kind: NodeKind.RevenueAnalyticsGrossRevenueQuery,
                         properties: revenueAnalyticsFilter,
                         groupBy,
                         interval,

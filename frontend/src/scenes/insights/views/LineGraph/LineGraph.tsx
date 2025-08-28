@@ -51,28 +51,99 @@ import { GoalLine, TrendsFilter } from '~/queries/schema/schema-general'
 import { isInsightVizNode } from '~/queries/utils'
 import { GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
 
-let tooltipRoot: Root
+const tooltipInstances = new Map<
+    string,
+    { root: Root; element: HTMLElement; isMouseOver: boolean; hideTimeout: NodeJS.Timeout | null }
+>()
 
-export function ensureTooltip(): [Root, HTMLElement] {
-    let tooltipEl = document.getElementById('InsightTooltipWrapper')
+export function ensureTooltip(chartId: string): [Root, HTMLElement] {
+    let instance = tooltipInstances.get(chartId)
 
-    if (!tooltipEl || !tooltipRoot) {
-        if (!tooltipEl) {
-            tooltipEl = document.createElement('div')
-            tooltipEl.id = 'InsightTooltipWrapper'
-            tooltipEl.classList.add('InsightTooltipWrapper')
-            document.body.appendChild(tooltipEl)
+    if (!instance) {
+        const tooltipEl = document.createElement('div')
+        tooltipEl.id = `InsightTooltipWrapper-${chartId}`
+        tooltipEl.classList.add('InsightTooltipWrapper')
+        document.body.appendChild(tooltipEl)
+
+        const root = createRoot(tooltipEl)
+
+        instance = {
+            root,
+            element: tooltipEl,
+            isMouseOver: false,
+            hideTimeout: null,
         }
 
-        tooltipRoot = createRoot(tooltipEl)
+        tooltipInstances.set(chartId, instance)
+
+        // Add mouse tracking for this specific tooltip
+        tooltipEl.addEventListener(
+            'mouseenter',
+            () => {
+                instance!.isMouseOver = true
+                if (instance!.hideTimeout) {
+                    clearTimeout(instance!.hideTimeout)
+                    instance!.hideTimeout = null
+                }
+            },
+            { passive: true }
+        )
+
+        tooltipEl.addEventListener(
+            'mouseleave',
+            () => {
+                instance!.isMouseOver = false
+                instance!.hideTimeout = setTimeout(() => {
+                    if (!instance!.isMouseOver) {
+                        instance!.element.classList.add('opacity-0', 'invisible')
+                    }
+                }, 100)
+            },
+            { passive: true }
+        )
     }
-    return [tooltipRoot, tooltipEl]
+
+    return [instance.root, instance.element]
 }
 
-export function hideTooltip(): void {
-    const tooltipEl = document.getElementById('InsightTooltipWrapper')
-    if (tooltipEl) {
-        tooltipEl.style.opacity = '0'
+export function hideTooltip(chartId?: string): void {
+    if (!chartId) {
+        // Fallback to old behavior - hide all tooltips
+        tooltipInstances.forEach((instance) => {
+            instance.element.style.opacity = '0'
+        })
+        return
+    }
+
+    const instance = tooltipInstances.get(chartId)
+    if (!instance) {
+        return
+    }
+
+    if (instance.hideTimeout) {
+        clearTimeout(instance.hideTimeout)
+        instance.hideTimeout = null
+    }
+
+    if (instance.isMouseOver) {
+        return
+    }
+
+    instance.hideTimeout = setTimeout(() => {
+        if (!instance.isMouseOver) {
+            instance.element.classList.add('opacity-0', 'invisible')
+        }
+    }, 100)
+}
+
+export function cleanupTooltip(chartId: string): void {
+    const instance = tooltipInstances.get(chartId)
+    if (instance) {
+        if (instance.hideTimeout) {
+            clearTimeout(instance.hideTimeout)
+        }
+        instance.element.remove()
+        tooltipInstances.delete(chartId)
     }
 }
 
@@ -318,6 +389,9 @@ export function LineGraph_({
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const [lineChart, setLineChart] = useState<Chart<ChartType, any, string>>()
 
+    // Generate unique chart ID based on insight ID and data attributes
+    const chartId = useRef(`chart-${insight.id || 'new'}-${Math.random().toString(36).substring(2, 11)}`)
+
     // Relying on useResizeObserver instead of Chart's onResize because the latter was not reliable
     const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: canvasRef })
 
@@ -340,17 +414,19 @@ export function LineGraph_({
             return
         }
 
+        const handleScrollEnd = (): void => hideTooltip(chartId.current)
+
         // Scroll events happen on the main element due to overflow-y: scroll
         // but we need to make sure it exists before adding the event listener,
         // e.g: it does not exist in the shared pages
         const main = document.getElementsByTagName('main')[0]
         if (main) {
-            main.addEventListener('scrollend', hideTooltip)
+            main.addEventListener('scrollend', handleScrollEnd)
         }
 
         return () => {
             if (main) {
-                main.removeEventListener('scrollend', hideTooltip)
+                main.removeEventListener('scrollend', handleScrollEnd)
             }
         }
     }, [hideTooltipOnScroll])
@@ -358,8 +434,7 @@ export function LineGraph_({
     // Remove tooltip element on unmount
     useOnMountEffect(() => {
         return () => {
-            const tooltipEl = document.getElementById('InsightTooltipWrapper')
-            tooltipEl?.remove()
+            cleanupTooltip(chartId.current)
         }
     })
 
@@ -708,15 +783,16 @@ export function LineGraph_({
                             return
                         }
 
-                        const [tooltipRoot, tooltipEl] = ensureTooltip()
+                        const [tooltipRoot, tooltipEl] = ensureTooltip(chartId.current)
                         if (tooltip.opacity === 0) {
-                            tooltipEl.style.opacity = '0'
+                            // Use the new hide logic that respects mouse hover
+                            hideTooltip(chartId.current)
                             return
                         }
 
                         // Set caret position
                         // Reference: https://www.chartjs.org/docs/master/configuration/tooltip.html
-                        tooltipEl.classList.remove('above', 'below', 'no-transform')
+                        tooltipEl.classList.remove('above', 'below', 'no-transform', 'opacity-0', 'invisible')
                         tooltipEl.classList.add(tooltip.yAlign || 'no-transform')
                         tooltipEl.style.opacity = '1'
 
@@ -1053,6 +1129,8 @@ export function LineGraph_({
         showMultipleYAxes,
         _goalLines,
         theme,
+        type,
+        isArea,
         showTrendLines,
     ]) // oxlint-disable-line react-hooks/exhaustive-deps
 

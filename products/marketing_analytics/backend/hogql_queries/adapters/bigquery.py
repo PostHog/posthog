@@ -1,12 +1,14 @@
 # BigQuery Marketing Source Adapter
 
 from posthog.hogql import ast
-from .base import ExternalConfig, MarketingSourceAdapter, ValidationResult
+
 from products.marketing_analytics.backend.hogql_queries.constants import (
     MARKETING_ANALYTICS_SCHEMA,
     UNKNOWN_CAMPAIGN,
     UNKNOWN_SOURCE,
 )
+
+from .base import ExternalConfig, MarketingSourceAdapter, ValidationResult
 
 
 class BigQueryAdapter(MarketingSourceAdapter[ExternalConfig]):

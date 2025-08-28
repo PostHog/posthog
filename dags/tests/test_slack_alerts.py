@@ -2,8 +2,8 @@ from unittest import mock
 
 import dagster
 
-from dags.slack_alerts import get_job_owner_for_alert
 from dags.common import JobOwners
+from dags.slack_alerts import get_job_owner_for_alert
 
 
 class TestSlackAlertsRouting:

@@ -1,11 +1,13 @@
-from ee.models.hook import Hook
-from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
+from posthog.test.base import BaseTest
+
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.zapier.template_zapier import template as template_zapier
 from posthog.management.commands.migrate_hooks import migrate_hooks
 from posthog.models.action.action import Action
 from posthog.models.hog_functions.hog_function import HogFunction
-from posthog.test.base import BaseTest
+
+from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
+from ee.models.hook import Hook
 
 
 class TestMigrateHooks(BaseTest):
@@ -59,7 +61,7 @@ class TestMigrateHooks(BaseTest):
         assert hog_function.filters == {
             "source": "events",
             "actions": [{"id": f"{self.action.id}", "name": "", "type": "actions", "order": 0}],
-            "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 29, 3, 1, 4, 1],
+            "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 29],
         }
         assert hog_function.hog == template_zapier.code
         assert hog_function.description == f"{template_zapier.description} Migrated from legacy hook {self.hook.id}."

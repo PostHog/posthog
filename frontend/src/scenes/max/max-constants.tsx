@@ -112,7 +112,6 @@ export const TOOL_DEFINITIONS: Omit<
         name: 'Filter issues',
         description: 'Filter issues to dig into errors',
         product: Scene.ErrorTracking,
-        flag: FEATURE_FLAGS.ERROR_TRACKING_ISSUE_FILTERING_TOOL,
     },
     find_error_tracking_impactful_issue_event_list: {
         name: 'Find impactful issues',
@@ -130,6 +129,11 @@ export const TOOL_DEFINITIONS: Omit<
         name: 'Create surveys',
         description: 'Create surveys in seconds',
         product: Scene.Surveys,
+    },
+    create_message_template: {
+        name: 'Create email templates',
+        description: 'Create email templates from scratch or using a URL for inspiration',
+        product: Scene.Messaging,
     },
 }
 
