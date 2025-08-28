@@ -121,7 +121,7 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
         })
         .with({ activity: 'deleted', detail: { type: 'holdout' } }, () => {
             /**
-             * Shared metrics are not soft deleted.
+             * Holdouts are not soft deleted.
              */
             return {
                 description: (

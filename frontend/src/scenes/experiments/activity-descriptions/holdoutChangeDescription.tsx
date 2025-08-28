@@ -6,11 +6,8 @@ import { ExperimentHoldoutType } from '~/types'
 
 type AllowedHoldoutFields = Pick<ExperimentHoldoutType, 'name' | 'description' | 'filters'>
 
-export const getHoldoutChangeDescription = (holdoutChange: ActivityChange): string | JSX.Element | null => {
-    /**
-     * a little type assertion to force field into the allowed holdout fields
-     */
-    return match(holdoutChange.field as keyof AllowedHoldoutFields)
+export const getHoldoutChangeDescription = (holdoutChange: ActivityChange): string =>
+    match(holdoutChange.field as keyof AllowedHoldoutFields)
         .with('name', () => {
             return 'updated experiment holdout name:'
         })
@@ -21,4 +18,3 @@ export const getHoldoutChangeDescription = (holdoutChange: ActivityChange): stri
             return 'updated experiment holdout filters:'
         })
         .exhaustive()
-}
