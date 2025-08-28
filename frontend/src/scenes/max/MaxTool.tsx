@@ -14,6 +14,7 @@ import { SidePanelTab } from '~/types'
 
 import { TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
+import { maxLogic } from './maxLogic'
 import { generateBurstPoints } from './utils'
 
 interface MaxToolProps extends Omit<ToolRegistration, 'name' | 'description'> {
@@ -33,6 +34,7 @@ export function MaxTool({
     context,
     introOverride,
     callback,
+    suggestions,
     children: Children,
     active = true,
     initialMaxPrompt,
@@ -59,6 +61,7 @@ export function MaxTool({
                 icon,
                 context,
                 introOverride,
+                suggestions,
                 callback,
             })
             return (): void => {
@@ -73,6 +76,7 @@ export function MaxTool({
         icon,
         JSON.stringify(context),
         introOverride,
+        JSON.stringify(suggestions),
         callback,
         registerTool,
         deregisterTool,
@@ -114,6 +118,25 @@ export function MaxTool({
                         type="button"
                         onClick={() => {
                             openSidePanel(SidePanelTab.Max, initialMaxPrompt)
+
+                            // If this tool has suggestions, find and set the appropriate suggestion group
+                            if (suggestions && suggestions.length > 0) {
+                                const { allSuggestions } = maxLogic.values
+                                const matchingGroup = allSuggestions.find((group) =>
+                                    suggestions.some((suggestion) =>
+                                        group.suggestions?.some(
+                                            (groupSuggestion) => groupSuggestion.content === suggestion
+                                        )
+                                    )
+                                )
+                                if (matchingGroup) {
+                                    // Waiting a bit for Max side panel to be opened
+                                    setTimeout(() => {
+                                        maxLogic.actions.setActiveGroup(matchingGroup)
+                                    }, 100)
+                                }
+                            }
+
                             onMaxOpen?.()
                         }}
                     >
