@@ -50,10 +50,10 @@ def run_sql_with_exceptions(
     """
     cluster = get_migrations_cluster()
 
-    if "ON CLUSTER" in sql:
-        logger.warning("you are not suppose to use ON CLUSTER in migration")
-
     def run_migration():
+        if "ON CLUSTER" in sql:
+            logger.error("you are not suppose to use ON CLUSTER in migration: {sql}")
+
         query = Query(sql)
         if node_role == NodeRole.ALL:
             assert not sharded
