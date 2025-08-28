@@ -4,8 +4,8 @@ use rdkafka::Message;
 use tokio::sync::OwnedSemaphorePermit;
 use tracing::{error, info, warn};
 
+use crate::kafka::metrics_consts::MESSAGES_AUTO_NACKED;
 use crate::kafka::tracker::{MessageCompletion, MessageHandle};
-use crate::rocksdb::metrics_consts::MESSAGES_AUTO_NACKED;
 
 /// Result of message processing - simple success/failure
 #[derive(Debug, Clone)]

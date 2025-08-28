@@ -1,6 +1,7 @@
 // Stateful Kafka module - coordinates Kafka consumption with external state systems
 pub mod config;
 pub mod message;
+pub mod metrics_consts;
 pub mod rebalance_handler;
 pub mod stateful_consumer;
 pub mod stateful_context;

@@ -11,13 +11,13 @@ use tokio::time::sleep;
 use tracing::{debug, info, warn};
 
 use crate::kafka::message::{AckableMessage, MessageResult};
-use crate::kafka::types::{Partition, PartitionOffset, PartitionState};
-use crate::rocksdb::metrics_consts::{
+use crate::kafka::metrics_consts::{
     KAFKA_CONSUMER_IN_FLIGHT_MEMORY_BYTES, KAFKA_CONSUMER_IN_FLIGHT_MESSAGES,
     MESSAGE_COMPLETION_DURATION, OUT_OF_ORDER_COMPLETIONS, PARTITION_LAST_COMMITTED_OFFSET,
     PARTITION_OFFSET_GAP_DETECTED, PARTITION_OFFSET_GAP_SIZE, PARTITION_PENDING_COMPLETIONS,
     PARTITION_SECONDS_SINCE_LAST_COMMIT,
 };
+use crate::kafka::types::{Partition, PartitionOffset, PartitionState};
 
 /// Global statistics shared between InFlightTracker and PartitionTrackers
 #[derive(Debug)]
