@@ -206,11 +206,12 @@ def create_event_ids_mapping_from_ready_summaries(
         for segment_actions in summary.data["key_actions"]:
             if "events" not in segment_actions:
                 continue
+            # Assuming that all the summaries are unique, so a single event could be only in one summary
             for event in segment_actions["events"]:
                 # Add mapping if both event_id and event_uuid exist
                 if not event.get("event_id") or not event.get("event_uuid") or not event.get("session_id"):
                     continue
-                combined_event_ids_mapping[event["event_id"]] = event["event_uuid"], event["session_id"]
+                combined_event_ids_mapping[event["event_id"]] = str(event["event_uuid"]), str(event["session_id"])
     return combined_event_ids_mapping
 
 
