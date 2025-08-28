@@ -43,7 +43,9 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
     MODIFIERS = HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True)
 
     person_id = "00000000-0000-0000-0000-000000000000"
-    group_id = "lolol:xxx"
+    group0_id = "lolol0:xxx"
+    group1_id = "lolol1:xxx"
+    another_group0_id = "lolol1:xxx2"
     distinct_id = "distinct_id"
 
     def tearDown(self):
@@ -57,9 +59,22 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
         create_group(
             team_id=self.team.pk,
             group_type_index=0,
-            group_key=self.group_id,
+            group_key=self.group0_id,
             properties={"industry": "positive"},
         )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key=self.another_group0_id,
+            properties={"industry": "another"},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=1,
+            group_key=self.group1_id,
+            properties={"industry": "negative"},
+        )
+
         _create_person(
             uuid=self.person_id,
             team_id=self.team.pk,
@@ -71,6 +86,7 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             distinct_id=self.distinct_id,
             timestamp=self.QUERY_TIMESTAMP,
+            properties={"$group_0": self.group0_id},
         )
 
         _create_event(
@@ -78,7 +94,7 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             distinct_id=self.distinct_id,
             timestamp=self.QUERY_TIMESTAMP,
-            properties={self.REVENUE_PROPERTY: 10000},
+            properties={self.REVENUE_PROPERTY: 25042, "$group_0": self.group0_id},
         )
 
         _create_event(
@@ -86,7 +102,23 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             distinct_id=self.distinct_id,
             timestamp=self.QUERY_TIMESTAMP,
-            properties={self.REVENUE_PROPERTY: 25042},
+            properties={self.REVENUE_PROPERTY: 12500, "$group_1": self.group1_id},
+        )
+
+        _create_event(
+            event=self.PURCHASE_EVENT_NAME,
+            team=self.team,
+            distinct_id=self.distinct_id,
+            timestamp=self.QUERY_TIMESTAMP,
+            properties={self.REVENUE_PROPERTY: 10000, "$group_0": self.group0_id, "$group_1": self.group1_id},
+        )
+
+        _create_event(
+            event=self.PURCHASE_EVENT_NAME,
+            team=self.team,
+            distinct_id=self.distinct_id,
+            timestamp=self.QUERY_TIMESTAMP,
+            properties={self.REVENUE_PROPERTY: 3223, "$group_0": self.another_group0_id},
         )
 
     def setup_schema_sources(self):
@@ -169,13 +201,13 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
         with freeze_time(self.QUERY_TIMESTAMP):
             response = execute_hogql_query(
                 parse_select(
-                    "select key, revenue_analytics.revenue, $virt_revenue from groups where key = {key}",
-                    placeholders={"key": ast.Constant(value=self.group_id)},
+                    "SELECT key, revenue_analytics.revenue, $virt_revenue FROM groups where key = {key}",
+                    placeholders={"key": ast.Constant(value=self.group0_id)},
                 ),
                 self.team,
             )
 
-            self.assertEqual(response.results[0], (self.group_id, Decimal("350.42"), Decimal("350.42")))
+            self.assertEqual(response.results, [(self.group0_id, Decimal("350.42"), Decimal("350.42"))])
 
     def test_get_revenue_for_schema_source_for_id_join(self):
         self.setup_schema_sources()
@@ -188,8 +220,8 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
 
         with freeze_time(self.QUERY_TIMESTAMP):
             queries = [
-                "SELECT key, revenue_analytics.revenue from groups order by key asc",
-                "SELECT key, $virt_revenue from groups order by key asc",
+                "SELECT key, revenue_analytics.revenue FROM groups ORDER BY key ASC",
+                "SELECT key, $virt_revenue FROM groups ORDER BY key ASC",
             ]
 
             for query in queries:
@@ -200,10 +232,10 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                     [
                         ("cus_1", Decimal("429.7423999996")),
                         ("cus_2", Decimal("477.2037499988")),
-                        ("cus_3", Decimal("26182.78099")),
+                        ("cus_3", Decimal("4171.09153")),
                         ("cus_4", Decimal("254.12345")),
                         ("cus_5", Decimal("1529.9212")),
-                        ("cus_6", Decimal("17476.47254")),
+                        ("cus_6", Decimal("2796.37014")),
                         ("dummy", None),
                     ],
                 )
@@ -235,28 +267,12 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(
                 response.results,
                 [
-                    (
-                        "john.doe@example.com",
-                        Decimal("429.7423999996"),
-                        Decimal("429.7423999996"),
-                    ),
-                    (
-                        "jane.doe@example.com",
-                        Decimal("477.2037499988"),
-                        Decimal("477.2037499988"),
-                    ),
-                    (
-                        "john.smith@example.com",
-                        Decimal("26182.78099"),
-                        Decimal("26182.78099"),
-                    ),
+                    ("jane.doe@example.com", Decimal("477.2037499988"), Decimal("477.2037499988")),
                     ("jane.smith@example.com", Decimal("254.12345"), Decimal("254.12345")),
+                    ("john.doe@example.com", Decimal("429.7423999996"), Decimal("429.7423999996")),
                     ("john.doejr@example.com", Decimal("1529.9212"), Decimal("1529.9212")),
-                    (
-                        "john.doejrjr@example.com",
-                        Decimal("17476.47254"),
-                        Decimal("17476.47254"),
-                    ),
+                    ("john.doejrjr@example.com", Decimal("2796.37014"), Decimal("2796.37014")),
+                    ("john.smith@example.com", Decimal("4171.09153"), Decimal("4171.09153")),
                     ("zdummy", None, None),
                 ],
             )
@@ -280,7 +296,7 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
 
         with freeze_time(self.QUERY_TIMESTAMP):
             response = execute_hogql_query(
-                parse_select("SELECT key, revenue_analytics.revenue, $virt_revenue from groups order by key asc"),
+                parse_select("SELECT key, revenue_analytics.revenue, $virt_revenue FROM groups ORDER BY key ASC"),
                 self.team,
                 modifiers=self.MODIFIERS,
             )
@@ -290,22 +306,76 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                 [
                     ("cus_1_metadata", Decimal("429.7423999996"), Decimal("429.7423999996")),
                     ("cus_2_metadata", Decimal("477.2037499988"), Decimal("477.2037499988")),
-                    ("cus_3_metadata", Decimal("26182.78099"), Decimal("26182.78099")),
+                    ("cus_3_metadata", Decimal("4171.09153"), Decimal("4171.09153")),
                     ("cus_4_metadata", Decimal("254.12345"), Decimal("254.12345")),
                     ("cus_5_metadata", Decimal("1529.9212"), Decimal("1529.9212")),
-                    ("cus_6_metadata", Decimal("17476.47254"), Decimal("17476.47254")),
+                    ("cus_6_metadata", Decimal("2796.37014"), Decimal("2796.37014")),
                     ("dummy", None, None),
                 ],
             )
 
-    def test_query_revenue_analytics_table(self):
+    def test_query_revenue_analytics_table_sources(self):
         self.setup_schema_sources()
         self.join.source_table_key = "email"
         self.join.save()
 
+        # These are the 6 IDs inside the CSV files, and we have an extra empty one
+        for key in [
+            "john.doe@example.com",  # cus_1
+            "jane.doe@example.com",  # cus_2
+            "john.smith@example.com",  # cus_3
+            "jane.smith@example.com",  # cus_4
+            "john.doejr@example.com",  # cus_5
+            "john.doejrjr@example.com",  # cus_6
+            "zdummy",
+        ]:
+            create_group(team_id=self.team.pk, group_type_index=0, group_key=key)
+
         with freeze_time(self.QUERY_TIMESTAMP):
-            execute_hogql_query(
-                parse_select("SELECT * FROM groups_revenue_analytics ORDER BY key ASC"),
+            results = execute_hogql_query(
+                parse_select("SELECT * FROM groups_revenue_analytics ORDER BY group_key ASC"),
                 self.team,
                 modifiers=self.MODIFIERS,
+            )
+
+            self.assertEqual(
+                results.results,
+                [
+                    ("jane.doe@example.com", Decimal("477.2037499988"), Decimal("130.0504749995")),
+                    ("jane.smith@example.com", Decimal("254.12345"), None),
+                    ("john.doe@example.com", Decimal("429.7423999996"), Decimal("41.0122916665")),
+                    ("john.doejr@example.com", Decimal("1529.9212"), None),
+                    ("john.doejrjr@example.com", Decimal("2796.37014"), None),
+                    ("john.smith@example.com", Decimal("4171.09153"), None),
+                ],
+            )
+
+    def test_query_revenue_analytics_table_events(self):
+        self.setup_events()
+
+        self.team.revenue_analytics_config.events = [
+            RevenueAnalyticsEventItem(
+                eventName=self.PURCHASE_EVENT_NAME,
+                revenueProperty=self.REVENUE_PROPERTY,
+                revenueCurrencyProperty=RevenueCurrencyPropertyConfig(static="USD"),
+                currencyAwareDecimal=True,
+            )
+        ]
+        self.team.revenue_analytics_config.save()
+        self.team.save()
+
+        with freeze_time(self.QUERY_TIMESTAMP):
+            results = execute_hogql_query(
+                parse_select("SELECT * FROM groups_revenue_analytics ORDER BY group_key ASC"),
+                self.team,
+                modifiers=self.MODIFIERS,
+            )
+
+            self.assertEqual(
+                results.results,
+                [
+                    ("lolol0:xxx", Decimal("350.42"), None),
+                    ("lolol1:xxx", Decimal("225"), None),
+                    ("lolol1:xxx2", Decimal("32.23"), None),
+                ],
             )

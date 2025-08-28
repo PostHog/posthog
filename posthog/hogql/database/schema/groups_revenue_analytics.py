@@ -71,16 +71,24 @@ def select_from_groups_revenue_analytics_table(context: HogQLContext) -> ast.Sel
             continue
 
         # If we're working with event views, we can use the group_key field directly
+        # but note that we're getting this from the `RevenueItemView` rather than `Customer`
+        # because we don't expose what group a person belongs to, only
         # Otherwise, we need to join with the groups table by checking whether it exists
-        group_key_chain: list[str | int] | None = None
+        # connected to the virtual CustomerView
+        group_key_chains: list[ast.Field] = []
         if customer_view.is_event_view():
-            group_key_chain = [RevenueAnalyticsCustomerView.get_generic_view_alias(), "id"]
+            group_key_chains = [
+                ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), f"group_{index}_key"])
+                for index in range(5)  # [0, 1, 2, 3, 4]
+            ]
         else:
             groups_lazy_join = customer_view.fields.get("groups")
             if groups_lazy_join is not None and isinstance(groups_lazy_join, ast.LazyJoin):
-                group_key_chain = [RevenueAnalyticsCustomerView.get_generic_view_alias(), "groups", "id"]
+                group_key_chains = [
+                    ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "groups", "key"])
+                ]
 
-        if group_key_chain is not None:
+        if len(group_key_chains) > 0:
             queries.append(
                 ast.SelectQuery(
                     select=[
@@ -92,8 +100,9 @@ def select_from_groups_revenue_analytics_table(context: HogQLContext) -> ast.Sel
                         # and those views are, on their own, safe to query "without a `team_id` filter"
                         # since they're getting data from either the data warehouse (safe) or the events table (safe)
                         ast.Alias(alias="team_id", expr=ast.Constant(value=context.team_id)),
+                        # We'll create one row per each possible group key (5 for events, and then only one for joins)
                         ast.Alias(
-                            alias="group_key", expr=ast.Call(name="toUUID", args=[ast.Field(chain=group_key_chain)])
+                            alias="group_key", expr=ast.Call(name="arrayJoin", args=[ast.Array(exprs=group_key_chains)])
                         ),
                         ast.Alias(
                             alias="revenue",
@@ -152,6 +161,10 @@ def select_from_groups_revenue_analytics_table(context: HogQLContext) -> ast.Sel
                         ),
                     ),
                     group_by=[ast.Field(chain=["group_key"])],
+                    where=ast.Call(
+                        name="notEmpty",
+                        args=[ast.Field(chain=["group_key"])],
+                    ),
                 )
             )
 

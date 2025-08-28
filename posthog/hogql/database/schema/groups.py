@@ -27,7 +27,7 @@ GROUPS_TABLE_FIELDS: dict[str, FieldOrTable] = {
     "updated_at": DateTimeDatabaseField(name="_timestamp", nullable=False),
     "properties": StringJSONDatabaseField(name="group_properties", nullable=False),
     "revenue_analytics": LazyJoin(
-        from_field=["group_key"],
+        from_field=["key"],
         join_table=GroupsRevenueAnalyticsTable(),
         join_function=join_with_groups_revenue_analytics_table,
     ),
