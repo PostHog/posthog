@@ -432,32 +432,14 @@ export function getDefaultRatioMetric(): ExperimentMetric {
     }
 }
 
-/**
- * TODO: review. Probably deprecated
- */
-export function getDefaultExperimentMetric(
-    metricType: ExperimentMetricType,
-    uuid?: string,
-    name?: string
-): ExperimentMetric {
-    let defaultMetric: ExperimentMetric
-
+export function getDefaultExperimentMetric(metricType: ExperimentMetricType): ExperimentMetric {
     switch (metricType) {
         case ExperimentMetricType.FUNNEL:
-            defaultMetric = getDefaultFunnelMetric()
-            break
+            return getDefaultFunnelMetric()
         case ExperimentMetricType.RATIO:
-            defaultMetric = getDefaultRatioMetric()
-            break
+            return getDefaultRatioMetric()
         default:
-            defaultMetric = getDefaultCountMetric()
-            break
-    }
-
-    return {
-        ...defaultMetric,
-        ...(uuid && { uuid }),
-        ...(name !== undefined && { name }),
+            return getDefaultCountMetric()
     }
 }
 
