@@ -10,7 +10,7 @@ from posthog.models import Survey
 
 from products.surveys.backend.max_tools import SurveyAnalysisTool
 
-from .conftest import MaxEval
+from ..base import MaxPublicEval
 
 
 # Helper functions to generate test response data
@@ -1214,7 +1214,7 @@ async def eval_survey_analysis(call_survey_analysis_tool, pytestconfig):
     """
     Evaluation for survey response analysis functionality.
     """
-    await MaxEval(
+    await MaxPublicEval(
         experiment_name="survey_analysis",
         task=call_survey_analysis_tool,
         scores=[
