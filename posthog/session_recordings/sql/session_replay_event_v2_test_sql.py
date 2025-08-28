@@ -13,7 +13,7 @@ SESSION_REPLAY_EVENTS_V2_TEST_TABLES = [
     "session_replay_events_v2_test_mv",
     "kafka_session_replay_events_v2_test",
     "session_replay_events_v2_test",
-    "writeable_session_replay_events_v2_test",
+    "writable_session_replay_events_v2_test",
     "sharded_session_replay_events_v2_test",
 ]
 
