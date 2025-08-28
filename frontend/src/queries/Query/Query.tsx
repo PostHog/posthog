@@ -1,22 +1,17 @@
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import {
-    RevenueAnalyticsGrowthRateNode,
-    RevenueAnalyticsMetricsNode,
-    RevenueAnalyticsOverviewNode,
-    RevenueAnalyticsRevenueNode,
-    RevenueAnalyticsTopCustomersNode,
-} from 'products/revenue_analytics/frontend/nodes'
+import { BuiltLogic, LogicWrapper } from 'kea'
 import { useEffect, useState } from 'react'
+
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { HogDebug } from 'scenes/debug/HogDebug'
 import { WebActiveHoursHeatmap } from 'scenes/web-analytics/WebActiveHoursHeatmap/WebActiveHoursHeatmap'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
+import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { InsightViz, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { WebOverview } from '~/queries/nodes/WebOverview/WebOverview'
 import { WebVitals } from '~/queries/nodes/WebVitals/WebVitals'
-import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
 import {
     AnyResponseType,
     DashboardFilter,
@@ -28,6 +23,15 @@ import {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
+import {
+    RevenueAnalyticsGrossRevenueNode,
+    RevenueAnalyticsGrowthRateNode,
+    RevenueAnalyticsMRRNode,
+    RevenueAnalyticsMetricsNode,
+    RevenueAnalyticsOverviewNode,
+    RevenueAnalyticsTopCustomersNode,
+} from 'products/revenue_analytics/frontend/nodes'
+
 import { DataTableVisualization } from '../nodes/DataVisualization/DataVisualization'
 import { SavedInsight } from '../nodes/SavedInsight/SavedInsight'
 import { WebVitalsPathBreakdown } from '../nodes/WebVitals/WebVitalsPathBreakdown'
@@ -37,10 +41,11 @@ import {
     isDataVisualizationNode,
     isHogQuery,
     isInsightVizNode,
+    isRevenueAnalyticsGrossRevenueQuery,
     isRevenueAnalyticsGrowthRateQuery,
+    isRevenueAnalyticsMRRQuery,
     isRevenueAnalyticsMetricsQuery,
     isRevenueAnalyticsOverviewQuery,
-    isRevenueAnalyticsRevenueQuery,
     isRevenueAnalyticsTopCustomersQuery,
     isSavedInsightNode,
     isWebOverviewQuery,
@@ -73,6 +78,8 @@ export interface QueryProps<Q extends Node> {
     variablesOverride?: Record<string, HogQLVariable> | null
     /** Passed down if implemented by the query type to e.g. set data attr on a LemonTable in a data table */
     dataAttr?: string
+    /** Attach ourselves to another logic, such as the scene logic */
+    attachTo?: BuiltLogic | LogicWrapper
 }
 
 export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null {
@@ -118,6 +125,8 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
     if (isDataTableNode(query)) {
         component = (
             <DataTable
+                attachTo={props.attachTo}
+                key={props.uniqueKey}
                 query={query}
                 setQuery={setQuery as unknown as (query: DataTableNode) => void}
                 context={queryContext}
@@ -130,6 +139,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
     } else if (isDataVisualizationNode(query)) {
         component = (
             <DataTableVisualization
+                attachTo={props.attachTo}
                 query={query}
                 setQuery={setQuery as unknown as (query: DataVisualizationNode) => void}
                 cachedResults={props.cachedResults}
@@ -140,10 +150,19 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
             />
         )
     } else if (isSavedInsightNode(query)) {
-        component = <SavedInsight query={query} context={queryContext} readOnly={readOnly} embedded={embedded} />
+        component = (
+            <SavedInsight
+                attachTo={props.attachTo}
+                query={query}
+                context={queryContext}
+                readOnly={readOnly}
+                embedded={embedded}
+            />
+        )
     } else if (isInsightVizNode(query)) {
         component = (
             <InsightViz
+                attachTo={props.attachTo}
                 query={query}
                 setQuery={setQuery as unknown as (query: InsightVizNode) => void}
                 context={queryContext}
@@ -155,21 +174,9 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 variablesOverride={variablesOverride}
             />
         )
-    } else if (isRevenueAnalyticsOverviewQuery(query)) {
+    } else if (isRevenueAnalyticsGrossRevenueQuery(query)) {
         component = (
-            <RevenueAnalyticsOverviewNode query={query} cachedResults={props.cachedResults} context={queryContext} />
-        )
-    } else if (isRevenueAnalyticsMetricsQuery(query)) {
-        component = (
-            <RevenueAnalyticsMetricsNode query={query} cachedResults={props.cachedResults} context={queryContext} />
-        )
-    } else if (isRevenueAnalyticsRevenueQuery(query)) {
-        component = (
-            <RevenueAnalyticsRevenueNode query={query} cachedResults={props.cachedResults} context={queryContext} />
-        )
-    } else if (isRevenueAnalyticsTopCustomersQuery(query)) {
-        component = (
-            <RevenueAnalyticsTopCustomersNode
+            <RevenueAnalyticsGrossRevenueNode
                 query={query}
                 cachedResults={props.cachedResults}
                 context={queryContext}
@@ -178,6 +185,24 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
     } else if (isRevenueAnalyticsGrowthRateQuery(query)) {
         component = (
             <RevenueAnalyticsGrowthRateNode query={query} cachedResults={props.cachedResults} context={queryContext} />
+        )
+    } else if (isRevenueAnalyticsMetricsQuery(query)) {
+        component = (
+            <RevenueAnalyticsMetricsNode query={query} cachedResults={props.cachedResults} context={queryContext} />
+        )
+    } else if (isRevenueAnalyticsMRRQuery(query)) {
+        component = <RevenueAnalyticsMRRNode query={query} cachedResults={props.cachedResults} context={queryContext} />
+    } else if (isRevenueAnalyticsOverviewQuery(query)) {
+        component = (
+            <RevenueAnalyticsOverviewNode query={query} cachedResults={props.cachedResults} context={queryContext} />
+        )
+    } else if (isRevenueAnalyticsTopCustomersQuery(query)) {
+        component = (
+            <RevenueAnalyticsTopCustomersNode
+                query={query}
+                cachedResults={props.cachedResults}
+                context={queryContext}
+            />
         )
     } else if (isWebOverviewQuery(query)) {
         component = <WebOverview query={query} cachedResults={props.cachedResults} context={queryContext} />
@@ -190,7 +215,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
     } else if (isCalendarHeatmapQuery(query)) {
         component = <WebActiveHoursHeatmap query={query} context={queryContext} cachedResults={props.cachedResults} />
     } else {
-        component = <DataNode query={query} cachedResults={props.cachedResults} />
+        component = <DataNode attachTo={props.attachTo} query={query} cachedResults={props.cachedResults} />
     }
 
     return (

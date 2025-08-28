@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+
 import api from 'lib/api'
 
 import { useMocks } from '~/mocks/jest'

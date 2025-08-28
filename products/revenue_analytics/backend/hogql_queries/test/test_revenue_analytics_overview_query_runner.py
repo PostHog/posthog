@@ -1,22 +1,7 @@
-from freezegun import freeze_time
-from pathlib import Path
 from decimal import Decimal
+from pathlib import Path
 
-from posthog.models.utils import uuid7
-from products.revenue_analytics.backend.hogql_queries.revenue_analytics_overview_query_runner import (
-    RevenueAnalyticsOverviewQueryRunner,
-)
-from posthog.schema import (
-    CurrencyCode,
-    DateRange,
-    HogQLQueryModifiers,
-    PropertyOperator,
-    RevenueAnalyticsPropertyFilter,
-    RevenueAnalyticsOverviewQuery,
-    RevenueAnalyticsOverviewQueryResponse,
-    RevenueAnalyticsOverviewItemKey,
-    RevenueAnalyticsOverviewItem,
-)
+from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -24,14 +9,31 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
 )
-from posthog.warehouse.models import ExternalDataSchema
 
-from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
-from products.revenue_analytics.backend.views.revenue_analytics_revenue_item_view import (
-    STRIPE_CHARGE_RESOURCE_NAME,
-    STRIPE_INVOICE_RESOURCE_NAME,
+from posthog.schema import (
+    CurrencyCode,
+    DateRange,
+    HogQLQueryModifiers,
+    PropertyOperator,
+    RevenueAnalyticsOverviewItem,
+    RevenueAnalyticsOverviewItemKey,
+    RevenueAnalyticsOverviewQuery,
+    RevenueAnalyticsOverviewQueryResponse,
+    RevenueAnalyticsPropertyFilter,
 )
-from products.revenue_analytics.backend.views.revenue_analytics_product_view import STRIPE_PRODUCT_RESOURCE_NAME
+
+from posthog.models.utils import uuid7
+from posthog.temporal.data_imports.sources.stripe.constants import (
+    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+    INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
+    PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
+)
+from posthog.warehouse.models import ExternalDataSchema
+from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
+
+from products.revenue_analytics.backend.hogql_queries.revenue_analytics_overview_query_runner import (
+    RevenueAnalyticsOverviewQueryRunner,
+)
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
     REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT,
     STRIPE_CHARGE_COLUMNS,
@@ -206,11 +208,11 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results,
             [
                 RevenueAnalyticsOverviewItem(
-                    key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("8900.0246133332")
+                    key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("1727.0246133332")
                 ),
                 RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=3),
                 RevenueAnalyticsOverviewItem(
-                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("2966.674871111")
+                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("575.674871111")
                 ),
             ],
         )

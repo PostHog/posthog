@@ -1,25 +1,26 @@
 from typing import Optional
 
-from posthog.hogql import ast
-from posthog.hogql.printer import to_printed_hogql
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin
-from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import (
     ActorsPropertyTaxonomyQuery,
     ActorsPropertyTaxonomyQueryResponse,
     CachedActorsPropertyTaxonomyQueryResponse,
 )
 
+from posthog.hogql import ast
+from posthog.hogql.printer import to_printed_hogql
+from posthog.hogql.query import execute_hogql_query
 
-class ActorsPropertyTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
+from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+
+
+class ActorsPropertyTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[ActorsPropertyTaxonomyQueryResponse]):
     MAX_PROPERTY_LIMIT = 200
 
     query: ActorsPropertyTaxonomyQuery
-    response: ActorsPropertyTaxonomyQueryResponse
     cached_response: CachedActorsPropertyTaxonomyQueryResponse
 
-    def calculate(self):
+    def _calculate(self):
         query = self.to_query()
         hogql = to_printed_hogql(query, self.team)
 

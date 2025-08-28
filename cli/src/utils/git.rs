@@ -80,7 +80,7 @@ fn get_repo_name(git_dir: &Path) -> Option<String> {
             let line = line.trim();
             if line.starts_with("url = ") && line.ends_with(".git") {
                 let url = line.trim_start_matches("url = ");
-                if let Some(repo_name) = url.split('/').last() {
+                if let Some(repo_name) = url.split('/').next_back() {
                     let clean_name = repo_name.trim_end_matches(".git");
                     return Some(clean_name.to_string());
                 }
@@ -102,7 +102,7 @@ fn get_current_branch(git_dir: &Path) -> Result<String> {
     let head_path = git_dir.join("HEAD");
     let mut head_content = String::new();
     fs::File::open(&head_path)
-        .with_context(|| format!("Failed to open HEAD file at {:?}", head_path))?
+        .with_context(|| format!("Failed to open HEAD file at {head_path:?}"))?
         .read_to_string(&mut head_content)
         .context("Failed to read HEAD file")?;
 
@@ -125,7 +125,7 @@ fn get_head_commit(git_dir: &Path, branch: &str) -> Result<String> {
         let head_path = git_dir.join("HEAD");
         let mut head_content = String::new();
         fs::File::open(&head_path)
-            .with_context(|| format!("Failed to open HEAD file at {:?}", head_path))?
+            .with_context(|| format!("Failed to open HEAD file at {head_path:?}"))?
             .read_to_string(&mut head_content)
             .context("Failed to read HEAD file")?;
 
@@ -137,7 +137,7 @@ fn get_head_commit(git_dir: &Path, branch: &str) -> Result<String> {
     if ref_path.exists() {
         let mut commit_id = String::new();
         fs::File::open(&ref_path)
-            .with_context(|| format!("Failed to open branch reference at {:?}", ref_path))?
+            .with_context(|| format!("Failed to open branch reference at {ref_path:?}"))?
             .read_to_string(&mut commit_id)
             .context("Failed to read branch reference file")?;
 

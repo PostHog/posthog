@@ -1,15 +1,18 @@
-import 'chartjs-adapter-dayjs-3'
 // TODO: Move the below scss to somewhere more common
 import '../../../../../scenes/insights/InsightTooltip/InsightTooltip.scss'
 
-import { LemonTable } from '@posthog/lemon-ui'
-import { lemonToast } from '@posthog/lemon-ui'
+import 'chartjs-adapter-dayjs-3'
 import annotationPlugin, { AnnotationPluginOptions, LineAnnotationOptions } from 'chartjs-plugin-annotation'
 import dataLabelsPlugin from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100 from 'chartjs-plugin-stacked100'
 import chartTrendline from 'chartjs-plugin-trendline'
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { useEffect, useRef } from 'react'
+
+import { LemonTable } from '@posthog/lemon-ui'
+import { lemonToast } from '@posthog/lemon-ui'
+
 import {
     ChartData,
     ChartType,
@@ -25,7 +28,6 @@ import { getGraphColors, getSeriesColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { hexToRGBA } from 'lib/utils'
-import { useEffect, useRef } from 'react'
 import { ensureTooltip } from 'scenes/insights/views/LineGraph/LineGraph'
 
 import { ChartSettings, YAxisSettings } from '~/queries/schema/schema-general'
@@ -96,6 +98,7 @@ const getYAxisSettings = (
 // LineGraph displays a graph using either x and y data or series breakdown data
 export const LineGraph = (): JSX.Element => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
+    const chartId = useRef(`linegraph-dataviz-${Math.random().toString(36).substring(2, 11)}`)
     const { ref: containerRef, height } = useResizeObserver()
     const colors = getGraphColors()
 
@@ -348,7 +351,7 @@ export const LineGraph = (): JSX.Element => {
                             return
                         }
 
-                        const [tooltipRoot, tooltipEl] = ensureTooltip()
+                        const [tooltipRoot, tooltipEl] = ensureTooltip(chartId.current)
                         if (tooltip.opacity === 0) {
                             tooltipEl.style.opacity = '0'
                             return

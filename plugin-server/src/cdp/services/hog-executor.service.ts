@@ -1,13 +1,15 @@
-import { convertHogToJS, ExecResult } from '@posthog/hogvm'
 import { pickBy } from 'lodash'
 import { DateTime } from 'luxon'
 import { Counter, Histogram } from 'prom-client'
 
+import { ExecResult, convertHogToJS } from '@posthog/hogvm'
+
+import { instrumented } from '~/common/tracing/tracing-utils'
 import {
     CyclotronInvocationQueueParametersEmailSchema,
     CyclotronInvocationQueueParametersFetchSchema,
 } from '~/schema/cyclotron'
-import { fetch, FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError } from '~/utils/request'
+import { FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError, fetch } from '~/utils/request'
 import { tryCatch } from '~/utils/try-catch'
 
 import { buildIntegerMatcher } from '../../config/config'
@@ -88,7 +90,7 @@ const hogExecutionDuration = new Histogram({
     name: 'cdp_hog_function_execution_duration_ms',
     help: 'Processing time and success status of internal functions',
     // We have a timeout so we don't need to worry about much more than that
-    buckets: [0, 10, 20, 50, 100, 200],
+    buckets: [0, 10, 20, 50, 100, 200, 300, 500, 1000],
 })
 
 const hogFunctionStateMemory = new Histogram({
@@ -245,6 +247,7 @@ export class HogExecutorService {
         }
     }
 
+    @instrumented('hog-executor.executeWithAsyncFunctions')
     async executeWithAsyncFunctions(
         invocation: CyclotronJobInvocationHogFunction,
         options?: HogExecutorExecuteAsyncOptions
@@ -295,6 +298,7 @@ export class HogExecutorService {
         return result
     }
 
+    @instrumented('hog-executor.execute')
     async execute(
         invocation: CyclotronJobInvocationHogFunction,
         options: HogExecutorExecuteOptions = {}
@@ -533,6 +537,7 @@ export class HogExecutorService {
         return result
     }
 
+    @instrumented('hog-executor.executeFetch')
     async executeFetch(
         invocation: CyclotronJobInvocationHogFunction
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
@@ -553,10 +558,29 @@ export class HogExecutorService {
         const addLog = createAddLogFunction(result.logs)
 
         const method = params.method.toUpperCase()
-        const headers = params.headers ?? {}
+        let headers = params.headers ?? {}
 
         if (params.url.startsWith('https://googleads.googleapis.com/') && !headers['developer-token']) {
             headers['developer-token'] = this.hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN
+        }
+
+        if (!!invocation.state.globals.inputs?.oauth) {
+            const integrationInputs = await this.hogInputsService.loadIntegrationInputs(invocation.hogFunction)
+            const accessToken: string = integrationInputs.oauth.value.access_token_raw
+            const placeholder: string = integrationInputs.oauth.value.access_token
+
+            if (placeholder && accessToken) {
+                const replace = (val: string) => val.replaceAll(placeholder, accessToken)
+
+                params.body = params.body ? replace(params.body) : params.body
+                headers = Object.fromEntries(
+                    Object.entries(params.headers ?? {}).map(([key, value]) => [
+                        key,
+                        typeof value === 'string' ? replace(value) : value,
+                    ])
+                )
+                params.url = replace(params.url)
+            }
         }
 
         const fetchParams: FetchOptions = { method, headers }

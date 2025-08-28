@@ -1,16 +1,14 @@
 from langchain_core.runnables import RunnableConfig
 
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from posthog.hogql.context import HogQLContext
 from posthog.schema import AssistantHogQLQuery
 
-from ..schema_generator.parsers import parse_pydantic_structured_output
-from ..schema_generator.nodes import SchemaGeneratorNode, SchemaGeneratorToolsNode
-from ..schema_generator.utils import SchemaGeneratorOutput
-from .mixins import HogQLGeneratorMixin
-from .toolkit import SQL_SCHEMA
+from posthog.hogql.context import HogQLContext
 
-SQLSchemaGeneratorOutput = SchemaGeneratorOutput[AssistantHogQLQuery]
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
+
+from ..schema_generator.nodes import SchemaGeneratorNode, SchemaGeneratorToolsNode
+from .mixins import HogQLGeneratorMixin, SQLSchemaGeneratorOutput
+from .toolkit import SQL_SCHEMA
 
 
 class SQLGeneratorNode(HogQLGeneratorMixin, SchemaGeneratorNode[AssistantHogQLQuery]):
@@ -23,13 +21,6 @@ class SQLGeneratorNode(HogQLGeneratorMixin, SchemaGeneratorNode[AssistantHogQLQu
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         prompt = await self._construct_system_prompt()
         return await super()._run_with_prompt(state, prompt, config=config)
-
-    async def _parse_output(self, output: dict) -> SchemaGeneratorOutput[AssistantHogQLQuery]:
-        result = parse_pydantic_structured_output(SchemaGeneratorOutput[str])(output)  # type: ignore
-        database = await self._get_database()
-        hogql_context = self._get_default_hogql_context(database)
-        query = await self._parse_generated_hogql(result.query, hogql_context)
-        return SQLSchemaGeneratorOutput(query=AssistantHogQLQuery(query=query))
 
 
 class SQLGeneratorToolsNode(SchemaGeneratorToolsNode):

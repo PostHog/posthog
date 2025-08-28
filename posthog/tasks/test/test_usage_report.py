@@ -1,41 +1,52 @@
-from datetime import datetime
-from typing import Any
-from unittest.mock import MagicMock, Mock, patch
-from uuid import uuid4
 import gzip
 import json
 import base64
+from datetime import datetime
+from typing import Any
+from uuid import uuid4
 
 import pytest
+from freezegun import freeze_time
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseDestroyTablesMixin,
+    ClickhouseTestMixin,
+    QueryMatchingTest,
+    _create_event,
+    _create_person,
+    also_test_with_materialized_columns,
+    flush_persons_and_events,
+    run_clickhouse_statement_in_parallel,
+    snapshot_clickhouse_queries,
+)
+from unittest.mock import MagicMock, Mock, patch
+
+from django.test import TestCase
+from django.utils.timezone import now
+
 import structlog
 from dateutil.relativedelta import relativedelta
 from dateutil.tz import tzutc
-from django.test import TestCase
-from django.utils.timezone import now
-from freezegun import freeze_time
 
-from ee.api.test.base import LicensedTestMixin
-from ee.models.license import License
+from posthog.schema import EventsQuery
+
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.batch_exports.models import BatchExport, BatchExportDestination
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import TEST_clear_instance_license_cache
-from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Organization, Plugin, Team
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
-from posthog.batch_exports.models import BatchExport, BatchExportDestination
 from posthog.models.dashboard import Dashboard
+from posthog.models.error_tracking import ErrorTrackingIssue
 from posthog.models.event.util import create_event
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.group.util import create_group
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.plugin import PluginConfig
 from posthog.models.sharing_configuration import SharingConfiguration
-from posthog.models.error_tracking import ErrorTrackingIssue
-from posthog.schema import EventsQuery
-from posthog.session_recordings.queries.test.session_replay_sql import (
-    produce_replay_summary,
-)
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.tasks.usage_report import (
     OrgReport,
     _add_team_report_to_org_reports,
@@ -49,28 +60,20 @@ from posthog.tasks.usage_report import (
     get_instance_metadata,
     send_all_org_usage_reports,
 )
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseDestroyTablesMixin,
-    ClickhouseTestMixin,
-    QueryMatchingTest,
-    _create_event,
-    _create_person,
-    also_test_with_materialized_columns,
-    flush_persons_and_events,
-    run_clickhouse_statement_in_parallel,
-    snapshot_clickhouse_queries,
-)
 from posthog.test.fixtures import create_app_metric2
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_previous_day
 from posthog.warehouse.models import (
     DataWarehouseSavedQuery,
     DataWarehouseTable,
     ExternalDataJob,
-    ExternalDataSource,
     ExternalDataSchema,
+    ExternalDataSource,
 )
 from posthog.warehouse.types import ExternalDataSourceType
+
+from ee.api.test.base import LicensedTestMixin
+from ee.models.license import License
 
 logger = structlog.get_logger(__name__)
 
@@ -296,13 +299,13 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 )
 
             # Some groups
-            GroupTypeMapping.objects.create(
+            create_group_type_mapping_without_created_at(
                 team=self.org_1_team_1,
                 project_id=self.org_1_team_1.project_id,
                 group_type="organization",
                 group_type_index=0,
             )
-            GroupTypeMapping.objects.create(
+            create_group_type_mapping_without_created_at(
                 team=self.org_1_team_1,
                 project_id=self.org_1_team_1.project_id,
                 group_type="company",
@@ -600,6 +603,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "ai_event_count_in_period": 1,
                     "hog_function_calls_in_period": 0,
                     "hog_function_fetch_calls_in_period": 0,
+                    "cdp_billable_invocations_in_period": 0,
                     "date": "2022-01-09",
                     "organization_id": str(self.organization.id),
                     "organization_name": "Test",
@@ -664,6 +668,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "exceptions_captured_in_period": 0,
                             "hog_function_calls_in_period": 0,
                             "hog_function_fetch_calls_in_period": 0,
+                            "cdp_billable_invocations_in_period": 0,
                             "ai_event_count_in_period": 1,
                         },
                         str(self.org_1_team_2.id): {
@@ -723,6 +728,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "exceptions_captured_in_period": 0,
                             "hog_function_calls_in_period": 0,
                             "hog_function_fetch_calls_in_period": 0,
+                            "cdp_billable_invocations_in_period": 0,
                             "ai_event_count_in_period": 0,
                         },
                     },
@@ -805,6 +811,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "exceptions_captured_in_period": 0,
                     "hog_function_calls_in_period": 0,
                     "hog_function_fetch_calls_in_period": 0,
+                    "cdp_billable_invocations_in_period": 0,
                     "ai_event_count_in_period": 0,
                     "date": "2022-01-09",
                     "organization_id": str(self.org_2.id),
@@ -872,6 +879,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "exceptions_captured_in_period": 0,
                             "hog_function_calls_in_period": 0,
                             "hog_function_fetch_calls_in_period": 0,
+                            "cdp_billable_invocations_in_period": 0,
                             "ai_event_count_in_period": 0,
                         }
                     },
@@ -1972,6 +1980,12 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         create_app_metric2(team_id=self.org_1_team_2.id, app_source="hog_function", metric_name="failed", count=3)
         create_app_metric2(team_id=self.org_1_team_1.id, app_source="hog_function", metric_name="fetch", count=1)
         create_app_metric2(team_id=self.org_1_team_2.id, app_source="hog_function", metric_name="fetch", count=2)
+        create_app_metric2(
+            team_id=self.org_1_team_1.id, app_source="hog_function", metric_name="billable_invocation", count=5
+        )
+        create_app_metric2(
+            team_id=self.org_1_team_2.id, app_source="hog_function", metric_name="billable_invocation", count=3
+        )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
         period_start, period_end = period
@@ -1984,10 +1998,13 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         assert org_1_report["organization_name"] == "Org 1"
         assert org_1_report["hog_function_calls_in_period"] == 5
         assert org_1_report["hog_function_fetch_calls_in_period"] == 3
+        assert org_1_report["cdp_billable_invocations_in_period"] == 8
         assert org_1_report["teams"]["3"]["hog_function_calls_in_period"] == 2
         assert org_1_report["teams"]["3"]["hog_function_fetch_calls_in_period"] == 1
+        assert org_1_report["teams"]["3"]["cdp_billable_invocations_in_period"] == 5
         assert org_1_report["teams"]["4"]["hog_function_calls_in_period"] == 3
         assert org_1_report["teams"]["4"]["hog_function_fetch_calls_in_period"] == 2
+        assert org_1_report["teams"]["4"]["cdp_billable_invocations_in_period"] == 3
 
 
 @freeze_time("2022-01-10T10:00:00Z")
@@ -2466,35 +2483,27 @@ class SendUsageNoLicenseTest(APIBaseTest):
             _ = team.organization.for_internal_metrics
 
 
-class TestQuerySplitting(ClickhouseTestMixin, TestCase):
-    team: Team = None  # type: ignore
-    begin: datetime = None  # type: ignore
-    end: datetime = None  # type: ignore
-
-    @classmethod
-    def setUpTestData(cls) -> None:
-        # Clear existing ClickHouse data
-        sync_execute("TRUNCATE TABLE events")
-        sync_execute("TRUNCATE TABLE person")
-        sync_execute("TRUNCATE TABLE person_distinct_id")
+class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, TestCase):
+    def setUp(self) -> None:
+        super().setUp()
 
         # Clear existing Django data
         Team.objects.all().delete()
         Organization.objects.all().delete()
 
         # Create a fresh team for testing
-        cls.team = Team.objects.create(organization=Organization.objects.create(name="test"))
+        self.team = Team.objects.create(organization=Organization.objects.create(name="test"))
         # Create test events across a time period
-        cls.begin = datetime(2023, 1, 1, 0, 0)
-        cls.end = datetime(2023, 1, 2, 0, 0)
+        self.begin = datetime(2023, 1, 1, 0, 0)
+        self.end = datetime(2023, 1, 2, 0, 0)
 
         # Create 10 events in the time period
         for i in range(10):
             _create_event(
                 event="test_event",
-                team=cls.team,
+                team=self.team,
                 distinct_id=f"user_{i}",
-                timestamp=cls.begin + relativedelta(hours=i),
+                timestamp=self.begin + relativedelta(hours=i),
                 properties={},
                 person_mode="propertyless",
             )
@@ -2503,9 +2512,9 @@ class TestQuerySplitting(ClickhouseTestMixin, TestCase):
         for i in range(5):
             _create_event(
                 event="enhanced_event",
-                team=cls.team,
+                team=self.team,
                 distinct_id=f"enhanced_user_{i}",
-                timestamp=cls.begin + relativedelta(hours=i),
+                timestamp=self.begin + relativedelta(hours=i),
                 properties={"$lib": "web"},
                 person_mode="full",
             )
@@ -2514,9 +2523,9 @@ class TestQuerySplitting(ClickhouseTestMixin, TestCase):
         for i in range(3):
             _create_event(
                 event="survey sent",
-                team=cls.team,
+                team=self.team,
                 distinct_id=f"survey_user_{i}",
-                timestamp=cls.begin + relativedelta(hours=i),
+                timestamp=self.begin + relativedelta(hours=i),
                 properties={"survey_id": f"survey_{i}"},
                 person_mode="full",
             )
@@ -2524,20 +2533,98 @@ class TestQuerySplitting(ClickhouseTestMixin, TestCase):
         for i in range(3):
             _create_event(
                 event="$feature_flag_called",
-                team=cls.team,
+                team=self.team,
                 distinct_id=f"ff_user_{i}",
-                timestamp=cls.begin + relativedelta(hours=i),
+                timestamp=self.begin + relativedelta(hours=i),
                 properties={"$feature_flag": f"flag_{i}"},
                 person_mode="full",
             )
 
-        flush_persons_and_events()
+        # Create various types of AI events that should NOT be counted in billable events
+        # $ai_generation events
+        for i in range(3):
+            _create_event(
+                event="$ai_generation",
+                team=self.team,
+                distinct_id=f"ai_gen_user_{i}",
+                timestamp=self.begin + relativedelta(hours=i),
+                properties={
+                    "$ai_model": "gpt-4",
+                    "$ai_provider": "openai",
+                    "$ai_input_tokens": 100,
+                    "$ai_output_tokens": 50,
+                },
+                person_mode="full",
+            )
 
-    def setUp(self) -> None:
-        # Copy class attributes to instance attributes
-        self.team = self.__class__.team
-        self.begin = self.__class__.begin
-        self.end = self.__class__.end
+        # $ai_span events
+        for i in range(2):
+            _create_event(
+                event="$ai_span",
+                team=self.team,
+                distinct_id=f"ai_span_user_{i}",
+                timestamp=self.begin + relativedelta(hours=i),
+                properties={
+                    "$ai_trace_id": f"trace_{i}",
+                    "$ai_span_id": f"span_{i}",
+                },
+                person_mode="full",
+            )
+
+        # $ai_trace events
+        _create_event(
+            event="$ai_trace",
+            team=self.team,
+            distinct_id="ai_trace_user",
+            timestamp=self.begin + relativedelta(hours=1),
+            properties={
+                "$ai_trace_id": "trace_1",
+            },
+            person_mode="full",
+        )
+
+        # $ai_embedding events
+        for i in range(2):
+            _create_event(
+                event="$ai_embedding",
+                team=self.team,
+                distinct_id=f"ai_embed_user_{i}",
+                timestamp=self.begin + relativedelta(hours=i),
+                properties={
+                    "$ai_model": "text-embedding-ada-002",
+                    "$ai_provider": "openai",
+                    "$ai_input_tokens": 50,
+                },
+                person_mode="full",
+            )
+
+        # $ai_feedback events
+        _create_event(
+            event="$ai_feedback",
+            team=self.team,
+            distinct_id="ai_feedback_user",
+            timestamp=self.begin + relativedelta(hours=2),
+            properties={
+                "$ai_trace_id": "trace_1",
+                "rating": 5,
+            },
+            person_mode="full",
+        )
+
+        # $ai_metric events
+        _create_event(
+            event="$ai_metric",
+            team=self.team,
+            distinct_id="ai_metric_user",
+            timestamp=self.begin + relativedelta(hours=3),
+            properties={
+                "$ai_trace_id": "trace_1",
+                "latency_ms": 250,
+            },
+            person_mode="full",
+        )
+
+        flush_persons_and_events()
 
     @patch("posthog.tasks.usage_report.sync_execute")
     def test_execute_split_query_splits_correctly(self, mock_sync_execute: MagicMock) -> None:
@@ -2627,13 +2714,14 @@ class TestQuerySplitting(ClickhouseTestMixin, TestCase):
         self.assertEqual(result["mobile_events"], [(self.team.id, 1)])
 
     def test_get_teams_with_billable_event_count_in_period(self) -> None:
-        """Test that get_teams_with_billable_event_count_in_period returns correct results after splitting."""
+        """Test that get_teams_with_billable_event_count_in_period returns correct results after splitting and excludes AI events."""
         from posthog.tasks.usage_report import get_teams_with_billable_event_count_in_period
 
         # Run the function with our test data
         result = get_teams_with_billable_event_count_in_period(self.begin, self.end)
 
-        # We should get 10 events for our team
+        # We should get 15 events for our team (10 test_event + 5 enhanced_event)
+        # NOT counting: 3 survey sent, 3 $feature_flag_called, 10 AI events
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0][0], self.team.id)
         self.assertEqual(result[0][1], 15)
@@ -2642,7 +2730,7 @@ class TestQuerySplitting(ClickhouseTestMixin, TestCase):
         result_distinct = get_teams_with_billable_event_count_in_period(self.begin, self.end, count_distinct=True)
         self.assertEqual(len(result_distinct), 1)
         self.assertEqual(result_distinct[0][0], self.team.id)
-        # Should still be 15 since we created 15 distinct events
+        # Should still be 15 since we created 15 distinct billable events (excluding AI events)
         self.assertEqual(result_distinct[0][1], 15)
 
     def test_get_teams_with_billable_enhanced_persons_event_count_in_period(self) -> None:
@@ -2663,8 +2751,8 @@ class TestQuerySplitting(ClickhouseTestMixin, TestCase):
         mock_execute_split_query.return_value = [(self.team.id, 10)]
 
         from posthog.tasks.usage_report import (
-            get_teams_with_billable_event_count_in_period,
             get_all_event_metrics_in_period,
+            get_teams_with_billable_event_count_in_period,
         )
 
         # Call the functions
@@ -2681,6 +2769,51 @@ class TestQuerySplitting(ClickhouseTestMixin, TestCase):
         # Second call (get_all_event_metrics_in_period) should use 3 splits
         second_call_kwargs = mock_execute_split_query.call_args_list[1][1]
         self.assertEqual(second_call_kwargs["num_splits"], 3)
+
+    def test_ai_events_not_double_counted(self) -> None:
+        """Test that AI events are excluded from billable event counts and counted separately."""
+        from posthog.tasks.usage_report import (
+            get_teams_with_ai_event_count_in_period,
+            get_teams_with_billable_event_count_in_period,
+        )
+
+        # First, get the baseline billable count with existing events
+        billable_result_before = get_teams_with_billable_event_count_in_period(self.begin, self.end)
+        baseline_count = billable_result_before[0][1] if billable_result_before else 0
+
+        # Create additional AI events that should NOT increase billable count
+        for i in range(5):
+            _create_event(
+                event="$ai_generation",
+                team=self.team,
+                distinct_id=f"new_ai_user_{i}",
+                timestamp=self.begin + relativedelta(hours=i + 10),
+                properties={"$ai_model": "claude-3", "$ai_provider": "anthropic"},
+            )
+
+        flush_persons_and_events()
+
+        # Get counts after adding more AI events
+        billable_result_after = get_teams_with_billable_event_count_in_period(self.begin, self.end)
+        ai_result = get_teams_with_ai_event_count_in_period(self.begin, self.end)
+
+        # Billable count should NOT have increased
+        self.assertEqual(billable_result_after[0][1], baseline_count)
+
+        # AI count should include original 10 + 5 new = 15
+        self.assertEqual(ai_result[0][1], 15)
+
+        # Now add a regular event and verify it DOES increase billable count
+        _create_event(
+            event="regular_event",
+            team=self.team,
+            distinct_id="regular_user",
+            timestamp=self.begin + relativedelta(hours=12),
+        )
+        flush_persons_and_events()
+
+        billable_result_final = get_teams_with_billable_event_count_in_period(self.begin, self.end)
+        self.assertEqual(billable_result_final[0][1], baseline_count + 1)
 
     def test_integration_with_usage_report(self) -> None:
         """Test that the usage report generation still works with the new query splitting."""

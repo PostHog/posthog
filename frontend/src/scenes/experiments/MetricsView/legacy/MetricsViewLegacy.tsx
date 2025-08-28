@@ -1,11 +1,12 @@
+import { useValues } from 'kea'
+
 import { IconInfo } from '@posthog/icons'
 import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 
-import { EXPERIMENT_MAX_PRIMARY_METRICS, EXPERIMENT_MAX_SECONDARY_METRICS } from '../../constants'
-import { credibleIntervalForVariant } from '../../legacyExperimentCalculations'
 import { experimentLogic } from '../../experimentLogic'
+import { credibleIntervalForVariant } from '../../legacyExperimentCalculations'
 import { AddPrimaryMetric, AddSecondaryMetric } from '../shared/AddMetric'
 import { getNiceTickValues } from '../shared/utils'
 import { DeltaChart } from './DeltaChart'
@@ -184,11 +185,6 @@ export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): J
                     <div className="flex flex-col items-center mx-auto deprecated-space-y-3">
                         <IconAreaChart fontSize="30" />
                         <div className="text-sm text-center text-balance max-w-sm">
-                            <p>
-                                {`Add up to ${
-                                    isSecondary ? EXPERIMENT_MAX_SECONDARY_METRICS : EXPERIMENT_MAX_PRIMARY_METRICS
-                                } ${isSecondary ? 'secondary' : 'primary'} metrics.`}
-                            </p>
                             <p>
                                 {isSecondary
                                     ? 'Secondary metrics provide additional context and help detect unintended side effects.'

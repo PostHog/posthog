@@ -1,24 +1,25 @@
-from typing import cast
 from decimal import Decimal
+from typing import cast
+
+from posthog.schema import (
+    CachedRevenueAnalyticsGrowthRateQueryResponse,
+    ResolvedDateRangeResponse,
+    RevenueAnalyticsGrowthRateQuery,
+    RevenueAnalyticsGrowthRateQueryResponse,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
-from posthog.schema import (
-    CachedRevenueAnalyticsGrowthRateQueryResponse,
-    RevenueAnalyticsGrowthRateQueryResponse,
-    RevenueAnalyticsGrowthRateQuery,
-    ResolvedDateRangeResponse,
-)
+
+from products.revenue_analytics.backend.views import RevenueAnalyticsRevenueItemView
 
 from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
-from products.revenue_analytics.backend.views.revenue_analytics_revenue_item_view import RevenueAnalyticsRevenueItemView
 
 ORDER_BY_MONTH_ASC = ast.OrderExpr(expr=ast.Field(chain=["month"]), order="ASC")
 
 
-class RevenueAnalyticsGrowthRateQueryRunner(RevenueAnalyticsQueryRunner):
+class RevenueAnalyticsGrowthRateQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalyticsGrowthRateQueryResponse]):
     query: RevenueAnalyticsGrowthRateQuery
-    response: RevenueAnalyticsGrowthRateQueryResponse
     cached_response: CachedRevenueAnalyticsGrowthRateQueryResponse
 
     def to_query(self) -> ast.SelectQuery:
@@ -142,7 +143,7 @@ class RevenueAnalyticsGrowthRateQueryRunner(RevenueAnalyticsQueryRunner):
             ),
         )
 
-    def calculate(self):
+    def _calculate(self):
         response = execute_hogql_query(
             query_type="revenue_analytics_growth_rate_query",
             query=self.to_query(),

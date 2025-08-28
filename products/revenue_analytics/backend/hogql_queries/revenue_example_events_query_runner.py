@@ -1,18 +1,20 @@
 import json
 from typing import Any, cast
 
+from posthog.schema import (
+    CachedRevenueExampleEventsQueryResponse,
+    RevenueExampleEventsQuery,
+    RevenueExampleEventsQueryResponse,
+)
+
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.constants import LimitContext
-from posthog.hogql_queries.query_runner import QueryRunnerWithHogQLContext
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.schema import (
-    RevenueExampleEventsQuery,
-    RevenueExampleEventsQueryResponse,
-    CachedRevenueExampleEventsQueryResponse,
-)
 
-from products.revenue_analytics.backend.views.revenue_analytics_charge_view import RevenueAnalyticsChargeView
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.query_runner import QueryRunnerWithHogQLContext
+
+from products.revenue_analytics.backend.views import RevenueAnalyticsChargeView
 
 
 class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
@@ -110,7 +112,7 @@ class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
             order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
         )
 
-    def calculate(self):
+    def _calculate(self):
         response = self.paginator.execute_hogql_query(
             query_type="revenue_example_events_query",
             query=self.to_query(),

@@ -441,7 +441,7 @@ describe('PostgresPersonRepository', () => {
             // Add another distinct ID to source person
             await repository.addDistinctId(sourcePerson, 'source-distinct-id-2', 1)
 
-            const result = await repository.moveDistinctIds(sourcePerson, targetPerson)
+            const result = await repository.moveDistinctIds(sourcePerson, targetPerson, undefined)
 
             expect(result.success).toBe(true)
             if (result.success) {
@@ -480,7 +480,7 @@ describe('PostgresPersonRepository', () => {
                 is_identified: false,
             }
 
-            const result = await repository.moveDistinctIds(sourcePerson, nonExistentTargetPerson)
+            const result = await repository.moveDistinctIds(sourcePerson, nonExistentTargetPerson, undefined)
 
             expect(result.success).toBe(false)
             if (!result.success) {
@@ -504,12 +504,287 @@ describe('PostgresPersonRepository', () => {
                 is_identified: false,
             }
 
-            const result = await repository.moveDistinctIds(nonExistentSourcePerson, targetPerson)
+            const result = await repository.moveDistinctIds(nonExistentSourcePerson, targetPerson, undefined)
 
             expect(result.success).toBe(false)
             if (!result.success) {
                 expect(result.error).toBe('SourceNotFound')
             }
+        })
+
+        it('should respect per-call move limit when provided', async () => {
+            const team = await getFirstTeam(hub)
+            const limitedRepository = new PostgresPersonRepository(postgres, {})
+
+            const sourcePerson = await createTestPerson(team.id, 'source-distinct-id', { name: 'Source Person' })
+            const targetPerson = await createTestPerson(team.id, 'target-distinct-id', { name: 'Target Person' })
+
+            // Add 3 more distinct IDs to source person (total of 4 distinct IDs)
+            await repository.addDistinctId(sourcePerson, 'source-distinct-id-2', 1)
+            await repository.addDistinctId(sourcePerson, 'source-distinct-id-3', 1)
+            await repository.addDistinctId(sourcePerson, 'source-distinct-id-4', 1)
+
+            const result = await limitedRepository.moveDistinctIds(sourcePerson, targetPerson, 2)
+
+            expect(result.success).toBe(true)
+            if (result.success) {
+                // Should only move 2 distinct IDs due to limit
+                expect(result.messages).toHaveLength(2)
+                expect(result.distinctIdsMoved).toHaveLength(2)
+
+                // Verify the messages have the correct structure
+                for (const message of result.messages) {
+                    expect(message.topic).toBe('clickhouse_person_distinct_id_test')
+                    expect(message.messages).toHaveLength(1)
+
+                    const messageValue = parseJSON(message.messages[0].value as string)
+                    expect(messageValue).toMatchObject({
+                        person_id: targetPerson.uuid,
+                        team_id: team.id,
+                        is_deleted: 0,
+                    })
+                    expect(messageValue).toHaveProperty('distinct_id')
+                    expect(messageValue).toHaveProperty('version')
+                }
+
+                // Verify that there are still distinct IDs left on the source person
+                const remainingResult = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    'SELECT COUNT(*) as count FROM posthog_persondistinctid WHERE person_id = $1 AND team_id = $2',
+                    [sourcePerson.id, team.id],
+                    'countRemainingDistinctIds'
+                )
+                expect(parseInt(remainingResult.rows[0].count)).toBe(2) // 4 - 2 = 2 remaining
+            }
+        })
+
+        it('should move all distinct IDs when no limit is configured', async () => {
+            const team = await getFirstTeam(hub)
+            const unlimitedRepository = new PostgresPersonRepository(postgres, {}) // No limit
+
+            const sourcePerson = await createTestPerson(team.id, 'source-unlimited', { name: 'Source Person' })
+            const targetPerson = await createTestPerson(team.id, 'target-unlimited', { name: 'Target Person' })
+
+            // Add 3 more distinct IDs to source person (total of 4 distinct IDs)
+            await repository.addDistinctId(sourcePerson, 'source-unlimited-2', 1)
+            await repository.addDistinctId(sourcePerson, 'source-unlimited-3', 1)
+            await repository.addDistinctId(sourcePerson, 'source-unlimited-4', 1)
+
+            const result = await unlimitedRepository.moveDistinctIds(sourcePerson, targetPerson, undefined)
+
+            expect(result.success).toBe(true)
+            if (result.success) {
+                // Should move all 4 distinct IDs
+                expect(result.messages).toHaveLength(4)
+                expect(result.distinctIdsMoved).toHaveLength(4)
+
+                // Verify no distinct IDs remain on the source person
+                const remainingResult = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    'SELECT COUNT(*) as count FROM posthog_persondistinctid WHERE person_id = $1 AND team_id = $2',
+                    [sourcePerson.id, team.id],
+                    'countRemainingDistinctIds'
+                )
+                expect(parseInt(remainingResult.rows[0].count)).toBe(0) // All moved
+            }
+        })
+
+        it('should move distinct IDs in deterministic order when per-call limit is set', async () => {
+            const team = await getFirstTeam(hub)
+            const limitedRepository = new PostgresPersonRepository(postgres, {})
+
+            const sourcePerson = await createTestPerson(team.id, 'source-deterministic', { name: 'Source Person' })
+            const targetPerson = await createTestPerson(team.id, 'target-deterministic', { name: 'Target Person' })
+
+            // Add distinct IDs in a specific order (not alphabetical to test database ID ordering)
+            await repository.addDistinctId(sourcePerson, 'distinct-z', 1)
+            await repository.addDistinctId(sourcePerson, 'distinct-a', 1)
+            await repository.addDistinctId(sourcePerson, 'distinct-m', 1)
+
+            // Get all distinct IDs in database order (by id, not by distinct_id value)
+            const allDistinctIdsBeforeMove = await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'SELECT id, distinct_id FROM posthog_persondistinctid WHERE person_id = $1 AND team_id = $2 ORDER BY id',
+                [sourcePerson.id, team.id],
+                'getAllDistinctIds'
+            )
+
+            // Should have 4 total distinct IDs (1 from createTestPerson + 3 added)
+            expect(allDistinctIdsBeforeMove.rows).toHaveLength(4)
+
+            const result = await limitedRepository.moveDistinctIds(sourcePerson, targetPerson, 2)
+            expect(result.success).toBe(true)
+            if (result.success) {
+                expect(result.distinctIdsMoved).toHaveLength(2)
+
+                // The moved distinct IDs should be the first 2 in database order (smallest IDs)
+                const expectedMovedDistinctIds = [
+                    allDistinctIdsBeforeMove.rows[0].distinct_id,
+                    allDistinctIdsBeforeMove.rows[1].distinct_id,
+                ]
+
+                expect(result.distinctIdsMoved.sort()).toEqual(expectedMovedDistinctIds.sort())
+
+                // Verify the remaining distinct IDs are the ones with higher database IDs
+                const remainingIds = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    'SELECT distinct_id FROM posthog_persondistinctid WHERE person_id = $1 AND team_id = $2 ORDER BY id',
+                    [sourcePerson.id, team.id],
+                    'getRemainingDistinctIds'
+                )
+
+                expect(remainingIds.rows).toHaveLength(2)
+                const expectedRemainingDistinctIds = [
+                    allDistinctIdsBeforeMove.rows[2].distinct_id,
+                    allDistinctIdsBeforeMove.rows[3].distinct_id,
+                ]
+
+                const actualRemainingDistinctIds = remainingIds.rows.map((row) => row.distinct_id)
+                expect(actualRemainingDistinctIds.sort()).toEqual(expectedRemainingDistinctIds.sort())
+            }
+        })
+
+        it('should move all distinct IDs when person has fewer than the per-call limit', async () => {
+            const team = await getFirstTeam(hub)
+            const limitedRepository = new PostgresPersonRepository(postgres, {})
+
+            const sourcePerson = await createTestPerson(team.id, 'source-below-limit', { name: 'Source Person' })
+            const targetPerson = await createTestPerson(team.id, 'target-below-limit', { name: 'Target Person' })
+
+            // Add only 2 more distinct IDs (total of 3, which is below the limit of 5)
+            await repository.addDistinctId(sourcePerson, 'source-below-limit-2', 1)
+            await repository.addDistinctId(sourcePerson, 'source-below-limit-3', 1)
+
+            const result = await limitedRepository.moveDistinctIds(sourcePerson, targetPerson, 5)
+
+            expect(result.success).toBe(true)
+            if (result.success) {
+                // Should move all 3 distinct IDs since it's below the limit
+                expect(result.messages).toHaveLength(3)
+                expect(result.distinctIdsMoved).toHaveLength(3)
+
+                // Verify the messages have the correct structure
+                for (const message of result.messages) {
+                    expect(message.topic).toBe('clickhouse_person_distinct_id_test')
+                    expect(message.messages).toHaveLength(1)
+
+                    const messageValue = parseJSON(message.messages[0].value as string)
+                    expect(messageValue).toMatchObject({
+                        person_id: targetPerson.uuid,
+                        team_id: team.id,
+                        is_deleted: 0,
+                    })
+                    expect(messageValue).toHaveProperty('distinct_id')
+                    expect(messageValue).toHaveProperty('version')
+                }
+
+                // Verify no distinct IDs remain on the source person
+                const remainingResult = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    'SELECT COUNT(*) as count FROM posthog_persondistinctid WHERE person_id = $1 AND team_id = $2',
+                    [sourcePerson.id, team.id],
+                    'countRemainingDistinctIds'
+                )
+                expect(parseInt(remainingResult.rows[0].count)).toBe(0) // All moved, none remaining
+            }
+        })
+    })
+
+    describe('fetchPersonDistinctIds()', () => {
+        it('should fetch all distinct IDs when no limit is specified', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'test-distinct-id', { name: 'Test Person' })
+
+            // Add more distinct IDs
+            await repository.addDistinctId(person, 'distinct-id-2', 1)
+            await repository.addDistinctId(person, 'distinct-id-3', 1)
+            await repository.addDistinctId(person, 'distinct-id-4', 1)
+
+            const distinctIds = await repository.fetchPersonDistinctIds(person)
+
+            expect(distinctIds).toHaveLength(4)
+            expect(distinctIds).toContain('test-distinct-id')
+            expect(distinctIds).toContain('distinct-id-2')
+            expect(distinctIds).toContain('distinct-id-3')
+            expect(distinctIds).toContain('distinct-id-4')
+        })
+
+        it('should fetch limited distinct IDs when limit is specified', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'test-limit-distinct', { name: 'Test Person' })
+
+            // Add more distinct IDs
+            await repository.addDistinctId(person, 'limit-distinct-2', 1)
+            await repository.addDistinctId(person, 'limit-distinct-3', 1)
+            await repository.addDistinctId(person, 'limit-distinct-4', 1)
+
+            const distinctIds = await repository.fetchPersonDistinctIds(person, 2)
+
+            expect(distinctIds).toHaveLength(2)
+            // Should be deterministic due to ORDER BY id
+            expect(distinctIds).toEqual(expect.arrayContaining([expect.any(String), expect.any(String)]))
+        })
+
+        it('should return distinct IDs in deterministic order', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'order-test-distinct', { name: 'Test Person' })
+
+            // Add distinct IDs in non-alphabetical order
+            await repository.addDistinctId(person, 'z-distinct', 1)
+            await repository.addDistinctId(person, 'a-distinct', 1)
+            await repository.addDistinctId(person, 'm-distinct', 1)
+
+            const distinctIds1 = await repository.fetchPersonDistinctIds(person)
+            const distinctIds2 = await repository.fetchPersonDistinctIds(person)
+
+            // Should return the same order both times due to ORDER BY id
+            expect(distinctIds1).toEqual(distinctIds2)
+            expect(distinctIds1).toHaveLength(4) // 1 from createTestPerson + 3 added
+        })
+
+        it('should return empty array when person has no distinct IDs', async () => {
+            const team = await getFirstTeam(hub)
+            // Create person without distinct IDs
+            const uuid = new UUIDT().toString()
+            const result = await repository.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, true, uuid, [])
+            if (!result.success) {
+                throw new Error('Failed to create person')
+            }
+            const person = result.person
+
+            const distinctIds = await repository.fetchPersonDistinctIds(person)
+
+            expect(distinctIds).toEqual([])
+        })
+
+        it('should handle limit larger than available distinct IDs', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'large-limit-distinct', { name: 'Test Person' })
+
+            // Add only 2 more distinct IDs (total of 3)
+            await repository.addDistinctId(person, 'large-limit-2', 1)
+            await repository.addDistinctId(person, 'large-limit-3', 1)
+
+            const distinctIds = await repository.fetchPersonDistinctIds(person, 10) // Limit is larger than available
+
+            expect(distinctIds).toHaveLength(3) // Should return all 3 available
+            expect(distinctIds).toContain('large-limit-distinct')
+            expect(distinctIds).toContain('large-limit-2')
+            expect(distinctIds).toContain('large-limit-3')
+        })
+
+        it('should work with transactions', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'tx-distinct', { name: 'Test Person' })
+
+            await repository.addDistinctId(person, 'tx-distinct-2', 1)
+
+            await postgres.transaction(PostgresUse.PERSONS_WRITE, 'test-fetch-distinct-ids', async (tx) => {
+                const distinctIds = await repository.fetchPersonDistinctIds(person, undefined, tx)
+                expect(distinctIds).toHaveLength(2)
+                expect(distinctIds).toContain('tx-distinct')
+                expect(distinctIds).toContain('tx-distinct-2')
+            })
         })
     })
 

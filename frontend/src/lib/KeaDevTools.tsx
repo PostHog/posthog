@@ -1,7 +1,7 @@
 // KeaDevtools.tsx
-import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { getContext } from 'kea'
 import type { BuiltLogic, Context as KeaContext } from 'kea'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 
 type MountedMap = Record<string, BuiltLogic>
 type SortMode = 'alpha' | 'recent'
@@ -968,7 +968,7 @@ export function KeaDevtools({
                 title="Kea Devtools"
                 style={{
                     position: 'fixed',
-                    right: offset,
+                    left: offset,
                     bottom: offset,
                     width: buttonSize,
                     height: buttonSize,

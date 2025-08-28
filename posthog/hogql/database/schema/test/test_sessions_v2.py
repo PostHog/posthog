@@ -2,7 +2,17 @@ import uuid
 from time import time_ns
 
 import pytest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+
 from parameterized import parameterized
+
+from posthog.schema import (
+    BounceRatePageViewMode,
+    FilterLogicalOperator,
+    HogQLQueryModifiers,
+    SessionsV2JoinMode,
+    SessionTableVersion,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.database.schema.sessions_v2 import (
@@ -11,21 +21,9 @@ from posthog.hogql.database.schema.sessions_v2 import (
 )
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
+
 from posthog.models.property_definition import PropertyType
 from posthog.models.utils import uuid7
-from posthog.schema import (
-    HogQLQueryModifiers,
-    SessionTableVersion,
-    BounceRatePageViewMode,
-    FilterLogicalOperator,
-    SessionsV2JoinMode,
-)
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-)
 
 
 class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):

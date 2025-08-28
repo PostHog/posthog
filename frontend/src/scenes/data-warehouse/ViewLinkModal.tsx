@@ -1,5 +1,9 @@
 import './ViewLinkModal.scss'
 
+import { useActions, useValues } from 'kea'
+import { Field, Form } from 'kea-forms'
+import { useState } from 'react'
+
 import { IconCollapse, IconExpand } from '@posthog/icons'
 import {
     LemonButton,
@@ -10,12 +14,10 @@ import {
     LemonSelect,
     LemonTag,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { Field, Form } from 'kea-forms'
+
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { HogQLDropdown } from 'lib/components/HogQLDropdown/HogQLDropdown'
 import { IconSwapHoriz } from 'lib/lemon-ui/icons'
-import { useState } from 'react'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 
 import { DatabaseSchemaField } from '~/queries/schema/schema-general'

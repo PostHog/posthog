@@ -1,7 +1,8 @@
 import pytest
+from posthog.test.base import BaseTest
+
 from django.db.utils import ProgrammingError
 
-from posthog.test.base import BaseTest
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from posthog.warehouse.models.modeling import (
     DataWarehouseModelPath,

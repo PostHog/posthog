@@ -1,8 +1,10 @@
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import MagicMock, patch
 
-from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
-from freezegun import freeze_time
+
+from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
 from rest_framework import status
 
@@ -10,17 +12,8 @@ from posthog.api.test.test_team import create_team
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Person, SessionRecording
 from posthog.models.utils import uuid7
-from posthog.session_recordings.models.session_recording_event import (
-    SessionRecordingViewed,
-)
-from posthog.session_recordings.queries.test.session_replay_sql import (
-    produce_replay_summary,
-)
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    QueryMatchingTest,
-)
+from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 
 class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest):

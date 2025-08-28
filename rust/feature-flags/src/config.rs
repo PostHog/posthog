@@ -18,7 +18,7 @@ impl FromStr for FlexBool {
         match s.trim().to_lowercase().as_str() {
             "true" | "1" | "yes" | "on" => Ok(FlexBool(true)),
             "false" | "0" | "no" | "off" | "" => Ok(FlexBool(false)),
-            _ => Err(format!("Invalid boolean value: {}", s)),
+            _ => Err(format!("Invalid boolean value: {s}")),
         }
     }
 }
@@ -53,8 +53,8 @@ pub enum ParseTeamIdsError {
 impl std::fmt::Display for ParseTeamIdsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ParseTeamIdsError::InvalidRange(r) => write!(f, "Invalid range: {}", r),
-            ParseTeamIdsError::InvalidNumber(e) => write!(f, "Invalid number: {}", e),
+            ParseTeamIdsError::InvalidRange(r) => write!(f, "Invalid range: {r}"),
+            ParseTeamIdsError::InvalidNumber(e) => write!(f, "Invalid number: {e}"),
         }
     }
 }

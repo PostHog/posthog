@@ -1,12 +1,16 @@
-from freezegun import freeze_time
-from pathlib import Path
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 
-from posthog.models.utils import uuid7
-from products.revenue_analytics.backend.hogql_queries.revenue_analytics_growth_rate_query_runner import (
-    RevenueAnalyticsGrowthRateQueryRunner,
+from freezegun import freeze_time
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    snapshot_clickhouse_queries,
 )
+
 from posthog.schema import (
     CurrencyCode,
     DateRange,
@@ -16,26 +20,22 @@ from posthog.schema import (
     RevenueAnalyticsGrowthRateQueryResponse,
     RevenueAnalyticsPropertyFilter,
 )
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    snapshot_clickhouse_queries,
+
+from posthog.models.utils import uuid7
+from posthog.temporal.data_imports.sources.stripe.constants import (
+    INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
+    PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
 )
 from posthog.warehouse.models import ExternalDataSchema
-
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
+
+from products.revenue_analytics.backend.hogql_queries.revenue_analytics_growth_rate_query_runner import (
+    RevenueAnalyticsGrowthRateQueryRunner,
+)
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
     REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT,
     STRIPE_INVOICE_COLUMNS,
     STRIPE_PRODUCT_COLUMNS,
-)
-from products.revenue_analytics.backend.views.revenue_analytics_revenue_item_view import (
-    STRIPE_INVOICE_RESOURCE_NAME,
-)
-from products.revenue_analytics.backend.views.revenue_analytics_product_view import (
-    STRIPE_PRODUCT_RESOURCE_NAME,
 )
 
 INVOICE_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.growth_rate_query_runner.stripe_invoices"
@@ -139,7 +139,7 @@ class TestRevenueAnalyticsGrowthRateQueryRunner(ClickhouseTestMixin, APIBaseTest
         properties: list[RevenueAnalyticsPropertyFilter] | None = None,
     ):
         if date_range is None:
-            date_range: DateRange = DateRange(date_from="all")
+            date_range = DateRange(date_from="all")
         if properties is None:
             properties = []
 
@@ -183,38 +183,38 @@ class TestRevenueAnalyticsGrowthRateQueryRunner(ClickhouseTestMixin, APIBaseTest
         self.assertEqual(
             results,
             [
-                (date(2025, 1, 1), Decimal("8765.3236433332"), None, None, None, None),
+                (date(2025, 1, 1), Decimal("650.2098683332"), None, None, None, None),
                 (
                     date(2025, 2, 1),
-                    Decimal("10341.3433233332"),
-                    Decimal("8765.3236433332"),
-                    Decimal("0.1798016529"),
-                    Decimal("0.1798016529"),
-                    Decimal("0.1798016529"),
+                    Decimal("2510.1847083332"),
+                    Decimal("650.2098683332"),
+                    Decimal("2.8605761471"),
+                    Decimal("2.8605761471"),
+                    Decimal("2.8605761471"),
                 ),
                 (
                     date(2025, 3, 1),
-                    Decimal("9116.4659033332"),
-                    Decimal("10341.3433233332"),
-                    Decimal("-0.1184447108"),
-                    Decimal("0.030678471"),
-                    Decimal("0.030678471"),
+                    Decimal("2113.2388583332"),
+                    Decimal("2510.1847083332"),
+                    Decimal("-0.15813412"),
+                    Decimal("1.3512210136"),
+                    Decimal("1.3512210136"),
                 ),
                 (
                     date(2025, 4, 1),
-                    Decimal("8987.5989733332"),
-                    Decimal("9116.4659033332"),
-                    Decimal("-0.0141356235"),
-                    Decimal("0.0157404395"),
-                    Decimal("0.0157404395"),
+                    Decimal("2418.3065483332"),
+                    Decimal("2113.2388583332"),
+                    Decimal("0.14436025"),
+                    Decimal("0.9489340924"),
+                    Decimal("0.9489340924"),
                 ),
                 (
                     date(2025, 5, 1),
-                    Decimal("8900.0246133332"),
-                    Decimal("8987.5989733332"),
-                    Decimal("-0.0097439104"),
-                    Decimal("-0.0474414149"),
-                    Decimal("0.009369352"),
+                    Decimal("1727.0246133332"),
+                    Decimal("2418.3065483332"),
+                    Decimal("-0.2858537249"),
+                    Decimal("-0.099875865"),
+                    Decimal("0.6402371381"),
                 ),
             ],
         )
@@ -227,14 +227,14 @@ class TestRevenueAnalyticsGrowthRateQueryRunner(ClickhouseTestMixin, APIBaseTest
         self.assertEqual(
             results,
             [
-                (date(2025, 2, 1), Decimal("10341.3433233332"), None, None, None, None),
+                (date(2025, 2, 1), Decimal("2510.1847083332"), None, None, None, None),
                 (
                     date(2025, 3, 1),
-                    Decimal("9116.4659033332"),
-                    Decimal("10341.3433233332"),
-                    Decimal("-0.1184447108"),
-                    Decimal("-0.1184447108"),
-                    Decimal("-0.1184447108"),
+                    Decimal("2113.2388583332"),
+                    Decimal("2510.1847083332"),
+                    Decimal("-0.15813412"),
+                    Decimal("-0.15813412"),
+                    Decimal("-0.15813412"),
                 ),
             ],
         )
@@ -260,38 +260,38 @@ class TestRevenueAnalyticsGrowthRateQueryRunner(ClickhouseTestMixin, APIBaseTest
         self.assertEqual(
             results,
             [
-                (date(2025, 1, 1), Decimal("11.51665"), None, None, None, None),
+                (date(2025, 1, 1), Decimal("5.758325"), None, None, None, None),
                 (
                     date(2025, 2, 1),
-                    Decimal("37.18802"),
-                    Decimal("11.51665"),
-                    Decimal("2.2290657439"),
-                    Decimal("2.2290657439"),
-                    Decimal("2.2290657439"),
+                    Decimal("24.352335"),
+                    Decimal("5.758325"),
+                    Decimal("3.2290657439"),
+                    Decimal("3.2290657439"),
+                    Decimal("3.2290657439"),
                 ),
                 (
                     date(2025, 3, 1),
-                    Decimal("2.73371"),
-                    Decimal("37.18802"),
-                    Decimal("-0.9264894984"),
-                    Decimal("0.6512881228"),
-                    Decimal("0.6512881228"),
+                    Decimal("19.960865"),
+                    Decimal("24.352335"),
+                    Decimal("-0.1803305514"),
+                    Decimal("1.5243675963"),
+                    Decimal("1.5243675963"),
                 ),
                 (
                     date(2025, 4, 1),
-                    Decimal("0.09564"),
-                    Decimal("2.73371"),
-                    Decimal("-0.9650145772"),
-                    Decimal("0.1125205561"),
-                    Decimal("0.1125205561"),
+                    Decimal("1.462495"),
+                    Decimal("19.960865"),
+                    Decimal("-0.9267318826"),
+                    Decimal("0.7073344366"),
+                    Decimal("0.7073344366"),
                 ),
                 (
                     date(2025, 5, 1),
                     Decimal("9.74731"),
-                    Decimal("0.09564"),
-                    Decimal("100.9166666666"),
-                    Decimal("33.0083875303"),
-                    Decimal("25.3135570837"),
+                    Decimal("1.462495"),
+                    Decimal("5.6648501362"),
+                    Decimal("1.5192625674"),
+                    Decimal("1.9467133615"),
                 ),
             ],
         )

@@ -1,14 +1,20 @@
-import { LemonSelect, LemonTag, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
-import { ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
+import { LemonSelect, LemonTag, Spinner } from '@posthog/lemon-ui'
 
-import { experimentLogic } from '../experimentLogic'
+import {
+    ExperimentMetric,
+    NodeKind,
+    isExperimentFunnelMetric,
+    isExperimentMeanMetric,
+} from '~/queries/schema/schema-general'
+
 import { MetricTitle } from '../MetricsView/shared/MetricTitle'
+import { experimentLogic } from '../experimentLogic'
 import { FunnelMetricDataPanel } from './FunnelMetricDataPanel'
 import { MeanMetricDataPanel } from './MeanMetricDataPanel'
-import { ConversionRateInputType, runningTimeCalculatorLogic } from './runningTimeCalculatorLogic'
 import { RunningTimeCalculatorModalStep } from './RunningTimeCalculatorModalStep'
+import { ConversionRateInputType, runningTimeCalculatorLogic } from './runningTimeCalculatorLogic'
 
 type MetricOption = {
     metric: ExperimentMetric
@@ -102,8 +108,8 @@ export const MetricSelectorStep = ({
                 </div>
             ) : (
                 <div className="border-t pt-2">
-                    {(metric as ExperimentMetric)?.metric_type === ExperimentMetricType.MEAN && <MeanMetricDataPanel />}
-                    {(metric as ExperimentMetric)?.metric_type === ExperimentMetricType.FUNNEL && (
+                    {metric && isExperimentMeanMetric(metric) && <MeanMetricDataPanel />}
+                    {metric && isExperimentFunnelMetric(metric) && (
                         <FunnelMetricDataPanel onChangeType={onChangeFunnelConversionRateType} />
                     )}
                 </div>

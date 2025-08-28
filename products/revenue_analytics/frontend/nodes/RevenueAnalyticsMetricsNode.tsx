@@ -1,5 +1,7 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import { useState } from 'react'
+
+import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { InsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -14,16 +16,7 @@ import { QueryContext } from '~/queries/types'
 import { GraphDataset } from '~/types'
 
 import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
-import { LemonSegmentedButton } from '@posthog/lemon-ui'
-import {
-    AlphaTag,
-    DISPLAY_MODE_OPTIONS,
-    extractLabelAndDatasets,
-    RevenueAnalyticsLineGraph,
-    TileProps,
-    TileWrapper,
-} from './shared'
-import { getCurrencySymbol } from 'lib/utils/geography/currency'
+import { RevenueAnalyticsLineGraph, TileProps, TileWrapper, extractLabelAndDatasets } from './shared'
 
 let uniqueNode = 0
 export function RevenueAnalyticsMetricsNode(props: {
@@ -103,9 +96,7 @@ const makeTile = (
         queryId,
         context,
     }: TileProps<RevenueAnalyticsMetricsQueryResponse>): JSX.Element => {
-        const { baseCurrency, insightsDisplayMode } = useValues(revenueAnalyticsLogic)
-        const { setInsightsDisplayMode } = useActions(revenueAnalyticsLogic)
-
+        const { baseCurrency } = useValues(revenueAnalyticsLogic)
         const { isPrefix, symbol: currencySymbol } = getCurrencySymbol(baseCurrency)
 
         const results = ((response?.results as GraphDataset[]) ?? []).filter((result) =>
@@ -115,23 +106,7 @@ const makeTile = (
         const { labels, datasets } = extractLabelAndDatasets(results)
 
         return (
-            <TileWrapper
-                title={title}
-                tooltip={tooltip}
-                extra={
-                    <div className="flex flex-row items-center gap-2 text-muted-alt">
-                        <span className="flex items-center">
-                            <AlphaTag />
-                        </span>
-                        <LemonSegmentedButton
-                            value={insightsDisplayMode}
-                            onChange={setInsightsDisplayMode}
-                            options={DISPLAY_MODE_OPTIONS}
-                            size="small"
-                        />
-                    </div>
-                }
-            >
+            <TileWrapper title={title} tooltip={tooltip}>
                 {responseLoading ? (
                     <InsightLoadingState queryId={queryId} key={queryId} insightProps={context.insightProps ?? {}} />
                 ) : (

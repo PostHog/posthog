@@ -1,8 +1,11 @@
 import { decodeParams, encodeParams } from 'kea-router'
+
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils'
 
 import {
+    AnyAssistantGeneratedQuery,
+    AnyAssistantSupportedQuery,
     AssistantMessage,
     AssistantMessageType,
     AssistantToolCallMessage,
@@ -13,15 +16,10 @@ import {
     RootAssistantMessage,
     VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
-import {
-    AssistantFunnelsQuery,
-    AssistantHogQLQuery,
-    AssistantRetentionQuery,
-    AssistantTrendsQuery,
-} from '~/queries/schema/schema-assistant-queries'
 import { FunnelsQuery, HogQLQuery, RetentionQuery, TrendsQuery } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isHogQLQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
 import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel, SidePanelTab } from '~/types'
+
 import { MaxActionContext, MaxContextType, MaxDashboardContext, MaxEventContext, MaxInsightContext } from './maxTypes'
 
 export function isReasoningMessage(message: RootAssistantMessage | undefined | null): message is ReasoningMessage {
@@ -59,7 +57,7 @@ export function isNotebookUpdateMessage(
 }
 
 export function castAssistantQuery(
-    query: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
+    query: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery
 ): TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery {
     if (isTrendsQuery(query)) {
         return query

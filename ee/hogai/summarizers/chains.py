@@ -2,8 +2,8 @@ import uuid
 from collections.abc import Sequence
 from typing import Any
 
-import posthoganalytics
 import structlog
+import posthoganalytics
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompt_values import PromptValue
 from langchain_core.prompts import ChatPromptTemplate

@@ -1,5 +1,6 @@
 import datetime as dt
 from typing import Any
+
 from posthog.clickhouse.client import sync_execute
 
 

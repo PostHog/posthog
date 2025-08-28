@@ -789,10 +789,10 @@ impl FeatureFlagMatcher {
         property_overrides: Option<HashMap<String, Value>>,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<FeatureFlagMatch, FlagError> {
-        if self
-            .hashed_identifier(flag, hash_key_overrides.clone())?
-            .is_empty()
-        {
+        // Check if this is a group-based flag with missing group
+        let hashed_id = self.hashed_identifier(flag, hash_key_overrides.clone())?;
+        if flag.get_group_type_index().is_some() && hashed_id.is_empty() {
+            // This is a group-based flag but we don't have the group key
             return Ok(FeatureFlagMatch {
                 matches: false,
                 variant: None,
@@ -801,6 +801,7 @@ impl FeatureFlagMatcher {
                 payload: None,
             });
         }
+        // For person-based flags, empty distinct_id is valid and should continue evaluation
 
         let mut highest_match = FeatureFlagMatchReason::NoConditionMatch;
         let mut highest_index = None;
@@ -1079,11 +1080,7 @@ impl FeatureFlagMatcher {
                 let condition = &holdout_groups[0];
                 // TODO: Check properties and match based on them
 
-                if condition
-                    .properties
-                    .as_ref()
-                    .map_or(false, |p| !p.is_empty())
-                {
+                if condition.properties.as_ref().is_some_and(|p| !p.is_empty()) {
                     return Ok((false, None, FeatureFlagMatchReason::NoConditionMatch));
                 }
 
@@ -1139,7 +1136,7 @@ impl FeatureFlagMatcher {
             let merged_properties = self.get_person_properties(property_overrides)?;
 
             let has_relevant_super_condition_properties =
-                super_condition.properties.as_ref().map_or(false, |props| {
+                super_condition.properties.as_ref().is_some_and(|props| {
                     props
                         .iter()
                         .any(|prop| merged_properties.contains_key(&prop.key))
@@ -1427,6 +1424,7 @@ impl FeatureFlagMatcher {
             // i just want to be able to differentiate between no properties because we fetched no properties,
             // and no properties because we failed to fetch
             // maybe I need a fetch indicator in the cache?
+            tracing::warn!("Person properties not found in evaluation state cache");
             Err(FlagError::PersonNotFound)
         }
     }

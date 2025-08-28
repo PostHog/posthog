@@ -1,5 +1,6 @@
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
+
 from posthog.hogql_queries.insights.funnels.funnel_unordered import FunnelUnordered
 
 

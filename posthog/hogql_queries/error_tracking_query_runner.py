@@ -1,27 +1,31 @@
-from dataclasses import dataclass
 import re
-import structlog
+import datetime
+from dataclasses import dataclass
+from zoneinfo import ZoneInfo
+
 from django.core.exceptions import ValidationError
+
+import structlog
+
+from posthog.schema import (
+    CachedErrorTrackingQueryResponse,
+    DateRange,
+    ErrorTrackingQuery,
+    ErrorTrackingQueryResponse,
+    HogQLFilters,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.schema import (
-    HogQLFilters,
-    ErrorTrackingQuery,
-    ErrorTrackingQueryResponse,
-    CachedErrorTrackingQueryResponse,
-    DateRange,
-)
 from posthog.hogql.parser import parse_select
-from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.error_tracking import ErrorTrackingIssue
-from posthog.models.property.util import property_to_django_filter
+
 from posthog.api.error_tracking import ErrorTrackingIssueSerializer
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.models.error_tracking import ErrorTrackingIssue
+from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.property.util import property_to_django_filter
 from posthog.utils import relative_date_parse
-import datetime
-from zoneinfo import ZoneInfo
 
 logger = structlog.get_logger(__name__)
 
@@ -32,9 +36,8 @@ class VolumeOptions:
     resolution: int
 
 
-class ErrorTrackingQueryRunner(QueryRunner):
+class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse]):
     query: ErrorTrackingQuery
-    response: ErrorTrackingQueryResponse
     cached_response: CachedErrorTrackingQueryResponse
     paginator: HogQLHasMorePaginator
     date_from: datetime.datetime
@@ -428,7 +431,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
         return ast.And(exprs=exprs)
 
-    def calculate(self):
+    def _calculate(self):
         with self.timings.measure("error_tracking_query_hogql_execute"):
             query_result = self.paginator.execute_hogql_query(
                 query=self.to_query(),

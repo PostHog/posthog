@@ -1,8 +1,11 @@
-import { CacheOptions } from '@posthog/plugin-scaffold'
 import { Pool as GenericPool } from 'generic-pool'
 import Redis from 'ioredis'
 import { DateTime } from 'luxon'
 import { QueryResult } from 'pg'
+
+import { CacheOptions } from '@posthog/plugin-scaffold'
+
+import { withSpan } from '~/common/tracing/tracing-utils'
 
 import { KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
 import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
@@ -28,9 +31,8 @@ import {
 import { fetchAction, fetchAllActionsGroupedByTeam } from '../../worker/ingestion/action-manager'
 import { parseJSON } from '../json-parse'
 import { logger } from '../logger'
-import { instrumentQuery } from '../metrics'
 import { captureException } from '../posthog'
-import { tryTwice, UUID, UUIDT } from '../utils'
+import { UUID, UUIDT, tryTwice } from '../utils'
 import { OrganizationPluginsAccessLevel } from './../../types'
 import { RedisOperationError } from './error'
 import { pluginLogEntryCounter } from './metrics'
@@ -125,6 +127,8 @@ export const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
 export class DB {
     /** Postgres connection router for database access. */
     postgres: PostgresRouter
+    /** Postgres connection router for database access for persons migration. */
+    postgresPersonMigration: PostgresRouter
     /** Redis used for various caches. */
     redisPool: GenericPool<Redis.Redis>
     /** Redis used to store state for cookieless ingestion. */
@@ -141,6 +145,7 @@ export class DB {
 
     constructor(
         postgres: PostgresRouter,
+        postgresPersonMigration: PostgresRouter,
         redisPool: GenericPool<Redis.Redis>,
         redisPoolCookieless: GenericPool<Redis.Redis>,
         kafkaProducer: KafkaProducerWrapper,
@@ -148,6 +153,7 @@ export class DB {
         personAndGroupsCacheTtl = 1
     ) {
         this.postgres = postgres
+        this.postgresPersonMigration = postgresPersonMigration
         this.redisPool = redisPool
         this.redisPoolCookieless = redisPoolCookieless
         this.kafkaProducer = kafkaProducer
@@ -163,7 +169,7 @@ export class DB {
         logContext: Record<string, string | string[] | number>,
         runQuery: (client: Redis.Redis) => Promise<T>
     ): Promise<T> {
-        return instrumentQuery(operationName, tag, async () => {
+        return withSpan('redis', operationName, { tag: tag ?? 'unknown' }, async () => {
             let client: Redis.Redis
             const timeout = timeoutGuard(`${operationName} delayed. Waiting over 30 sec.`, logContext)
             try {

@@ -54,7 +54,7 @@ thread_local! {
 /// ## Returns
 /// * `f64` - A number between 0 and 1
 pub fn calculate_hash(prefix: &str, hashed_identifier: &str, salt: &str) -> Result<f64, FlagError> {
-    let hash_key = format!("{}{}{}", prefix, hashed_identifier, salt);
+    let hash_key = format!("{prefix}{hashed_identifier}{salt}");
     let hash_value = Sha1::digest(hash_key.as_bytes());
     // We use the first 8 bytes of the hash and shift right by 4 bits
     // This is equivalent to using the first 15 hex characters (7.5 bytes) of the hash
@@ -624,7 +624,7 @@ pub async fn should_write_hash_key_override(
             ];
             let conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &labels);
             let mut conn = reader.get_connection().await.map_err(|e| {
-                FlagError::DatabaseError(format!("Failed to acquire connection: {}", e))
+                FlagError::DatabaseError(format!("Failed to acquire connection: {e}"))
             })?;
             conn_timer.fin();
 
@@ -634,7 +634,7 @@ pub async fn should_write_hash_key_override(
                 .bind(project_id)
                 .fetch_all(&mut *conn)
                 .await
-                .map_err(|e| FlagError::DatabaseError(format!("Query execution failed: {}", e)))?;
+                .map_err(|e| FlagError::DatabaseError(format!("Query execution failed: {e}")))?;
 
             Ok::<bool, FlagError>(!rows.is_empty())
         })
@@ -783,9 +783,7 @@ mod tests {
         let hash = calculate_hash("holdout-", hashed_identifier, "").unwrap();
         assert!(
             (hash - expected_hash).abs() < f64::EPSILON,
-            "Hash {} should equal expected value {} within floating point precision",
-            hash,
-            expected_hash
+            "Hash {hash} should equal expected value {expected_hash} within floating point precision"
         );
     }
 

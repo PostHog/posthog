@@ -319,7 +319,9 @@ BATCH_EXPORTS_TASK_QUEUE = "batch-exports-task-queue"
 DATA_MODELING_TASK_QUEUE = "data-modeling-task-queue"
 SYNC_BATCH_EXPORTS_TASK_QUEUE = "no-sandbox-python-django"
 GENERAL_PURPOSE_TASK_QUEUE = "general-purpose-task-queue"
+TASKS_TASK_QUEUE = "tasks-task-queue"
 TEST_TASK_QUEUE = "test-task-queue"
+BILLING_TASK_QUEUE = "billing-task-queue"
 
 PERMITTED_FORUM_DOMAINS = ["localhost", "posthog.com"]
 

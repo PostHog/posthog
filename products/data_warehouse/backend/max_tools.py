@@ -1,23 +1,29 @@
-from langchain_core.prompts import ChatPromptTemplate
-from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, cast
+
 from asgiref.sync import async_to_sync
-from ee.hogai.graph.schema_generator.parsers import parse_pydantic_structured_output
-from ee.hogai.graph.schema_generator.utils import SchemaGeneratorOutput
-from ee.hogai.graph.sql.mixins import HogQLGeneratorMixin
-from ee.hogai.tool import MaxTool
+from langchain_core.prompts import ChatPromptTemplate
+from posthoganalytics import capture_exception
+from pydantic import BaseModel, Field
+
+from posthog.schema import AssistantHogQLQuery
+
+from posthog.models import Team, User
+
 from products.data_warehouse.backend.prompts import (
     HOGQL_GENERATOR_USER_PROMPT,
     SQL_ASSISTANT_ROOT_SYSTEM_PROMPT,
+    TIME_PERIOD_PROMPT,
 )
-from ee.hogai.graph.query_planner.prompts import PROPERTY_FILTERS_EXPLANATION_PROMPT
-from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
-from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
+
+from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
+from ee.hogai.graph.schema_generator.utils import SchemaGeneratorOutput
+from ee.hogai.graph.sql.mixins import HogQLGeneratorMixin
 from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
+from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
+from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
 from ee.hogai.graph.taxonomy.tools import base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
-from posthog.models import Team, User
-from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
+from ee.hogai.tool import MaxTool
 
 
 class HogQLGeneratorArgs(BaseModel):
@@ -48,6 +54,9 @@ class HogQLGeneratorToolkit(TaxonomyAgentToolkit):
         return self._format_properties_yaml(props)
 
 
+GENERATION_ATTEMPTS_ALLOWED = 3
+
+
 class HogQLGeneratorNode(
     TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgentState[FinalAnswerArgs]], HogQLGeneratorMixin
 ):
@@ -76,8 +85,8 @@ class HogQLGeneratorNode(
 
         combined_messages = [
             *system_prompt.messages,
-            ("system", PROPERTY_FILTERS_EXPLANATION_PROMPT),
             *taxonomy_system_messages,
+            ("system", TIME_PERIOD_PROMPT),
             ("human", state.change or ""),
             *(state.tool_progress_messages or []),
         ]
@@ -104,7 +113,7 @@ class HogQLGeneratorGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[F
         )
 
 
-class HogQLGeneratorTool(MaxTool, HogQLGeneratorMixin):
+class HogQLGeneratorTool(HogQLGeneratorMixin, MaxTool):
     name: str = "generate_hogql_query"
     description: str = (
         "Write or edit an SQL query to answer the user's question, and apply it to the current SQL editor"
@@ -127,29 +136,37 @@ class HogQLGeneratorTool(MaxTool, HogQLGeneratorMixin):
             **self.context,
         }
 
-        final_error: Optional[Exception] = None
-        for _ in range(3):
+        final_result: SchemaGeneratorOutput[AssistantHogQLQuery] | None = None
+        final_error: Optional[PydanticOutputParserException] = None
+        for _ in range(GENERATION_ATTEMPTS_ALLOWED):
             try:
-                result = await graph.ainvoke(graph_context)
-                if result.get("intermediate_steps"):
-                    if result["intermediate_steps"][-1]:
-                        return result["intermediate_steps"][-1][0].tool_input, ""
+                result_so_far = await graph.ainvoke(graph_context)
+                if result_so_far.get("intermediate_steps"):
+                    if result_so_far["intermediate_steps"][-1]:
+                        return result_so_far["intermediate_steps"][-1][0].tool_input, ""
                     else:
                         return "I need more information to generate the query.", ""
                 else:
-                    result = await self._parse_output(FinalAnswerArgs.model_validate(result["output"]))
-                    return "```sql\n" + result + "\n```", result
-
+                    output = result_so_far["output"]
+                    assert output is not None
+                    final_result = self._parse_output(output)
+                    # If quality check raises, we will still iterate if we've got any attempts left,
+                    # however if we don't have any more attempts, we're okay to use `resulting_query` (instead of throwing)
+                    await self._quality_check_output(
+                        output=final_result,
+                    )
+                    final_error = None
+                    break  # All good, let's go
             except PydanticOutputParserException as e:
-                graph_context["change"] += f"\n\nAvoid this error: {str(e)}"
+                graph_context["change"] += f"\n\nAvoid this error that we had with our previous attempt:\n\n{str(e)}"
                 final_error = e
-        else:
-            assert final_error is not None
-            raise final_error
 
-    async def _parse_output(self, output: dict) -> str:
-        result = parse_pydantic_structured_output(SchemaGeneratorOutput[str])(output)  # type: ignore
-        database = await self._get_database()
-        hogql_context = self._get_default_hogql_context(database)
-        query = await self._parse_generated_hogql(result.query, hogql_context)
-        return query
+        if not final_result:
+            raise cast(Exception, final_error)  # We haven't managed to create valid query JSON even once
+
+        if final_error is not None:
+            # We've got some result but the last time still had some syntactic issue (_validate_hogql() raised)
+            # Well, better that that nothing - let's just capture the error and send what we've got
+            capture_exception(final_error)
+
+        return "```sql\n" + final_result.query.query + "\n```", final_result.query.query

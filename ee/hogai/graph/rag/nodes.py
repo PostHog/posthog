@@ -1,13 +1,14 @@
 import json
 import xml.etree.ElementTree as ET
-from typing import Any, Literal
+from typing import Literal
 
 import posthoganalytics
 from azure.core.exceptions import HttpResponseError as AzureHttpResponseError
 from langchain_core.runnables import RunnableConfig
 
-from ee.hogai.utils.embeddings import embed_search_query, get_azure_embeddings_client
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from posthog.schema import CachedVectorSearchQueryResponse, MaxActionContext, TeamTaxonomyQuery, VectorSearchQuery
+
+from posthog.event_usage import report_user_action
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.ai.vector_search_query_runner import (
     LATEST_ACTIONS_EMBEDDING_VERSION,
@@ -15,7 +16,9 @@ from posthog.hogql_queries.ai.vector_search_query_runner import (
 )
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Action
-from posthog.schema import CachedVectorSearchQueryResponse, MaxActionContext, TeamTaxonomyQuery, VectorSearchQuery
+
+from ee.hogai.utils.embeddings import embed_search_query, get_azure_embeddings_client
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
 from ..base import AssistantNode
 
@@ -29,9 +32,6 @@ class InsightRagContextNode(AssistantNode):
     """
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
-        trace_id = self._get_trace_id(config)
-        distinct_id = self._get_user_distinct_id(config)
-
         plan = state.root_tool_insight_plan
         if not plan:
             return None
@@ -55,17 +55,14 @@ class InsightRagContextNode(AssistantNode):
             else:
                 vector = None
         return PartialAssistantState(
-            rag_context=self._retrieve_actions(
-                vector, actions_in_context=actions_in_context, trace_id=trace_id, distinct_id=distinct_id
-            )
+            rag_context=self._retrieve_actions(config, vector, actions_in_context=actions_in_context)
         )
 
     def _retrieve_actions(
         self,
+        config: RunnableConfig,
         embedding: list[float] | None,
         actions_in_context: list[MaxActionContext],
-        trace_id: Any | None = None,
-        distinct_id: Any | None = None,
     ) -> str:
         # action.id in UI context actions is typed as float from schema.py, so we need to convert it to int to match the Action.id field
         ids = [str(int(action.id)) for action in actions_in_context] if actions_in_context else []
@@ -79,7 +76,7 @@ class InsightRagContextNode(AssistantNode):
             if isinstance(response, CachedVectorSearchQueryResponse) and response.results:
                 ids = list({row.id for row in response.results} | set(ids))
                 distances = [row.distance for row in response.results]
-                self._report_metrics(distances, trace_id, distinct_id)
+                self._report_metrics(config, distances)
 
         if len(ids) == 0:
             return ""
@@ -111,8 +108,8 @@ class InsightRagContextNode(AssistantNode):
             ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
         )
 
-    def _report_metrics(self, distances: list[float], trace_id: Any | None, distinct_id: Any | None):
-        if not trace_id or not distinct_id or not distances:
+    def _report_metrics(self, config: RunnableConfig, distances: list[float]):
+        if not distances:
             return
         metrics = {
             "actions_avg_distance": sum(distances) / len(distances),
@@ -120,12 +117,13 @@ class InsightRagContextNode(AssistantNode):
             "actions_distances": json.dumps(distances),
         }
         for metric_name, metric_value in metrics.items():
-            posthoganalytics.capture(
+            report_user_action(
+                self._user,
                 "$ai_metric",
-                distinct_id=distinct_id,
                 properties={
-                    "$ai_trace_id": trace_id,
+                    **self._get_debug_props(config),
                     "$ai_metric_name": metric_name,
                     "$ai_metric_value": metric_value,
                 },
+                team=self._team,
             )
