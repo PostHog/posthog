@@ -5,7 +5,6 @@ import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { ReactNode, useEffect, useState } from 'react'
-import { useDebouncedCallback } from 'use-debounce'
 
 import { IconCollapse, IconExpand, IconInfo, IconLock } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonModal, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
@@ -96,7 +95,7 @@ export function SharingModalContent({
         shareLink,
         sharingAllowed,
     } = useValues(sharingLogic(logicProps))
-    const { setIsEnabled, setPassword, setPasswordRequired, togglePreview, setSharingSettingsValue } = useActions(
+    const { setIsEnabled, setPasswordRequired, togglePreview, setSharingSettingsValue } = useActions(
         sharingLogic(logicProps)
     )
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
@@ -214,7 +213,7 @@ export function SharingModalContent({
                                             checked={sharingConfiguration.password_required}
                                         />
                                         {sharingConfiguration.password_required && (
-                                            <div className="mt-4">
+                                            <div className="mt-1 w-full">
                                                 <SharePasswordsTable
                                                     dashboardId={dashboardId}
                                                     insightShortId={insightShortId}

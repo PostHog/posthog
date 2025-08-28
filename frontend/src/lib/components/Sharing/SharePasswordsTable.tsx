@@ -9,12 +9,18 @@ import { humanFriendlyDetailedTime } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { sharePasswordsLogic } from './sharePasswordsLogic'
-import type { SharePassword } from './sharePasswordsLogic'
 
 interface SharePasswordsTableProps {
     dashboardId?: number
     insightShortId?: string
     recordingId?: string
+}
+
+// Export a hook to get password count for the parent component
+export function useSharePasswordCount(props: SharePasswordsTableProps): number {
+    const logic = sharePasswordsLogic(props)
+    const { sharePasswords } = useValues(logic)
+    return sharePasswords.length
 }
 
 export function SharePasswordsTable({
@@ -51,71 +57,83 @@ export function SharePasswordsTable({
     }
 
     return (
-        <div>
-            {/* Header section with minimal separation */}
-            <div className="flex items-center justify-between mt-4 mb-2">
-                <span className="text-xs text-muted-alt uppercase tracking-wide font-semibold">Passwords</span>
-                <LemonButton
-                    type="tertiary"
-                    size="xsmall"
-                    icon={<IconPlus />}
-                    onClick={() => setNewPasswordModalOpen(true)}
-                    tooltip="Add a new password"
-                >
-                    Add
-                </LemonButton>
-            </div>
-
-            {/* Password list - no container, just dividers */}
+        <>
             {sharePasswordsLoading ? (
                 <div className="py-3 text-center text-muted-alt text-sm">Loading passwords...</div>
-            ) : sharePasswords.length === 0 ? (
-                <div className="py-3 text-center border-t border-border">
-                    <div className="text-muted-alt text-sm">No passwords created yet</div>
-                </div>
             ) : (
-                <div className="border-t border-border">
-                    {sharePasswords.map((password) => (
-                        <div
-                            key={password.id}
-                            className="group flex items-start justify-between gap-2 py-2.5 border-b border-border hover:bg-bg-light -mx-3 px-3"
-                        >
-                            <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 text-xs text-muted mb-0.5">
-                                    <span className="truncate">{password.created_by_email}</span>
-                                    <span>•</span>
-                                    <span className="whitespace-nowrap">
-                                        {humanFriendlyDetailedTime(password.created_at)}
-                                    </span>
-                                </div>
-                                <div className="text-sm">{password.note || 'No description'}</div>
-                            </div>
+                <div className="w-full">
+                    <div className="mx-1 h-px bg-border mb-3" />
+
+                    <div className="mx-2">
+                        <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs text-muted uppercase font-semibold">
+                                {sharePasswords.length === 0
+                                    ? 'No passwords'
+                                    : `${sharePasswords.length} active ${sharePasswords.length === 1 ? 'password' : 'passwords'}`}
+                            </span>
                             <LemonButton
-                                icon={<IconTrash />}
+                                type="tertiary"
                                 size="xsmall"
-                                status="stealth"
-                                className="opacity-0 group-hover:opacity-100 transition-opacity"
-                                onClick={() => {
-                                    LemonDialog.open({
-                                        title: 'Remove password?',
-                                        description: password.note
-                                            ? `Remove the password "${password.note}"? Anyone using this password will lose access immediately.`
-                                            : 'Remove this password? Anyone using it will lose access immediately.',
-                                        primaryButton: {
-                                            children: 'Remove',
-                                            status: 'danger',
-                                            onClick: () => deletePassword(password.id),
-                                        },
-                                        secondaryButton: {
-                                            children: 'Cancel',
-                                        },
-                                    })
-                                }}
-                                tooltip="Remove password"
-                                tooltipPlacement="left"
-                            />
+                                icon={<IconPlus />}
+                                onClick={() => setNewPasswordModalOpen(true)}
+                            >
+                                Add
+                            </LemonButton>
                         </div>
-                    ))}
+
+                        {sharePasswords.length === 0 ? (
+                            <div className="py-3 text-muted-alt text-sm">Add a password to enable authentication</div>
+                        ) : (
+                            <div className="space-y-1 overflow-y-auto overflow-x-hidden" style={{ maxHeight: '280px' }}>
+                                {sharePasswords.map((password) => (
+                                    <div
+                                        key={password.id}
+                                        className="group flex items-start gap-3 py-2 hover:bg-bg-light rounded"
+                                    >
+                                        <div className="flex-1 min-w-0 overflow-hidden">
+                                            <div className="text-sm font-medium break-words">
+                                                {password.note || 'Untitled password'}
+                                            </div>
+                                            <div className="text-xs text-muted mt-0.5 break-words">
+                                                <span>Created by: </span>
+                                                <span className="break-all">{password.created_by_email}</span>
+                                                <span className="mx-1">•</span>
+                                                <span className="whitespace-nowrap">
+                                                    {humanFriendlyDetailedTime(password.created_at)}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div className="flex-shrink-0">
+                                            <LemonButton
+                                                icon={<IconTrash />}
+                                                size="xsmall"
+                                                status="stealth"
+                                                className="opacity-0 group-hover:opacity-100 transition-opacity"
+                                                onClick={() => {
+                                                    LemonDialog.open({
+                                                        title: 'Remove password?',
+                                                        description: password.note
+                                                            ? `Remove the password "${password.note}"? Anyone using this password will lose access immediately.`
+                                                            : 'Remove this password? Anyone using it will lose access immediately.',
+                                                        primaryButton: {
+                                                            children: 'Remove',
+                                                            status: 'danger',
+                                                            onClick: () => deletePassword(password.id),
+                                                        },
+                                                        secondaryButton: {
+                                                            children: 'Cancel',
+                                                        },
+                                                    })
+                                                }}
+                                                tooltip="Remove password"
+                                                tooltipPlacement="left"
+                                            />
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                 </div>
             )}
 
@@ -216,6 +234,6 @@ export function SharePasswordsTable({
                     </div>
                 )}
             </LemonModal>
-        </div>
+        </>
     )
 }
