@@ -865,11 +865,12 @@ class TestSummarizeSessionGroupWorkflow:
 
 @pytest.mark.asyncio
 class TestPatternExtractionChunking:
-    async def test_empty_input_returns_empty_chunks(self):
+    async def test_empty_input_returns_empty_chunks(self, auser: User, ateam: Team):
         """Test that empty input returns empty list of chunks."""
         inputs = SessionGroupSummaryOfSummariesInputs(
             single_session_summaries_inputs=[],
-            user_id=1,
+            user_id=auser.id,
+            team_id=ateam.id,
             model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
             extra_summary_context=None,
             redis_key_base="test",
@@ -880,58 +881,59 @@ class TestPatternExtractionChunking:
 
         assert chunks == []
 
-    @patch("posthog.temporal.ai.session_summary.activities.patterns.get_async_client")
-    @patch("posthog.temporal.ai.session_summary.activities.patterns.json.dumps")
-    @patch(
-        "posthog.temporal.ai.session_summary.activities.patterns.remove_excessive_content_from_session_summary_for_llm"
-    )
-    @patch("posthog.temporal.ai.session_summary.activities.patterns.estimate_tokens_from_strings")
-    @patch("posthog.temporal.ai.session_summary.activities.patterns._get_session_summaries_str_from_inputs")
     async def test_all_sessions_fit_in_single_chunk(
-        self, mock_get_summaries, mock_estimate_tokens, mock_remove_excessive, mock_json_dumps, mock_get_async_client
+        self,
+        auser: User,
+        ateam: Team,
+        mock_intermediate_session_summary_serializer: SessionSummarySerializer,
+        mock_single_session_summary_inputs: Callable,
     ):
         """Test when all sessions fit within token limit in a single chunk."""
+        # Setup session IDs
+        session_ids = ["session-1", "session-2"]
+
+        # Store session summaries in DB for each session
+        for session_id in session_ids:
+            await database_sync_to_async(SingleSessionSummary.objects.add_summary)(
+                team_id=ateam.id,
+                session_id=session_id,
+                summary=mock_intermediate_session_summary_serializer,
+                exception_event_ids=[],
+                extra_summary_context=ExtraSummaryContext(focus_area="test"),
+                created_by=auser,
+            )
+
+        # Verify summaries exist in DB before the activity
+        summaries_before = await database_sync_to_async(SingleSessionSummary.objects.summaries_exist)(
+            team_id=ateam.id,
+            session_ids=session_ids,
+            extra_summary_context=ExtraSummaryContext(focus_area="test"),
+        )
+        for session_id in session_ids:
+            assert summaries_before.get(session_id), f"Summary should exist in DB for session {session_id}"
+
         # Setup inputs with 2 sessions
+        single_session_inputs = [
+            mock_single_session_summary_inputs(session_id, ateam.id, auser.id) for session_id in session_ids
+        ]
+
         inputs = SessionGroupSummaryOfSummariesInputs(
-            single_session_summaries_inputs=[
-                SingleSessionSummaryInputs(
-                    session_id="session-1",
-                    user_id=1,
-                    team_id=1,
-                    redis_key_base="test",
-                    model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
-                ),
-                SingleSessionSummaryInputs(
-                    session_id="session-2",
-                    user_id=1,
-                    team_id=1,
-                    redis_key_base="test",
-                    model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
-                ),
-            ],
-            user_id=1,
+            single_session_summaries_inputs=single_session_inputs,
+            user_id=auser.id,
+            team_id=ateam.id,
             model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
             extra_summary_context=ExtraSummaryContext(focus_area="test"),
             redis_key_base="test",
         )
 
-        # Mock Redis client
-        mock_redis_client = AsyncMock()
-        mock_get_async_client.return_value = mock_redis_client
+        # Mock token estimation to ensure all sessions fit in a single chunk
+        with patch(
+            "posthog.temporal.ai.session_summary.activities.patterns.estimate_tokens_from_strings"
+        ) as mock_estimate:
+            # Mock token counts: base template=1000, each summary=500
+            mock_estimate.side_effect = [1000, 500, 500]  # Total: 2000 < 150000
 
-        # Mock Redis returning session summaries
-        mock_get_summaries.return_value = [
-            '{"summary": "Summary 1", "segments": []}',
-            '{"summary": "Summary 2", "segments": []}',
-        ]
-
-        # Mock json.dumps to return a simple string
-        mock_json_dumps.side_effect = lambda x: f"cleaned_{x}"
-
-        # Mock token counts: base template=1000, each summary=500
-        mock_estimate_tokens.side_effect = [1000, 500, 500]  # Total: 2000 < 150000
-
-        chunks = await split_session_summaries_into_chunks_for_patterns_extraction_activity(inputs)
+            chunks = await split_session_summaries_into_chunks_for_patterns_extraction_activity(inputs)
 
         assert len(chunks) == 1
         assert chunks[0] == ["session-1", "session-2"]
