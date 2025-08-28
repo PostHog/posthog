@@ -9,7 +9,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Dashboard, Team, User
 
 from ee.hogai.graph.base import AssistantNode
-from ee.hogai.graph.graph import BaseAssistantGraph
+from ee.hogai.graph.graph import BaseAssistantGraph, InsightsAssistantGraph
 from ee.hogai.graph.insights.nodes import InsightSearchNode
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool import MaxTool
@@ -91,6 +91,15 @@ class DashboardPlannerNode(AssistantNode):
             dashboard_name=dashboard_name, dashboard_description=None, search_insights_query=None
         )
 
+    def router(self, state: AssistantState) -> str:
+        if state.root_tool_insight_plan:
+            return "insight"
+        elif state.search_insights_query:
+            return "insights_search"
+        elif state.dashboard_id:
+            return "root"
+        return "end"
+
 
 class DashboardCreatorNode(AssistantNode):
     """Node that creates the actual dashboard with found insights."""
@@ -166,6 +175,23 @@ class DashboardCreationGraph(BaseAssistantGraph[AssistantState]):
         """Add the dashboard planner node."""
         dashboard_planner = DashboardPlannerNode(self._team, self._user)
         self.add_node(AssistantNodeName.DASHBOARD_PLANNER, dashboard_planner)
+        self.add_conditional_edges(
+            AssistantNodeName.DASHBOARD_PLANNER,
+            dashboard_planner.router,
+            path_map={
+                "insight": AssistantNodeName.INSIGHTS_SUBGRAPH,
+                "insights_search": AssistantNodeName.INSIGHTS_SEARCH,
+                "end": AssistantNodeName.DASHBOARD_CREATOR,
+            },
+        )
+        return self
+
+    def add_insights(self, next_node: AssistantNodeName = AssistantNodeName.ROOT):
+        builder = self._graph
+        insights_assistant_graph = InsightsAssistantGraph(self._team, self._user)
+        compiled_graph = insights_assistant_graph.compile_full_graph()
+        builder.add_node(AssistantNodeName.INSIGHTS_SUBGRAPH, compiled_graph)
+        builder.add_edge(AssistantNodeName.INSIGHTS_SUBGRAPH, next_node)
         return self
 
     def add_insights_search(self):
@@ -187,8 +213,11 @@ class DashboardCreationGraph(BaseAssistantGraph[AssistantState]):
             .add_insights_search()
             .add_dashboard_creator()
             .add_edge(AssistantNodeName.START, AssistantNodeName.DASHBOARD_PLANNER)
-            .add_edge(AssistantNodeName.DASHBOARD_PLANNER, AssistantNodeName.INSIGHTS_SEARCH)
-            .add_edge(AssistantNodeName.INSIGHTS_SEARCH, AssistantNodeName.DASHBOARD_CREATOR)
+            .add_conditional_edges(
+                AssistantNodeName.INSIGHTS_SEARCH,
+                InsightSearchNode.router,
+                path_map={"root": AssistantNodeName.DASHBOARD_PLANNER},
+            )
             .add_edge(AssistantNodeName.DASHBOARD_CREATOR, AssistantNodeName.END)
             .compile()
         )
