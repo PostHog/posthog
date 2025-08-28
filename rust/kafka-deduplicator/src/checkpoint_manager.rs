@@ -120,7 +120,10 @@ impl CheckpointManager {
         // Wait for task to complete
         if let Some(handle) = self.flush_task.take() {
             if let Err(e) = handle.await {
-                warn!("Checkpoint manager flush task failed to join cleanly: {}", e);
+                warn!(
+                    "Checkpoint manager flush task failed to join cleanly: {}",
+                    e
+                );
             }
         }
 

@@ -442,7 +442,7 @@ mod tests {
 
         // We can't easily test the full processor without Kafka running,
         // but we can test the store management logic separately
-        let stores: Arc<DashMap<Partition, Arc<DeduplicationStore>>> = Arc::new(DashMap::new());
+        let stores: Arc<DashMap<Partition, DeduplicationStore>> = Arc::new(DashMap::new());
 
         // Test that stores map starts empty
         assert_eq!(stores.len(), 0);

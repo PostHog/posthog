@@ -191,7 +191,7 @@ impl PartitionTracker {
                     };
 
                     let gap_size = offset - expected;
-                
+
                     // Emit gap metrics
                     metrics::gauge!(PARTITION_OFFSET_GAP_SIZE,
                         "topic" => topic.clone(),
@@ -204,7 +204,6 @@ impl PartitionTracker {
                         "partition" => partition.to_string()
                     )
                     .increment(1);
-                    
                 }
                 // If offset <= last_committed, it's a duplicate - ignore
 
@@ -419,32 +418,6 @@ impl InFlightTracker {
 
             tracker.completion_tx.clone()
         };
-
-        // Check if this is the expected next offset
-        {
-            let partitions = self.partitions.read().await;
-            let partition_key = Partition::new(topic.clone(), partition);
-            if let Some(partition_tracker_info) = partitions.get(&partition_key) {
-                if let Some(tracker) = &partition_tracker_info.tracker {
-                    let last_committed = *tracker.last_committed_offset.read().await;
-                    let in_flight = self.global_stats.in_flight_count.load(Ordering::SeqCst) as i64;
-
-                    let expected_offset = if last_committed == -1 {
-                        // First message for this partition - use initial offset
-                        tracker.initial_offset.read().await.unwrap_or(0)
-                    } else {
-                        last_committed + 1
-                    };
-
-                    if offset != expected_offset && last_committed != -1 {
-                        warn!(
-                        "TRACKING NON-SEQUENTIAL OFFSET: topic={}, partition={}, offset={}, expected={}, last_committed={}, global_in_flight={}",
-                        topic, partition, offset, expected_offset, last_committed, in_flight
-                    );
-                    }
-                }
-            }
-        }
 
         debug!(
             "Tracking message with permit: topic={}, partition={}, offset={}, memory={}, available_permits={}",

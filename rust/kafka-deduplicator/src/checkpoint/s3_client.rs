@@ -101,7 +101,6 @@ impl CheckpointClient for S3CheckpointClient {
                 if let Some((topic_parsed, partition_parsed, _timestamp)) =
                     CheckpointInfo::parse_s3_key(&key, &self.config.s3_key_prefix)
                 {
-
                     if topic_parsed == topic && partition_parsed == partition {
                         // Get the metadata
                         match self.get_checkpoint_metadata(&key).await {
