@@ -5,6 +5,8 @@ import { QueryResult } from 'pg'
 
 import { CacheOptions } from '@posthog/plugin-scaffold'
 
+import { withSpan } from '~/common/tracing/tracing-utils'
+
 import { KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
 import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
 import {
@@ -29,7 +31,6 @@ import {
 import { fetchAction, fetchAllActionsGroupedByTeam } from '../../worker/ingestion/action-manager'
 import { parseJSON } from '../json-parse'
 import { logger } from '../logger'
-import { instrumentQuery } from '../metrics'
 import { captureException } from '../posthog'
 import { UUID, UUIDT, tryTwice } from '../utils'
 import { OrganizationPluginsAccessLevel } from './../../types'
@@ -168,7 +169,7 @@ export class DB {
         logContext: Record<string, string | string[] | number>,
         runQuery: (client: Redis.Redis) => Promise<T>
     ): Promise<T> {
-        return instrumentQuery(operationName, tag, async () => {
+        return withSpan('redis', operationName, { tag: tag ?? 'unknown' }, async () => {
             let client: Redis.Redis
             const timeout = timeoutGuard(`${operationName} delayed. Waiting over 30 sec.`, logContext)
             try {
