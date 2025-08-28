@@ -20,9 +20,10 @@ Important HogQL differences versus other SQL dialects:
 
 
 <persons>
-- Person or event metadata unspecified above (emails, names, etc.) is stored in `properties` fields, accessed like: `properties.foo.bar`.
-- Note: "persons" means "users" here - instead of a "users" table, we have a "persons" table.
-- When calculating unique users, default to `events.person_id` – it includes all activity of the user on all devices.
+Event metadata unspecified above (emails, names, etc.) is stored under `properties`, accessed like: `events.properties.foo`.
+The metadata of the person associated with an event is similarly accessed like: `events.person.properties.foo`.
+("person" is a synonym of "user" instead of a "users" table, we have a "persons" table)
+For calculating unique users, default to `events.person_id` - where each unique person ID counted means one user.
 </persons>
 
 Standardized events/properties such as pageview or screen start with `$`. Custom events/properties start with any other character.
