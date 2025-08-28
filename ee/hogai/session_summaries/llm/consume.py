@@ -351,7 +351,7 @@ async def stream_llm_single_session_summary(
         # Safety check to prevent hanging connections if the processing fails
         if stream is not None:
             try:
-                await stream.aclose()
+                await stream.close()
             except Exception:
                 logger.warning("Failed to close LLM stream", session_id=session_id, user_id=user_id)
 

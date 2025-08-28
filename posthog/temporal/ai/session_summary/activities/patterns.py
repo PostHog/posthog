@@ -122,22 +122,24 @@ async def split_session_summaries_into_chunks_for_patterns_extraction_activity(
         raise ValueError(
             f"Expected {len(inputs.single_session_summaries_inputs)} session summaries, got {len(ready_summaries)}, when splitting into chunks for patterns extraction"
         )
-    # Remove excessive content from summaries for token estimation, and convert to strings
-    intermediate_session_summaries_str = [
-        json.dumps(remove_excessive_content_from_session_summary_for_llm(summary.summary).data)
-        for summary in ready_summaries
-    ]
-    # Calculate tokens for each session summary
-    session_tokens = [
-        estimate_tokens_from_strings(strings=[summary], model=SESSION_SUMMARIES_SYNC_MODEL)
-        for summary in intermediate_session_summaries_str
-    ]
+    # Calculate tokens for each session summary, mapped by session_id to preserve input order
+    tokens_per_session: dict[str, int] = {}
+    for summary in ready_summaries:
+        summary_str = json.dumps(remove_excessive_content_from_session_summary_for_llm(summary.summary).data)
+        tokens_per_session[summary.session_id] = estimate_tokens_from_strings(
+            strings=[summary_str], model=SESSION_SUMMARIES_SYNC_MODEL
+        )
     # Create chunks ensuring each stays under the token limit
     chunks = []
     current_chunk: list[str] = []
     current_tokens = base_template_tokens
-    for summary_input, summary_tokens in zip(inputs.single_session_summaries_inputs, session_tokens):
+    for summary_input in inputs.single_session_summaries_inputs:
         session_id = summary_input.session_id
+        summary_tokens = tokens_per_session.get(session_id)
+        if summary_tokens is None:
+            raise ValueError(
+                f"Missing token estimation for session {session_id} when splitting into chunks for patterns extraction"
+            )
         # Check if single session exceeds the limit
         if base_template_tokens + summary_tokens > PATTERNS_EXTRACTION_MAX_TOKENS:
             # Check if it fits within the single entity max tokens limit
