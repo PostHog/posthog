@@ -114,7 +114,7 @@ function Screenshot(): JSX.Element {
                         label: (
                             <div className="flex w-full gap-x-2 justify-between items-center">
                                 5 sec GIF{' '}
-                                <LemonTag type="warning" size="small" className="ml-2">
+                                <LemonTag type="warning" size="small">
                                     BETA
                                 </LemonTag>
                             </div>
@@ -126,7 +126,7 @@ function Screenshot(): JSX.Element {
                         label: (
                             <div className="flex w-full gap-x-2 justify-between items-center">
                                 5 sec MP4{' '}
-                                <LemonTag type="warning" size="small" className="ml-2">
+                                <LemonTag type="warning" size="small">
                                     BETA
                                 </LemonTag>
                             </div>

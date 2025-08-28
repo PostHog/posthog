@@ -160,29 +160,35 @@ def record_replay_to_file(
                     if measured_width is not None:
                         vf_parts.append(f"scale={measured_width}:-2:flags=lanczos")
                     vf = ",".join(vf_parts)
-                    subprocess.run(
-                        [
-                            "ffmpeg",
-                            "-hide_banner",
-                            "-loglevel",
-                            "error",
-                            "-y",
-                            "-ss",
-                            f"{pre_roll:.2f}",
-                            "-t",
-                            f"{float(recording_duration):.2f}",
-                            "-i",
-                            tmp_webm,
-                            "-vf",
-                            f"{vf},split[s0][s1];[s0]palettegen=stats_mode=single[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle",
-                            "-loop",
-                            "0",
-                            "-f",
-                            "gif",
-                            image_path,
-                        ],
-                        check=True,
-                    )
+                    try:
+                        subprocess.run(
+                            [
+                                "ffmpeg",
+                                "-hide_banner",
+                                "-loglevel",
+                                "error",
+                                "-y",
+                                "-ss",
+                                f"{pre_roll:.2f}",
+                                "-t",
+                                f"{float(recording_duration):.2f}",
+                                "-i",
+                                tmp_webm,
+                                "-vf",
+                                f"{vf},split[s0][s1];[s0]palettegen=stats_mode=single[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle",
+                                "-loop",
+                                "0",
+                                "-f",
+                                "gif",
+                                image_path,
+                            ],
+                            check=True,
+                        )
+                    except subprocess.CalledProcessError as e:
+                        error_msg = f"ffmpeg failed with exit code {e.returncode}"
+                        if e.stderr:
+                            error_msg += f": {e.stderr.strip()}"
+                        raise RuntimeError(error_msg) from e
                 else:
                     shutil.move(tmp_webm, image_path)
             finally:

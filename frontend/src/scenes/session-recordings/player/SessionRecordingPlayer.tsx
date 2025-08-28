@@ -35,6 +35,8 @@ import {
 } from './sessionRecordingPlayerLogic'
 import { SessionRecordingPlayerExplorer } from './view-explorer/SessionRecordingPlayerExplorer'
 
+const MAX_PLAYBACK_SPEED = 4
+
 export interface SessionRecordingPlayerProps extends SessionRecordingPlayerLogicProps {
     noMeta?: boolean
     noBorder?: boolean
@@ -129,8 +131,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         }
 
         if (mode === SessionRecordingPlayerMode.Video) {
-            //Not the maximum, but 4 for a balance between speed and quality
-            setSpeed(4)
+            // Not the maximum, but 4 for a balance between speed and quality
+            setSpeed(MAX_PLAYBACK_SPEED)
         }
     }, [mode, setSkipInactivitySetting, setSpeed, hidePlayerElements])
 
