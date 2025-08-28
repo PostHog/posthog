@@ -1136,7 +1136,8 @@
                       "key",
                       "created_at",
                       "updated_at",
-                      "properties"
+                      "properties",
+                      "revenue_analytics"
                   ],
                   "hogql_value": "group_0",
                   "id": "group_0",
@@ -1163,7 +1164,8 @@
                       "key",
                       "created_at",
                       "updated_at",
-                      "properties"
+                      "properties",
+                      "revenue_analytics"
                   ],
                   "hogql_value": "group_1",
                   "id": "group_1",
@@ -1190,7 +1192,8 @@
                       "key",
                       "created_at",
                       "updated_at",
-                      "properties"
+                      "properties",
+                      "revenue_analytics"
                   ],
                   "hogql_value": "group_2",
                   "id": "group_2",
@@ -1217,7 +1220,8 @@
                       "key",
                       "created_at",
                       "updated_at",
-                      "properties"
+                      "properties",
+                      "revenue_analytics"
                   ],
                   "hogql_value": "group_3",
                   "id": "group_3",
@@ -1244,7 +1248,8 @@
                       "key",
                       "created_at",
                       "updated_at",
-                      "properties"
+                      "properties",
+                      "revenue_analytics"
                   ],
                   "hogql_value": "group_4",
                   "id": "group_4",
@@ -1469,6 +1474,47 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "json"
+              },
+              "revenue_analytics": {
+                  "chain": null,
+                  "fields": [
+                      "team_id",
+                      "group_key",
+                      "revenue",
+                      "revenue_last_30_days"
+                  ],
+                  "hogql_value": "revenue_analytics",
+                  "id": "revenue_analytics",
+                  "name": "revenue_analytics",
+                  "schema_valid": true,
+                  "table": "groups_revenue_analytics",
+                  "type": "lazy_table"
+              },
+              "$virt_revenue": {
+                  "chain": [
+                      "revenue_analytics",
+                      "revenue"
+                  ],
+                  "fields": null,
+                  "hogql_value": "`$virt_revenue`",
+                  "id": null,
+                  "name": "$virt_revenue",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "field_traverser"
+              },
+              "$virt_revenue_last_30_days": {
+                  "chain": [
+                      "revenue_analytics",
+                      "revenue_last_30_days"
+                  ],
+                  "fields": null,
+                  "hogql_value": "`$virt_revenue_last_30_days`",
+                  "id": null,
+                  "name": "$virt_revenue_last_30_days",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "field_traverser"
               }
           },
           "id": "groups",
@@ -2577,7 +2623,8 @@
                       "key",
                       "created_at",
                       "updated_at",
-                      "properties"
+                      "properties",
+                      "revenue_analytics"
                   ],
                   "hogql_value": "group_0",
                   "id": "group_0",
@@ -2604,7 +2651,8 @@
                       "key",
                       "created_at",
                       "updated_at",
-                      "properties"
+                      "properties",
+                      "revenue_analytics"
                   ],
                   "hogql_value": "group_1",
                   "id": "group_1",
@@ -2631,7 +2679,8 @@
                       "key",
                       "created_at",
                       "updated_at",
-                      "properties"
+                      "properties",
+                      "revenue_analytics"
                   ],
                   "hogql_value": "group_2",
                   "id": "group_2",
@@ -2658,7 +2707,8 @@
                       "key",
                       "created_at",
                       "updated_at",
-                      "properties"
+                      "properties",
+                      "revenue_analytics"
                   ],
                   "hogql_value": "group_3",
                   "id": "group_3",
@@ -2685,7 +2735,8 @@
                       "key",
                       "created_at",
                       "updated_at",
-                      "properties"
+                      "properties",
+                      "revenue_analytics"
                   ],
                   "hogql_value": "group_4",
                   "id": "group_4",
@@ -2885,6 +2936,47 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "json"
+              },
+              "revenue_analytics": {
+                  "chain": null,
+                  "fields": [
+                      "team_id",
+                      "group_key",
+                      "revenue",
+                      "revenue_last_30_days"
+                  ],
+                  "hogql_value": "revenue_analytics",
+                  "id": "revenue_analytics",
+                  "name": "revenue_analytics",
+                  "schema_valid": true,
+                  "table": "groups_revenue_analytics",
+                  "type": "lazy_table"
+              },
+              "$virt_revenue": {
+                  "chain": [
+                      "revenue_analytics",
+                      "revenue"
+                  ],
+                  "fields": null,
+                  "hogql_value": "`$virt_revenue`",
+                  "id": null,
+                  "name": "$virt_revenue",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "field_traverser"
+              },
+              "$virt_revenue_last_30_days": {
+                  "chain": [
+                      "revenue_analytics",
+                      "revenue_last_30_days"
+                  ],
+                  "fields": null,
+                  "hogql_value": "`$virt_revenue_last_30_days`",
+                  "id": null,
+                  "name": "$virt_revenue_last_30_days",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "field_traverser"
               }
           },
           "id": "groups",

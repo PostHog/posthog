@@ -483,7 +483,8 @@
       event_count Int64,
       message_count Int64,
       snapshot_source LowCardinality(Nullable(String)),
-      snapshot_library Nullable(String)
+      snapshot_library Nullable(String),
+      retention_period Nullable(String),
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
   
   '''
@@ -1559,7 +1560,8 @@
       event_count Int64,
       message_count Int64,
       snapshot_source LowCardinality(Nullable(String)),
-      snapshot_library Nullable(String)
+      snapshot_library Nullable(String),
+      retention_period Nullable(String),
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
   
   '''
@@ -2546,7 +2548,9 @@
       snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-      _timestamp SimpleAggregateFunction(max, DateTime)
+      _timestamp SimpleAggregateFunction(max, DateTime),
+      -- retention period for this session, useful to show TTL for the recording
+      retention_period Nullable(String)
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
   
   '''
@@ -2571,7 +2575,8 @@
   `event_count` Int64,
   `snapshot_source` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
   `snapshot_library` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-  `_timestamp` Nullable(DateTime)
+  `_timestamp` Nullable(DateTime),
+  `retention_period` Nullable(String)
   )
   AS SELECT
   session_id,
@@ -2606,7 +2611,10 @@
   sum(event_count) as event_count,
   argMinState(snapshot_source, first_timestamp) as snapshot_source,
   argMinState(snapshot_library, first_timestamp) as snapshot_library,
-  max(_timestamp) as _timestamp
+  max(_timestamp) as _timestamp,
+  -- CH will pick the retention period here, but only if there is a single unique non-null value across all blocks
+  -- ...otherwise this column will be NULL
+  singleValueOrNull(retention_period) as retention_period
   FROM posthog_test.kafka_session_replay_events
   group by session_id, team_id
   
@@ -3266,7 +3274,9 @@
       snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-      _timestamp SimpleAggregateFunction(max, DateTime)
+      _timestamp SimpleAggregateFunction(max, DateTime),
+      -- retention period for this session, useful to show TTL for the recording
+      retention_period Nullable(String)
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
   
       PARTITION BY toYYYYMM(min_first_timestamp)
@@ -4007,7 +4017,9 @@
       snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-      _timestamp SimpleAggregateFunction(max, DateTime)
+      _timestamp SimpleAggregateFunction(max, DateTime),
+      -- retention period for this session, useful to show TTL for the recording
+      retention_period Nullable(String)
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
   
   '''
@@ -5146,7 +5158,9 @@
       snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-      _timestamp SimpleAggregateFunction(max, DateTime)
+      _timestamp SimpleAggregateFunction(max, DateTime),
+      -- retention period for this session, useful to show TTL for the recording
+      retention_period Nullable(String)
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
   
       PARTITION BY toYYYYMM(min_first_timestamp)
@@ -5710,7 +5724,9 @@
       snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-      _timestamp SimpleAggregateFunction(max, DateTime)
+      _timestamp SimpleAggregateFunction(max, DateTime),
+      -- retention period for this session, useful to show TTL for the recording
+      retention_period Nullable(String)
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
   
   '''
