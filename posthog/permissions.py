@@ -179,7 +179,7 @@ class TeamMemberAccessPermission(BasePermission):
     message = "You don't have access to the project."
 
     def has_permission(self, request, view) -> bool:
-        if isinstance(request.successful_authenticator, ProjectSecretAPIKeyAuthentication):
+        if is_authenticated_via_project_secret_api_token(request):
             # Ignore the team check for project secret API keys. It's handled by the ProjectSecretAPITokenPermission
             return True
 
@@ -192,6 +192,10 @@ class TeamMemberAccessPermission(BasePermission):
         # - not the "current_team" property of the user
         requesting_level = view.user_permissions.current_team.effective_membership_level
         return requesting_level is not None
+
+
+def is_authenticated_via_project_secret_api_token(request: Request) -> bool:
+    return isinstance(request.successful_authenticator, ProjectSecretAPIKeyAuthentication)
 
 
 def _is_request_for_project_secret_api_token_secured_endpoint(request: Request) -> bool:
@@ -555,7 +559,7 @@ class AccessControlPermission(ScopeBasePermission):
         # Primarily we are checking the user's access to the parent resource type (i.e. project, organization)
         # as well as enforcing any global restrictions (e.g. generically only editing of a flag is allowed)
 
-        if isinstance(request.successful_authenticator, ProjectSecretAPIKeyAuthentication):
+        if is_authenticated_via_project_secret_api_token(request):
             # Ignore the team check for project secret API keys. It's handled by the ProjectSecretAPITokenPermission
             return True
 
