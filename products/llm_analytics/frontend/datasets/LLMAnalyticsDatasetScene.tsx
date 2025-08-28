@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
 
-import { IconTrash } from '@posthog/icons'
+import { IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonTab, LemonTabs, Link, ProfilePicture } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -21,6 +21,7 @@ import { SceneTextarea } from '~/lib/components/Scenes/SceneTextarea'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
 import { DatasetItem } from '~/types'
 
+import { DatasetItemModal } from './DatasetItemModal'
 import { EditDatasetForm } from './EditDatasetForm'
 import { RefreshButton } from './RefreshButton'
 import { DatasetLogicProps, DatasetTab, llmAnalyticsDatasetLogic } from './llmAnalyticsDatasetLogic'
@@ -38,7 +39,7 @@ export const scene: SceneExport<DatasetLogicProps> = {
 export function LLMAnalyticsDatasetScene(): JSX.Element {
     const { datasetLoading, isDatasetFormSubmitting, isEditingDataset, datasetMissing, isNewDataset, datasetForm } =
         useValues(llmAnalyticsDatasetLogic)
-    const { submitDatasetForm, loadDataset, editDataset, deleteDataset, setDatasetFormValue } =
+    const { submitDatasetForm, loadDataset, editDataset, deleteDataset, setDatasetFormValue, triggerDatasetItemModal } =
         useActions(llmAnalyticsDatasetLogic)
 
     const displayEditForm = isNewDataset || isEditingDataset
@@ -98,6 +99,14 @@ export function LLMAnalyticsDatasetScene(): JSX.Element {
                                     data-attr="edit-dataset"
                                 >
                                     Edit
+                                </LemonButton>
+                                <LemonButton
+                                    type="primary"
+                                    onClick={() => triggerDatasetItemModal(true)}
+                                    data-attr="add-dataset-item"
+                                    icon={<IconPlusSmall />}
+                                >
+                                    Add item
                                 </LemonButton>
                             </>
                         )
@@ -168,7 +177,8 @@ export function LLMAnalyticsDatasetScene(): JSX.Element {
 }
 
 function DatasetTabs(): JSX.Element {
-    const { activeTab, dataset } = useValues(llmAnalyticsDatasetLogic)
+    const { activeTab, dataset, isDatasetItemModalOpen, selectedDatasetItem } = useValues(llmAnalyticsDatasetLogic)
+    const { triggerDatasetItemModal } = useActions(llmAnalyticsDatasetLogic)
     const { searchParams } = useValues(router)
 
     const tabs: LemonTab<DatasetTab>[] = [
@@ -193,14 +203,20 @@ function DatasetTabs(): JSX.Element {
             </div>
 
             <LemonTabs activeKey={activeTab} data-attr="dataset-tabs" tabs={tabs} />
+
+            <DatasetItemModal
+                isOpen={isDatasetItemModalOpen}
+                onClose={() => triggerDatasetItemModal(false)}
+                datasetItem={selectedDatasetItem}
+            />
         </>
     )
 }
 
 function DatasetItems(): JSX.Element {
-    const { datasetItems, datasetItemsLoading, pagination, datasetItemsCountLabel } =
-        useValues(llmAnalyticsDatasetLogic)
-    const { deleteDatasetItem, loadDatasetItems } = useActions(llmAnalyticsDatasetLogic)
+    const { datasetItems, datasetItemsLoading, pagination } = useValues(llmAnalyticsDatasetLogic)
+    const { deleteDatasetItem, loadDatasetItems, triggerDatasetItemModal, setSelectedDatasetItem } =
+        useActions(llmAnalyticsDatasetLogic)
 
     const columns: LemonTableColumns<DatasetItem> = [
         {
@@ -304,7 +320,10 @@ function DatasetItems(): JSX.Element {
                         overlay={
                             <>
                                 <LemonButton
-                                    to={urls.llmAnalyticsDataset(item.id)}
+                                    onClick={() => {
+                                        setSelectedDatasetItem(item)
+                                        triggerDatasetItemModal(true)
+                                    }}
                                     data-attr={`dataset-item-${item.id}-dropdown-edit`}
                                     fullWidth
                                 >
@@ -336,7 +355,6 @@ function DatasetItems(): JSX.Element {
                     }}
                     isRefreshing={datasetItemsLoading}
                 />
-                <span className="text-muted-alt">{datasetItemsCountLabel}</span>
             </div>
 
             <LemonDivider className="my-4" />

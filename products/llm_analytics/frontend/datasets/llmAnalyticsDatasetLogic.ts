@@ -13,6 +13,7 @@ import { Breadcrumb, Dataset, DatasetItem } from '~/types'
 
 import type { llmAnalyticsDatasetLogicType } from './llmAnalyticsDatasetLogicType'
 import { llmAnalyticsDatasetsLogic } from './llmAnalyticsDatasetsLogic'
+import { EMPTY_JSON, corseJsonToObject, isStringJsonObject } from './utils'
 
 export interface DatasetLogicProps {
     datasetId: string | 'new'
@@ -61,6 +62,8 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
         setActiveTab: (tab: DatasetTab) => ({ tab }),
         setFilters: (filters: Partial<DatasetItemsFilters>, debounce: boolean = true) => ({ filters, debounce }),
         deleteDatasetItem: (itemId: string) => ({ itemId }),
+        triggerDatasetItemModal: (open: boolean) => ({ open }),
+        setSelectedDatasetItem: (datasetItem: DatasetItem) => ({ datasetItem }),
     }),
 
     reducers(({ props }) => ({
@@ -96,6 +99,22 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
                         // Reset page on filter change except if it's page that's being updated
                         ...('page' in filters ? {} : { page: 1 }),
                     }),
+            },
+        ],
+
+        isDatasetItemModalOpen: [
+            false as boolean,
+            {
+                triggerDatasetItemModal: (_, { open }) => open,
+            },
+        ],
+
+        selectedDatasetItem: [
+            null as DatasetItem | null,
+            {
+                setSelectedDatasetItem: (_, { datasetItem }) => datasetItem,
+                // Reset the selected dataset item when the modal is closed
+                triggerDatasetItemModal: (state, { open }) => (open ? state : null),
             },
         ],
     })),
@@ -159,7 +178,7 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
 
             errors: ({ name, metadata }) => ({
                 name: !name?.trim() ? 'Dataset name is required' : undefined,
-                metadata: !isMetadataValid(metadata)
+                metadata: !isStringJsonObject(metadata)
                     ? 'Dataset metadata must contain a valid JSON object or be empty'
                     : undefined,
             }),
@@ -172,14 +191,14 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
                         savedDataset = await api.datasets.create({
                             name: formValues.name,
                             description: formValues.description,
-                            metadata: parseMetadata(formValues.metadata),
+                            metadata: corseJsonToObject(formValues.metadata),
                         })
                         lemonToast.success('Dataset created successfully')
                         router.actions.replace(urls.llmAnalyticsDataset(savedDataset.id))
                     } else {
                         savedDataset = await api.datasets.update(props.datasetId, {
                             ...formValues,
-                            metadata: parseMetadata(formValues.metadata),
+                            metadata: corseJsonToObject(formValues.metadata),
                         })
                         lemonToast.success('Dataset updated successfully')
                         actions.editDataset(false)
@@ -233,18 +252,6 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
                     key: 'LLMAnalyticsDataset',
                 },
             ],
-        ],
-
-        datasetItemsCountLabel: [
-            (s) => [s.filters, s.datasetItemsCount],
-            (filters, count) => {
-                const start = (filters.page - 1) * DATASET_ITEMS_PER_PAGE + 1
-                const end = Math.min(filters.page * DATASET_ITEMS_PER_PAGE, count)
-
-                return count === 0
-                    ? '0 dataset items'
-                    : `${start}-${end} of ${count} dataset item${count === 1 ? '' : 's'}`
-            },
         ],
     }),
 
@@ -374,61 +381,19 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
 ])
 
 /**
- * Coerce the metadata to a valid JSON object or null.
- * @param metadata - The metadata to coerce
- * @returns The coerced metadata or null
- */
-function parseMetadata(metadata: string | null): Record<string, any> | null {
-    if (!metadata) {
-        return null
-    }
-    try {
-        const parsedObject = JSON.parse(metadata)
-        // Regular object or null
-        if (typeof parsedObject === 'object') {
-            return parsedObject as Record<string, any>
-        }
-        return null
-    } catch {
-        return null
-    }
-}
-
-/**
- * Check if the metadata is a valid JSON object or is an empty string.
- * @param metadata - The metadata to check
- * @returns True if the metadata is valid, false otherwise
- */
-function isMetadataValid(metadata: string | null): boolean {
-    if (!metadata) {
-        return true
-    }
-    try {
-        const parsedMetadata = JSON.parse(metadata)
-        if (typeof parsedMetadata !== 'object' || parsedMetadata === null) {
-            return false
-        }
-    } catch {
-        return false
-    }
-    return true
-}
-
-/**
  * Get default form values for a dataset.
  * @param dataset - The dataset to get the default form values for
  * @returns The default form values
  */
 function getDatasetFormDefaults(dataset: Dataset): DatasetFormValues {
-    const metadataPlaceholder = '{\n  \n}'
     let meta = dataset.metadata ? JSON.stringify(dataset.metadata, null, 2) : null
     if (meta === '{}') {
-        meta = metadataPlaceholder
+        meta = EMPTY_JSON
     }
 
     return {
         name: dataset.name,
         description: dataset.description || '',
-        metadata: meta || metadataPlaceholder,
+        metadata: meta || EMPTY_JSON,
     }
 }
