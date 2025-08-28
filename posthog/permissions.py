@@ -201,6 +201,7 @@ def _is_request_for_project_secret_api_token_secured_endpoint(request: Request) 
         in {
             "featureflag-local-evaluation",
             "project_feature_flags-remote-config",
+            "project_feature_flags-local-evaluation",
         }
     )
 
@@ -661,11 +662,7 @@ class ProjectSecretAPITokenPermission(BasePermission):
             return True
 
         # Check that the endpoint is allowed for secret API keys
-        if request.resolver_match.view_name not in (
-            "featureflag-local-evaluation",
-            "project_feature_flags-remote-config",
-            "project_feature_flags-local-evaluation",
-        ):
+        if not _is_request_for_project_secret_api_token_secured_endpoint(request):
             return False
 
         # Check team consistency: authenticated team must match resolved team
