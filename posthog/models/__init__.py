@@ -26,16 +26,6 @@ from .data_color_theme import DataColorTheme
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
-from .error_tracking import (
-    ErrorTrackingAssignmentRule,
-    ErrorTrackingGroupingRule,
-    ErrorTrackingIssue,
-    ErrorTrackingIssueAssignment,
-    ErrorTrackingIssueFingerprintV2,
-    ErrorTrackingStackFrame,
-    ErrorTrackingSuppressionRule,
-    ErrorTrackingSymbolSet,
-)
 from .event.event import Event
 from .event_buffer import EventBuffer
 from .event_definition import EventDefinition
@@ -94,6 +84,16 @@ from .web_experiment import WebExperiment
 # Keeping products imports at the bottom to avoid circular imports errors
 from products.tasks.backend.models import Task
 from products.early_access_features.backend.models import EarlyAccessFeature
+from products.error_tracking.backend.models import (
+    ErrorTrackingAssignmentRule,
+    ErrorTrackingGroupingRule,
+    ErrorTrackingIssue,
+    ErrorTrackingIssueAssignment,
+    ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingStackFrame,
+    ErrorTrackingSuppressionRule,
+    ErrorTrackingSymbolSet,
+)
 
 __all__ = [
     "AlertConfiguration",

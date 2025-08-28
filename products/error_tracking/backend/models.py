@@ -1,7 +1,6 @@
 from uuid import UUID
 
 from django.conf import settings
-from django.contrib.postgres.fields import ArrayField
 from django.db import models, transaction
 
 from django_deprecate_fields import deprecate_field
@@ -65,6 +64,10 @@ class ErrorTrackingIssue(UUIDTModel):
 
         update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
 
+    class Meta:
+        db_table = "posthog_errortrackingissue"
+        managed = True
+
 
 class ErrorTrackingExternalReference(UUIDTModel):
     issue = models.ForeignKey(
@@ -84,6 +87,10 @@ class ErrorTrackingExternalReference(UUIDTModel):
     external_context = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    class Meta:
+        db_table = "posthog_errortrackingexternalreference"
+        managed = True
+
 
 class ErrorTrackingIssueAssignment(UUIDTModel):
     issue = models.OneToOneField(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="assignment")
@@ -92,6 +99,10 @@ class ErrorTrackingIssueAssignment(UUIDTModel):
     user_group = deprecate_field(models.ForeignKey(UserGroup, null=True, on_delete=models.CASCADE))
     role = models.ForeignKey(Role, null=True, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "posthog_errortrackingissueassignment"
+        managed = True
 
 
 class ErrorTrackingIssueFingerprintV2(UUIDTModel):
@@ -104,6 +115,8 @@ class ErrorTrackingIssueFingerprintV2(UUIDTModel):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
+        db_table = "posthog_errortrackingissuefingerprintv2"
+        managed = True
         constraints = [models.UniqueConstraint(fields=["team", "fingerprint"], name="unique_fingerprint_for_team")]
 
 
@@ -122,6 +135,8 @@ class ErrorTrackingRelease(UUIDTModel):
     metadata = models.JSONField(null=True, blank=False)
 
     class Meta:
+        db_table = "posthog_errortrackingrelease"
+        managed = True
         indexes = [
             models.Index(fields=["team_id", "hash_id"]),
         ]
@@ -168,6 +183,8 @@ class ErrorTrackingSymbolSet(UUIDTModel):
             delete_symbol_set_contents(storage_ptr)
 
     class Meta:
+        db_table = "posthog_errortrackingsymbolset"
+        managed = True
         indexes = [
             models.Index(fields=["team_id", "ref"]),
             models.Index(fields=["last_used"]),
@@ -194,6 +211,8 @@ class ErrorTrackingAssignmentRule(UUIDTModel):
     disabled_data = models.JSONField(null=True, blank=True)
 
     class Meta:
+        db_table = "posthog_errortrackingassignmentrule"
+        managed = True
         indexes = [
             models.Index(fields=["team_id"]),
         ]
@@ -236,6 +255,8 @@ class ErrorTrackingGroupingRule(UUIDTModel):
     description = models.TextField(null=True)
 
     class Meta:
+        db_table = "posthog_errortrackinggroupingrule"
+        managed = True
         indexes = [
             models.Index(fields=["team_id"]),
         ]
@@ -255,6 +276,8 @@ class ErrorTrackingSuppressionRule(UUIDTModel):
     order_key = models.IntegerField(null=False, blank=False)
 
     class Meta:
+        db_table = "posthog_errortrackingsuppressionrule"
+        managed = True
         indexes = [
             models.Index(fields=["team_id"]),
         ]
@@ -277,6 +300,8 @@ class ErrorTrackingStackFrame(UUIDTModel):
     context = models.JSONField(null=True, blank=True)
 
     class Meta:
+        db_table = "posthog_errortrackingstackframe"
+        managed = True
         indexes = [
             models.Index(fields=["team_id", "raw_id"]),
         ]
@@ -284,44 +309,6 @@ class ErrorTrackingStackFrame(UUIDTModel):
         constraints = [
             models.UniqueConstraint(fields=["team_id", "raw_id"], name="unique_raw_id_per_team"),
         ]
-
-
-# DEPRECATED: Use ErrorTrackingIssue instead
-class ErrorTrackingGroup(UUIDTModel):
-    class Status(models.TextChoices):
-        ARCHIVED = "archived", "Archived"
-        ACTIVE = "active", "Active"
-        RESOLVED = "resolved", "Resolved"
-        PENDING_RELEASE = "pending_release", "Pending release"
-
-    team = models.ForeignKey("Team", on_delete=models.CASCADE)
-    created_at = models.DateTimeField(auto_now_add=True, blank=True)
-    fingerprint: ArrayField = ArrayField(models.TextField(null=False, blank=False), null=False, blank=False)
-    merged_fingerprints: ArrayField = ArrayField(
-        ArrayField(models.TextField(null=False, blank=False), null=False, blank=False),
-        null=False,
-        blank=False,
-        default=list,
-    )
-    status = models.CharField(max_length=40, choices=Status.choices, default=Status.ACTIVE, null=False)
-    assignee = models.ForeignKey(
-        "User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-    )
-
-
-# DEPRECATED: Use ErrorTrackingIssueFingerprintV2 instead
-class ErrorTrackingIssueFingerprint(models.Model):
-    team = models.ForeignKey("Team", on_delete=models.CASCADE, db_index=False)
-    issue = models.ForeignKey(ErrorTrackingGroup, on_delete=models.CASCADE)
-    fingerprint = models.TextField(null=False, blank=False)
-    # current version of the id, used to sync with ClickHouse and collapse rows correctly for overrides ClickHouse table
-    version = models.BigIntegerField(blank=True, default=0)
-
-    class Meta:
-        constraints = [models.UniqueConstraint(fields=["team", "fingerprint"], name="unique fingerprint for team")]
 
 
 def resolve_fingerprints_for_issues(team_id: int, issue_ids: list[str]) -> list[str]:

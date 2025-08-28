@@ -24,7 +24,14 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.error_tracking import (
+from posthog.models.error_tracking.hogvm_stl import RUST_HOGVM_STL
+from posthog.models.integration import GitHubIntegration, Integration, LinearIntegration
+from posthog.models.team.team import Team
+from posthog.models.utils import UUIDT, uuid7
+from posthog.storage import object_storage
+from posthog.tasks.email import send_error_tracking_issue_assigned
+
+from products.error_tracking.backend.models import (
     ErrorTrackingAssignmentRule,
     ErrorTrackingExternalReference,
     ErrorTrackingGroupingRule,
@@ -36,12 +43,6 @@ from posthog.models.error_tracking import (
     ErrorTrackingSuppressionRule,
     ErrorTrackingSymbolSet,
 )
-from posthog.models.error_tracking.hogvm_stl import RUST_HOGVM_STL
-from posthog.models.integration import GitHubIntegration, Integration, LinearIntegration
-from posthog.models.team.team import Team
-from posthog.models.utils import UUIDT, uuid7
-from posthog.storage import object_storage
-from posthog.tasks.email import send_error_tracking_issue_assigned
 
 from common.hogvm.python.operation import Operation
 
