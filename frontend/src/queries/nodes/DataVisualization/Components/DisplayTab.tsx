@@ -46,14 +46,6 @@ export const DisplayTab = (): JSX.Element => {
 
                 <LemonSwitch
                     className="flex-1 w-full"
-                    label="Show labels"
-                    checked={chartSettings[name]?.showTicks ?? true}
-                    onChange={(value) => {
-                        updateChartSettings({ [name]: { showTicks: value } })
-                    }}
-                />
-                <LemonSwitch
-                    className="flex-1 w-full"
                     label="Begin at zero"
                     checked={chartSettings[name]?.startAtZero ?? chartSettings.yAxisAtZero ?? true}
                     onChange={(value) => {
