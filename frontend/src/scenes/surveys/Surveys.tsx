@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import posthog from 'posthog-js'
 
 import {
     LemonButton,
@@ -34,7 +33,7 @@ import MaxTool from 'scenes/max/MaxTool'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
 import { SurveysEmptyState } from 'scenes/surveys/components/empty-state/SurveysEmptyState'
-import { isSurveyRunning } from 'scenes/surveys/utils'
+import { captureMaxAISurveyCreationException, isSurveyRunning } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -93,10 +92,7 @@ function NewSurveyButton(): JSX.Element {
                 })
 
                 if (toolOutput?.error || !toolOutput?.survey_id) {
-                    posthog.captureException('survey-creation-failed', {
-                        error: toolOutput.error,
-                    })
-                    return
+                    return captureMaxAISurveyCreationException(toolOutput.error)
                 }
 
                 // Refresh surveys list to show new survey, then redirect to it
