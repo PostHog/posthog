@@ -360,6 +360,13 @@ export async function filterFunctionInstrumented(options: {
             if (preFilterMatch === false) {
                 hogFunctionPreFilterCounter.inc({ result: 'bytecode_execution_skipped__pre_filtered_out' })
                 result.match = false
+                metrics.push({
+                    team_id: fn.team_id,
+                    app_source_id: fn.id,
+                    metric_kind: 'other',
+                    metric_name: 'filtered',
+                    count: 1,
+                })
                 return result
             }
         }
