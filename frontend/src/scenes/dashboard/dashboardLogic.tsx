@@ -1635,15 +1635,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.reportDashboardViewed()
             }
         },
-        loadDashboardMetadataSuccess: async ({ dashboard }, breakpoint) => {
+        loadDashboardMetadataSuccess: ({ dashboard }) => {
             if (!dashboard) {
                 actions.dashboardNotFound()
                 return // We hit a 404
             }
-
-            // Add a small pause to allow the dashboard metadata to render
-            // before tiles start appearing from the stream
-            await breakpoint(50)
         },
         receiveTileFromStream: async (_, breakpoint) => {
             // Debounce tile processing with a 50ms breakpoint
