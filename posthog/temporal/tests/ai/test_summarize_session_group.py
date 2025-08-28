@@ -353,52 +353,42 @@ async def test_assign_events_to_patterns_activity_standalone(
 
 @pytest.mark.asyncio
 async def test_assign_events_to_patterns_threshold_check(
-    mocker: MockerFixture,
     mock_session_id: str,
-    mock_enriched_llm_json_response: dict[str, Any],
+    mock_session_summary_serializer: SessionSummarySerializer,
     mock_single_session_summary_inputs: Callable,
-    mock_single_session_summary_llm_inputs: Callable,
     mock_session_group_summary_of_summaries_inputs: Callable,
     redis_test_setup: AsyncRedisTestContext,
+    auser: User,
+    ateam: Team,
 ):
     """Test that assign_events_to_patterns_activity fails when too few patterns get events assigned"""
     # Prepare input data
     session_ids = [f"{mock_session_id}-1", f"{mock_session_id}-2"]
-    single_session_inputs = [mock_single_session_summary_inputs(session_id) for session_id in session_ids]
-    activity_input = mock_session_group_summary_of_summaries_inputs(single_session_inputs)
+    single_session_inputs = [
+        mock_single_session_summary_inputs(session_id, ateam.id, auser.id) for session_id in session_ids
+    ]
+    activity_input = mock_session_group_summary_of_summaries_inputs(single_session_inputs, auser.id, ateam.id)
     redis_client = get_async_client()
-    enriched_summary_str = json.dumps(mock_enriched_llm_json_response)
 
-    # Store session summaries in Redis
-    for single_session_input in single_session_inputs:
-        session_summary_key = generate_state_key(
-            key_base=single_session_input.redis_key_base,
-            label=StateActivitiesEnum.SESSION_SUMMARY,
-            state_id=single_session_input.session_id,
+    # Store session summaries in DB for each session (following the new approach)
+    for session_id in session_ids:
+        await database_sync_to_async(SingleSessionSummary.objects.add_summary)(
+            team_id=ateam.id,
+            session_id=session_id,
+            summary=mock_session_summary_serializer,
+            exception_event_ids=[],
+            extra_summary_context=activity_input.extra_summary_context,
+            created_by=auser,
         )
-        await store_data_in_redis(
-            redis_client=redis_client,
-            redis_key=session_summary_key,
-            data=enriched_summary_str,
-            label=StateActivitiesEnum.SESSION_SUMMARY,
-        )
-        redis_test_setup.keys_to_cleanup.append(session_summary_key)
 
-    # Store single session LLM inputs in Redis
-    for session_id, single_session_input in zip(session_ids, single_session_inputs):
-        llm_input = mock_single_session_summary_llm_inputs(session_id)
-        session_db_data_key = generate_state_key(
-            key_base=single_session_input.redis_key_base,
-            label=StateActivitiesEnum.SESSION_DB_DATA,
-            state_id=single_session_input.session_id,
-        )
-        await store_data_in_redis(
-            redis_client=redis_client,
-            redis_key=session_db_data_key,
-            data=json.dumps(dataclasses.asdict(llm_input)),
-            label=StateActivitiesEnum.SESSION_DB_DATA,
-        )
-        redis_test_setup.keys_to_cleanup.append(session_db_data_key)
+    # Verify summaries exist in DB before testing
+    summaries_before = await database_sync_to_async(SingleSessionSummary.objects.summaries_exist)(
+        team_id=ateam.id,
+        session_ids=session_ids,
+        extra_summary_context=activity_input.extra_summary_context,
+    )
+    for session_id in session_ids:
+        assert summaries_before.get(session_id), f"Summary should exist in DB for session {session_id}"
 
     # Store extracted patterns with 4 patterns
     mock_patterns = RawSessionGroupSummaryPatternsList.model_validate_json(
