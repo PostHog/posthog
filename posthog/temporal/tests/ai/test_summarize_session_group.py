@@ -54,6 +54,7 @@ from posthog.temporal.ai.session_summary.types.single import SingleSessionSummar
 from posthog.temporal.tests.ai.conftest import AsyncRedisTestContext
 
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
+from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 from ee.hogai.session_summaries.session.prompt_data import SessionSummaryPromptData
 from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
 from ee.hogai.session_summaries.session_group.patterns import (
@@ -156,36 +157,43 @@ async def test_get_llm_single_session_summary_activity_standalone(
 async def test_extract_session_group_patterns_activity_standalone(
     mocker: MockerFixture,
     mock_session_id: str,
-    mock_enriched_llm_json_response: dict[str, Any],
+    mock_intermediate_session_summary_serializer: SessionSummarySerializer,
     mock_single_session_summary_inputs: Callable,
     mock_session_group_summary_of_summaries_inputs: Callable,
     mock_patterns_extraction_yaml_response: str,
-    redis_test_setup: AsyncRedisTestContext,
+    auser: User,
+    ateam: Team,
 ):
     """Test extract_session_group_patterns activity in a standalone mode"""
     # Prepare input data
     session_ids = [f"{mock_session_id}-1", f"{mock_session_id}-2"]
-    single_session_inputs = [mock_single_session_summary_inputs(session_id) for session_id in session_ids]
-    activity_inputs = mock_session_group_summary_of_summaries_inputs(single_session_inputs)
+    single_session_inputs = [
+        mock_single_session_summary_inputs(session_id, ateam.id, auser.id) for session_id in session_ids
+    ]
+    activity_inputs = mock_session_group_summary_of_summaries_inputs(single_session_inputs, auser.id, ateam.id)
 
-    # Store session summaries in Redis for each session to be able to get them from inside the activity
-    redis_client = get_async_client()
-    enriched_summary_str = json.dumps(mock_enriched_llm_json_response)
-    for single_session_input in single_session_inputs:
-        session_summary_key = generate_state_key(
-            key_base=single_session_input.redis_key_base,
-            label=StateActivitiesEnum.SESSION_SUMMARY,
-            state_id=single_session_input.session_id,
+    # Store session summaries in DB for each session (following the new approach)
+    for session_id in session_ids:
+        await database_sync_to_async(SingleSessionSummary.objects.add_summary)(
+            team_id=ateam.id,
+            session_id=session_id,
+            summary=mock_intermediate_session_summary_serializer,
+            exception_event_ids=[],
+            extra_summary_context=activity_inputs.extra_summary_context,
+            created_by=auser,
         )
-        await store_data_in_redis(
-            redis_client=redis_client,
-            redis_key=session_summary_key,
-            data=enriched_summary_str,
-            label=StateActivitiesEnum.SESSION_SUMMARY,
-        )
-        redis_test_setup.keys_to_cleanup.append(session_summary_key)
+
+    # Verify summaries exist in DB before the activity
+    summaries_before = await database_sync_to_async(SingleSessionSummary.objects.summaries_exist)(
+        team_id=ateam.id,
+        session_ids=session_ids,
+        extra_summary_context=activity_inputs.extra_summary_context,
+    )
+    for session_id in session_ids:
+        assert summaries_before.get(session_id), f"Summary should exist in DB for session {session_id}"
 
     # Set up spies to track Redis operations
+    redis_client = get_async_client()
     spy_get = mocker.spy(redis_client, "get")
     spy_setex = mocker.spy(redis_client, "setex")
 
@@ -223,12 +231,14 @@ async def test_extract_session_group_patterns_activity_standalone(
         )
         mock_call_llm.return_value = mock_llm_response
         # If no exception is raised, the activity completed successfully
-        await extract_session_group_patterns_activity(activity_inputs)
+        result = await extract_session_group_patterns_activity(activity_inputs)
         # Verify LLM was called once to extract patterns
         mock_call_llm.assert_called_once()
-        # Try to get result from Redis (cache), fail, then get session summaries to generate result
-        assert spy_get.call_count == 1 + len(session_ids)
-        # Store extracted patterns, as initial data was stored before we created a spy
+        # Should return the Redis key where patterns were stored
+        assert result is not None and isinstance(result, str)
+        # Verify Redis operations:
+        # 1 get to check if patterns already cached + 1 setex to store extracted patterns
+        assert spy_get.call_count == 1
         assert spy_setex.call_count == 1
 
 
