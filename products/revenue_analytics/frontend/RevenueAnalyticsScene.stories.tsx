@@ -13,10 +13,11 @@ import { RevenueAnalyticsGroupBy } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator, RevenueAnalyticsPropertyFilter } from '~/types'
 
 import databaseSchemaMock from './__mocks__/DatabaseSchemaQuery.json'
+import revenueAnalyticsGrossRevenueQueryMock from './__mocks__/RevenueAnalyticsGrossRevenueQuery.json'
 import revenueAnalyticsGrowthRateMock from './__mocks__/RevenueAnalyticsGrowthRateQuery.json'
+import revenueAnalyticsMRRQueryMock from './__mocks__/RevenueAnalyticsMRRQuery.json'
 import revenueAnalyticsMetricsQueryMock from './__mocks__/RevenueAnalyticsMetricsQuery.json'
 import revenueAnalyticsOverviewMock from './__mocks__/RevenueAnalyticsOverviewQuery.json'
-import revenueAnalyticsRevenueQueryMock from './__mocks__/RevenueAnalyticsRevenueQuery.json'
 import revenueAnalyticsTopCustomersMock from './__mocks__/RevenueAnalyticsTopCustomersQuery.json'
 import { revenueAnalyticsLogic } from './revenueAnalyticsLogic'
 
@@ -59,8 +60,10 @@ const meta: Meta = {
                         return [200, revenueAnalyticsMetricsQueryMock]
                     } else if (queryKind === 'RevenueAnalyticsOverviewQuery') {
                         return [200, revenueAnalyticsOverviewMock]
-                    } else if (queryKind === 'RevenueAnalyticsRevenueQuery') {
-                        return [200, revenueAnalyticsRevenueQueryMock]
+                    } else if (queryKind === 'RevenueAnalyticsGrossRevenueQuery') {
+                        return [200, revenueAnalyticsGrossRevenueQueryMock]
+                    } else if (queryKind === 'RevenueAnalyticsMRRQuery') {
+                        return [200, revenueAnalyticsMRRQueryMock]
                     } else if (queryKind === 'RevenueAnalyticsTopCustomersQuery') {
                         return [200, revenueAnalyticsTopCustomersMock]
                     }

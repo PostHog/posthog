@@ -2430,6 +2430,7 @@ export type BreakdownType =
     | 'data_warehouse'
     | 'data_warehouse_person_property'
 export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
+export type SimpleIntervalType = 'day' | 'month'
 export type SmoothingType = number
 
 export enum InsightType {
@@ -4613,6 +4614,8 @@ export enum ActivityScope {
     USER_INTERVIEW = 'UserInterview',
     TAG = 'Tag',
     TAGGED_ITEM = 'TaggedItem',
+    EXTERNAL_DATA_SOURCE = 'ExternalDataSource',
+    EXTERNAL_DATA_SCHEMA = 'ExternalDataSchema',
 }
 
 export type CommentType = {
