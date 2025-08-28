@@ -1,4 +1,4 @@
-import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -31,37 +31,26 @@ export const sharePasswordsLogic = kea<sharePasswordsLogicType>([
     actions({
         setNewPasswordModalOpen: (open: boolean) => ({ open }),
         createPassword: (password?: string, note?: string) => ({ password, note }),
+        createPasswordSuccess: (response: any) => ({ response }),
+        createPasswordFailure: (error: any) => ({ error }),
         deletePassword: (passwordId: string) => ({ passwordId }),
         setSharePasswords: (passwords: SharePassword[]) => ({ passwords }),
+        loadSharePasswords: true,
+        clearCreatedPasswordResult: true,
     }),
 
     loaders(({ props }) => ({
         sharePasswords: {
             __default: [] as SharePassword[],
             loadSharePasswords: async (): Promise<SharePassword[]> => {
-                const params = new URLSearchParams()
-                if (props.dashboardId) {
-                    params.append('dashboard_id', props.dashboardId.toString())
-                }
-                if (props.insightShortId) {
-                    params.append('insight_id', props.insightShortId)
-                }
-                if (props.recordingId) {
-                    params.append('recording_id', props.recordingId)
-                }
-
-                const response = await api.get(`api/projects/@current/sharing_configurations/?${params.toString()}`)
-                return response.share_passwords || []
+                const response = await api.sharing.get({
+                    dashboardId: props.dashboardId,
+                    insightId: props.insightShortId,
+                    recordingId: props.recordingId,
+                })
+                return (response && response.share_passwords) || []
             },
         },
-        isCreatingPassword: [
-            false,
-            {
-                createPassword: () => true,
-                createPasswordSuccess: () => false,
-                createPasswordFailure: () => false,
-            },
-        ],
     })),
 
     reducers({
@@ -71,61 +60,68 @@ export const sharePasswordsLogic = kea<sharePasswordsLogicType>([
                 setNewPasswordModalOpen: (_, { open }) => open,
             },
         ],
+        isCreatingPassword: [
+            false as boolean,
+            {
+                createPassword: () => true,
+                createPasswordSuccess: () => false,
+                createPasswordFailure: () => false,
+            },
+        ],
+        createdPasswordResult: [
+            null as { id: string; password: string; note: string; created_at: string; created_by_email: string } | null,
+            {
+                createPasswordSuccess: (_, { response }) => response,
+                createPassword: () => null,
+                createPasswordFailure: () => null,
+                clearCreatedPasswordResult: () => null,
+            },
+        ],
     }),
 
     listeners(({ actions, props }) => ({
         createPassword: async ({ password, note }) => {
             try {
-                const params = new URLSearchParams()
-                if (props.dashboardId) {
-                    params.append('dashboard_id', props.dashboardId.toString())
-                }
-                if (props.insightShortId) {
-                    params.append('insight_id', props.insightShortId)
-                }
-                if (props.recordingId) {
-                    params.append('recording_id', props.recordingId)
-                }
-
-                const payload: Record<string, string> = {}
-                if (password) {
-                    payload.raw_password = password
-                }
-                if (note) {
-                    payload.note = note
-                }
-
-                const response = await api.create(
-                    `api/projects/@current/sharing_configurations/passwords/?${params.toString()}`,
-                    payload
+                const response = await api.sharing.createPassword(
+                    {
+                        dashboardId: props.dashboardId,
+                        insightId: props.insightShortId,
+                        recordingId: props.recordingId,
+                    },
+                    {
+                        raw_password: password,
+                        note: note,
+                    }
                 )
 
-                actions.createPasswordSuccess()
-                actions.loadSharePasswords()
+                actions.createPasswordSuccess(response)
                 lemonToast.success('Password created successfully')
+
+                // Reload passwords list (but don't let this failure affect the success)
+                try {
+                    actions.loadSharePasswords()
+                } catch (loadError) {
+                    console.warn('Failed to reload passwords after creation:', loadError)
+                }
+
                 return response
             } catch (error: any) {
+                console.error('Password creation error:', error)
                 actions.createPasswordFailure()
-                lemonToast.error(error.detail || 'Failed to create password')
+                lemonToast.error(error.detail || error.message || 'Failed to create password')
                 throw error
             }
         },
 
         deletePassword: async ({ passwordId }) => {
             try {
-                const params = new URLSearchParams()
-                if (props.dashboardId) {
-                    params.append('dashboard_id', props.dashboardId.toString())
-                }
-                if (props.insightShortId) {
-                    params.append('insight_id', props.insightShortId)
-                }
-                if (props.recordingId) {
-                    params.append('recording_id', props.recordingId)
-                }
-
-                await api.delete(
-                    `api/projects/@current/sharing_configurations/passwords/${passwordId}/?${params.toString()}`
+                await api.sharing.deletePassword(
+                    {
+                        dashboardId: props.dashboardId,
+                        insightId: props.insightShortId,
+                        recordingId: props.recordingId,
+                    },
+                    passwordId
                 )
 
                 actions.loadSharePasswords()
@@ -135,8 +131,4 @@ export const sharePasswordsLogic = kea<sharePasswordsLogicType>([
             }
         },
     })),
-
-    selectors({
-        sharePasswordsLoading: [(s) => [s.sharePasswordsLoading], (loading) => loading],
-    }),
 ])

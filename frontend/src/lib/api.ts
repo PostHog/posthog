@@ -2411,6 +2411,60 @@ const api = {
                     ? new ApiRequest().recordingSharing(recordingId).update({ data })
                     : null
         },
+
+        async createPassword(
+            {
+                dashboardId,
+                insightId,
+                recordingId,
+            }: {
+                dashboardId?: DashboardType['id']
+                insightId?: QueryBasedInsightModel['id']
+                recordingId?: SessionRecordingType['id']
+            },
+            data: { raw_password?: string; note?: string }
+        ): Promise<{ id: string; password: string; note: string; created_at: string; created_by_email: string }> {
+            return dashboardId
+                ? new ApiRequest().dashboardSharing(dashboardId).addPathComponent('passwords').create({ data })
+                : insightId
+                  ? new ApiRequest().insightSharing(insightId).addPathComponent('passwords').create({ data })
+                  : recordingId
+                    ? new ApiRequest().recordingSharing(recordingId).addPathComponent('passwords').create({ data })
+                    : null
+        },
+
+        async deletePassword(
+            {
+                dashboardId,
+                insightId,
+                recordingId,
+            }: {
+                dashboardId?: DashboardType['id']
+                insightId?: QueryBasedInsightModel['id']
+                recordingId?: SessionRecordingType['id']
+            },
+            passwordId: string
+        ): Promise<void> {
+            return dashboardId
+                ? new ApiRequest()
+                      .dashboardSharing(dashboardId)
+                      .addPathComponent('passwords')
+                      .addPathComponent(passwordId)
+                      .delete()
+                : insightId
+                  ? new ApiRequest()
+                        .insightSharing(insightId)
+                        .addPathComponent('passwords')
+                        .addPathComponent(passwordId)
+                        .delete()
+                  : recordingId
+                    ? new ApiRequest()
+                          .recordingSharing(recordingId)
+                          .addPathComponent('passwords')
+                          .addPathComponent(passwordId)
+                          .delete()
+                    : null
+        },
     },
 
     pluginConfigs: {

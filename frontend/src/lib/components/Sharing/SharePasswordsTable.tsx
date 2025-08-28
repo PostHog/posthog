@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, LemonTable } from '@posthog/lemon-ui'
@@ -23,24 +23,30 @@ export function SharePasswordsTable({
     recordingId,
 }: SharePasswordsTableProps): JSX.Element {
     const logicProps = { dashboardId, insightShortId, recordingId }
-    const { sharePasswords, sharePasswordsLoading, newPasswordModalOpen, isCreatingPassword } = useValues(
-        sharePasswordsLogic(logicProps)
-    )
-    const { setNewPasswordModalOpen, createPassword, deletePassword } = useActions(sharePasswordsLogic(logicProps))
+    const logic = sharePasswordsLogic(logicProps)
+
+    const values = useValues(logic)
+
+    const { sharePasswords, sharePasswordsLoading, newPasswordModalOpen, isCreatingPassword, createdPasswordResult } =
+        values
+    const { setNewPasswordModalOpen, createPassword, deletePassword, loadSharePasswords, clearCreatedPasswordResult } =
+        useActions(sharePasswordsLogic(logicProps))
     const [newPasswordData, setNewPasswordData] = useState({ password: '', note: '' })
-    const [newPasswordResult, setNewPasswordResult] = useState<{ password: string } | null>(null)
+
+    // Load passwords when component mounts
+    useEffect(() => {
+        loadSharePasswords()
+    }, [loadSharePasswords])
 
     const handleCreatePassword = async (): Promise<void> => {
-        const result = await createPassword(newPasswordData.password || undefined, newPasswordData.note || undefined)
-        if (result) {
-            setNewPasswordResult({ password: result.password })
-            setNewPasswordData({ password: '', note: '' })
-        }
+        await createPassword(newPasswordData.password || undefined, newPasswordData.note || undefined)
+        // Reset form data on success - the Kea logic will handle setting createdPasswordResult
+        setNewPasswordData({ password: '', note: '' })
     }
 
     const handleCloseModal = (): void => {
         setNewPasswordModalOpen(false)
-        setNewPasswordResult(null)
+        clearCreatedPasswordResult()
         setNewPasswordData({ password: '', note: '' })
     }
 
@@ -121,7 +127,7 @@ export function SharePasswordsTable({
                 onClose={handleCloseModal}
                 title="Create new share password"
                 footer={
-                    newPasswordResult ? (
+                    createdPasswordResult ? (
                         <LemonButton type="primary" onClick={handleCloseModal}>
                             Done
                         </LemonButton>
@@ -137,7 +143,7 @@ export function SharePasswordsTable({
                     )
                 }
             >
-                {newPasswordResult ? (
+                {createdPasswordResult ? (
                     <div className="space-y-4">
                         <div className="bg-success-highlight border border-success rounded p-4">
                             <h4 className="text-success mb-2">Password created successfully!</h4>
@@ -146,7 +152,7 @@ export function SharePasswordsTable({
                             </p>
                             <div className="flex items-center space-x-2">
                                 <LemonInput
-                                    value={newPasswordResult.password}
+                                    value={createdPasswordResult.password}
                                     readOnly
                                     type="text"
                                     className="font-mono"
@@ -154,7 +160,7 @@ export function SharePasswordsTable({
                                 <LemonButton
                                     icon={<IconCopy />}
                                     onClick={() => {
-                                        copyToClipboard(newPasswordResult.password, 'share password')
+                                        copyToClipboard(createdPasswordResult.password, 'share password')
                                     }}
                                 />
                             </div>

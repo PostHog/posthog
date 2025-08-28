@@ -15,9 +15,8 @@ class TestSharePasswordAPI(APIBaseTest):
 
     def test_create_password_with_custom_password(self):
         response = self.client.post(
-            f"/api/projects/{self.team.id}/sharing_configurations/passwords/",
+            f"/api/environments/{self.team.id}/dashboards/{self.dashboard.id}/sharing/passwords/",
             {"raw_password": "my-secure-password", "note": "Test password"},
-            query_string=f"dashboard_id={self.dashboard.id}",
             content_type="application/json",
         )
 
@@ -37,9 +36,8 @@ class TestSharePasswordAPI(APIBaseTest):
 
     def test_create_password_with_generated_password(self):
         response = self.client.post(
-            f"/api/projects/{self.team.id}/sharing_configurations/passwords/",
+            f"/api/environments/{self.team.id}/dashboards/{self.dashboard.id}/sharing/passwords/",
             {"note": "Auto-generated password"},
-            query_string=f"dashboard_id={self.dashboard.id}",
             content_type="application/json",
         )
 
@@ -61,9 +59,8 @@ class TestSharePasswordAPI(APIBaseTest):
         self.sharing_config.save()
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/sharing_configurations/passwords/",
+            f"/api/environments/{self.team.id}/dashboards/{self.dashboard.id}/sharing/passwords/",
             {"raw_password": "test-password"},
-            query_string=f"dashboard_id={self.dashboard.id}",
             content_type="application/json",
         )
 
@@ -76,9 +73,8 @@ class TestSharePasswordAPI(APIBaseTest):
         self.organization.save()
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/sharing_configurations/passwords/",
+            f"/api/environments/{self.team.id}/dashboards/{self.dashboard.id}/sharing/passwords/",
             {"raw_password": "test-password"},
-            query_string=f"dashboard_id={self.dashboard.id}",
             content_type="application/json",
         )
 
@@ -87,9 +83,8 @@ class TestSharePasswordAPI(APIBaseTest):
 
     def test_create_password_validation_too_short(self):
         response = self.client.post(
-            f"/api/projects/{self.team.id}/sharing_configurations/passwords/",
+            f"/api/environments/{self.team.id}/dashboards/{self.dashboard.id}/sharing/passwords/",
             {"raw_password": "short"},
-            query_string=f"dashboard_id={self.dashboard.id}",
             content_type="application/json",
         )
 
@@ -106,8 +101,7 @@ class TestSharePasswordAPI(APIBaseTest):
         )
 
         response = self.client.delete(
-            f"/api/projects/{self.team.id}/sharing_configurations/passwords/{share_password.id}/",
-            query_string=f"dashboard_id={self.dashboard.id}",
+            f"/api/environments/{self.team.id}/dashboards/{self.dashboard.id}/sharing/passwords/{share_password.id}/"
         )
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
@@ -118,8 +112,7 @@ class TestSharePasswordAPI(APIBaseTest):
 
     def test_delete_nonexistent_password(self):
         response = self.client.delete(
-            f"/api/projects/{self.team.id}/sharing_configurations/passwords/99999/",
-            query_string=f"dashboard_id={self.dashboard.id}",
+            f"/api/environments/{self.team.id}/dashboards/{self.dashboard.id}/sharing/passwords/99999/"
         )
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -135,8 +128,7 @@ class TestSharePasswordAPI(APIBaseTest):
         self.organization.save()
 
         response = self.client.delete(
-            f"/api/projects/{self.team.id}/sharing_configurations/passwords/{share_password.id}/",
-            query_string=f"dashboard_id={self.dashboard.id}",
+            f"/api/environments/{self.team.id}/dashboards/{self.dashboard.id}/sharing/passwords/{share_password.id}/"
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
