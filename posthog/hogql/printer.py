@@ -636,14 +636,20 @@ class _Printer(Visitor[str]):
     def visit_and(self, node: ast.And):
         if len(node.exprs) == 1:
             return self.visit(node.exprs[0])
+        if self.context.loose_syntax:
+            return f" AND ".join([f"({self.visit(expr)})" for expr in node.exprs])
         return f"and({', '.join([self.visit(expr) for expr in node.exprs])})"
 
     def visit_or(self, node: ast.Or):
         if len(node.exprs) == 1:
             return self.visit(node.exprs[0])
+        if self.context.loose_syntax:
+            return f" OR ".join([f"({self.visit(expr)})" for expr in node.exprs])
         return f"or({', '.join([self.visit(expr) for expr in node.exprs])})"
 
     def visit_not(self, node: ast.Not):
+        if self.context.loose_syntax:
+            return f"NOT ({self.visit(node.expr)})"
         return f"not({self.visit(node.expr)})"
 
     def visit_tuple_access(self, node: ast.TupleAccess):

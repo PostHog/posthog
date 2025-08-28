@@ -2605,6 +2605,57 @@ class TestPrinter(BaseTest):
         loose_result = print_ast(query_ast, loose_context, "hogql")
         self.assertIn("{variables.f}", loose_result)
 
+    def test_loose_syntax_boolean_logic(self):
+        """Test that boolean AND/OR logic uses infix notation with loose_syntax enabled."""
+        loose_context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, loose_syntax=True)
+        strict_context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, loose_syntax=False)
+
+        # Test AND/OR logic
+        query_ast = parse_select(
+            "SELECT * FROM events WHERE length(properties) > 0 AND timestamp > now() OR event = 'test'"
+        )
+
+        # With loose_syntax=False (default behavior) - should use function calls
+        strict_result = print_ast(query_ast, strict_context, "hogql")
+        assert (
+            strict_result
+            == "SELECT * FROM events WHERE greater(length(properties), 0) AND greater(timestamp, now()) OR equals(event, 'test')"
+        )
+
+        # With loose_syntax=True - should use infix notation
+        loose_result = print_ast(query_ast, loose_context, "hogql")
+        assert (
+            loose_result == "SELECT * FROM events WHERE length(properties) > 0 AND timestamp > now() OR event = 'test'"
+        )
+
+        # Test NOT logic - check if it also needs loose_syntax handling
+        not_query_ast = parse_select("SELECT * FROM events WHERE NOT (event = 'test')")
+
+        strict_not_result = print_ast(not_query_ast, strict_context, "hogql")
+        loose_not_result = print_ast(not_query_ast, loose_context, "hogql")
+
+        # Check current behavior - both should use function form for now
+        assert strict_not_result == "SELECT * FROM events WHERE not(equals(event, 'test'))"
+        assert loose_not_result == "SELECT * FROM events WHERE NOT (event = 'test')"
+
+    def test_loose_syntax_preserves_select_asterisk(self):
+        """Test that SELECT * is preserved when loose_syntax is enabled."""
+        loose_context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, loose_syntax=True)
+        strict_context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, loose_syntax=False)
+
+        # Test SELECT * preservation
+        query_ast = parse_select("SELECT * FROM events")
+
+        # With loose_syntax=False (default behavior) - should expand to all columns
+        strict_result = print_ast(query_ast, strict_context, "hogql")
+        self.assertNotIn("SELECT *", strict_result)  # Should be expanded
+        self.assertIn("SELECT uuid, event", strict_result)  # Should show actual column names
+
+        # With loose_syntax=True - should preserve SELECT *
+        loose_result = print_ast(query_ast, loose_context, "hogql")
+        self.assertIn("SELECT *", loose_result)  # Should preserve *
+        self.assertNotIn("uuid, event", loose_result)  # Should not expand column names
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_s3_tables_global_join_with_in_and_property_type(self):
         credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
