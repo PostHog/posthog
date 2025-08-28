@@ -23,7 +23,7 @@ from posthog.models.exported_asset import ExportedAsset, get_content_response
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.temporal import TEMPORAL_HOST, TEMPORAL_NAMESPACE, TEMPORAL_PORT, TEMPORAL_WORKFLOW_MAX_ATTEMPTS
 from posthog.tasks import exporter
-from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.client import connect as temporal_connect
 from posthog.temporal.exports_video.workflow import VideoExportInputs, VideoExportWorkflow
 
 VIDEO_EXPORT_SEMAPHORE = threading.Semaphore(10)  # Allow max 10 concurrent video exports
@@ -142,7 +142,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                     )
 
                 async def _start():
-                    client = await sync_connect(TEMPORAL_HOST, TEMPORAL_PORT, TEMPORAL_NAMESPACE)
+                    client = await temporal_connect(TEMPORAL_HOST, TEMPORAL_PORT, TEMPORAL_NAMESPACE)
                     await client.execute_workflow(
                         VideoExportWorkflow.run,
                         VideoExportInputs(exported_asset_id=instance.id),
