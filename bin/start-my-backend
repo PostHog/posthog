@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -eu
+
+# Usage: ./start-backend.sh [PORT] [PROFILE]
+PROFILE="${2:-dev}"
+
+# Put any backend-specific env here
+export SPRING_PROFILES_ACTIVE="$PROFILE"
+export DEBUG=0
+
+# cd to your backend project directory
+# adjust this path to your repo layout
+cd backend
+
+exec ./mvnw spring-boot:run \
+  -Dspring-boot.run.profiles="$SPRING_PROFILES_ACTIVE"

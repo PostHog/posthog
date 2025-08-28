@@ -11,13 +11,28 @@ import java.util.List;
 /**
  * apiHeatmapGetDTO
  */
-@Getter
-@Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Component
 public class ApiHeatmapGetDTO {
     private int count;
+
+    public int getCount() {
+        return count;
+    }
+
+    public int getPointer_y() {
+        return pointer_y;
+    }
+
+    public float getPointer_relative_x() {
+        return pointer_relative_x;
+    }
+
+    public boolean isPointer_target_fixed() {
+        return pointer_target_fixed;
+    }
+
     private int pointer_y;
     private float pointer_relative_x;
     private boolean pointer_target_fixed;

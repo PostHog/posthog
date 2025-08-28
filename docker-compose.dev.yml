@@ -81,13 +81,13 @@ services:
         # They are only for DEV and should not be used in production.
         command: postgres -c max_connections=1000 -c idle_in_transaction_session_timeout=300000
 
-    counters_db:
-        extends:
-            file: docker-compose.base.yml
-            service: counters_db
-        ports:
-            - '5433:5432'
-        command: postgres -c max_connections=1000 -c idle_in_transaction_session_timeout=300000
+    # counters_db:
+    #     extends:
+    #         file: docker-compose.base.yml
+    #         service: counters_db
+    #     ports:
+    #         - '5433:5432'
+    #     command: postgres -c max_connections=1000 -c idle_in_transaction_session_timeout=300000
     redis:
         extends:
             file: docker-compose.base.yml
@@ -101,12 +101,12 @@ services:
         ports:
             - '6479:6379'
 
-    flower:
-        extends:
-            file: docker-compose.base.yml
-            service: flower
-        ports:
-            - '5555:5555'
+    # flower:
+    #     extends:
+    #         file: docker-compose.base.yml
+    #         service: flower
+    #     ports:
+    #         - '5555:5555'
 
     clickhouse:
         extends:
@@ -153,57 +153,57 @@ services:
         depends_on:
             - zookeeper
 
-    kafka_ui:
-        extends:
-            file: docker-compose.base.yml
-            service: kafka_ui
-        ports:
-            - '9093:8080'
-        depends_on:
-            - kafka
+    # kafka_ui:
+    #     extends:
+    #         file: docker-compose.base.yml
+    #         service: kafka_ui
+    #     ports:
+    #         - '9093:8080'
+    #     depends_on:
+    #         - kafka
 
-    objectstorage:
-        extends:
-            file: docker-compose.base.yml
-            service: objectstorage
-        ports:
-            - '19000:19000'
-            - '19001:19001'
+    # objectstorage:
+    #     extends:
+    #         file: docker-compose.base.yml
+    #         service: objectstorage
+    #     ports:
+    #         - '19000:19000'
+    #         - '19001:19001'
 
-    maildev:
-        extends:
-            file: docker-compose.base.yml
-            service: maildev
-        ports:
-            - '1080:1080'
-            - '1025:1025'
+    # maildev:
+    #     extends:
+    #         file: docker-compose.base.yml
+    #         service: maildev
+    #     ports:
+    #         - '1080:1080'
+    #         - '1025:1025'
 
-    webhook-tester:
-        image: tarampampam/webhook-tester:1.1.0
-        restart: on-failure
-        ports:
-            - '2080:2080'
-        environment:
-            - LISTEN_PORT=2080
+    # webhook-tester:
+    #     image: tarampampam/webhook-tester:1.1.0
+    #     restart: on-failure
+    #     ports:
+    #         - '2080:2080'
+    #     environment:
+    #         - LISTEN_PORT=2080
 
-    feature-flags:
-        extends:
-            file: docker-compose.base.yml
-            service: feature-flags
-        depends_on:
-            - redis
-            - db
+    # feature-flags:
+    #     extends:
+    #         file: docker-compose.base.yml
+    #         service: feature-flags
+    #     depends_on:
+    #         - redis
+    #         - db
 
-    livestream:
-        extends:
-            file: docker-compose.base.yml
-            service: livestream
-        environment:
-            - LIVESTREAM_JWT_SECRET=${SECRET_KEY}
-        ports:
-            - '8666:8080'
-        volumes:
-            - ./docker/livestream/configs-dev.yml:/configs/configs.yml
+    # livestream:
+    #     extends:
+    #         file: docker-compose.base.yml
+    #         service: livestream
+    #     environment:
+    #         - LIVESTREAM_JWT_SECRET=${SECRET_KEY}
+    #     ports:
+    #         - '8666:8080'
+    #     volumes:
+    #         - ./docker/livestream/configs-dev.yml:/configs/configs.yml
 
     # Temporal containers
     elasticsearch:
@@ -224,28 +224,27 @@ services:
             service: temporal-admin-tools
         depends_on:
             - temporal
-    temporal-ui:
-        extends:
-            file: docker-compose.base.yml
-            service: temporal-ui
-        depends_on:
-            temporal:
-                condition: service_started
-            db:
-                condition: service_healthy
+    # temporal-ui:
+    #     extends:
+    #         file: docker-compose.base.yml
+    #         service: temporal-ui
+    #     depends_on:
+    #         temporal:
+    #             condition: service_started
+    #         db:
+    #             condition: service_healthy
 
-    otel-collector:
-        extends:
-            file: docker-compose.base.yml
-            service: otel-collector
-        depends_on:
-            - jaeger
-
-    jaeger:
-        extends:
-            file: docker-compose.base.yml
-            service: jaeger
-
-networks:
-    otel_network:
-        driver: bridge
+    # otel-collector:
+    #     extends:
+    #         file: docker-compose.base.yml
+    #         service: otel-collector
+    #     depends_on:
+    #         - jaeger
+    #
+    # jaeger:
+    #     extends:
+    #         file: docker-compose.base.yml
+    #         service: jaeger
+# networks:
+#     otel_network:
+#         driver: bridge
