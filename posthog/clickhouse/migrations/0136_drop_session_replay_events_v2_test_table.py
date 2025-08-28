@@ -1,11 +1,10 @@
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
-from posthog.session_recordings.sql.session_replay_event_v2_test_sql import (
-    DROP_SESSION_REPLAY_EVENTS_V2_TEST_TABLE_SQL,
-    SESSION_REPLAY_EVENTS_V2_TEST_TABLES,
-)
 
-# NB the kafka and mv tables are first in this list
+# NB the mv then kafka tables are first in this list on purpose
 operations = [
-    run_sql_with_exceptions(DROP_SESSION_REPLAY_EVENTS_V2_TEST_TABLE_SQL(t))
-    for t in SESSION_REPLAY_EVENTS_V2_TEST_TABLES
+    run_sql_with_exceptions("DROP TABLE IF EXISTS session_replay_events_v2_test_mv"),
+    run_sql_with_exceptions("DROP TABLE IF EXISTS kafka_session_replay_events_v2_test"),
+    run_sql_with_exceptions("DROP TABLE IF EXISTS session_replay_events_v2_test"),
+    run_sql_with_exceptions("DROP TABLE IF EXISTS writable_session_replay_events_v2_test"),
+    run_sql_with_exceptions("DROP TABLE IF EXISTS sharded_session_replay_events_v2_test"),
 ]
