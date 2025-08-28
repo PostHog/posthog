@@ -1,25 +1,22 @@
-from functools import cached_property
 import json
-from django.contrib.auth.models import AnonymousUser
-from django.db.models import Q, OuterRef, Case, When, Value, Model, QuerySet, Exists, CharField
-from django.db.models.functions import Cast
-from rest_framework import serializers
-from typing import TYPE_CHECKING, Any, Literal, Optional, cast, get_args
 from enum import Enum
+from functools import cached_property
+from typing import TYPE_CHECKING, Any, Literal, Optional, cast, get_args
+
+from django.contrib.auth.models import AnonymousUser
+from django.db.models import Case, CharField, Exists, Model, OuterRef, Q, QuerySet, Value, When
+from django.db.models.functions import Cast
+
+from rest_framework import serializers
 
 from posthog.constants import AvailableFeature
-from posthog.models import (
-    Organization,
-    OrganizationMembership,
-    Team,
-    User,
-)
-from posthog.scopes import APIScopeObject, API_SCOPE_OBJECTS
-
+from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.scopes import API_SCOPE_OBJECTS, APIScopeObject
 
 if TYPE_CHECKING:
-    from ee.models import AccessControl
     from posthog.models.file_system.file_system import FileSystem
+
+    from ee.models import AccessControl
 
     _AccessControl = AccessControl
 else:

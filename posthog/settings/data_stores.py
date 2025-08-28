@@ -1,18 +1,14 @@
-import json
 import os
+import json
 from contextlib import suppress
 from typing import Optional
 from urllib.parse import urlparse
 
-import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
 
-from posthog.settings.base_variables import (
-    DEBUG,
-    IN_EVAL_TESTING,
-    IS_COLLECT_STATIC,
-    TEST,
-)
+import dj_database_url
+
+from posthog.settings.base_variables import DEBUG, IN_EVAL_TESTING, IS_COLLECT_STATIC, TEST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 # See https://docs.djangoproject.com/en/3.2/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
@@ -169,6 +165,7 @@ CLICKHOUSE_TEST_DB: str = "posthog" + SUFFIX
 
 CLICKHOUSE_HOST: str = os.getenv("CLICKHOUSE_HOST", "localhost")
 CLICKHOUSE_OFFLINE_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_CLUSTER_HOST", None)
+CLICKHOUSE_MIGRATIONS_HOST: str = os.getenv("CLICKHOUSE_MIGRATIONS_HOST", CLICKHOUSE_HOST)
 CLICKHOUSE_USER: str = os.getenv("CLICKHOUSE_USER", "default")
 CLICKHOUSE_PASSWORD: str = os.getenv("CLICKHOUSE_PASSWORD", "")
 CLICKHOUSE_DATABASE: str = CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_DATABASE", "default")

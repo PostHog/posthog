@@ -18,6 +18,17 @@ import { VariableCalendar } from './VariableCalendar'
 import { variableDataLogic } from './variableDataLogic'
 import { variableModalLogic } from './variableModalLogic'
 
+const getCodeName = (name: string): string => {
+    return (
+        name
+            .trim()
+            //  Filter out all characters that is not a letter, number or space
+            .replace(/[^a-zA-Z0-9\s]/g, '')
+            .replace(/\s/g, '_')
+            .toLowerCase()
+    )
+}
+
 const renderVariableSpecificFields = (
     variable: Variable,
     updateVariable: (variable: Variable) => void,
@@ -175,6 +186,9 @@ export const NewVariableModal = (): JSX.Element => {
                         value={variable.name}
                         onChange={(value) => updateVariable({ ...variable, name: value })}
                     />
+                    {modalType === 'new' && variable.name.length > 0 && (
+                        <span className="text-xs">{`Use this variable by referencing {variables.${getCodeName(variable.name)}}.`}</span>
+                    )}
                 </LemonField.Pure>
                 <LemonField.Pure label="Type" className="gap-1">
                     <LemonSelect

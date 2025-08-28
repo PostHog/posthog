@@ -1,14 +1,14 @@
 import gzip
-import hashlib
 import json
-
+import hashlib
 from enum import Enum
 from typing import TypeVar
+
 from redis import asyncio as aioredis
 
-from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_DB_DATA_REDIS_TTL
 from posthog.redis import get_async_client
 
+from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_DB_DATA_REDIS_TTL
 
 T = TypeVar("T")
 

@@ -1,7 +1,9 @@
-from typing import cast, Optional, Any
-from django.db import models
-import structlog
 import traceback
+from typing import Any, Optional, cast
+
+from django.db import models
+
+import structlog
 from asgiref.local import Local
 
 logger = structlog.get_logger(__name__)

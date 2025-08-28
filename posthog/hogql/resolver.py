@@ -7,12 +7,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import ConstantType, FieldTraverserType
 from posthog.hogql.base import _T_AST
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import (
-    FunctionCallTable,
-    LazyTable,
-    SavedQuery,
-    StringJSONDatabaseField,
-)
+from posthog.hogql.database.models import FunctionCallTable, LazyTable, SavedQuery, StringJSONDatabaseField
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
@@ -21,13 +16,9 @@ from posthog.hogql.escape_sql import safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
 from posthog.hogql.functions.cohort import cohort_query_node
-from posthog.hogql.functions.mapping import (
-    HOGQL_CLICKHOUSE_FUNCTIONS,
-    compare_types,
-    validate_function_args,
-)
-from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.explain_csp_report import explain_csp_report
+from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS, compare_types, validate_function_args
+from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS, convert_to_hx
 from posthog.hogql.parser import parse_select
@@ -39,6 +30,7 @@ from posthog.hogql.resolver_utils import (
     lookup_table_by_name,
 )
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
+
 from posthog.models.utils import UUIDT
 
 # https://github.com/ClickHouse/ClickHouse/issues/23194 - "Describe how identifiers in SELECT queries are resolved"
@@ -910,6 +902,11 @@ class Resolver(CloningVisitor):
                 return isinstance(node.type.table_type.table_type.table, EventsTable)
             if isinstance(node.type.table_type, ast.TableType):
                 return isinstance(node.type.table_type.table, EventsTable)
+        elif isinstance(node, ast.Field) and isinstance(node.type, ast.PropertyType):
+            if isinstance(node.type.field_type.table_type, ast.TableAliasType):
+                return isinstance(node.type.field_type.table_type.table_type.table, EventsTable)
+            if isinstance(node.type.field_type.table_type, ast.TableType):
+                return isinstance(node.type.field_type.table_type.table, EventsTable)
         return False
 
     def _is_s3_cluster(self, node: ast.Expr) -> bool:
@@ -947,7 +944,14 @@ class Resolver(CloningVisitor):
     ) -> list[ast.TableOrSelectType]:
         tables: list[ast.TableOrSelectType] = []
         if isinstance(select_query_type, ast.SelectQueryType):
-            tables.extend(list(select_query_type.tables.values()))
+            for t in select_query_type.tables.values():
+                if isinstance(t, ast.SelectQueryAliasType):
+                    tables.extend(self._extract_tables_from_query_type(t.select_query_type))
+                else:
+                    tables.append(t)
+
+            for at in select_query_type.anonymous_tables:
+                tables.extend(self._extract_tables_from_query_type(at))
         else:
             for sqt in select_query_type.types:
                 tables.extend(self._extract_tables_from_query_type(sqt))

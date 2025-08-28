@@ -1,4 +1,6 @@
 import datetime
+
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from langchain_core.messages import (
@@ -12,14 +14,6 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from langgraph.errors import NodeInterrupt
 from parameterized import parameterized
 
-from ee.hogai.graph.root.nodes import RootNode, RootNodeTools
-from ee.hogai.graph.root.prompts import (
-    ROOT_BILLING_CONTEXT_ERROR_PROMPT,
-    ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT,
-    ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT,
-)
-from ee.hogai.utils.tests import FakeChatOpenAI
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import (
     AssistantMessage,
     AssistantToolCall,
@@ -32,21 +26,30 @@ from posthog.schema import (
     HumanMessage,
     LifecycleQuery,
     MaxActionContext,
+    MaxBillingContext,
+    MaxBillingContextSettings,
+    MaxBillingContextSubscriptionLevel,
     MaxBillingContextTrial,
     MaxDashboardContext,
     MaxEventContext,
     MaxInsightContext,
     MaxUIContext,
-    MaxBillingContext,
     RetentionEntity,
     RetentionFilter,
     RetentionQuery,
-    MaxBillingContextSettings,
-    MaxBillingContextSubscriptionLevel,
     TrendsQuery,
 )
-from posthog.test.base import BaseTest, ClickhouseTestMixin
+
 from posthog.models.organization import OrganizationMembership
+
+from ee.hogai.graph.root.nodes import RootNode, RootNodeTools
+from ee.hogai.graph.root.prompts import (
+    ROOT_BILLING_CONTEXT_ERROR_PROMPT,
+    ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT,
+    ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT,
+)
+from ee.hogai.utils.tests import FakeChatOpenAI
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
 
 class TestRootNode(ClickhouseTestMixin, BaseTest):

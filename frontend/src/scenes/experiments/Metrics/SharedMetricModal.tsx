@@ -14,7 +14,6 @@ import { AvailableFeature, Experiment } from '~/types'
 
 import { MetricDisplayFunnels, MetricDisplayTrends } from '../ExperimentView/components'
 import { SharedMetric } from '../SharedMetrics/sharedMetricLogic'
-import { EXPERIMENT_MAX_PRIMARY_METRICS, EXPERIMENT_MAX_SECONDARY_METRICS } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 
@@ -25,13 +24,7 @@ export function SharedMetricModal({
     experimentId: Experiment['id']
     isSecondary?: boolean
 }): JSX.Element {
-    const {
-        experiment,
-        compatibleSharedMetrics,
-        editingSharedMetricId,
-        primaryMetricsLengthWithSharedMetrics,
-        secondaryMetricsLengthWithSharedMetrics,
-    } = useValues(experimentLogic({ experimentId }))
+    const { experiment, compatibleSharedMetrics, editingSharedMetricId } = useValues(experimentLogic({ experimentId }))
     const { addSharedMetricsToExperiment, removeSharedMetricFromExperiment, restoreUnmodifiedExperiment } = useActions(
         experimentLogic({ experimentId })
     )
@@ -56,20 +49,6 @@ export function SharedMetricModal({
     const addSharedMetricDisabledReason = (): string | undefined => {
         if (selectedMetricIds.length === 0) {
             return 'Please select at least one metric'
-        }
-
-        if (
-            !isSecondary &&
-            primaryMetricsLengthWithSharedMetrics + selectedMetricIds.length > EXPERIMENT_MAX_PRIMARY_METRICS
-        ) {
-            return `You can only add up to ${EXPERIMENT_MAX_PRIMARY_METRICS} primary metrics.`
-        }
-
-        if (
-            isSecondary &&
-            secondaryMetricsLengthWithSharedMetrics + selectedMetricIds.length > EXPERIMENT_MAX_SECONDARY_METRICS
-        ) {
-            return `You can only add up to ${EXPERIMENT_MAX_SECONDARY_METRICS} secondary metrics.`
         }
     }
 

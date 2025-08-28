@@ -1,37 +1,37 @@
-from dataclasses import dataclass
-import hashlib
 import hmac
-import time
-import jwt
 import json
-from datetime import timedelta, datetime
+import time
+import hashlib
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Any, Literal, Optional
 from urllib.parse import urlencode
 
+from django.conf import settings
 from django.db import models
-from prometheus_client import Counter
+
+import jwt
 import requests
+import structlog
+from google.auth.transport.requests import Request as GoogleRequest
+from google.oauth2 import service_account
+from prometheus_client import Counter
+from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
-from rest_framework import status
-from slack_sdk.web.async_client import AsyncWebClient
-
-from posthog.exceptions_capture import capture_exception
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
-from google.oauth2 import service_account
-from google.auth.transport.requests import Request as GoogleRequest
+from slack_sdk.web.async_client import AsyncWebClient
 
-from django.conf import settings
 from posthog.cache_utils import cache_for
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.user import User
-from products.messaging.backend.providers import MailjetProvider, TwilioProvider
-import structlog
-
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.sync import database_sync_to_async
+
+from products.messaging.backend.providers import MailjetProvider, TwilioProvider
 
 logger = structlog.get_logger(__name__)
 
@@ -702,7 +702,7 @@ class GoogleAdsIntegration:
     def list_google_ads_conversion_actions(self, customer_id, parent_id=None) -> list[dict]:
         response = requests.request(
             "POST",
-            f"https://googleads.googleapis.com/v18/customers/{customer_id}/googleAds:searchStream",
+            f"https://googleads.googleapis.com/v21/customers/{customer_id}/googleAds:searchStream",
             json={"query": "SELECT conversion_action.id, conversion_action.name FROM conversion_action"},
             headers={
                 "Content-Type": "application/json",
@@ -725,7 +725,7 @@ class GoogleAdsIntegration:
     def list_google_ads_accessible_accounts(self) -> list[dict[str, str]]:
         response = requests.request(
             "GET",
-            f"https://googleads.googleapis.com/v18/customers:listAccessibleCustomers",
+            f"https://googleads.googleapis.com/v21/customers:listAccessibleCustomers",
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
@@ -745,7 +745,7 @@ class GoogleAdsIntegration:
                 accounts = []
             response = requests.request(
                 "POST",
-                f"https://googleads.googleapis.com/v18/customers/{account_id}/googleAds:searchStream",
+                f"https://googleads.googleapis.com/v21/customers/{account_id}/googleAds:searchStream",
                 json={
                     "query": "SELECT customer_client.descriptive_name, customer_client.client_customer, customer_client.level, customer_client.manager, customer_client.status FROM customer_client WHERE customer_client.level <= 5"
                 },

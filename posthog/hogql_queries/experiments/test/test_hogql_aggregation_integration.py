@@ -1,8 +1,11 @@
-from posthog.hogql import ast
-from posthog.hogql_queries.experiments.base_query_utils import get_metric_value, get_metric_aggregation_expr
-from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
-from posthog.schema import ExperimentMeanMetric, EventsNode, ExperimentMetricMathType
 from posthog.test.base import BaseTest
+
+from posthog.schema import EventsNode, ExperimentMeanMetric, ExperimentMetricMathType
+
+from posthog.hogql import ast
+
+from posthog.hogql_queries.experiments.base_query_utils import get_metric_aggregation_expr, get_metric_value
+from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 
 
 class TestHogQLAggregationIntegration(BaseTest):
@@ -41,8 +44,9 @@ class TestHogQLAggregationIntegration(BaseTest):
         """Test that the experiment query runner creates the right aggregation expression for HogQL."""
 
         # Create a mock experiment and query runner
-        from posthog.models import Experiment, FeatureFlag
         from posthog.schema import ExperimentQuery
+
+        from posthog.models import Experiment, FeatureFlag
 
         # Create feature flag and experiment
         feature_flag = FeatureFlag.objects.create(

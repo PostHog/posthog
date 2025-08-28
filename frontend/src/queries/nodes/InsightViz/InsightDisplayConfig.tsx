@@ -39,7 +39,6 @@ import { PathStepPicker } from 'scenes/insights/views/Paths/PathStepPicker'
 import { RetentionBreakdownFilter } from 'scenes/retention/RetentionBreakdownFilter'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
-import { resultCustomizationsModalLogic } from '~/queries/nodes/InsightViz/resultCustomizationsModalLogic'
 import { isValidBreakdown } from '~/queries/utils'
 import { isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
@@ -75,7 +74,6 @@ export function InsightDisplayConfig(): JSX.Element {
     const { isTrendsFunnel, isStepsFunnel, isTimeToConvertFunnel, isEmptyFunnel } = useValues(
         funnelDataLogic(insightProps)
     )
-    const { hasInsightColors } = useValues(resultCustomizationsModalLogic(insightProps))
 
     const showCompare = (isTrends && display !== ChartDisplayType.ActionsAreaGraph) || isStickiness
     const showInterval =
@@ -111,7 +109,7 @@ export function InsightDisplayConfig(): JSX.Element {
                   },
               ]
             : []),
-        ...(supportsResultCustomizationBy && hasInsightColors
+        ...(supportsResultCustomizationBy
             ? [
                   {
                       title: (

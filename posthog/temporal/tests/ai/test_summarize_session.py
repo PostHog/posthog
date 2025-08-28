@@ -1,22 +1,24 @@
-from collections.abc import AsyncGenerator
+import json
+import uuid
 import asyncio
 import dataclasses
-import json
-from collections.abc import Callable
+from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
 from typing import Any
+
 import pytest
-import uuid
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+from openai.types.chat.chat_completion_chunk import ChatCompletionChunk, Choice, ChoiceDelta
+from openai.types.completion_usage import CompletionUsage
 from pytest_mock import MockerFixture
+from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
+from temporalio.exceptions import ApplicationError
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from ee.hogai.session_summaries import ExceptionToRetry
-from ee.hogai.session_summaries.session.prompt_data import SessionSummaryPromptData
-from ee.hogai.session_summaries.session.summarize_session import (
-    SingleSessionSummaryData,
-    SingleSessionSummaryLlmInputs,
-)
+from posthog import constants
+from posthog.temporal.ai import WORKFLOWS
 from posthog.temporal.ai.session_summary.state import (
     StateActivitiesEnum,
     _compress_redis_data,
@@ -28,23 +30,16 @@ from posthog.temporal.ai.session_summary.state import (
 from posthog.temporal.ai.session_summary.summarize_session import (
     SummarizeSingleSessionStreamWorkflow,
     execute_summarize_session_stream,
-    stream_llm_single_session_summary_activity,
     fetch_session_data_activity,
+    stream_llm_single_session_summary_activity,
 )
-from temporalio.client import WorkflowExecutionStatus
-from temporalio.testing import WorkflowEnvironment
-from ee.hogai.session_summaries.utils import serialize_to_sse_event
-from openai.types.chat.chat_completion_chunk import ChatCompletionChunk, Choice, ChoiceDelta
-from openai.types.completion_usage import CompletionUsage
-from posthog.temporal.ai import WORKFLOWS
-from temporalio.worker import Worker, UnsandboxedWorkflowRunner
-from posthog import constants
-from unittest.mock import AsyncMock
-from temporalio.exceptions import ApplicationError
-from temporalio.client import WorkflowFailureError
-
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 from posthog.temporal.tests.ai.conftest import AsyncRedisTestContext, SyncRedisTestContext
+
+from ee.hogai.session_summaries import ExceptionToRetry
+from ee.hogai.session_summaries.session.prompt_data import SessionSummaryPromptData
+from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryData, SingleSessionSummaryLlmInputs
+from ee.hogai.session_summaries.utils import serialize_to_sse_event
 
 pytestmark = pytest.mark.django_db
 

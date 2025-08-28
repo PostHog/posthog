@@ -3,8 +3,8 @@
 Toolbox command for connecting to PostHog toolbox pods in a Kubernetes environment.
 """
 
-import sys
 import os
+import sys
 import argparse
 from datetime import datetime, timedelta
 
@@ -13,8 +13,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Import functions from the modular package
 from toolbox.kubernetes import select_context
+from toolbox.pod import claim_pod, connect_to_pod, delete_pod, get_toolbox_pod
 from toolbox.user import get_current_user
-from toolbox.pod import get_toolbox_pod, claim_pod, connect_to_pod, delete_pod
 
 
 def main():
