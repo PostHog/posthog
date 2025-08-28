@@ -43,7 +43,14 @@ export function LLMAnalyticsDatasetScene(): JSX.Element {
     }
 
     if (datasetLoading) {
-        return <LemonSkeleton active />
+        return (
+            <div className="flex flex-col gap-2">
+                <LemonSkeleton active className="h-4 w-2/5" />
+                <LemonSkeleton active className="h-4 w-full" />
+                <LemonSkeleton active className="h-4 w-full" />
+                <LemonSkeleton active className="h-4 w-3/5" />
+            </div>
+        )
     }
 
     return (
