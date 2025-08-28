@@ -178,8 +178,8 @@ pub struct EventSimilarity {
     pub overall_score: f64,
     /// Number of top-level fields that differ (excluding properties)
     pub different_field_count: u32,
-    /// List of field names that differ
-    pub different_fields: Vec<String>,
+    /// List of field names that differ with their values (original -> new)
+    pub different_fields: Vec<(String, String, String)>, // (field_name, original_value, new_value)
     /// Properties similarity score (0.0 = completely different, 1.0 = identical)
     pub properties_similarity: f64,
     /// Number of properties that differ
@@ -194,47 +194,91 @@ impl EventSimilarity {
         let mut matching_fields = 0u32;
         let mut total_fields = 0u32;
 
+        // Helper to format optional values for display
+        let format_opt = |opt: &Option<String>| opt.as_deref().unwrap_or("<none>").to_string();
+        let format_value_opt = |opt: &Option<serde_json::Value>| {
+            opt.as_ref()
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "<none>".to_string())
+        };
+        let format_map_opt = |opt: &Option<HashMap<String, serde_json::Value>>| {
+            opt.as_ref()
+                .map(|m| format!("{} properties", m.len()))
+                .unwrap_or_else(|| "<none>".to_string())
+        };
+
         // Compare top-level fields (excluding properties and uuid which we expect to differ)
         total_fields += 1;
         if original.event == new.event {
             matching_fields += 1;
         } else {
-            different_fields.push("event".to_string());
+            different_fields.push((
+                "event".to_string(),
+                original.event.clone(),
+                new.event.clone(),
+            ));
         }
 
         total_fields += 1;
         if original.distinct_id == new.distinct_id {
             matching_fields += 1;
         } else {
-            different_fields.push("distinct_id".to_string());
+            different_fields.push((
+                "distinct_id".to_string(),
+                format_value_opt(&original.distinct_id),
+                format_value_opt(&new.distinct_id),
+            ));
         }
 
         total_fields += 1;
         if original.token == new.token {
             matching_fields += 1;
         } else {
-            different_fields.push("token".to_string());
+            different_fields.push((
+                "token".to_string(),
+                format_opt(&original.token),
+                format_opt(&new.token),
+            ));
         }
 
+        // Compare timestamps - check if they parse to the same u64 value
         total_fields += 1;
-        if original.timestamp == new.timestamp {
+        let original_ts = original
+            .timestamp
+            .as_ref()
+            .and_then(|t| t.parse::<u64>().ok());
+        let new_ts = new.timestamp.as_ref().and_then(|t| t.parse::<u64>().ok());
+
+        if original_ts == new_ts {
             matching_fields += 1;
         } else {
-            different_fields.push("timestamp".to_string());
+            different_fields.push((
+                "timestamp".to_string(),
+                format_opt(&original.timestamp),
+                format_opt(&new.timestamp),
+            ));
         }
 
         total_fields += 1;
         if original.set == new.set {
             matching_fields += 1;
         } else {
-            different_fields.push("set".to_string());
+            different_fields.push((
+                "set".to_string(),
+                format_map_opt(&original.set),
+                format_map_opt(&new.set),
+            ));
         }
 
         total_fields += 1;
         if original.set_once == new.set_once {
             matching_fields += 1;
         } else {
-            different_fields.push("set_once".to_string());
+            different_fields.push((
+                "set_once".to_string(),
+                format_map_opt(&original.set_once),
+                format_map_opt(&new.set_once),
+            ));
         }
 
         // Compare properties
@@ -517,7 +561,8 @@ mod tests {
         assert_eq!(similarity.different_field_count, 1); // Only timestamp differs
         assert!(similarity
             .different_fields
-            .contains(&"timestamp".to_string()));
+            .iter()
+            .any(|(field, _, _)| field == "timestamp"));
 
         assert_eq!(similarity.different_property_count, 2); // url differs, browser is new
         assert!(similarity.different_properties.contains(&"url".to_string()));

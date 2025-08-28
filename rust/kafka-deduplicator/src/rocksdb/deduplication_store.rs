@@ -254,11 +254,15 @@ impl DeduplicationStore {
             // Log detailed differences if similarity is not perfect
             if similarity.overall_score < 1.0 {
                 if !similarity.different_fields.is_empty() {
-                    info!(
-                        "Different fields for key {}: {:?}",
-                        key.get_formatted_key(),
-                        similarity.different_fields
-                    );
+                    for (field_name, original_val, new_val) in &similarity.different_fields {
+                        info!(
+                            "Different field '{}' for key {}: '{}' -> '{}'",
+                            field_name,
+                            key.get_formatted_key(),
+                            original_val,
+                            new_val
+                        );
+                    }
                 }
                 if !similarity.different_properties.is_empty() {
                     info!(
@@ -299,10 +303,10 @@ impl DeduplicationStore {
                 .record(similarity.different_property_count as f64);
 
             // Emit individual counters for each mismatched field
-            for field in &similarity.different_fields {
+            for (field_name, _, _) in &similarity.different_fields {
                 self.metrics
                     .counter("deduplication_field_mismatch_total")
-                    .with_label("field", field)
+                    .with_label("field", field_name)
                     .with_label("lib", &lib_name)
                     .with_label("lib_version", &lib_version)
                     .increment(1);
