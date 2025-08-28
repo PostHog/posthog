@@ -1,6 +1,8 @@
 import logging
 from functools import cache
 
+from django.conf import settings
+
 from infi.clickhouse_orm import migrations
 
 from posthog.clickhouse.client.connection import NodeRole
@@ -12,7 +14,7 @@ logger = logging.getLogger("migrations")
 
 @cache
 def get_migrations_cluster():
-    return get_cluster(cluster=CLICKHOUSE_MIGRATIONS_CLUSTER)
+    return get_cluster(host=settings.CLICKHOUSE_MIGRATIONS_HOST, cluster=CLICKHOUSE_MIGRATIONS_CLUSTER)
 
 
 def run_sql_with_exceptions(
