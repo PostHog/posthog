@@ -61,6 +61,7 @@ export function EarlyAccessFeatures(): JSX.Element {
                 isEmpty={shouldShowEmptyState}
                 docsURL="https://posthog.com/docs/feature-flags/early-access-feature-management"
                 action={() => router.actions.push(urls.earlyAccessFeature('new'))}
+                className="my-0"
             />
             {!shouldShowEmptyState && (
                 <LemonTable

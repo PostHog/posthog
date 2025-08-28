@@ -371,7 +371,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                 </ScenePanel>
 
                 {!newSceneLayout && isNewEarlyAccessFeature && (
-                    <LemonField name="name" label="Name">
+                    <LemonField name="name" label="Name" className="max-w-prose">
                         <LemonInput data-attr="feature-name" />
                     </LemonField>
                 )}
