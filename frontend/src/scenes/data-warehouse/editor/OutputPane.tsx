@@ -678,6 +678,7 @@ function InternalDataTableVisualization(
     ) {
         component = (
             <LineGraph
+                className="p-2"
                 xData={xData}
                 yData={yData}
                 seriesBreakdownData={seriesBreakdownData}

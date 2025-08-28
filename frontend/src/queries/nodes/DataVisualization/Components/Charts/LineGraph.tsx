@@ -108,6 +108,7 @@ export type LineGraphProps = {
     showEditingUI?: boolean
     dashboardId?: string
     goalLines?: GoalLine[]
+    className?: string
 }
 
 // LineGraph displays a graph using either x and y data or series breakdown data
@@ -120,6 +121,7 @@ export const LineGraph = ({
     chartSettings,
     dashboardId,
     goalLines = [],
+    className,
 }: LineGraphProps): JSX.Element => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const chartId = useRef(`linegraph-dataviz-${Math.random().toString(36).substring(2, 11)}`)
@@ -550,7 +552,7 @@ export const LineGraph = ({
 
     return (
         <div
-            className={clsx('rounded bg-surface-primary relative flex flex-1 flex-col p-2', {
+            className={clsx(className, 'rounded bg-surface-primary relative flex flex-1 flex-col', {
                 border: showEditingUI,
                 'h-[60vh]': presetChartHeight,
                 'h-full': !presetChartHeight,

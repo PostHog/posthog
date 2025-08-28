@@ -89,6 +89,7 @@ export function CampaignMetrics({ id }: CampaignMetricsProps): JSX.Element {
             <div className="border rounded min-h-[20rem] h-[70vh] bg-white">
                 {appMetricsTrends && (
                     <LineGraph
+                        className="p-2"
                         xData={{
                             column: {
                                 name: 'date',
