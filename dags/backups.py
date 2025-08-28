@@ -28,7 +28,6 @@ SHARDED_TABLES = [
     "sharded_raw_sessions",
     "sharded_session_replay_embeddings",
     "sharded_session_replay_events",
-    "sharded_session_replay_events_v2_test",
     "sharded_sessions",
 ]
 
