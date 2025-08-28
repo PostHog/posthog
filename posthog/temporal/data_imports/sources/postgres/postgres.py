@@ -222,7 +222,7 @@ def _build_query(
 
     if add_sampling:
         query_with_limit = cast(LiteralString, f"{query.as_string()} LIMIT 1000")
-        return sql.SQL(query_with_limit).format(incremental_field=sql.Identifier(incremental_field))
+        return sql.SQL(query_with_limit).format()
     else:
         query_str = cast(LiteralString, f"{query.as_string()} ORDER BY {{incremental_field}} ASC")
         return sql.SQL(query_str).format(incremental_field=sql.Identifier(incremental_field))
