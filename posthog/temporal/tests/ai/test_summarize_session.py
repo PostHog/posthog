@@ -177,11 +177,13 @@ class TestStreamLlmSummaryActivity:
         mock_single_session_summary_inputs: Callable,
         mock_session_id: str,
         redis_test_setup: AsyncRedisTestContext,
+        auser: User,
+        ateam: Team,
     ):
-        llm_input_data = mock_single_session_summary_llm_inputs(mock_session_id)
+        llm_input_data = mock_single_session_summary_llm_inputs(mock_session_id, auser.id)
         compressed_llm_input_data = _compress_redis_data(json.dumps(dataclasses.asdict(llm_input_data)))
         key_base = "stream_llm_test_base"
-        input_data = mock_single_session_summary_inputs(mock_session_id, key_base)
+        input_data = mock_single_session_summary_inputs(mock_session_id, ateam.id, auser.id, key_base)
         # Generate Redis keys
         _, redis_input_key, redis_output_key = get_redis_state_client(
             key_base=key_base,
