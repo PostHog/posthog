@@ -120,13 +120,14 @@ if read_host:
     DATABASE_ROUTERS.append("posthog.dbrouter.ReplicaRouter")
 
 # Add the persons_db_writer database configuration using PERSONS_DB_WRITER_URL
-persons_writer_url = os.getenv("PERSONS_DB_WRITER_URL")
-
-if persons_writer_url:
-    DATABASES["persons_db_writer"] = dj_database_url.config(default=persons_writer_url, conn_max_age=0)
-    # Fall back to the writer URL if no reader URL is set
-    persons_reader_url = os.getenv("PERSONS_DB_READER_URL") or persons_writer_url
+if os.getenv("PERSONS_DB_WRITER_URL"):
+    DATABASES["persons_db_writer"] = dj_database_url.config(default=os.getenv("PERSONS_DB_WRITER_URL"), conn_max_age=0)
+    persons_reader_url = os.getenv("PERSONS_DB_READER_URL") or os.getenv("PERSONS_DB_WRITER_URL")
     DATABASES["persons_db_reader"] = dj_database_url.config(default=persons_reader_url, conn_max_age=0)
+    if DISABLE_SERVER_SIDE_CURSORS:
+        DATABASES["persons_db_writer"]["DISABLE_SERVER_SIDE_CURSORS"] = True
+        DATABASES["persons_db_reader"]["DISABLE_SERVER_SIDE_CURSORS"] = True
+    DATABASE_ROUTERS.insert(0, "posthog.person_db_router.PersonDBRouter")
 elif DEBUG or TEST:
     # For local development and testing, configure like the main database so Django can properly handle test database creation
     DATABASES["persons_db_writer"] = {
@@ -142,11 +143,6 @@ elif DEBUG or TEST:
             "NAME": "test_posthog_persons",
         },
     }
-    DATABASES["persons_db_reader"] = DATABASES["persons_db_writer"].copy()
-    if DISABLE_SERVER_SIDE_CURSORS:
-        DATABASES["persons_db_writer"]["DISABLE_SERVER_SIDE_CURSORS"] = True
-        DATABASES["persons_db_reader"]["DISABLE_SERVER_SIDE_CURSORS"] = True
-
     DATABASE_ROUTERS.insert(0, "posthog.person_db_router.PersonDBRouter")
 
 # Opt-in to using the read replica
