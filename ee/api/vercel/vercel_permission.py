@@ -44,8 +44,7 @@ class VercelPermission(BasePermission):
 
         if auth_type not in supported_types:
             raise exceptions.PermissionDenied(
-                f"Auth type '{auth_type}' not allowed for this endpoint. "
-                f"Supported types: {', '.join(supported_types)}"
+                f"Auth type '{auth_type}' not allowed for this endpoint. Supported types: {', '.join(supported_types)}"
             )
 
     def _validate_installation_id_match(self, request: Request, view) -> None:
@@ -55,6 +54,9 @@ class VercelPermission(BasePermission):
         # installation_id when going through the vercel_installation ViewSet,
         # or parent_lookup_installation_id when going through the vercel_resource
         installation_id = view.kwargs.get("installation_id") or view.kwargs.get("parent_lookup_installation_id")
+
+        if not installation_id:
+            raise exceptions.PermissionDenied("Missing installation_id")
 
         if jwt_payload.get("installation_id") != installation_id:
             raise exceptions.PermissionDenied("Installation ID mismatch")
