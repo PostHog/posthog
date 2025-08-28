@@ -8,7 +8,7 @@ import { SessionBatchMetrics } from './metrics'
 import {
     SessionBatchFileStorage,
     SessionBatchFileWriter,
-    SessionData,
+    WriteSessionData,
     WriteSessionResult,
 } from './session-batch-file-storage'
 
@@ -107,7 +107,7 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
         })
     }
 
-    public async writeSession(sessionData: SessionData): Promise<WriteSessionResult> {
+    public async writeSession(sessionData: WriteSessionData): Promise<WriteSessionResult> {
         return await this.withErrorBarrier(async () => {
             const buffer = sessionData.buffer
             const startOffset = this.currentOffset
@@ -125,6 +125,7 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
             return {
                 bytesWritten: buffer.length,
                 url: `s3://${this.bucket}/${this.key}?range=bytes=${startOffset}-${this.currentOffset - 1}`,
+                retentionPeriod: null,
             }
         })
     }

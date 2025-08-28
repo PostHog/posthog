@@ -68,6 +68,7 @@ export function SurveyEditQuestionHeader({
             {survey.questions.length > 1 && (
                 <LemonButton
                     icon={<IconTrash />}
+                    size="xsmall"
                     data-attr={`delete-survey-question-${index}`}
                     onClick={(e) => {
                         const deleteQuestion = (): void => {
@@ -332,7 +333,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                                         />
                                                         <LemonButton
                                                             icon={<IconTrash />}
-                                                            size="small"
+                                                            size="xsmall"
                                                             noPadding
                                                             onClick={() => {
                                                                 const newChoices = [...value]
