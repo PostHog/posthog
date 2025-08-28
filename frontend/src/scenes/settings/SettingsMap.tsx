@@ -310,7 +310,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'cookieless-server-hash-mode',
                 title: 'Cookieless server hash mode',
                 component: <CookielessServerHashModeSetting />,
-                flag: 'COOKIELESS_SERVER_HASH_MODE_SETTING',
+                flag: 'IMPROVED_COOKIELESS_MODE',
             },
             {
                 id: 'bounce-rate-duration',
