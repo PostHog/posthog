@@ -594,24 +594,24 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                             suggestions={
                                                                 multivariateEnabled && variants?.length > 0
                                                                     ? [
-                                                                          `Create a feedback survey comparing variants of the "${featureFlag.key}" feature`,
-                                                                          `Create a survey for users who saw the "${variants[0]?.key}" variant of "${featureFlag.key}"`,
-                                                                          `Create an A/B test survey asking users to compare "${featureFlag.key}" variants`,
-                                                                          `Create a survey to understand which variant of "${featureFlag.key}" performs better`,
-                                                                          `Create a survey targeting all variants of "${featureFlag.key}" to gather overall feedback`,
+                                                                          `Create a feedback survey comparing variants of the "${featureFlag.key}" feature flag`,
+                                                                          `Create a survey for users who saw the "${variants[0]?.key}" variant of the "${featureFlag.key}" feature flag`,
+                                                                          `Create an A/B test survey asking users to compare the "${featureFlag.key}" feature flag variants`,
+                                                                          `Create a survey to understand which variant of the "${featureFlag.key}" feature flag performs better`,
+                                                                          `Create a survey targeting all variants of the "${featureFlag.key}" feature flag to gather overall feedback`,
                                                                       ]
                                                                     : [
-                                                                          `Create a feedback survey for users who see the "${featureFlag.key}" feature`,
-                                                                          `Create an NPS survey for users exposed to "${featureFlag.key}"`,
-                                                                          `Create a satisfaction survey asking about the "${featureFlag.key}" experience`,
-                                                                          `Create a survey to understand user reactions to the "${featureFlag.key}" feature`,
+                                                                          `Create a feedback survey for users who see the "${featureFlag.key}" feature flag`,
+                                                                          `Create an NPS survey for users exposed to the "${featureFlag.key}" feature flag`,
+                                                                          `Create a satisfaction survey asking about the "${featureFlag.key}" feature flag experience`,
+                                                                          `Create a survey to understand user reactions to the "${featureFlag.key}" feature flag`,
                                                                       ]
                                                             }
                                                             context={{
                                                                 user_id: user.uuid,
                                                                 feature_flag_key: featureFlag.key,
                                                                 feature_flag_id: featureFlag.id,
-                                                                feature_flag_name: featureFlag.name,
+                                                                feature_flag_name: featureFlag.name, // flag description
                                                                 target_feature_flag: featureFlag.key,
                                                                 survey_purpose: 'collect_feedback_for_feature_flag',
                                                                 is_multivariate: multivariateEnabled,
