@@ -140,20 +140,7 @@ COPY ee ee/
 COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
 RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
 
-# Install runtime deps for video export (ffmpeg for MP4/GIF transcoding)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg=7:5.1.6-0+deb12u1 \
-    && rm -rf /var/lib/apt/lists/*
 
-# Pre-install Playwright's Chromium into the image so workers can launch a browser at runtime
-# (the Python 'playwright' package was installed by uv sync above)
-RUN /python-runtime/bin/python -m playwright install --with-deps chromium
-
-# Validate installations to catch issues early
-RUN ffmpeg -version
-RUN /python-runtime/bin/python -c "import playwright; print('Playwright package imported successfully')"
-RUN /python-runtime/bin/python -c "from playwright.sync_api import sync_playwright; print('Playwright sync API available')"
-RUN /python-runtime/bin/python -m playwright --version
 
 #
 # ---------------------------------------------------------
@@ -194,7 +181,8 @@ RUN apt-get update && \
     "libxmlsec1" \
     "libxmlsec1-dev" \
     "libxml2" \
-    "gettext-base"
+    "gettext-base" \
+    "ffmpeg=7:5.1.6-0+deb12u1"
 
 # Install MS SQL dependencies
 RUN curl https://packages.microsoft.com/keys/microsoft.asc | tee /etc/apt/trusted.gpg.d/microsoft.asc
@@ -217,6 +205,15 @@ RUN groupadd -g 1000 posthog && \
     useradd -r -g posthog posthog && \
     chown posthog:posthog /code
 USER posthog
+
+# Install Playwright Chromium browser for video export (as posthog user)
+RUN /python-runtime/bin/python -m playwright install --with-deps chromium
+
+# Validate video export dependencies
+RUN ffmpeg -version && \
+    /python-runtime/bin/python -c "import playwright; print('Playwright package imported successfully')" && \
+    /python-runtime/bin/python -c "from playwright.sync_api import sync_playwright; print('Playwright sync API available')" && \
+    /python-runtime/bin/python -m playwright --version
 
 # Add the commit hash
 ARG COMMIT_HASH
