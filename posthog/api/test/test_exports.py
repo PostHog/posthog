@@ -3,7 +3,7 @@ from typing import Optional
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.http import HttpResponse
 from django.utils.timezone import now
@@ -593,6 +593,83 @@ class TestExports(APIBaseTest):
         # Verify that the database wasn't actually modified
         stuck_export.refresh_from_db()
         self.assertIsNone(stuck_export.exception)
+
+    @patch("posthog.temporal.common.client.sync_connect")
+    @patch("posthoganalytics.feature_enabled")
+    def test_can_create_video_export_mp4_session_recording(self, mock_feature_enabled, mock_sync_connect):
+        """Test creating MP4 video export for session recording via Temporal workflow."""
+        mock_feature_enabled.return_value = True  # Enable blocking-exports feature flag
+        mock_client = Mock()
+        mock_sync_connect.return_value = mock_client
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "video/mp4",
+                "export_context": {
+                    "session_recording_id": "01985651-62a6-7874-95b0-9bb869d04c86",
+                    "timestamp": 1000,
+                    "width": 1400,
+                    "height": 600,
+                    "duration": 10,
+                    "css_selector": ".replayer-wrapper",
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+
+        # Verify response structure
+        self.assertEqual(data["export_format"], "video/mp4")
+        self.assertEqual(data["filename"], "export.mp4")
+        self.assertFalse(data["has_content"])
+        self.assertIsNotNone(data["export_context"])
+        self.assertEqual(data["export_context"]["session_recording_id"], "01985651-62a6-7874-95b0-9bb869d04c86")
+
+        # Verify Temporal workflow was triggered
+        mock_sync_connect.assert_called_once()
+        mock_client.execute_workflow.assert_called_once()
+
+    def test_video_export_requires_session_recording_id(self):
+        """Test that video exports require session_recording_id in export_context."""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "video/mp4",
+                "export_context": {
+                    "width": 1400,
+                    "height": 600,
+                    # Missing session_recording_id
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Video export supports session recordings only", response.json()["detail"])
+
+    @patch("posthog.api.exports.exporter")
+    @patch("posthoganalytics.feature_enabled")
+    def test_video_export_falls_back_to_celery_when_feature_disabled(self, mock_feature_enabled, mock_exporter_task):
+        """Test that video exports fall back to Celery when blocking-exports feature is disabled."""
+        mock_feature_enabled.return_value = False  # Disable blocking-exports feature flag
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "video/mp4",
+                "export_context": {
+                    "session_recording_id": "01985651-62a6-7874-95b0-9bb869d04c86",
+                    "timestamp": 1000,
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+
+        # Verify Celery task was called instead of Temporal
+        mock_exporter_task.export_asset.delay.assert_called_once_with(data["id"])
 
 
 class TestExportMixin(APIBaseTest):
