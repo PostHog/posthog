@@ -147,8 +147,8 @@ function LLMAnalyticsGenerations(): JSX.Element {
                             }
 
                             let visualValue: string
-                            if (typeof value === 'string') {
-                                visualValue = value.slice(0, 4) + '...' + value.slice(-4)
+                            if (value != null) {
+                                visualValue = value.toString().slice(0, 4) + '...' + value.toString().slice(-4)
                             } else {
                                 visualValue = '-'
                             }
