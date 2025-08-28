@@ -366,39 +366,40 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
     sharing_configuration: SharingConfiguration
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, Any]]:
-        # Look for JWT token in Authorization header first (for API calls)
+        if request.method != "GET":
+            return None
+
+        # Extract JWT token from Authorization header or cookie
         sharing_jwt_token = None
         auth_header = request.META.get("HTTP_AUTHORIZATION", "")
 
-        # Only process Bearer tokens that look like our sharing JWT tokens
-        # This prevents interference with other Bearer tokens (e.g., personal API keys)
         if auth_header.startswith("Bearer "):
-            potential_jwt = auth_header[7:]  # Remove 'Bearer ' prefix
-            # Try to check if it's a sharing JWT by looking for typical JWT structure (3 parts separated by dots)
-            # and attempting to decode to see if it has sharing_config_id
-            if potential_jwt.count(".") == 2:
-                try:
-                    # Quick check of the payload without full validation
-                    payload_b64 = potential_jwt.split(".")[1]
-                    # Add padding if necessary
-                    payload_b64 += "=" * (4 - len(payload_b64) % 4)
-                    payload = orjson.loads(base64.urlsafe_b64decode(payload_b64))
-                    if "sharing_config_id" in payload:
-                        sharing_jwt_token = potential_jwt
-                except:
-                    pass
-        # If no Bearer token, check for JWT in cookie (for rendering decisions)
+            sharing_jwt_token = auth_header[7:]  # Remove 'Bearer ' prefix
         elif hasattr(request, "COOKIES") and request.COOKIES.get("posthog_sharing_token"):
             sharing_jwt_token = request.COOKIES.get("posthog_sharing_token")
 
         if not sharing_jwt_token:
             return None
 
-        if request.method != "GET":
-            # Don't raise an exception, just don't authenticate
+        # Quick check if this is a sharing JWT token by examining structure and payload
+        if sharing_jwt_token.count(".") != 2:
             return None
 
         try:
+            # Decode the payload to check if it's a sharing JWT
+            payload_b64 = sharing_jwt_token.split(".")[1]
+            # Add padding if necessary
+            payload_b64 += "=" * (4 - len(payload_b64) % 4)
+            quick_payload = orjson.loads(base64.urlsafe_b64decode(payload_b64))
+
+            # If it's not a sharing JWT, don't process it (prevents interference with other Bearer tokens)
+            if "sharing_config_id" not in quick_payload:
+                return None
+        except:
+            return None
+
+        try:
+            # Now do full JWT validation
             payload = decode_jwt(sharing_jwt_token, PosthogJwtAudience.SHARING_PASSWORD_PROTECTED)
 
             sharing_configuration = SharingConfiguration.objects.get(
@@ -407,19 +408,13 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
 
             # Verify the access token matches (prevents token reuse across different shares)
             if sharing_configuration.access_token != payload.get("access_token"):
-                # Don't raise an exception, just don't authenticate
                 return None
 
-            # Note: URL-specific validation (ensuring JWT matches the specific share in the URL)
-            # is handled in SharingViewerPageViewSet.get_object() where we already parse the URL
-
-        except (jwt.InvalidTokenError, SharingConfiguration.DoesNotExist, KeyError):
-            # Don't raise an exception, just don't authenticate
-            # This allows the view to show the unlock page
-            return None
-        else:
             self.sharing_configuration = sharing_configuration
             return (AnonymousUser(), None)
+
+        except (jwt.InvalidTokenError, SharingConfiguration.DoesNotExist, KeyError):
+            return None
 
 
 class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
