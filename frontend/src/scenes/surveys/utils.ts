@@ -430,18 +430,6 @@ export function doesSurveyHaveDisplayConditions(survey: Survey | NewSurvey): boo
     return false
 }
 
-export const DATE_FORMAT = 'YYYY-MM-DDTHH:mm:ss'
-
-export function getSurveyStartDateForQuery(survey: Survey): string {
-    return dayjs(survey.created_at).utc().startOf('day').format(DATE_FORMAT)
-}
-
-export function getSurveyEndDateForQuery(survey: Survey): string {
-    return survey.end_date
-        ? dayjs(survey.end_date).utc().endOf('day').format(DATE_FORMAT)
-        : dayjs().utc().endOf('day').format(DATE_FORMAT)
-}
-
 export function buildPartialResponsesFilter(survey: Survey): string {
     if (!survey.enable_partial_responses) {
         return `AND (
@@ -539,4 +527,55 @@ export function captureMaxAISurveyCreationException(error?: string): void {
     posthog.captureException(error || 'Undefined error when creating MaxAI survey', {
         action: 'max-ai-survey-creation-failed',
     })
+}
+
+export const DATE_FORMAT = 'YYYY-MM-DDTHH:mm:ss'
+
+export function getSurveyStartDateForQuery(survey: Pick<Survey, 'created_at'>): string {
+    return dayjs.utc(survey.created_at).startOf('day').format(DATE_FORMAT)
+}
+
+export function getSurveyEndDateForQuery(survey: Pick<Survey, 'end_date'>): string {
+    return survey.end_date
+        ? dayjs.utc(survey.end_date).endOf('day').format(DATE_FORMAT)
+        : dayjs.utc().endOf('day').format(DATE_FORMAT)
+}
+
+export interface SurveyDateRange {
+    date_from: string | null
+    date_to: string | null
+}
+
+export function buildSurveyTimestampFilter(
+    survey: Pick<Survey, 'created_at' | 'end_date'>,
+    dateRange?: SurveyDateRange | null
+): string {
+    // If no date range provided, use the survey's default date range
+    let fromDate = getSurveyStartDateForQuery(survey)
+    let toDate = getSurveyEndDateForQuery(survey)
+
+    if (!dateRange) {
+        return `AND timestamp >= '${fromDate}'
+        AND timestamp <= '${toDate}'`
+    }
+
+    // ----- Handle FROM date -----
+    if (dateRange.date_from) {
+        // Parse user-provided date and ensure it's not before survey creation
+        const userFromDate = dayjs.utc(dateRange.date_from).startOf('day')
+        const surveyStartDate = dayjs.utc(fromDate)
+
+        if (userFromDate.isAfter(surveyStartDate)) {
+            fromDate = userFromDate.format(DATE_FORMAT)
+        }
+    }
+
+    // ----- Handle TO date -----
+    if (dateRange.date_to) {
+        const userToDate = dayjs.utc(dateRange.date_to).endOf('day')
+        toDate = userToDate.format(DATE_FORMAT)
+    }
+
+    return `AND timestamp >= '${fromDate}'
+    AND timestamp <= '${toDate}'`
 }

@@ -83,3 +83,10 @@ frontend/src/scenes/data-warehouse/** @PostHog/team-data-warehouse
 posthog/management/commands/generate_source_configs.py @PostHog/team-data-warehouse
 posthog/settings/data_warehouse.py @PostHog/team-data-warehouse
 posthog/hogql/** @PostHog/team-data-warehouse
+
+# Own all .py files under session recordings
+posthog/session_recordings/**/*.py @PostHog/team-replay
+ee/session_recordings/**/*.py @PostHog/team-replay
+
+# Own everything in mobile replay (all file types)
+ee/frontend/mobile-replay @PostHog/team-replay

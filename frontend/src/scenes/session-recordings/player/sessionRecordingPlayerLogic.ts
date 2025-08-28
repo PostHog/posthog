@@ -59,6 +59,7 @@ import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLo
 import { deleteRecording } from './utils/playerUtils'
 import { SessionRecordingPlayerExplorerProps } from './view-explorer/SessionRecordingPlayerExplorer'
 
+const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 export const PLAYBACK_SPEEDS = [0.5, 1, 1.5, 2, 3, 4, 8, 16]
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
 
@@ -99,6 +100,7 @@ export enum SessionRecordingPlayerMode {
     Preview = 'preview',
     Screenshot = 'screenshot',
 }
+const ModesThatCanBeMarkedViewed = [SessionRecordingPlayerMode.Standard, SessionRecordingPlayerMode.Notebook]
 
 export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataLogicProps {
     playerKey: string
@@ -224,7 +226,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'createExportJSON',
                 'customRRWebEvents',
                 'fullyLoaded',
-                'wasMarkedViewed',
                 'trackedWindow',
             ],
             playerSettingsLogic,
@@ -245,8 +246,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'loadSnapshotSourcesFailure',
                 'loadRecordingMetaSuccess',
                 'maybePersistRecording',
-                'setWasMarkedViewed',
-                'markViewed',
             ],
             playerSettingsLogic,
             ['setSpeed', 'setSkipInactivitySetting'],
@@ -315,8 +314,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setSimilarRecordings: (results: string[]) => ({ results }),
         setIsCommenting: (isCommenting: boolean) => ({ isCommenting }),
         updatePlayerTimeTracking: true,
+        markViewed: (delay?: number) => ({ delay }),
+        setWasMarkedViewed: (wasMarkedViewed: boolean) => ({ wasMarkedViewed }),
     }),
     reducers(({ props }) => ({
+        wasMarkedViewed: [
+            false as boolean,
+            {
+                setWasMarkedViewed: (_, { wasMarkedViewed }) => wasMarkedViewed,
+            },
+        ],
         isCommenting: [
             false,
             {
@@ -661,10 +668,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     case isScrubbing:
                         // If scrubbing, playingState takes precedence
                         return playingState
-                    case !snapshotsLoaded && !snapshotsLoading:
-                        return SessionPlayerState.READY
                     case !!playerError?.trim().length:
                         return SessionPlayerState.ERROR
+                    case !snapshotsLoaded && !snapshotsLoading:
+                        return SessionPlayerState.READY
                     case isSkippingInactivity && playingState !== SessionPlayerState.PAUSE:
                         return SessionPlayerState.SKIP
                     case isBuffering:
@@ -1076,7 +1083,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
             }
         },
-
         loadSnapshotsForSourceFailure: () => {
             if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {
                 console.error('PostHog Recording Playback Error: No snapshots loaded')
@@ -1111,6 +1117,29 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (nextTimestamp !== undefined) {
                 actions.seekToTimestamp(nextTimestamp, true)
             }
+        },
+        markViewed: async ({ delay }, breakpoint) => {
+            breakpoint()
+            if (
+                props.playerKey?.startsWith('file-') ||
+                values.wasMarkedViewed ||
+                (props.mode && !ModesThatCanBeMarkedViewed.includes(props.mode))
+            ) {
+                return
+            }
+
+            actions.setWasMarkedViewed(true) // this prevents us from calling the function multiple times
+
+            await breakpoint(IS_TEST_MODE ? 1 : (delay ?? 3000))
+            await api.recordings.update(props.sessionRecordingId, {
+                viewed: true,
+                player_metadata: values.sessionPlayerMetaData,
+            })
+            await breakpoint(IS_TEST_MODE ? 1 : 10000)
+            await api.recordings.update(props.sessionRecordingId, {
+                analyzed: true,
+                player_metadata: values.sessionPlayerMetaData,
+            })
         },
         setPause: () => {
             actions.stopAnimation()
@@ -1474,8 +1503,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     })),
 
     subscriptions(({ actions, values }) => ({
-        sessionPlayerData: (next, prev) => {
-            const hasSnapshotChanges = next?.snapshotsByWindowId !== prev?.snapshotsByWindowId
+        sessionPlayerData: (value, oldValue) => {
+            const hasSnapshotChanges = value?.snapshotsByWindowId !== oldValue?.snapshotsByWindowId
 
             // TODO: Detect if the order of the current window has changed (this would require re-initializing the player)
 
@@ -1483,8 +1512,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.syncSnapshotsWithPlayer()
             }
         },
-        timestampChangeTracking: (next) => {
-            if (next.timestampMatchesPrevious < 10) {
+        timestampChangeTracking: (value) => {
+            if (value.timestampMatchesPrevious < 10) {
                 return
             }
 
@@ -1494,15 +1523,20 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.skipPlayerForward(rrwebPlayerTime, values.roughAnimationFPS)
             }
         },
-        playerError: (next) => {
-            if (next) {
+        playerError: (value) => {
+            if (value) {
                 posthog.capture('recording player error', {
                     watchedSessionId: values.sessionRecordingId,
                     currentTimestamp: values.currentTimestamp,
                     currentSegment: values.currentSegment,
                     currentPlayerTime: values.currentPlayerTime,
-                    error: next,
+                    error: value,
                 })
+            }
+        },
+        currentPlayerState: (value) => {
+            if (value === SessionPlayerState.PLAY && !values.wasMarkedViewed) {
+                actions.markViewed(0)
             }
         },
     })),
