@@ -7,7 +7,7 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { hasFormErrors, toParams, uuid } from 'lib/utils'
+import { hasFormErrors, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
@@ -378,44 +378,44 @@ export const experimentLogic = kea<experimentLogicType>([
         validateFeatureFlag: (featureFlagKey: string) => ({ featureFlagKey }),
         // METRICS
         setMetric: ({
-            metricIdx,
+            uuid,
             name,
             metric,
             isSecondary = false,
         }: {
-            metricIdx: number
+            uuid: string
             name?: string
             metric: ExperimentMetric
             isSecondary?: boolean
-        }) => ({ metricIdx, name, metric, isSecondary }),
+        }) => ({ uuid, name, metric, isSecondary }),
         setTrendsMetric: ({
-            metricIdx,
+            uuid,
             name,
             series,
             filterTestAccounts,
             isSecondary = false,
         }: {
-            metricIdx: number
+            uuid: string
             name?: string
             series?: AnyEntityNode[]
             filterTestAccounts?: boolean
             isSecondary?: boolean
-        }) => ({ metricIdx, name, series, filterTestAccounts, isSecondary }),
+        }) => ({ uuid, name, series, filterTestAccounts, isSecondary }),
         setTrendsExposureMetric: ({
-            metricIdx,
+            uuid,
             name,
             series,
             filterTestAccounts,
             isSecondary = false,
         }: {
-            metricIdx: number
+            uuid: string
             name?: string
             series?: AnyEntityNode[]
             filterTestAccounts?: boolean
             isSecondary?: boolean
-        }) => ({ metricIdx, name, series, filterTestAccounts, isSecondary }),
+        }) => ({ uuid, name, series, filterTestAccounts, isSecondary }),
         setFunnelsMetric: ({
-            metricIdx,
+            uuid,
             name,
             series,
             filterTestAccounts,
@@ -427,7 +427,7 @@ export const experimentLogic = kea<experimentLogicType>([
             funnelAggregateByHogQL,
             isSecondary,
         }: {
-            metricIdx: number
+            uuid: string
             name?: string
             series?: AnyEntityNode[]
             filterTestAccounts?: boolean
@@ -439,7 +439,7 @@ export const experimentLogic = kea<experimentLogicType>([
             funnelAggregateByHogQL?: string
             isSecondary?: boolean
         }) => ({
-            metricIdx,
+            uuid,
             name,
             series,
             filterTestAccounts,
@@ -459,8 +459,8 @@ export const experimentLogic = kea<experimentLogicType>([
             metadata,
         }),
         removeSharedMetricFromExperiment: (sharedMetricId: SharedMetric['id']) => ({ sharedMetricId }),
-        duplicateMetric: ({ metricIndex, isSecondary }: { metricIndex: number; isSecondary: boolean }) => ({
-            metricIndex,
+        duplicateMetric: ({ uuid, isSecondary }: { uuid: string; isSecondary: boolean }) => ({
+            uuid,
             isSecondary,
         }),
         // METRICS RESULTS
@@ -555,23 +555,32 @@ export const experimentLogic = kea<experimentLogicType>([
                         exposure_criteria: { ...state.exposure_criteria, ...exposureCriteria },
                     }
                 },
-                setMetric: (state, { metricIdx, metric, isSecondary }) => {
+                setMetric: (state, { uuid, metric, isSecondary }) => {
                     const metricsKey = isSecondary ? 'metrics_secondary' : 'metrics'
                     const metrics = [...(state?.[metricsKey] || [])]
 
-                    metrics[metricIdx] = metric
+                    const targetIndex = metrics.findIndex((m) => m.uuid === uuid)
+                    if (targetIndex !== -1) {
+                        metrics[targetIndex] = metric
+                    }
 
                     return {
                         ...state,
                         [metricsKey]: metrics,
                     }
                 },
-                setTrendsMetric: (state, { metricIdx, name, series, filterTestAccounts, isSecondary }) => {
+                setTrendsMetric: (state, { uuid, name, series, filterTestAccounts, isSecondary }) => {
                     const metricsKey = isSecondary ? 'metrics_secondary' : 'metrics'
                     const metrics = [...(state?.[metricsKey] || [])]
-                    const metric = metrics[metricIdx]
+                    const targetIndex = metrics.findIndex((m) => m.uuid === uuid)
 
-                    metrics[metricIdx] = {
+                    if (targetIndex === -1) {
+                        return state
+                    }
+
+                    const metric = metrics[targetIndex]
+
+                    metrics[targetIndex] = {
                         ...metric,
                         ...(name !== undefined && { name }),
                         count_query: {
@@ -586,12 +595,18 @@ export const experimentLogic = kea<experimentLogicType>([
                         [metricsKey]: metrics,
                     }
                 },
-                setTrendsExposureMetric: (state, { metricIdx, name, series, filterTestAccounts, isSecondary }) => {
+                setTrendsExposureMetric: (state, { uuid, name, series, filterTestAccounts, isSecondary }) => {
                     const metricsKey = isSecondary ? 'metrics_secondary' : 'metrics'
                     const metrics = [...(state?.[metricsKey] || [])]
-                    const metric = metrics[metricIdx]
+                    const targetIndex = metrics.findIndex((m) => m.uuid === uuid)
 
-                    metrics[metricIdx] = {
+                    if (targetIndex === -1) {
+                        return state
+                    }
+
+                    const metric = metrics[targetIndex]
+
+                    metrics[targetIndex] = {
                         ...metric,
                         ...(name !== undefined && { name }),
                         exposure_query: {
@@ -609,7 +624,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 setFunnelsMetric: (
                     state,
                     {
-                        metricIdx,
+                        uuid,
                         name,
                         series,
                         filterTestAccounts,
@@ -624,9 +639,15 @@ export const experimentLogic = kea<experimentLogicType>([
                 ) => {
                     const metricsKey = isSecondary ? 'metrics_secondary' : 'metrics'
                     const metrics = [...(state?.[metricsKey] || [])]
-                    const metric = metrics[metricIdx]
+                    const targetIndex = metrics.findIndex((m) => m.uuid === uuid)
 
-                    metrics[metricIdx] = {
+                    if (targetIndex === -1) {
+                        return state
+                    }
+
+                    const metric = metrics[targetIndex]
+
+                    metrics[targetIndex] = {
                         ...metric,
                         ...(name !== undefined && { name }),
                         funnels_query: {
@@ -650,15 +671,17 @@ export const experimentLogic = kea<experimentLogicType>([
                         [metricsKey]: metrics,
                     }
                 },
-                duplicateMetric: (state, { metricIndex, isSecondary }) => {
+                duplicateMetric: (state, { uuid, isSecondary }) => {
                     const metricsKey = isSecondary ? 'metrics_secondary' : 'metrics'
                     const metrics = [...(state?.[metricsKey] || [])]
 
-                    const originalMetric = metrics[metricIndex]
+                    const originalIndex = metrics.findIndex((m) => m.uuid === uuid)
 
-                    if (!originalMetric) {
+                    if (originalIndex === -1) {
                         return state
                     }
+
+                    const originalMetric = metrics[originalIndex]
 
                     const name = originalMetric.name
                         ? `${originalMetric.name} (copy)`
@@ -666,8 +689,8 @@ export const experimentLogic = kea<experimentLogicType>([
                           ? `${getDefaultMetricTitle(originalMetric)} (copy)`
                           : undefined
 
-                    const newMetric = { ...originalMetric, uuid: uuid(), name }
-                    metrics.splice(metricIndex + 1, 0, newMetric)
+                    const newMetric = { ...originalMetric, uuid: crypto.randomUUID(), name }
+                    metrics.splice(originalIndex + 1, 0, newMetric)
 
                     return {
                         ...state,
@@ -762,19 +785,19 @@ export const experimentLogic = kea<experimentLogicType>([
                 loadExperiment: () => [],
             },
         ],
-        editingPrimaryMetricIndex: [
-            null as number | null,
+        editingPrimaryMetricUuid: [
+            null as string | null,
             {
-                openPrimaryMetricModal: (_, { index }) => index,
+                openPrimaryMetricModal: (_, { uuid }) => uuid,
                 closePrimaryMetricModal: () => null,
                 updateExperimentMetrics: () => null,
-                setEditingPrimaryMetricIndex: (_, { index }) => index,
+                setEditingPrimaryMetricUuid: (_, { uuid }) => uuid,
             },
         ],
-        editingSecondaryMetricIndex: [
-            null as number | null,
+        editingSecondaryMetricUuid: [
+            null as string | null,
             {
-                openSecondaryMetricModal: (_, { index }) => index,
+                openSecondaryMetricModal: (_, { uuid }) => uuid,
                 closeSecondaryMetricModal: () => null,
                 updateExperimentMetrics: () => null,
             },
@@ -952,7 +975,9 @@ export const experimentLogic = kea<experimentLogicType>([
                     values.experiment,
                     endDate,
                     duration,
-                    values.isPrimaryMetricSignificant(0)
+                    values.experiment.metrics?.[0]?.uuid
+                        ? values.isPrimaryMetricSignificant(values.experiment.metrics[0].uuid)
+                        : false
                 )
             actions.closeStopExperimentModal()
         },
@@ -1540,17 +1565,24 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         isPrimaryMetricSignificant: [
-            (s) => [s.legacyPrimaryMetricsResults],
+            (s) => [s.legacyPrimaryMetricsResults, s.experiment],
             (
                     legacyPrimaryMetricsResults: (
                         | CachedLegacyExperimentQueryResponse
                         | CachedExperimentFunnelsQueryResponse
                         | CachedExperimentTrendsQueryResponse
                         | null
-                    )[]
+                    )[],
+                    experiment: Experiment
                 ) =>
-                (metricIndex: number = 0): boolean => {
-                    const result = legacyPrimaryMetricsResults?.[metricIndex]
+                (metricUuid: string): boolean => {
+                    // Find metric index by UUID
+                    const index = experiment.metrics.findIndex((m) => m.uuid === metricUuid)
+                    if (index === -1) {
+                        return false
+                    }
+
+                    const result = legacyPrimaryMetricsResults?.[index]
                     if (!result) {
                         return false
                     }
@@ -1559,17 +1591,24 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
         ],
         isSecondaryMetricSignificant: [
-            (s) => [s.legacySecondaryMetricsResults],
+            (s) => [s.legacySecondaryMetricsResults, s.experiment],
             (
                     legacySecondaryMetricsResults: (
                         | CachedLegacyExperimentQueryResponse
                         | CachedExperimentFunnelsQueryResponse
                         | CachedExperimentTrendsQueryResponse
                         | null
-                    )[]
+                    )[],
+                    experiment: Experiment
                 ) =>
-                (metricIndex: number = 0): boolean => {
-                    const result = legacySecondaryMetricsResults?.[metricIndex]
+                (metricUuid: string): boolean => {
+                    // Find metric index by UUID
+                    const index = experiment.metrics_secondary.findIndex((m) => m.uuid === metricUuid)
+                    if (index === -1) {
+                        return false
+                    }
+
+                    const result = legacySecondaryMetricsResults?.[index]
                     if (!result) {
                         return false
                     }
@@ -1578,17 +1617,24 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
         ],
         significanceDetails: [
-            (s) => [s.legacyPrimaryMetricsResults],
+            (s) => [s.legacyPrimaryMetricsResults, s.experiment],
             (
                     legacyPrimaryMetricsResults: (
                         | CachedLegacyExperimentQueryResponse
                         | CachedExperimentFunnelsQueryResponse
                         | CachedExperimentTrendsQueryResponse
                         | null
-                    )[]
+                    )[],
+                    experiment: Experiment
                 ) =>
-                (metricIndex: number = 0): string => {
-                    const results = legacyPrimaryMetricsResults?.[metricIndex]
+                (metricUuid: string): string => {
+                    // Find metric index by UUID
+                    const index = experiment.metrics.findIndex((m) => m.uuid === metricUuid)
+                    if (index === -1) {
+                        return ''
+                    }
+
+                    const results = legacyPrimaryMetricsResults?.[index]
                     return getSignificanceDetails(results)
                 },
         ],
@@ -1665,14 +1711,26 @@ export const experimentLogic = kea<experimentLogicType>([
                     )[],
                     getInsightType
                 ) =>
-                (metricIndex: number = 0, isSecondary: boolean = false): any[] => {
+                (metricIdentifier: number | string = 0, isSecondary: boolean = false): any[] => {
+                    let index: number
+                    if (typeof metricIdentifier === 'string') {
+                        // Find index by UUID
+                        const metrics = isSecondary ? experiment.metrics_secondary : experiment.metrics
+                        index = metrics.findIndex((m) => m.uuid === metricIdentifier)
+                        if (index === -1) {
+                            return []
+                        }
+                    } else {
+                        index = metricIdentifier
+                    }
+
                     const tabularResults = []
                     const metricType = isSecondary
-                        ? getInsightType(experiment.metrics_secondary[metricIndex])
-                        : getInsightType(experiment.metrics[metricIndex])
+                        ? getInsightType(experiment.metrics_secondary[index])
+                        : getInsightType(experiment.metrics[index])
                     const result = isSecondary
-                        ? legacySecondaryMetricsResults[metricIndex]
-                        : legacyPrimaryMetricsResults[metricIndex]
+                        ? legacySecondaryMetricsResults[index]
+                        : legacyPrimaryMetricsResults[index]
 
                     if (result) {
                         for (const variantObj of result.variants) {
@@ -1704,17 +1762,29 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
         ],
         sortedWinProbabilities: [
-            (s) => [s.legacyPrimaryMetricsResults],
+            (s) => [s.legacyPrimaryMetricsResults, s.experiment],
             (
                     legacyPrimaryMetricsResults: (
                         | CachedLegacyExperimentQueryResponse
                         | CachedExperimentFunnelsQueryResponse
                         | CachedExperimentTrendsQueryResponse
                         | null
-                    )[]
+                    )[],
+                    experiment: Experiment
                 ) =>
-                (metricIndex: number = 0) => {
-                    const result = legacyPrimaryMetricsResults?.[metricIndex]
+                (metricIdentifier: number | string = 0) => {
+                    let index: number
+                    if (typeof metricIdentifier === 'string') {
+                        // Find index by UUID
+                        index = experiment.metrics.findIndex((m) => m.uuid === metricIdentifier)
+                        if (index === -1) {
+                            return []
+                        }
+                    } else {
+                        index = metricIdentifier
+                    }
+
+                    const result = legacyPrimaryMetricsResults?.[index]
 
                     if (!result) {
                         return []
@@ -1741,10 +1811,21 @@ export const experimentLogic = kea<experimentLogicType>([
                     )[],
                     getInsightType
                 ) =>
-                (metricIndex: number = 0): number => {
-                    const result = legacyPrimaryMetricsResults?.[metricIndex]
+                (metricIdentifier: number | string = 0): number => {
+                    let index: number
+                    if (typeof metricIdentifier === 'string') {
+                        // Find index by UUID
+                        index = experiment.metrics.findIndex((m) => m.uuid === metricIdentifier)
+                        if (index === -1) {
+                            return 0
+                        }
+                    } else {
+                        index = metricIdentifier
+                    }
 
-                    if (getInsightType(experiment.metrics[metricIndex]) !== InsightType.FUNNELS || !result) {
+                    const result = legacyPrimaryMetricsResults?.[index]
+
+                    if (getInsightType(experiment.metrics[index]) !== InsightType.FUNNELS || !result) {
                         return 0
                     }
 
