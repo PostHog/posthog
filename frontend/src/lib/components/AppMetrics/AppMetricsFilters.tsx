@@ -16,7 +16,7 @@ export function AppMetricsFilters({ logicKey }: AppMetricsFiltersProps): JSX.Ele
     const { setParams } = useActions(logic)
 
     return (
-        <div className="flex flex-row gap-2 mb-2 flex-wrap">
+        <div className="flex flex-row gap-2 flex-wrap">
             <LemonSelect
                 options={[
                     {

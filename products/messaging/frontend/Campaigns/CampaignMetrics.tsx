@@ -54,8 +54,8 @@ export function CampaignMetrics({ id }: CampaignMetricsProps): JSX.Element {
 
     return (
         <div>
-            <div className="flex flex-row gap-2 mb-2 flex-wrap justify-between">
-                <div className="flex flex-row gap-2 flex-wrap justify-center">
+            <div className="flex flex-row gap-2 flex-wrap justify-between mb-2">
+                <div>
                     <LemonSelect
                         size="small"
                         options={[
