@@ -7,12 +7,10 @@ import { humanFriendlyNumber } from 'lib/utils'
 import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
 import { ChartDisplayType } from '~/types'
 
-import { AppMetricColor } from './AppMetricsTrend'
 import { AppMetricsTimeSeriesResponse } from './appMetricsLogic'
 
 export type AppMetricSummaryProps = {
     name: string
-    color: AppMetricColor
     description: string
     timeSeries: AppMetricsTimeSeriesResponse | null
     previousPeriodTimeSeries?: AppMetricsTimeSeriesResponse | null
@@ -23,7 +21,6 @@ export function AppMetricSummary({
     name,
     timeSeries,
     previousPeriodTimeSeries,
-    color,
     description,
     loading,
 }: AppMetricSummaryProps): JSX.Element {

@@ -51,7 +51,6 @@ export function CampaignMetrics({ id }: CampaignMetricsProps): JSX.Element {
             <div className="flex flex-row gap-2 mb-2 flex-wrap justify-center">
                 <AppMetricSummary
                     name="Success"
-                    color="data-color-1"
                     description={METRICS_INFO.succeeded}
                     loading={appMetricsTrendsLoading}
                     timeSeries={getSingleTrendSeries('succeeded')}
@@ -60,7 +59,6 @@ export function CampaignMetrics({ id }: CampaignMetricsProps): JSX.Element {
 
                 <AppMetricSummary
                     name="Failure"
-                    color="data-color-1"
                     description={METRICS_INFO.failed}
                     loading={appMetricsTrendsLoading}
                     timeSeries={getSingleTrendSeries('failed')}
@@ -69,7 +67,6 @@ export function CampaignMetrics({ id }: CampaignMetricsProps): JSX.Element {
 
                 <AppMetricSummary
                     name="Filtered"
-                    color="data-color-1"
                     description={METRICS_INFO.filtered}
                     loading={appMetricsTrendsLoading}
                     timeSeries={getSingleTrendSeries('filtered')}
@@ -78,7 +75,6 @@ export function CampaignMetrics({ id }: CampaignMetricsProps): JSX.Element {
 
                 <AppMetricSummary
                     name="Disabled"
-                    color="data-color-1"
                     description={METRICS_INFO.disabled_permanently}
                     loading={appMetricsTrendsLoading}
                     timeSeries={getSingleTrendSeries('disabled_permanently')}
