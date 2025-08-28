@@ -19,7 +19,9 @@ operations = [
     # alter the target tables
     run_sql_with_exceptions(ADD_RETENTION_PERIOD_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL()),
     run_sql_with_exceptions(ADD_RETENTION_PERIOD_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(), node_role=NodeRole.ALL),
-    run_sql_with_exceptions(ADD_RETENTION_PERIOD_SESSION_REPLAY_EVENTS_TABLE_SQL(), node_role=NodeRole.DATA, sharded=True),
+    run_sql_with_exceptions(
+        ADD_RETENTION_PERIOD_SESSION_REPLAY_EVENTS_TABLE_SQL(), node_role=NodeRole.DATA, sharded=True
+    ),
     # and then recreate the materialized views and kafka tables
     run_sql_with_exceptions(KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=False)),
     run_sql_with_exceptions(SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=False)),
