@@ -27,6 +27,17 @@ WHITELISTED_PATHS = [
     "/api/login/token/",
     "/api/users/@me/",
     "/_health/",
+    # SSO login initiation URLs
+    "/login/google-oauth2/",
+    "/login/github/",
+    "/login/gitlab/",
+    "/login/saml/",
+    # SSO callback URLs (OAuth/SSO)
+    "/complete/google-oauth2/",
+    "/complete/github/",
+    "/complete/gitlab/",
+    "/complete/saml/",
+    "/api/saml/metadata/",
 ]
 
 WHITELISTED_PREFIXES = [
