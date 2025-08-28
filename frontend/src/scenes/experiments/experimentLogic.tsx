@@ -461,9 +461,10 @@ export const experimentLogic = kea<experimentLogicType>([
             metadata,
         }),
         removeSharedMetricFromExperiment: (sharedMetricId: SharedMetric['id']) => ({ sharedMetricId }),
-        duplicateMetric: ({ uuid, isSecondary }: { uuid: string; isSecondary: boolean }) => ({
+        duplicateMetric: ({ uuid, isSecondary, newUuid }: { uuid: string; isSecondary: boolean; newUuid: string }) => ({
             uuid,
             isSecondary,
+            newUuid,
         }),
         // METRICS RESULTS
         setLegacyPrimaryMetricsResults: (
@@ -673,7 +674,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         [metricsKey]: metrics,
                     }
                 },
-                duplicateMetric: (state, { uuid, isSecondary }) => {
+                duplicateMetric: (state, { uuid, isSecondary, newUuid }) => {
                     const metricsKey = isSecondary ? 'metrics_secondary' : 'metrics'
                     const metrics = [...(state?.[metricsKey] || [])]
 
@@ -691,7 +692,7 @@ export const experimentLogic = kea<experimentLogicType>([
                           ? `${getDefaultMetricTitle(originalMetric)} (copy)`
                           : undefined
 
-                    const newMetric = { ...originalMetric, uuid: crypto.randomUUID(), name }
+                    const newMetric = { ...originalMetric, uuid: newUuid, name }
                     metrics.splice(originalIndex + 1, 0, newMetric)
 
                     return {
