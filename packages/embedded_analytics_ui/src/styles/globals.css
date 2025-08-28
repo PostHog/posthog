@@ -43,7 +43,7 @@
         --ph-embed-fill-background: 240 4.8% 95.9%;
         --ph-embed-table-fill-color: 217 91% 60%;
 
-        /* fallback to be overriden by the table row component */
+        /* fallback to be overridden by the table row component */
         --ph-embed-fill-ratio: 0;
     }
 
