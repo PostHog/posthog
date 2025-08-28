@@ -690,7 +690,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     return survey
                 } catch (error) {
                     posthog.captureException(error, {
-                        action: 'duplicateSurvey',
+                        action: 'duplicate-survey',
                         survey: payload,
                     })
                     lemonToast.error('Error while duplicating survey. Please try again.')
