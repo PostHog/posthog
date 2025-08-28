@@ -17,7 +17,6 @@ import { MetricsViewLegacy } from '../MetricsView/legacy/MetricsViewLegacy'
 import { VariantDeltaTimeseries } from '../MetricsView/legacy/VariantDeltaTimeseries'
 import { Metrics } from '../MetricsView/new/Metrics'
 import { RunningTimeCalculatorModal } from '../RunningTimeCalculator/RunningTimeCalculatorModal'
-import { AISummary } from '../components/AISummary'
 import {
     ExploreAsInsightButton,
     ResultsBreakdown,
@@ -197,7 +196,6 @@ export function ExperimentView(): JSX.Element {
                 ) : (
                     <>
                         <Info />
-                        <AISummary experimentId={experimentId} />
                         {usesNewQueryRunner ? <ExperimentHeader /> : <LegacyExperimentHeader />}
                         <LemonTabs
                             activeKey={tabKey}
