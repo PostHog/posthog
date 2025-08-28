@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
@@ -11,9 +12,7 @@ from posthog.hogql_queries.web_analytics.pre_aggregated.property_transformer imp
     ChannelTypeReplacer,
     PreAggregatedPropertyTransformer,
 )
-
-get_stats_table = lambda use_v2: "web_pre_aggregated_stats" if use_v2 else "web_stats_combined"
-get_bounces_table = lambda use_v2: "web_pre_aggregated_bounces" if use_v2 else "web_bounces_combined"
+from posthog.hogql_queries.web_analytics.pre_aggregated.utils import get_bounces_table, get_stats_table
 
 
 class WebAnalyticsPreAggregatedQueryBuilder:
@@ -60,8 +59,6 @@ class WebAnalyticsPreAggregatedQueryBuilder:
 
         # Convert requested dates to UTC for comparison with table data (which is stored in UTC)
         if hasattr(requested_start, "astimezone"):
-            from zoneinfo import ZoneInfo
-
             requested_start_utc = requested_start.astimezone(ZoneInfo("UTC"))
             requested_end_utc = requested_end.astimezone(ZoneInfo("UTC"))
         else:

@@ -19,7 +19,7 @@ class TestWebAnalyticsPreAggregatedDateRange(ClickhouseTestMixin, APIBaseTest):
         with patch.object(date_range, "_query_and_cache_date_range", return_value=None) as mock_query:
             result = date_range.get_available_date_range()
             mock_query.assert_called_once()
-            self.assertIsNone(result)
+            assert result is None
 
     @patch("posthog.hogql_queries.web_analytics.pre_aggregated.date_range.execute_hogql_query")
     @patch("posthog.hogql_queries.web_analytics.pre_aggregated.date_range.get_safe_cache")
@@ -38,8 +38,8 @@ class TestWebAnalyticsPreAggregatedDateRange(ClickhouseTestMixin, APIBaseTest):
         date_range = WebAnalyticsPreAggregatedDateRange(team=self.team)
         result = date_range.get_available_date_range()
 
-        self.assertIsNotNone(result)
-        self.assertEqual(result, (min_date, max_date))
+        assert result is not None
+        assert result == (min_date, max_date)
         mock_execute_query.assert_called_once()
 
         # Verify cache was set
@@ -49,8 +49,8 @@ class TestWebAnalyticsPreAggregatedDateRange(ClickhouseTestMixin, APIBaseTest):
         }
         mock_cache_set.assert_called_once()
         call_args = mock_cache_set.call_args
-        self.assertEqual(call_args[0][1], expected_cache_data)
-        self.assertEqual(call_args[0][2], 1800)  # 30 minutes cache
+        assert call_args[0][1] == expected_cache_data
+        assert call_args[0][2] == 1800  # 30 minutes cache
 
     @patch("posthog.hogql_queries.web_analytics.pre_aggregated.date_range.get_safe_cache")
     def test_get_available_date_range_uses_cache_when_available(self, mock_get_cache):
@@ -67,7 +67,7 @@ class TestWebAnalyticsPreAggregatedDateRange(ClickhouseTestMixin, APIBaseTest):
             datetime.fromisoformat("2023-11-01T00:00:00"),
             datetime.fromisoformat("2023-12-31T23:59:59"),
         )
-        self.assertEqual(result, expected_result)
+        assert result == expected_result
 
     def test_is_date_range_pre_aggregated_returns_false_when_no_data(self):
         date_range = WebAnalyticsPreAggregatedDateRange(team=self.team)
@@ -84,7 +84,7 @@ class TestWebAnalyticsPreAggregatedDateRange(ClickhouseTestMixin, APIBaseTest):
         with patch.object(date_range, "get_available_date_range", return_value=available_range):
             result = date_range.is_date_range_pre_aggregated(datetime(2023, 11, 15), datetime(2023, 11, 20))
 
-        self.assertTrue(result)
+        assert result
 
     def test_is_date_range_pre_aggregated_returns_false_when_range_outside_available_data(self):
         available_range = (datetime(2023, 11, 1), datetime(2023, 12, 31))

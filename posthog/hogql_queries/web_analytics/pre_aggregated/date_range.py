@@ -9,11 +9,10 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.hogql_queries.web_analytics.pre_aggregated.utils import get_stats_table
 from posthog.logging.timing import timed
 from posthog.models.team import Team
 from posthog.utils import generate_cache_key, get_safe_cache
-
-get_stats_table = lambda use_v2: "web_pre_aggregated_stats" if use_v2 else "web_stats_combined"
 
 
 class WebAnalyticsPreAggregatedDateRange:
