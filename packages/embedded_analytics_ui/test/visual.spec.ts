@@ -1,6 +1,6 @@
-import { test, expect } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 
-test.describe('PostHog Analytics Components', () => {
+test.describe('PostHog Embedded Web Analytics Components', () => {
     test('complete dashboard renders correctly', async ({ page }) => {
         // Navigate to the dashboard story
         await page.goto('/iframe.html?args=&id=analytics-overview--complete-dashboard&viewMode=story')
@@ -26,7 +26,7 @@ test.describe('PostHog Analytics Components', () => {
         // Take screenshot of the entire dashboard
         await expect(page).toHaveScreenshot('dashboard-light.png', {
             fullPage: true,
-            threshold: 0.2, // Allow small differences
+            threshold: 0.05,
         })
     })
 })
