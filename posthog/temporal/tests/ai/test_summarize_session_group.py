@@ -1086,12 +1086,14 @@ async def test_combine_patterns_from_chunks_activity(
     mocker: MockerFixture,
     mock_session_id: str,
     redis_test_setup: AsyncRedisTestContext,
+    auser: User,
+    ateam: Team,
 ):
     """Test combine_patterns_from_chunks_activity."""
     # Prepare test data
     session_ids = [f"{mock_session_id}-1", f"{mock_session_id}-2", f"{mock_session_id}-3"]
     redis_key_base = "test-combine-patterns"
-    user_id = 1
+    user_id = auser.id
     # Create chunk patterns to store in Redis
     chunk_patterns_1 = RawSessionGroupSummaryPatternsList(
         patterns=[
@@ -1176,6 +1178,7 @@ async def test_combine_patterns_from_chunks_activity(
             redis_key_base=redis_key_base,
             session_ids=session_ids,
             user_id=user_id,
+            team_id=ateam.id,
             extra_summary_context=None,
         )
         await combine_patterns_from_chunks_activity(inputs)
@@ -1192,12 +1195,14 @@ async def test_combine_patterns_from_chunks_activity(
 async def test_combine_patterns_from_chunks_activity_fails_with_missing_chunks(
     mock_session_id: str,
     redis_test_setup: AsyncRedisTestContext,
+    auser: User,
+    ateam: Team,
 ):
     """Test that combine_patterns_from_chunks_activity fails when any chunk is missing."""
     # Prepare test data
     session_ids = [f"{mock_session_id}-1", f"{mock_session_id}-2"]
     redis_key_base = "test-combine-patterns-missing"
-    user_id = 1
+    user_id = auser.id
     # Create only one chunk pattern (simulating missing chunk)
     chunk_patterns_1 = RawSessionGroupSummaryPatternsList(
         patterns=[
@@ -1238,6 +1243,7 @@ async def test_combine_patterns_from_chunks_activity_fails_with_missing_chunks(
                 redis_key_base=redis_key_base,
                 session_ids=session_ids,
                 user_id=user_id,
+                team_id=ateam.id,
                 extra_summary_context=None,
             )
             await combine_patterns_from_chunks_activity(inputs)
@@ -1247,12 +1253,14 @@ async def test_combine_patterns_from_chunks_activity_fails_with_missing_chunks(
 async def test_combine_patterns_from_chunks_activity_fails_when_no_chunks(
     mock_session_id: str,
     redis_test_setup: AsyncRedisTestContext,
+    auser: User,
+    ateam: Team,
 ):
     """Test that activity fails when no chunks can be retrieved."""
     # Prepare test data with non-existent chunk keys
     session_ids = [f"{mock_session_id}-1", f"{mock_session_id}-2"]
     redis_key_base = "test-combine-patterns-fail"
-    user_id = 1
+    user_id = auser.id
     chunk_key_1 = generate_state_key(
         key_base=redis_key_base,
         label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
@@ -1273,6 +1281,7 @@ async def test_combine_patterns_from_chunks_activity_fails_when_no_chunks(
                 redis_key_base=redis_key_base,
                 session_ids=session_ids,
                 user_id=user_id,
+                team_id=ateam.id,
                 extra_summary_context=None,
             )
             await combine_patterns_from_chunks_activity(inputs)
