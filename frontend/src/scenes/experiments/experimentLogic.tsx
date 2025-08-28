@@ -2023,7 +2023,6 @@ export const experimentLogic = kea<experimentLogicType>([
 
                     const allMetrics = [...regularMetrics, ...sharedMetrics]
 
-                    // Create a map for quick lookup
                     const metricsMap = new Map()
                     allMetrics.forEach((metric: any) => {
                         const uuid = metric.uuid || metric.query?.uuid
@@ -2032,7 +2031,6 @@ export const experimentLogic = kea<experimentLogicType>([
                         }
                     })
 
-                    // Use the ordering field (always populated by loader)
                     const orderedUuids = isSecondary
                         ? experiment.secondary_metrics_ordered_uuids || []
                         : experiment.primary_metrics_ordered_uuids || []
