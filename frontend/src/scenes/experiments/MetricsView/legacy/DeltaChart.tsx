@@ -53,7 +53,7 @@ type DeltaChartContextType = {
     // Chart properties
     result: any
     error: any
-    metricIndex: number
+    displayOrder: number
     isSecondary: boolean
     metricType: InsightType
     metric: any
@@ -148,6 +148,7 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
     const {
         result,
         metricType,
+        metric,
         dimensions,
         valueToX,
         experimentId,
@@ -155,10 +156,12 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
         colors,
         tooltip: { setTooltipData },
         credibleIntervalForVariant,
-        metricIndex,
         isSecondary,
         openVariantDeltaTimeseriesModal,
     } = useDeltaChartContext()
+
+    // Generate a unique ID for gradients using metric UUID or fallback to index
+    const metricId = metric?.uuid ? metric.uuid.slice(-8) : index
 
     const { barHeight, barPadding } = dimensions
 
@@ -250,9 +253,7 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
                         <>
                             <defs>
                                 <linearGradient
-                                    id={`gradient-${metricIndex}-${variant.key}-${
-                                        isSecondary ? 'secondary' : 'primary'
-                                    }`}
+                                    id={`gradient-${metricId}-${variant.key}-${isSecondary ? 'secondary' : 'primary'}`}
                                     x1="0"
                                     x2="1"
                                     y1="0"
@@ -281,7 +282,7 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
                             </defs>
                             <path
                                 d={generateViolinPath(x1, x2, y, barHeight, deltaX)}
-                                fill={`url(#gradient-${metricIndex}-${variant.key}-${
+                                fill={`url(#gradient-${metricId}-${variant.key}-${
                                     isSecondary ? 'secondary' : 'primary'
                                 })`}
                             />
@@ -391,13 +392,18 @@ function ChartSVG({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSVGElement>
 
 // Chart controls component
 function ChartControls(): JSX.Element {
-    const { metricIndex, isSecondary, primaryMetricsLengthWithSharedMetrics, setIsModalOpen } = useDeltaChartContext()
+    const { displayOrder, isSecondary, primaryMetricsLengthWithSharedMetrics, setIsModalOpen, metric } =
+        useDeltaChartContext()
 
     return (
         <>
             {/* Chart is z-index 100, so we need to be above it */}
             <div className="absolute top-2 left-2 z-[102]">
-                <SignificanceHighlight metricIndex={metricIndex} isSecondary={isSecondary} />
+                <SignificanceHighlight
+                    displayOrder={displayOrder}
+                    isSecondary={isSecondary}
+                    metricUuid={metric?.uuid}
+                />
             </div>
             {(isSecondary || (!isSecondary && primaryMetricsLengthWithSharedMetrics > 1)) && (
                 <div
@@ -489,7 +495,7 @@ export function DeltaChart({
     error,
     variants,
     metricType,
-    metricIndex,
+    displayOrder,
     isFirstMetric,
     metric,
     tickValues,
@@ -500,7 +506,7 @@ export function DeltaChart({
     error: any
     variants: any[]
     metricType: InsightType
-    metricIndex: number
+    displayOrder: number
     isFirstMetric: boolean
     metric: any
     tickValues: number[]
@@ -548,12 +554,15 @@ export function DeltaChart({
     // Metric title panel
     const metricTitlePanel = (
         <MetricHeader
-            metricIndex={metricIndex}
+            displayOrder={displayOrder}
             metric={metric}
             metricType={metricType}
             isPrimaryMetric={!isSecondary}
             onDuplicateMetricClick={() => {
-                duplicateMetric({ metricIndex, isSecondary })
+                if (!metric.uuid) {
+                    return
+                }
+                duplicateMetric({ uuid: metric.uuid, isSecondary })
                 updateExperimentMetrics()
             }}
         />
@@ -569,7 +578,7 @@ export function DeltaChart({
         // Chart properties
         result,
         error,
-        metricIndex,
+        displayOrder,
         isSecondary,
         metricType,
         metric,
@@ -631,7 +640,7 @@ export function DeltaChart({
                 isOpen={isModalOpen}
                 onClose={() => setIsModalOpen(false)}
                 metric={metric}
-                metricIndex={metricIndex}
+                displayOrder={displayOrder}
                 isSecondary={isSecondary}
                 result={result}
                 experimentId={experimentId as ExperimentIdType}

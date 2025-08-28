@@ -47,8 +47,8 @@ export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): J
 
     // Calculate the maximum absolute value across ALL metrics
     const maxAbsValue = Math.max(
-        ...metrics.flatMap((metric, metricIndex) => {
-            const result = results?.[metricIndex]
+        ...metrics.flatMap((metric, index) => {
+            const result = results?.[index]
             if (!result) {
                 return []
             }
@@ -146,19 +146,19 @@ export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): J
             {metrics.length > 0 ? (
                 <div className="w-full overflow-x-auto">
                     <div className="min-w-[1000px]">
-                        {metrics.map((metric, metricIndex) => {
-                            const result = results?.[metricIndex]
-                            const isFirstMetric = metricIndex === 0
+                        {metrics.map((metric, index) => {
+                            const result = results?.[index]
+                            const isFirstMetric = index === 0
 
                             return (
                                 <div
-                                    key={metricIndex}
+                                    key={metric.uuid || index}
                                     className={`w-full border border-primary bg-light ${
                                         metrics.length === 1
                                             ? 'rounded'
                                             : isFirstMetric
                                               ? 'rounded-t'
-                                              : metricIndex === metrics.length - 1
+                                              : index === metrics.length - 1
                                                 ? 'rounded-b'
                                                 : ''
                                     }`}
@@ -166,12 +166,12 @@ export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): J
                                     <DeltaChart
                                         isSecondary={!!isSecondary}
                                         result={result}
-                                        error={errors?.[metricIndex]}
+                                        error={errors?.[index]}
                                         variants={variants}
                                         metricType={getInsightType(metric)}
-                                        metricIndex={metricIndex}
-                                        isFirstMetric={isFirstMetric}
+                                        displayOrder={index}
                                         metric={metric}
+                                        isFirstMetric={isFirstMetric}
                                         tickValues={commonTickValues}
                                         chartBound={chartBound}
                                     />
