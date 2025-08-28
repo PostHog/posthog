@@ -53,6 +53,17 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
     const isSharedMetric = logItem.detail.type === 'shared_metric'
 
     return match(logItem)
+        .with({ activity: 'created', detail: { type: 'holdout' } }, () => {
+            return {
+                description: (
+                    <SentenceList
+                        prefix={<strong>{userNameForLogItem(logItem)}</strong>}
+                        listParts={['created a new experiment holdout:']}
+                        suffix={<strong>{logItem.detail.name}</strong>}
+                    />
+                ),
+            }
+        })
         .with({ activity: 'created' }, () => {
             /**
              * we handle both experiments and shared metrics creation here.
@@ -107,7 +118,21 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
                 ),
             }
         })
-        .with({ activity: 'updated' }, () => {
+        .with({ activity: 'deleted', detail: { type: 'holdout' } }, () => {
+            /**
+             * Shared metrics are not soft deleted.
+             */
+            return {
+                description: (
+                    <SentenceList
+                        prefix={<strong>{userNameForLogItem(logItem)}</strong>}
+                        listParts={['deleted experiment holdout:']}
+                        suffix={<strong>{logItem.detail.name}</strong>}
+                    />
+                ),
+            }
+        })
+        .with({ activity: 'updated' }, (updateLogItem) => {
             const changes = logItem.detail.changes || []
             /**
              * if there are no changes, we don't need to describe the update.
