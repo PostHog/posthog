@@ -434,8 +434,8 @@ def combine_patterns_with_events_context(
     return EnrichedSessionGroupSummaryPatternsList(patterns=combined_patterns)
 
 
-def serialize_session_summary(session_summary_dict: dict[str, Any]) -> SessionSummarySerializer:
-    """Serialize a stored session summary JSON string."""
+def session_summary_to_serializer(session_summary_dict: dict[str, Any]) -> SessionSummarySerializer:
+    """Validate and create a serializer from a session summary dict."""
     try:
         session_summary = SessionSummarySerializer(data=session_summary_dict)
         session_summary.is_valid(raise_exception=True)

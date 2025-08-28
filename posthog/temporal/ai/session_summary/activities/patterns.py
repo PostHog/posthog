@@ -47,7 +47,7 @@ from ee.hogai.session_summaries.session_group.patterns import (
     combine_patterns_ids_with_events_context,
     combine_patterns_with_events_context,
     create_event_ids_mapping_from_ready_summaries,
-    serialize_session_summary,
+    session_summary_to_serializer,
 )
 from ee.hogai.session_summaries.session_group.summarize_session_group import (
     generate_session_group_patterns_assignment_prompt,
@@ -391,7 +391,7 @@ async def assign_events_to_patterns_activity(
         trace_id=temporalio.activity.info().workflow_id,
     )
     # Convert session summaries strings to objects to extract event-related data
-    session_summaries = [serialize_session_summary(summary.summary) for summary in ready_summaries]
+    session_summaries = [session_summary_to_serializer(summary.summary) for summary in ready_summaries]
     # Create event ids mappings from ready summaries to identify events and sessions assigned to patterns
     combined_event_ids_mappings = create_event_ids_mapping_from_ready_summaries(session_summaries=session_summaries)
     # Combine patterns assignments to have a single pattern-to-events list
