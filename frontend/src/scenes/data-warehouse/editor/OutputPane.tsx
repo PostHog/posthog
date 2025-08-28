@@ -668,6 +668,7 @@ function InternalDataTableVisualization(
                 query={query}
                 context={props.context}
                 cachedResults={props.cachedResults as HogQLQueryResponse | undefined}
+                embedded
             />
         )
     } else if (

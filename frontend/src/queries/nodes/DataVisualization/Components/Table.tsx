@@ -21,6 +21,7 @@ interface TableProps {
     uniqueKey: string | number | undefined
     context: QueryContext<DataVisualizationNode> | undefined
     cachedResults: HogQLQueryResponse | undefined
+    embedded?: boolean
 }
 
 export const DEFAULT_PAGE_SIZE = 500
@@ -137,6 +138,7 @@ export const Table = (props: TableProps): JSX.Element => {
             }
             footer={tabularData.length > 0 ? <LoadNext query={props.query} /> : null}
             rowClassName="DataVizRow"
+            embedded={props.embedded}
         />
     )
 }
