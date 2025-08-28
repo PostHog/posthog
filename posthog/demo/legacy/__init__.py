@@ -2,13 +2,13 @@ from typing import cast
 
 from django.http import HttpRequest
 
-from posthog.models import EventDefinition, Organization, Team, User
+from posthog.models import Team, User
 from posthog.utils import render_template
 
 from .app_data_generator import AppDataGenerator
+from .insight_variables_data_generator import InsightVariablesDataGenerator
 from .revenue_data_generator import RevenueDataGenerator
 from .web_data_generator import WebDataGenerator
-from .insight_variables_data_generator import InsightVariablesDataGenerator
 
 ORGANIZATION_NAME = "Hogflix"
 TEAM_NAME = "Hogflix Demo App"

@@ -1,31 +1,9 @@
-from typing import Optional
-from unittest.mock import MagicMock, patch
 import uuid
 from datetime import datetime
-
+from typing import Optional
 from zoneinfo import ZoneInfo
 
-from django.test import override_settings
 from freezegun import freeze_time
-
-from posthog.clickhouse.client.execute import sync_execute
-from posthog.constants import (
-    RETENTION_FIRST_TIME,
-    TREND_FILTER_TYPE_ACTIONS,
-    TREND_FILTER_TYPE_EVENTS,
-)
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.query import execute_hogql_query
-
-from posthog.hogql_queries.insights.retention_query_runner import RetentionQueryRunner
-from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.models import Action, Cohort
-from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
-from posthog.models.group.util import create_group
-from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.models.person import Person
-from posthog.schema import RetentionQuery
-from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -35,8 +13,26 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
+from posthog.schema import RetentionQuery
+
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.client.execute import sync_execute
+from posthog.constants import RETENTION_FIRST_TIME, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.hogql_queries.insights.retention_query_runner import RetentionQueryRunner
 from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
+from posthog.models import Action, Cohort
+from posthog.models.group.util import create_group
+from posthog.models.person import Person
+from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
 def _create_action(**kwargs):
@@ -3226,7 +3222,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         _create_person(team_id=self.team.pk, distinct_ids=["person3"])
         _create_person(team_id=self.team.pk, distinct_ids=["person4"])
 
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team_id=self.team.pk,
             project_id=self.team.project_id,
             group_type="organization",
@@ -3488,7 +3484,7 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
         runner = RetentionQueryRunner(team=self.team, query=query, limit_context=limit_context)
         return runner.calculate().model_dump()["results"]
 
-    def run_actors_query(self, interval, query, select=None, actor="person"):
+    def run_actors_query(self, interval, query, select=None, actor="person", breakdown=None):
         query["kind"] = "RetentionQuery"
         if not query.get("retentionFilter"):
             query["retentionFilter"] = {}
@@ -3501,16 +3497,17 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
                     "kind": "InsightActorsQuery",
                     "interval": interval,
                     "source": query,
+                    "breakdown": breakdown,
                 },
             },
         )
         return runner.calculate().model_dump()["results"]
 
     def _create_groups_and_events(self):
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
         )
 
@@ -4162,3 +4159,68 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
             all_users_results,
             pad([[1, 0], [0]]),
         )
+
+    def test_retention_actor_query_with_multiple_cohort_breakdowns(self):
+        # Person 1 in cohort 1
+        person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"name": "person1"})
+        # Person 2 in cohort 2
+        person2 = _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"name": "person2"})
+
+        flush_persons_and_events()
+
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            name="cohort1",
+            groups=[{"properties": [{"key": "name", "value": "person1", "type": "person"}]}],
+        )
+        cohort1.calculate_people_ch(pending_version=0)
+
+        cohort2 = Cohort.objects.create(
+            team=self.team,
+            name="cohort2",
+            groups=[{"properties": [{"key": "name", "value": "person2", "type": "person"}]}],
+        )
+        cohort2.calculate_people_ch(pending_version=0)
+
+        # Create events
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0)),
+                ("person2", _date(0)),
+                ("person1", _date(1)),
+                ("person2", _date(2)),
+            ],
+        )
+
+        flush_persons_and_events()
+
+        # Run retention actors query for cohort1
+        result = self.run_actors_query(
+            interval=0,
+            query={
+                "dateRange": {"date_to": _date(4, hour=0)},
+                "retentionFilter": {"totalIntervals": 5, "period": "Day"},
+                "breakdownFilter": {"breakdown_type": "cohort", "breakdown": [cohort1.pk, cohort2.pk]},
+            },
+            breakdown=[str(cohort1.pk)],
+        )
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0][0]["id"], person1.uuid)
+        self.assertEqual(result[0][1], [0, 1])
+
+        # Run retention actors query for cohort2
+        result = self.run_actors_query(
+            interval=0,
+            query={
+                "dateRange": {"date_to": _date(4, hour=0)},
+                "retentionFilter": {"totalIntervals": 5, "period": "Day"},
+                "breakdownFilter": {"breakdown_type": "cohort", "breakdown": [cohort1.pk, cohort2.pk]},
+            },
+            breakdown=[str(cohort2.pk)],
+        )
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0][0]["id"], person2.uuid)
+        self.assertEqual(result[0][1], [0, 2])

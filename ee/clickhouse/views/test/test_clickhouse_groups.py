@@ -1,30 +1,29 @@
 import json
-from unittest import mock
 from uuid import UUID
 
-from django.db import IntegrityError
 from freezegun.api import freeze_time
-from orjson import orjson
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
+from unittest import mock
+from unittest.mock import patch
+
+from django.db import IntegrityError
+
 from flaky import flaky
+from orjson import orjson
 from rest_framework import status
 
-from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
-from posthog.hogql.parser import parse_select
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
-from posthog.models import GroupTypeMapping, Person, Notebook, GroupUsageMetric
+
+from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
+from posthog.models import GroupTypeMapping, GroupUsageMetric, Notebook, Person
 from posthog.models.group.util import create_group
 from posthog.models.notebook import ResourceNotebook
 from posthog.models.organization import Organization
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team.team import Team
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    snapshot_clickhouse_queries,
-)
-from unittest.mock import patch
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 PATH = "ee.clickhouse.views.groups"
 
@@ -289,7 +288,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2021-05-02")
     @mock.patch("ee.clickhouse.views.groups.capture_internal")
     def test_create_group_missing_group_properties(self, mock_capture):
-        group_type_mapping = GroupTypeMapping.objects.create(
+        group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
             project_id=self.team.project_id,
             group_type_index=0,
@@ -322,7 +321,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
     @mock.patch("ee.clickhouse.views.groups.capture_internal")
     @flaky(max_runs=3, min_passes=1)
     def test_create_group(self, mock_capture):
-        group_type_mapping = GroupTypeMapping.objects.create(
+        group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
             project_id=self.team.project_id,
             group_type_index=0,
@@ -397,7 +396,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
 
     @mock.patch("ee.clickhouse.views.groups.capture_internal")
     def test_create_group_duplicated_group_key(self, mock_capture):
-        group_type_mapping = GroupTypeMapping.objects.create(
+        group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
             project_id=self.team.project_id,
             group_type_index=0,
@@ -434,7 +433,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
 
     @mock.patch("ee.clickhouse.views.groups.capture_internal")
     def test_create_group_missing_group_key(self, mock_capture):
-        group_type_mapping = GroupTypeMapping.objects.create(
+        group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
             project_id=self.team.project_id,
             group_type_index=0,
@@ -489,7 +488,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
     @mock.patch("ee.clickhouse.views.groups.capture_internal")
     @flaky(max_runs=3, min_passes=1)
     def test_group_property_crud_add_success(self, mock_capture):
-        group_type_mapping = GroupTypeMapping.objects.create(
+        group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
             project_id=self.team.project_id,
             group_type_index=0,
@@ -574,7 +573,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
     @mock.patch("ee.clickhouse.views.groups.capture_internal")
     @flaky(max_runs=3, min_passes=1)
     def test_group_property_crud_update_success(self, mock_capture):
-        group_type_mapping = GroupTypeMapping.objects.create(
+        group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
             project_id=self.team.project_id,
             group_type_index=0,
@@ -654,7 +653,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2021-05-02")
     def test_group_property_crud_update_missing_key(self):
-        group_type_mapping = GroupTypeMapping.objects.create(
+        group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
             project_id=self.team.project_id,
             group_type_index=0,
@@ -675,7 +674,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2021-05-02")
     def test_group_property_crud_update_invalid_group_key(self):
-        group_type_mapping = GroupTypeMapping.objects.create(
+        group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
             project_id=self.team.project_id,
             group_type_index=0,
@@ -698,7 +697,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
     @mock.patch("ee.clickhouse.views.groups.capture_internal")
     @flaky(max_runs=3, min_passes=1)
     def test_group_property_crud_delete_success(self, mock_capture):
-        group_type_mapping = GroupTypeMapping.objects.create(
+        group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
             project_id=self.team.project_id,
             group_type_index=0,
@@ -775,7 +774,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2021-05-02")
     def test_group_property_crud_delete_missing_key(self):
-        group_type_mapping = GroupTypeMapping.objects.create(
+        group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
             project_id=self.team.project_id,
             group_type_index=0,
@@ -796,7 +795,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2021-05-02")
     def test_group_property_crud_delete_invalid_group_key(self):
-        group_type_mapping = GroupTypeMapping.objects.create(
+        group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
             project_id=self.team.project_id,
             group_type_index=0,
@@ -821,7 +820,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         # Mock the response to return a 200 OK
         mock_capture.return_value = mock.MagicMock(status_code=200)
 
-        group_type_mapping = GroupTypeMapping.objects.create(
+        group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
             project_id=self.team.project_id,
             group_type_index=0,
@@ -861,7 +860,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         # Mock the response to return a 200 OK
         mock_capture.return_value = mock.MagicMock(status_code=200)
 
-        group_type_mapping = GroupTypeMapping.objects.create(
+        group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
             project_id=self.team.project_id,
             group_type_index=0,
@@ -1126,13 +1125,13 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response_data, [])
 
     def test_update_groups_metadata(self):
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="playlist", group_type_index=1
         )
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="another", group_type_index=2
         )
 
@@ -1158,6 +1157,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
                     "name_plural": None,
                     "detail_dashboard": None,
                     "default_columns": None,
+                    "created_at": None,
                 },
                 {
                     "group_type_index": 1,
@@ -1166,6 +1166,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
                     "name_plural": "playlists",
                     "detail_dashboard": None,
                     "default_columns": None,
+                    "created_at": None,
                 },
                 {
                     "group_type_index": 2,
@@ -1174,18 +1175,19 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
                     "name_plural": None,
                     "detail_dashboard": None,
                     "default_columns": None,
+                    "created_at": None,
                 },
             ],
         )
 
     def test_list_group_types(self):
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="playlist", group_type_index=1
         )
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="another", group_type_index=2
         )
 
@@ -1201,6 +1203,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
                     "name_plural": None,
                     "detail_dashboard": None,
                     "default_columns": None,
+                    "created_at": None,
                 },
                 {
                     "group_type_index": 1,
@@ -1209,6 +1212,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
                     "name_plural": None,
                     "detail_dashboard": None,
                     "default_columns": None,
+                    "created_at": None,
                 },
                 {
                     "group_type_index": 2,
@@ -1217,6 +1221,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
                     "name_plural": None,
                     "detail_dashboard": None,
                     "default_columns": None,
+                    "created_at": None,
                 },
             ],
         )
@@ -1225,13 +1230,13 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         other_org = Organization.objects.create(name="other org")
         other_team = Team.objects.create(organization=other_org, name="other project")
 
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=other_team, project_id=other_team.project_id, group_type="organization", group_type_index=0
         )
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=other_team, project_id=other_team.project_id, group_type="playlist", group_type_index=1
         )
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=other_team, project_id=other_team.project_id, group_type="another", group_type_index=2
         )
 
@@ -1249,13 +1254,13 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         other_org = Organization.objects.create(name="other org")
         other_team = Team.objects.create(organization=other_org, name="other project")
 
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=other_team, project_id=other_team.project_id, group_type="organization", group_type_index=0
         )
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=other_team, project_id=other_team.project_id, group_type="playlist", group_type_index=1
         )
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=other_team, project_id=other_team.project_id, group_type="another", group_type_index=2
         )
 
@@ -1274,13 +1279,13 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         other_team = Team.objects.create(organization=other_org, name="other project")
         sharing_configuration = SharingConfiguration.objects.create(team=other_team, enabled=True)
 
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=other_team, project_id=other_team.project_id, group_type="organization", group_type_index=0
         )
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=other_team, project_id=other_team.project_id, group_type="playlist", group_type_index=1
         )
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=other_team, project_id=other_team.project_id, group_type="another", group_type_index=2
         )
 
@@ -1298,6 +1303,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
                     "name_plural": None,
                     "detail_dashboard": None,
                     "default_columns": None,
+                    "created_at": None,
                 },
                 {
                     "group_type_index": 1,
@@ -1306,6 +1312,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
                     "name_plural": None,
                     "detail_dashboard": None,
                     "default_columns": None,
+                    "created_at": None,
                 },
                 {
                     "group_type_index": 2,
@@ -1314,6 +1321,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
                     "name_plural": None,
                     "detail_dashboard": None,
                     "default_columns": None,
+                    "created_at": None,
                 },
             ],
         )
@@ -1333,7 +1341,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_create_detail_dashboard_success(self):
-        group_type_mapping = GroupTypeMapping.objects.create(
+        group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
 
@@ -1347,7 +1355,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNotNone(group_type_mapping.detail_dashboard)
 
     def test_create_detail_dashboard_duplicate(self):
-        group_type = GroupTypeMapping.objects.create(
+        group_type = create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
 
@@ -1370,7 +1378,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json().get("detail"), "Group type not found")
 
     def test_set_default_columns_success(self):
-        group_type_mapping = GroupTypeMapping.objects.create(
+        group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
 
@@ -1392,10 +1400,10 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json().get("detail"), "Group type not found")
 
     def _create_related_groups_data(self):
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="playlist", group_type_index=1
         )
 
@@ -1469,7 +1477,7 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
             "group_type": "organization",
             "group_type_index": 0,
         }
-        group_type = GroupTypeMapping.objects.create(**group_type_data)
+        group_type = create_group_type_mapping_without_created_at(**group_type_data)
         delete_url = self.url + f"/{group_type.group_type_index}"
 
         delete_response = self.client.delete(delete_url)
@@ -1500,15 +1508,12 @@ class GroupUsageMetricViewSetTestCase(APIBaseTest):
             f"/api/projects/{self.other_team.id}/groups_types/{str(self.other_group_type.group_type_index)}/metrics"
         )
 
-    def assertListFields(self, data, metric):
+    def assertFields(self, data, metric):
         self.assertEqual(data["id"], str(metric.id))
         self.assertEqual(data["name"], metric.name)
         self.assertEqual(data["format"], metric.format)
         self.assertEqual(data["interval"], metric.interval)
         self.assertEqual(data["display"], metric.display)
-
-    def assertDetailFields(self, data, metric):
-        self.assertListFields(data, metric)
         self.assertEqual(data["filters"], metric.filters)
 
     def _create_metric(self, **kwargs):
@@ -1527,7 +1532,7 @@ class GroupUsageMetricViewSetTestCase(APIBaseTest):
         response = self.client.get(self.url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertListFields(response.json()["results"][0], metric)
+        self.assertFields(response.json()["results"][0], metric)
 
     def test_create(self):
         payload = {"name": "Events", "filters": {"foo": "bar"}}
@@ -1536,7 +1541,7 @@ class GroupUsageMetricViewSetTestCase(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         metric = GroupUsageMetric.objects.get(id=response.json().get("id"))
-        self.assertListFields(response.json(), metric)
+        self.assertFields(response.json(), metric)
         self.assertEqual(metric.team, self.team, "Should set team automatically")
         self.assertEqual(
             metric.group_type_index, self.group_type.group_type_index, "Should set group_type_index automatically"
@@ -1550,7 +1555,7 @@ class GroupUsageMetricViewSetTestCase(APIBaseTest):
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertDetailFields(response.json(), metric)
+        self.assertFields(response.json(), metric)
 
     def test_update(self):
         metric = self._create_metric()
@@ -1572,7 +1577,7 @@ class GroupUsageMetricViewSetTestCase(APIBaseTest):
         self.assertEqual(metric.interval, 30)
         self.assertEqual(metric.display, "sparkline")
         self.assertEqual(metric.filters, {"updated": "value"})
-        self.assertDetailFields(response.json(), metric)
+        self.assertFields(response.json(), metric)
 
     def test_delete(self):
         metric = self._create_metric()

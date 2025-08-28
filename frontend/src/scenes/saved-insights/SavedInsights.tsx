@@ -36,6 +36,7 @@ import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -48,6 +49,7 @@ import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { IconAction, IconGridView, IconListView, IconTableChart } from 'lib/lemon-ui/icons'
 import { isNonEmptyObject } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
@@ -59,6 +61,9 @@ import { OverlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { isNodeWithSource } from '~/queries/utils'
 import {
@@ -302,9 +307,15 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPiggyBank,
         inMenu: true,
     },
-    [NodeKind.RevenueAnalyticsRevenueQuery]: {
-        name: 'Revenue Analytics Revenue',
-        description: 'View revenue analytics gross and MRR revenue.',
+    [NodeKind.RevenueAnalyticsGrossRevenueQuery]: {
+        name: 'Revenue Analytics Gross Revenue',
+        description: 'View gross revenue analytics.',
+        icon: IconPiggyBank,
+        inMenu: true,
+    },
+    [NodeKind.RevenueAnalyticsMRRQuery]: {
+        name: 'Revenue Analytics MRR',
+        description: 'View MRR revenue analytics.',
         icon: IconPiggyBank,
         inMenu: true,
     },
@@ -354,6 +365,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         name: 'Web Page URL Search',
         description: 'Search and analyze web page URLs.',
         icon: IconPieChart,
+        inMenu: true,
+    },
+    [NodeKind.WebTrendsQuery]: {
+        name: 'Web Trends',
+        description: 'Analyze web trends and patterns over time.',
+        icon: IconTrends,
         inMenu: true,
     },
     [NodeKind.HogQuery]: {
@@ -462,7 +479,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         inMenu: false,
     },
     [NodeKind.TracesQuery]: {
-        name: 'LLM Observability Traces',
+        name: 'LLM Analytics Traces',
         icon: IconAI,
         inMenu: false,
     },
@@ -579,7 +596,6 @@ function SavedInsightsGrid(): JSX.Element {
     const { loadInsights, renameInsight, duplicateInsight } = useActions(savedInsightsLogic)
     const { insights, insightsLoading, pagination } = useValues(savedInsightsLogic)
     const { currentProjectId } = useValues(projectLogic)
-
     const paginationState = usePagination(insights?.results || [], pagination)
 
     return (
@@ -628,6 +644,8 @@ export function SavedInsights(): JSX.Element {
 
     const startCount = (page - 1) * INSIGHTS_PER_PAGE + 1
     const endCount = page * INSIGHTS_PER_PAGE < count ? page * INSIGHTS_PER_PAGE : count
+
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const columns: LemonTableColumns<QueryBasedInsightModel> = [
         {
@@ -778,8 +796,17 @@ export function SavedInsights(): JSX.Element {
     ]
 
     return (
-        <div className="saved-insights">
+        <SceneContent className={cn('saved-insights', !newSceneLayout && 'block')}>
             <PageHeader buttons={<NewInsightButton dataAttr="saved-insights-create-new-insight" />} />
+            <SceneTitleSection
+                name="Product analytics"
+                description="Track, analyze, and experiment with user behavior."
+                resourceType={{
+                    type: 'insight',
+                    typePlural: 'insights',
+                }}
+            />
+            <SceneDivider />
             <LemonTabs
                 activeKey={tab}
                 onChange={(tab) => setSavedInsightsFilters({ tab })}
@@ -793,6 +820,7 @@ export function SavedInsights(): JSX.Element {
                         label: <div className="flex items-center gap-2">Alerts</div>,
                     },
                 ]}
+                sceneInset={newSceneLayout}
             />
 
             {tab === SavedInsightsTabs.History ? (
@@ -802,8 +830,13 @@ export function SavedInsights(): JSX.Element {
             ) : (
                 <>
                     <SavedInsightsFilters filters={filters} setFilters={setSavedInsightsFilters} />
-                    <LemonDivider className="my-4" />
-                    <div className="flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center">
+                    <LemonDivider className={cn('my-4', newSceneLayout && 'my-0')} />
+                    <div
+                        className={cn(
+                            'flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center',
+                            newSceneLayout && 'my-0'
+                        )}
+                    >
                         <span className="text-secondary">
                             {count
                                 ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} insight${
@@ -862,6 +895,6 @@ export function SavedInsights(): JSX.Element {
                     )}
                 </>
             )}
-        </div>
+        </SceneContent>
     )
 }

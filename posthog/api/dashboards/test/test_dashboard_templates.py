@@ -1,12 +1,13 @@
 from typing import Optional
 
+from posthog.test.base import APIBaseTest
+
 from rest_framework import status
 
 from posthog.models import User
 from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
-from posthog.test.base import APIBaseTest
 
 
 def assert_template_equals(received, expected):

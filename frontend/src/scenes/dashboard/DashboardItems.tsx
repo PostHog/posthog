@@ -32,10 +32,10 @@ export function DashboardItems(): JSX.Element {
         highlightedInsightId,
         refreshStatus,
         itemsLoading,
-        temporaryVariables,
+        effectiveEditBarFilters,
+        urlVariables,
         temporaryBreakdownColors,
         dataColorThemeId,
-        noCache,
     } = useValues(dashboardLogic)
     const {
         updateLayouts,
@@ -43,7 +43,7 @@ export function DashboardItems(): JSX.Element {
         updateTileColor,
         removeTile,
         duplicateTile,
-        triggerDashboardItemRefresh,
+        refreshDashboardItem,
         moveToDashboard,
     } = useActions(dashboardLogic)
     const { duplicateInsight, renameInsight } = useActions(insightsModel)
@@ -156,7 +156,7 @@ export function DashboardItems(): JSX.Element {
                                     highlighted={highlightedInsightId && insight.short_id === highlightedInsightId}
                                     updateColor={(color) => updateTileColor(tile.id, color)}
                                     ribbonColor={tile.color}
-                                    refresh={() => triggerDashboardItemRefresh({ tile })}
+                                    refresh={() => refreshDashboardItem({ tile })}
                                     refreshEnabled={!itemsLoading}
                                     rename={() => renameInsight(insight)}
                                     duplicate={() => duplicateInsight(insight)}
@@ -166,11 +166,11 @@ export function DashboardItems(): JSX.Element {
                                     }
                                     placement={placement}
                                     loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
-                                    variablesOverride={temporaryVariables}
+                                    filtersOverride={effectiveEditBarFilters}
+                                    variablesOverride={urlVariables}
                                     // :HACKY: The two props below aren't actually used in the component, but are needed to trigger a re-render
                                     breakdownColorOverride={temporaryBreakdownColors}
                                     dataColorThemeId={dataColorThemeId}
-                                    noCache={noCache}
                                     {...commonTileProps}
                                     // NOTE: ReactGridLayout additionally injects its resize handles as `children`!
                                 />
@@ -249,6 +249,14 @@ export function DashboardItems(): JSX.Element {
                         }
                     })}
                 </ReactGridLayout>
+            )}
+            {itemsLoading && (
+                <div className="mt-4 flex items-center justify-center">
+                    <div className="flex items-center gap-2 text-muted">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600" />
+                        <span>Loading tiles...</span>
+                    </div>
+                </div>
             )}
         </div>
     )

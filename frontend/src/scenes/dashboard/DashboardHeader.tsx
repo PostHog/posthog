@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { IconGridMasonry, IconNotebook, IconPalette, IconScreen, IconTrash } from '@posthog/icons'
 
@@ -18,8 +18,6 @@ import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
 import { SceneSubscribeButton } from 'lib/components/Scenes/SceneSubscribeButton'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
-import { SceneTextInput } from 'lib/components/Scenes/SceneTextInput'
-import { SceneTextarea } from 'lib/components/Scenes/SceneTextarea'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
@@ -49,6 +47,8 @@ import {
     ScenePanelDivider,
     ScenePanelMetaInfo,
 } from '~/layout/scenes/SceneLayout'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { notebooksModel } from '~/models/notebooksModel'
 import { tagsModel } from '~/models/tagsModel'
@@ -106,6 +106,29 @@ export function DashboardHeader(): JSX.Element | null {
     const [isPinned, setIsPinned] = useState(dashboard?.pinned)
     const { featureFlags } = useValues(featureFlagLogic)
     const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+
+    const isNewDashboard = useMemo(() => {
+        if (!dashboard || dashboardLoading) {
+            return false
+        }
+
+        // A dashboard is considered new if:
+        // 1. It's a fresh duplicate (has _highlight set), OR
+        // 2. It's a blank dashboard with default name, OR
+        // 3. It was created recently (within last 30 seconds) - catches templates, OR
+        // 4. It has no tiles yet (completely empty)
+        const now = new Date()
+        const createdAt = new Date(dashboard.created_at)
+        const isRecentlyCreated = now.getTime() - createdAt.getTime() < 30000 // 30 seconds
+
+        return (
+            Boolean(dashboard._highlight) ||
+            dashboard.name === 'New Dashboard' ||
+            isRecentlyCreated ||
+            !dashboard.tiles ||
+            dashboard.tiles.length === 0
+        )
+    }, [dashboard, dashboardLoading])
 
     const hasDashboardColors = useFeatureFlag('DASHBOARD_COLORS')
 
@@ -216,7 +239,6 @@ export function DashboardHeader(): JSX.Element | null {
                                         overlay={
                                             dashboard ? (
                                                 <>
-                                                    {/* ✅ transfered to scene */}
                                                     {dashboard.created_by && (
                                                         <>
                                                             <div className="flex p-2 text-secondary">
@@ -229,7 +251,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                             <LemonDivider />
                                                         </>
                                                     )}
-                                                    {/* ✅ transfered to scene */}
                                                     {canEditDashboard && hasDashboardColors && (
                                                         <LemonButton
                                                             onClick={() => showInsightColorsModal(dashboard.id)}
@@ -239,7 +260,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                         </LemonButton>
                                                     )}
 
-                                                    {/* ✅ transfered to scene */}
                                                     {canEditDashboard && (
                                                         <LemonButton
                                                             onClick={() =>
@@ -254,7 +274,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                         </LemonButton>
                                                     )}
 
-                                                    {/* ✅ transfered to scene */}
                                                     <LemonButton
                                                         onClick={() =>
                                                             setDashboardMode(
@@ -267,7 +286,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                         Go full screen (F)
                                                     </LemonButton>
 
-                                                    {/* ✅ transfered to scene */}
                                                     {canEditDashboard &&
                                                         (dashboard.pinned ? (
                                                             <LemonButton
@@ -294,11 +312,8 @@ export function DashboardHeader(): JSX.Element | null {
                                                                 Pin dashboard
                                                             </LemonButton>
                                                         ))}
-                                                    {/* ✅ transfered to scene */}
                                                     <SubscribeButton dashboardId={dashboard.id} />
-                                                    {/* ✅ transfered to scene */}
                                                     <ExportButton fullWidth items={exportOptions} />
-                                                    {/* ✅ transfered to scene */}
                                                     {user?.is_staff && (
                                                         <LemonButton
                                                             onClick={() => {
@@ -314,7 +329,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                     )}
                                                     <LemonDivider />
 
-                                                    {/* ✅ transfered to scene */}
                                                     <LemonButton
                                                         onClick={() => {
                                                             showDuplicateDashboardModal(dashboard.id, dashboard.name)
@@ -324,7 +338,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                         Duplicate dashboard
                                                     </LemonButton>
 
-                                                    {/* ✅ transfered to scene */}
                                                     <LemonButton
                                                         onClick={() => createNotebookFromDashboard(dashboard)}
                                                         fullWidth
@@ -332,7 +345,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                         Create notebook from dashboard
                                                     </LemonButton>
 
-                                                    {/* ✅ transfered to scene */}
                                                     {canEditDashboard && (
                                                         <AccessControlledLemonButton
                                                             userAccessLevel={dashboard.user_access_level}
@@ -495,26 +507,6 @@ export function DashboardHeader(): JSX.Element | null {
                     />
                 </ScenePanelCommonActions>
                 <ScenePanelMetaInfo>
-                    <SceneTextInput
-                        name="name"
-                        defaultValue={dashboard?.name || ''}
-                        onSave={(value) => updateDashboard({ id: dashboard?.id, name: value, allowUndo: true })}
-                        dataAttrKey={RESOURCE_TYPE}
-                        canEdit={canEditDashboard}
-                        isLoading={dashboardLoading}
-                    />
-
-                    <SceneTextarea
-                        name="description"
-                        defaultValue={dashboard?.description || ''}
-                        onSave={(value) => updateDashboard({ id: dashboard?.id, description: value, allowUndo: true })}
-                        dataAttrKey={RESOURCE_TYPE}
-                        optional
-                        canEdit={canEditDashboard}
-                        isLoading={dashboardLoading}
-                        markdown
-                    />
-
                     <SceneTags
                         onSave={(tags) => {
                             triggerDashboardUpdate({ tags })
@@ -643,6 +635,25 @@ export function DashboardHeader(): JSX.Element | null {
                     )}
                 </ScenePanelActions>
             </ScenePanel>
+
+            <SceneTitleSection
+                name={dashboard?.name}
+                description={dashboard?.description}
+                resourceType={{
+                    type: 'dashboard',
+                    typePlural: 'dashboards',
+                }}
+                onNameChange={(value) => updateDashboard({ id: dashboard?.id, name: value, allowUndo: true })}
+                onDescriptionChange={(value) =>
+                    updateDashboard({ id: dashboard?.id, description: value, allowUndo: true })
+                }
+                markdown
+                canEdit={canEditDashboard}
+                isLoading={dashboardLoading}
+                forceEdit={dashboardMode === DashboardMode.Edit || isNewDashboard}
+                renameDebounceMs={1000}
+            />
+            <SceneDivider />
         </>
     ) : null
 }

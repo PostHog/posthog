@@ -69,6 +69,7 @@ import {
     WebSnippet,
 } from './environment/TeamSettings'
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
+import { WebAnalyticsEnablePreAggregatedTables } from './environment/WebAnalyticsAPISetting'
 import { WebhookIntegration } from './environment/WebhookIntegration'
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
@@ -192,7 +193,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     </>
                 ),
                 component: <DataColorThemes />,
-                flag: 'INSIGHT_COLORS',
             },
             {
                 id: 'persons-on-events',
@@ -310,7 +310,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'cookieless-server-hash-mode',
                 title: 'Cookieless server hash mode',
                 component: <CookielessServerHashModeSetting />,
-                flag: 'COOKIELESS_SERVER_HASH_MODE_SETTING',
+                flag: 'IMPROVED_COOKIELESS_MODE',
             },
             {
                 id: 'bounce-rate-duration',
@@ -334,6 +334,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Pre-aggregated tables',
                 component: <PreAggregatedTablesSetting />,
                 flag: 'SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES',
+            },
+            {
+                id: 'web-analytics-opt-in-pre-aggregated-tables-and-api',
+                title: 'New query engine',
+                component: <WebAnalyticsEnablePreAggregatedTables />,
+                flag: 'WEB_ANALYTICS_API',
             },
         ],
     },

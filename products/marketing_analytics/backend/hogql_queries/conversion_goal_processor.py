@@ -1,10 +1,7 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import Union, Optional
+from typing import Optional, Union
 
-from posthog.hogql import ast
-from posthog.hogql.property import property_to_expr, action_to_expr
-from posthog.models import Action, Team
 from posthog.schema import (
     BaseMathType,
     ConversionGoalFilter1,
@@ -13,16 +10,22 @@ from posthog.schema import (
     MarketingAnalyticsHelperForColumnNames,
     PropertyMathType,
 )
+
+from posthog.hogql import ast
+from posthog.hogql.property import action_to_expr, property_to_expr
+
+from posthog.models import Action, Team
+
 from .adapters.base import MarketingSourceAdapter
 from .constants import (
     CAMPAIGN_COST_CTE_NAME,
     CONVERSION_GOAL_PREFIX,
     CONVERSION_GOAL_PREFIX_ABBREVIATION,
     DECIMAL_PRECISION,
-    TOTAL_COST_FIELD,
+    DEFAULT_DISTINCT_ID_FIELD,
     ORGANIC_CAMPAIGN,
     ORGANIC_SOURCE,
-    DEFAULT_DISTINCT_ID_FIELD,
+    TOTAL_COST_FIELD,
 )
 
 MAX_ATTRIBUTION_WINDOW_DAYS = 365  # let's start with a year window for the conversions
@@ -801,10 +804,14 @@ class ConversionGoalProcessor:
         math_type = self.goal.math
 
         if math_type in [BaseMathType.DAU, "dau"]:
+            # uniq() already returns 0 for no rows, no need for COALESCE
             return ast.Call(name="uniq", args=[ast.Field(chain=["person_id"])])
         elif math_type in ["sum", PropertyMathType.SUM] or str(math_type).endswith("_sum"):
-            return ast.Call(name="sum", args=[ast.Field(chain=["conversion_value"])])
+            # sum() returns NULL for no rows, wrap with COALESCE to return 0
+            sum_expr = ast.Call(name="sum", args=[ast.Field(chain=["conversion_value"])])
+            return ast.Call(name="coalesce", args=[sum_expr, ast.Constant(value=0)])
         else:
+            # count() already returns 0 for no rows, no need for COALESCE
             return ast.Call(name="count", args=[])
 
     def _generate_direct_query(self, additional_conditions: list[ast.Expr]) -> ast.SelectQuery:

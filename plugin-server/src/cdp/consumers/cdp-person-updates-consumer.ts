@@ -1,5 +1,6 @@
 import { Message } from 'node-rdkafka'
 
+import { instrumented } from '~/common/tracing/tracing-utils'
 import { UUIDT } from '~/utils/utils'
 
 import { KAFKA_PERSON } from '../../config/kafka-topics'
@@ -23,37 +24,36 @@ export class CdpPersonUpdatesConsumer extends CdpEventsConsumer {
     }
 
     // This consumer always parses from kafka
+    @instrumented('cdpConsumer.handleEachBatch.parseKafkaMessages')
     public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
-        return await this.runWithHeartbeat(() =>
-            this.runInstrumented('handleEachBatch.parseKafkaMessages', async () => {
-                const globals: HogFunctionInvocationGlobals[] = []
-                await Promise.all(
-                    messages.map(async (message) => {
-                        try {
-                            const data = parseJSON(message.value!.toString()) as ClickHousePerson
+        return await this.runWithHeartbeat(async () => {
+            const globals: HogFunctionInvocationGlobals[] = []
+            await Promise.all(
+                messages.map(async (message) => {
+                    try {
+                        const data = parseJSON(message.value!.toString()) as ClickHousePerson
 
-                            const [teamHogFunctions, team] = await Promise.all([
-                                this.hogFunctionManager.getHogFunctionsForTeam(data.team_id, ['destination']),
-                                this.hub.teamManager.getTeam(data.team_id),
-                            ])
+                        const [teamHogFunctions, team] = await Promise.all([
+                            this.hogFunctionManager.getHogFunctionsForTeam(data.team_id, ['destination']),
+                            this.hub.teamManager.getTeam(data.team_id),
+                        ])
 
-                            const filteredHogFunctions = teamHogFunctions.filter(this.filterHogFunction)
+                        const filteredHogFunctions = teamHogFunctions.filter(this.filterHogFunction)
 
-                            if (!filteredHogFunctions.length || !team) {
-                                return
-                            }
-
-                            globals.push(convertClickhousePersonToInvocationGlobals(data, team, this.hub.SITE_URL))
-                        } catch (e) {
-                            logger.error('Error parsing message', e)
-                            counterParseError.labels({ error: e.message }).inc()
+                        if (!filteredHogFunctions.length || !team) {
+                            return
                         }
-                    })
-                )
 
-                return globals
-            })
-        )
+                        globals.push(convertClickhousePersonToInvocationGlobals(data, team, this.hub.SITE_URL))
+                    } catch (e) {
+                        logger.error('Error parsing message', e)
+                        counterParseError.labels({ error: e.message }).inc()
+                    }
+                })
+            )
+
+            return globals
+        })
     }
 }
 

@@ -2,6 +2,7 @@ import './PropertyDefinitionsTable.scss'
 
 import { useActions, useValues } from 'kea'
 
+import { IconApps } from '@posthog/icons'
 import { LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -16,7 +17,9 @@ import { propertyDefinitionsTableLogic } from 'scenes/data-management/properties
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
-import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { PropertyDefinition } from '~/types'
 
 export function PropertyDefinitionsTable(): JSX.Element {
@@ -82,6 +85,7 @@ export function PropertyDefinitionsTable(): JSX.Element {
                 resourceType={{
                     type: 'property',
                     typePlural: 'properties',
+                    forceIcon: <IconApps />,
                 }}
             />
             <SceneDivider />

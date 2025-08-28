@@ -1,12 +1,14 @@
-import collections.abc
-import dataclasses
+import uuid
+import typing
 import datetime as dt
 import operator
-import typing
-import uuid
+import dataclasses
+import collections.abc
+
+from django.conf import settings
 
 import pyarrow as pa
-from django.conf import settings
+from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
@@ -28,19 +30,11 @@ from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
-from posthog.temporal.common.logger import (
-    bind_contextvars,
-    get_external_logger,
-    get_logger,
-)
-from products.batch_exports.backend.temporal.metrics import (
-    get_export_finished_metric,
-    get_export_started_metric,
-)
+from posthog.temporal.common.logger import get_produce_only_logger, get_write_only_logger
+
+from products.batch_exports.backend.temporal.metrics import get_export_finished_metric, get_export_started_metric
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
-from products.batch_exports.backend.temporal.spmc import (
-    use_distributed_events_recent_table,
-)
+from products.batch_exports.backend.temporal.spmc import use_distributed_events_recent_table
 from products.batch_exports.backend.temporal.sql import (
     SELECT_FROM_DISTRIBUTED_EVENTS_RECENT,
     SELECT_FROM_EVENTS_VIEW,
@@ -49,8 +43,8 @@ from products.batch_exports.backend.temporal.sql import (
     SELECT_FROM_EVENTS_VIEW_UNBOUNDED,
 )
 
-LOGGER = get_logger(__name__)
-EXTERNAL_LOGGER = get_external_logger()
+LOGGER = get_write_only_logger(__name__)
+EXTERNAL_LOGGER = get_produce_only_logger("EXTERNAL")
 
 BytesGenerator = collections.abc.Generator[bytes, None, None]
 RecordsGenerator = collections.abc.Generator[pa.RecordBatch, None, None]
@@ -745,7 +739,7 @@ async def execute_batch_export_insert_activity(
         heartbeat_timeout_seconds = settings.BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS
 
     if interval == "hour":
-        start_to_close_timeout = dt.timedelta(hours=6)
+        start_to_close_timeout = dt.timedelta(hours=1)
     elif interval == "day":
         start_to_close_timeout = dt.timedelta(days=1)
     elif interval.startswith("every"):

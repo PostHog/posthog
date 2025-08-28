@@ -1,4 +1,20 @@
 from collections.abc import AsyncGenerator, Callable
+from typing import Any
+
+import pytest
+from unittest.mock import MagicMock
+
+import pytest_asyncio
+from redis import (
+    Redis,
+    asyncio as aioredis,
+)
+
+from posthog.redis import TEST_clear_clients, get_async_client, get_client
+from posthog.temporal.ai.session_summary.summarize_session_group import SessionGroupSummaryInputs
+from posthog.temporal.ai.session_summary.types.group import SessionGroupSummaryOfSummariesInputs
+from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
+
 from ee.hogai.session_summaries.constants import (
     SESSION_SUMMARIES_DB_DATA_REDIS_TTL,
     SESSION_SUMMARIES_STREAMING_MODEL,
@@ -6,17 +22,6 @@ from ee.hogai.session_summaries.constants import (
 )
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
 from ee.hogai.session_summaries.tests.conftest import *
-from posthog.redis import TEST_clear_clients
-from unittest.mock import MagicMock
-import pytest
-import pytest_asyncio
-from typing import Any
-from posthog.redis import get_async_client, get_client
-from redis import asyncio as aioredis
-from redis import Redis
-from posthog.temporal.ai.session_summary.summarize_session_group import SessionGroupSummaryInputs
-from posthog.temporal.ai.session_summary.types.group import SessionGroupSummaryOfSummariesInputs
-from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 
 
 @pytest.fixture
@@ -134,12 +139,14 @@ def mock_patterns_extraction_yaml_response() -> str:
 @pytest.fixture
 def mock_patterns_assignment_yaml_response() -> str:
     """Mock YAML response for pattern assignment"""
-    # No pattern 3 assignments and it should be ok, as not all patterns are required to have assigned events
+    # All patterns need events assigned to meet the FAILED_PATTERNS_ASSIGNMENT_MIN_RATIO threshold
     return """patterns:
   - pattern_id: 1
     event_ids: ["abcd1234", "defg4567"]
   - pattern_id: 2
     event_ids: ["ghij7890", "mnop3456"]
+  - pattern_id: 3
+    event_ids: ["stuv9012"]
 """
 
 

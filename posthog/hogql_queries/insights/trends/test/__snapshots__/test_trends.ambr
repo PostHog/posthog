@@ -2305,7 +2305,7 @@
        (SELECT count() AS total,
                toStartOfWeek(toTimeZone(e.timestamp, 'US/Pacific'), 0) AS day_start
         FROM events AS e SAMPLE 1
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), toStartOfWeek(assumeNotNull(toDateTime('2022-10-31 00:00:00', 'US/Pacific')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), assumeNotNull(toDateTime('2022-11-30 23:59:59', 'US/Pacific'))), equals(e.event, 'sign up'))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), toStartOfInterval(assumeNotNull(toDateTime('2022-10-31 00:00:00', 'US/Pacific')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), assumeNotNull(toDateTime('2022-11-30 23:59:59', 'US/Pacific'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -3895,7 +3895,7 @@
        (SELECT count() AS total,
                toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 0) AS day_start
         FROM events AS e SAMPLE 1
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(toDateTime('2020-01-12 00:00:00', 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-26 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-26 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -3924,7 +3924,7 @@
        (SELECT count() AS total,
                toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 3) AS day_start
         FROM events AS e SAMPLE 1
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(toDateTime('2020-01-12 00:00:00', 'UTC')), 3)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-26 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-26 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -3953,7 +3953,7 @@
        (SELECT count() AS total,
                toStartOfWeek(toTimeZone(e.timestamp, 'America/Phoenix'), 0) AS day_start
         FROM events AS e SAMPLE 1
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), toStartOfWeek(assumeNotNull(toDateTime('2020-01-12 00:00:00', 'America/Phoenix')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), assumeNotNull(toDateTime('2020-01-26 23:59:59', 'America/Phoenix'))), equals(e.event, 'sign up'))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 00:00:00', 'America/Phoenix')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), assumeNotNull(toDateTime('2020-01-26 23:59:59', 'America/Phoenix'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -3982,7 +3982,7 @@
        (SELECT count() AS total,
                toStartOfWeek(toTimeZone(e.timestamp, 'America/Phoenix'), 3) AS day_start
         FROM events AS e SAMPLE 1
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), toStartOfWeek(assumeNotNull(toDateTime('2020-01-12 00:00:00', 'America/Phoenix')), 3)), lessOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), assumeNotNull(toDateTime('2020-01-26 23:59:59', 'America/Phoenix'))), equals(e.event, 'sign up'))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 00:00:00', 'America/Phoenix')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), assumeNotNull(toDateTime('2020-01-26 23:59:59', 'America/Phoenix'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -4011,7 +4011,7 @@
        (SELECT count() AS total,
                toStartOfWeek(toTimeZone(e.timestamp, 'Asia/Tokyo'), 0) AS day_start
         FROM events AS e SAMPLE 1
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), toStartOfWeek(assumeNotNull(toDateTime('2020-01-12 00:00:00', 'Asia/Tokyo')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), assumeNotNull(toDateTime('2020-01-26 23:59:59', 'Asia/Tokyo'))), equals(e.event, 'sign up'))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 00:00:00', 'Asia/Tokyo')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), assumeNotNull(toDateTime('2020-01-26 23:59:59', 'Asia/Tokyo'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -4040,7 +4040,7 @@
        (SELECT count() AS total,
                toStartOfWeek(toTimeZone(e.timestamp, 'Asia/Tokyo'), 3) AS day_start
         FROM events AS e SAMPLE 1
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), toStartOfWeek(assumeNotNull(toDateTime('2020-01-12 00:00:00', 'Asia/Tokyo')), 3)), lessOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), assumeNotNull(toDateTime('2020-01-26 23:59:59', 'Asia/Tokyo'))), equals(e.event, 'sign up'))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 00:00:00', 'Asia/Tokyo')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), assumeNotNull(toDateTime('2020-01-26 23:59:59', 'Asia/Tokyo'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -5721,7 +5721,7 @@
        (SELECT plus(avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'x'), ''), 'null'), '^"|"$', ''), 'Float64')), 1000) AS total,
                toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 0) AS day_start
         FROM events AS e SAMPLE 1
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -5813,10 +5813,10 @@
              (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
                      raw_sessions.session_id_v7 AS session_id_v7
               FROM raw_sessions
-              WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toStartOfWeek(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), 0), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(3))))
+              WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(3))))
               GROUP BY raw_sessions.session_id_v7,
                        raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(accurateCastOrNull(e.`$session_id`, 'UUID')), e__session.session_id_v7)
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
            GROUP BY day_start,
                     e.`$session_id`,
                     day_start)
@@ -5906,10 +5906,10 @@
                 (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
                         raw_sessions.session_id_v7 AS session_id_v7
                  FROM raw_sessions
-                 WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toStartOfWeek(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), 0), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(3))))
+                 WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(3))))
                  GROUP BY raw_sessions.session_id_v7,
                           raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(accurateCastOrNull(e.`$session_id`, 'UUID')), e__session.session_id_v7)
-              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
               GROUP BY day_start,
                        e.`$session_id`,
                        breakdown_value,
@@ -6022,10 +6022,10 @@
                 (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
                         raw_sessions.session_id_v7 AS session_id_v7
                  FROM raw_sessions
-                 WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toStartOfWeek(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), 0), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(3))))
+                 WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(3))))
                  GROUP BY raw_sessions.session_id_v7,
                           raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(accurateCastOrNull(e.`$session_id`, 'UUID')), e__session.session_id_v7)
-              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
               GROUP BY day_start,
                        e.`$session_id`,
                        breakdown_value_1,
@@ -6686,7 +6686,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(toDateTime('2019-12-29 00:00:00', 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-18 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-18 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -6722,7 +6722,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), toStartOfWeek(assumeNotNull(toDateTime('2019-12-29 00:00:00', 'America/Phoenix')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), assumeNotNull(toDateTime('2020-01-18 23:59:59', 'America/Phoenix'))), equals(e.event, '$pageview'))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-29 00:00:00', 'America/Phoenix')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), assumeNotNull(toDateTime('2020-01-18 23:59:59', 'America/Phoenix'))), equals(e.event, '$pageview'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -6758,7 +6758,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), toStartOfWeek(assumeNotNull(toDateTime('2019-12-29 00:00:00', 'Asia/Tokyo')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), assumeNotNull(toDateTime('2020-01-18 23:59:59', 'Asia/Tokyo'))), equals(e.event, '$pageview'))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-29 00:00:00', 'Asia/Tokyo')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), assumeNotNull(toDateTime('2020-01-18 23:59:59', 'Asia/Tokyo'))), equals(e.event, '$pageview'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
