@@ -9,7 +9,7 @@ from posthog.tasks.exports import video_exporter
 
 
 class TestVideoExporter(APIBaseTest):
-    def _setup_playwright_mocks(self, mock_playwright: Mock, mock_which: Mock):
+    def _setup_playwright_mocks(self, mock_playwright: Mock, mock_which: Mock) -> tuple[Mock, Mock]:
         """Helper to setup common Playwright mocks."""
         mock_which.return_value = "/usr/bin/ffmpeg"
 
@@ -38,7 +38,7 @@ class TestVideoExporter(APIBaseTest):
 
     @patch("posthog.tasks.exports.video_exporter.sync_playwright")
     @patch("posthog.tasks.exports.video_exporter.shutil.which")
-    def test_record_replay_to_file_mp4_success(self, mock_which: Mock, mock_playwright: Mock):
+    def test_record_replay_to_file_mp4_success(self, mock_which: Mock, mock_playwright: Mock) -> None:
         """Test successful MP4 video recording with ffmpeg conversion."""
         mock_playwright_instance, mock_page = self._setup_playwright_mocks(mock_playwright, mock_which)
 
@@ -72,7 +72,7 @@ class TestVideoExporter(APIBaseTest):
 
     @patch("posthog.tasks.exports.video_exporter.sync_playwright")
     @patch("posthog.tasks.exports.video_exporter.shutil.which")
-    def test_record_replay_to_file_webm_success(self, mock_which: Mock, mock_playwright: Mock):
+    def test_record_replay_to_file_webm_success(self, mock_which: Mock, mock_playwright: Mock) -> None:
         """Test successful WebM recording (no ffmpeg conversion needed)."""
         mock_playwright_instance, mock_page = self._setup_playwright_mocks(mock_playwright, mock_which)
 
@@ -96,7 +96,7 @@ class TestVideoExporter(APIBaseTest):
                         os.unlink(tmp_file.name)
 
     @patch("posthog.tasks.exports.video_exporter.shutil.which")
-    def test_record_replay_to_file_missing_ffmpeg(self, mock_which: Mock):
+    def test_record_replay_to_file_missing_ffmpeg(self, mock_which: Mock) -> None:
         """Test error when ffmpeg is not available for MP4/GIF exports."""
         mock_which.return_value = None  # ffmpeg not found
 
@@ -117,7 +117,7 @@ class TestVideoExporter(APIBaseTest):
 
     @patch("posthog.tasks.exports.video_exporter.sync_playwright")
     @patch("posthog.tasks.exports.video_exporter.shutil.which")
-    def test_record_replay_to_file_ffmpeg_failure(self, mock_which: Mock, mock_playwright: Mock):
+    def test_record_replay_to_file_ffmpeg_failure(self, mock_which: Mock, mock_playwright: Mock) -> None:
         """Test error handling when ffmpeg conversion fails."""
         mock_playwright_instance, mock_page = self._setup_playwright_mocks(mock_playwright, mock_which)
 
@@ -143,7 +143,7 @@ class TestVideoExporter(APIBaseTest):
                     if os.path.exists(tmp_file.name):
                         os.unlink(tmp_file.name)
 
-    def test_record_replay_to_file_input_validation(self):
+    def test_record_replay_to_file_input_validation(self) -> None:
         """Test input parameter validation catches invalid values."""
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp_file:
             try:
@@ -163,7 +163,7 @@ class TestVideoExporter(APIBaseTest):
                     video_exporter.record_replay_to_file(
                         image_path=tmp_file.name,
                         url_to_render="http://localhost:8000/exporter?token=test",
-                        screenshot_width=0,
+                        screenshot_width=0,  # type: ignore[arg-type]  # Intentionally invalid for testing
                         wait_for_css_selector=".replayer-wrapper",
                         screenshot_height=600,
                         recording_duration=5,
