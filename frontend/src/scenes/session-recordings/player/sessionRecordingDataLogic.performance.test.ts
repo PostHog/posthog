@@ -97,7 +97,7 @@ describe('sessionRecordingDataLogic performance', () => {
         const setupLogic = (): void => {
             logic = sessionRecordingDataLogic({
                 sessionRecordingId: uuid(),
-                blobV2PollingDisabled: true,
+                pollingDisabled: true,
             })
             logic.mount()
             // Most of these tests assume the metadata is being loaded upfront which is the typical case

@@ -1100,8 +1100,6 @@ export type EncodedRecordingSnapshot = {
 // this way if we want to reference one of the valid string values for SnapshotSourceType
 // we have a strongly typed way to do it
 export const SnapshotSourceType = {
-    blob: 'blob',
-    realtime: 'realtime',
     file: 'file',
     blob_v2: 'blob_v2',
 } as const

@@ -97,7 +97,7 @@ describe('sessionRecordingDataLogic blobby v2', () => {
             sessionRecordingId: '2',
             // we don't want to wait for the default real-time polling interval in tests
             realTimePollingIntervalMilliseconds: 10,
-            blobV2PollingDisabled: true,
+            pollingDisabled: true,
         })
         logic.mount()
         // Most of these tests assume the metadata is being loaded upfront which is the typical case
