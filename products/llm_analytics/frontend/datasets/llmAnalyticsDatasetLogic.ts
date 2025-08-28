@@ -1,7 +1,7 @@
 import { actions, afterMount, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import api, { ApiError } from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
@@ -13,6 +13,11 @@ import { llmAnalyticsDatasetsLogic } from './llmAnalyticsDatasetsLogic'
 
 export interface DatasetLogicProps {
     datasetId: string | 'new'
+}
+
+export enum DatasetTab {
+    Items = 'items',
+    Metadata = 'metadata',
 }
 
 interface DatasetFormValues {
@@ -36,6 +41,7 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
         setDataset: (dataset: Dataset | DatasetFormValues) => ({ dataset }),
         editDataset: (editing: boolean) => ({ editing }),
         deleteDataset: true,
+        setActiveTab: (tab: DatasetTab) => ({ tab }),
     }),
 
     reducers(({ props }) => ({
@@ -51,6 +57,13 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
             props.datasetId === 'new',
             {
                 editDataset: (_, { editing }) => editing,
+            },
+        ],
+
+        activeTab: [
+            DatasetTab.Items as DatasetTab,
+            {
+                setActiveTab: (_, { tab }) => tab,
             },
         ],
     })),
@@ -157,9 +170,21 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
         },
     })),
 
+    urlToAction(({ actions, values }) => ({
+        [urls.llmAnalyticsDataset(':id')]: (_, searchParams) => {
+            if (
+                searchParams.tab &&
+                Object.values(DatasetTab).includes(searchParams.tab as DatasetTab) &&
+                searchParams.tab !== values.activeTab
+            ) {
+                actions.setActiveTab(searchParams.tab as DatasetTab)
+            }
+        },
+    })),
+
     // TRICKY: Order matters here. Keep it in the bottom.
     defaults(({ props }) => {
-        const defaultDataset = {
+        const defaultDataset: DatasetFormValues = {
             name: '',
             description: '',
             metadata: '{\n  \n}',
@@ -191,9 +216,11 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
     }),
 
     // TRICKY: Order matters here. Keep it in the bottom.
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values }) => {
         // Load dataset in any case, as it might be stale.
-        actions.loadDataset()
+        if (!values.isNewDataset) {
+            actions.loadDataset()
+        }
     }),
 ])
 
@@ -244,9 +271,15 @@ function isMetadataValid(metadata: string | null): boolean {
  * @returns The default form values
  */
 function getDatasetFormDefaults(dataset: Dataset): DatasetFormValues {
+    const metadataPlaceholder = '{\n  \n}'
+    let meta = dataset.metadata ? JSON.stringify(dataset.metadata, null, 2) : null
+    if (meta === '{}') {
+        meta = metadataPlaceholder
+    }
+
     return {
         name: dataset.name,
         description: dataset.description || '',
-        metadata: dataset.metadata ? JSON.stringify(dataset.metadata, null, 2) : '{\n  \n}',
+        metadata: meta || metadataPlaceholder,
     }
 }

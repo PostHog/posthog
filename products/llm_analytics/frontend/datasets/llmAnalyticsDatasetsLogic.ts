@@ -136,13 +136,11 @@ export const llmAnalyticsDatasetsLogic = kea<llmAnalyticsDatasetsLogicType>([
 
         datasetCountLabel: [
             (s) => [s.filters, s.count],
-            (filters, entryCount) => {
+            (filters, count) => {
                 const start = (filters.page - 1) * DATASETS_PER_PAGE + 1
-                const end = Math.min(filters.page * DATASETS_PER_PAGE, entryCount)
+                const end = Math.min(filters.page * DATASETS_PER_PAGE, count)
 
-                return entryCount === 0
-                    ? '0 datasets'
-                    : `${start}-${end} of ${entryCount} dataset${entryCount === 1 ? '' : 's'}`
+                return count === 0 ? '0 datasets' : `${start}-${end} of ${count} dataset${count === 1 ? '' : 's'}`
             },
         ],
     }),
