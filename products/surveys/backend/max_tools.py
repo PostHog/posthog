@@ -11,7 +11,7 @@ from asgiref.sync import async_to_sync
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
-from posthog.schema import SurveyAnalysisQuestionGroup, SurveyCreationSchema
+from posthog.schema import SurveyAnalysisQuestionGroup, SurveyAnalysisResponseItem, SurveyCreationSchema
 
 from posthog.constants import DEFAULT_SURVEY_APPEARANCE
 from posthog.exceptions_capture import capture_exception
@@ -318,7 +318,7 @@ class SurveyAnalysisTool(MaxTool):
 
     args_schema: type[BaseModel] = SurveyAnalysisArgs
 
-    async def _extract_open_ended_responses(self, survey: Survey) -> list[SurveyAnalysisQuestionGroup]:
+    def _extract_open_ended_responses(self) -> list[SurveyAnalysisQuestionGroup]:
         """
         Extract all open-ended text responses from the context data provided by frontend.
 
@@ -338,12 +338,10 @@ class SurveyAnalysisTool(MaxTool):
             context = self.context or {}
             raw_responses = context.get("formatted_responses", [])
 
-            # Handle both old dict format and new typed format during transition
             if not raw_responses:
                 return []
 
             # Convert to proper typed format
-            from posthog.schema import SurveyAnalysisQuestionGroup, SurveyAnalysisResponseItem
 
             typed_responses: list[SurveyAnalysisQuestionGroup] = []
             for group in raw_responses:
@@ -556,24 +554,14 @@ class SurveyAnalysisTool(MaxTool):
             # Get survey info from context
             survey_id = self.context.get("survey_id")
             survey_name = self.context.get("survey_name", "Unknown Survey")
+            # responses has to be JSON-parsed from the context
+            responses = self._extract_open_ended_responses()
 
-            if not survey_id:
+            if not survey_id or not responses:
                 return "❌ No survey data provided", {
                     "error": "no_survey_data",
                     "details": "Survey information not found in context",
                 }
-
-            # Get the survey object for any additional metadata we might need
-            try:
-                survey = await Survey.objects.aget(id=survey_id, team=self._team)
-            except Survey.DoesNotExist:
-                return "❌ Survey not found", {
-                    "error": "survey_not_found",
-                    "details": f"Survey with ID {survey_id} not found",
-                }
-
-            # Extract open-ended responses from context
-            responses = await self._extract_open_ended_responses(survey)
 
             # Analyze the responses
             analysis_result = await self._analyze_responses(responses, analysis_focus)

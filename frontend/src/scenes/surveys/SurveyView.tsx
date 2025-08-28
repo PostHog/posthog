@@ -432,6 +432,8 @@ function SurveyResponsesByQuestionV2(): JSX.Element {
     )
 }
 
+const NUM_OF_RESPONSES_FOR_MAX_ANALYSIS_TOOL = 10
+
 export function SurveyResult({ disableEventsTable }: { disableEventsTable?: boolean }): JSX.Element {
     const {
         dataTableQuery,
@@ -464,7 +466,11 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                     <MaxTool
                         identifier="analyze_survey_responses"
                         context={maxToolContext}
-                        active={isSurveyAnalysisMaxToolEnabled}
+                        active={
+                            isSurveyAnalysisMaxToolEnabled &&
+                            formattedOpenEndedResponses.reduce((acc, curr) => acc + curr.responses.length, 0) >=
+                                NUM_OF_RESPONSES_FOR_MAX_ANALYSIS_TOOL
+                        }
                     >
                         <SurveyResponsesByQuestionV2 />
                     </MaxTool>
