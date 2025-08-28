@@ -6,6 +6,7 @@ import { actionToUrl, router } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { afterMountAndTeam } from 'lib/utils/kea-logic-builders'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -183,6 +184,9 @@ export const roleAccessControlLogic = kea<roleAccessControlLogicType>([
     afterMount(({ actions }) => {
         actions.loadRoles()
         actions.ensureAllMembersLoaded()
+    }),
+
+    afterMountAndTeam(({ actions }) => {
         actions.loadResourceAccessControls()
     }),
 
