@@ -37,7 +37,8 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     event_count Int64,
     message_count Int64,
     snapshot_source LowCardinality(Nullable(String)),
-    snapshot_library Nullable(String)
+    snapshot_library Nullable(String),
+    retention_period Nullable(String),
 ) ENGINE = {engine}
 """
 
@@ -85,7 +86,9 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
     -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
     snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-    _timestamp SimpleAggregateFunction(max, DateTime)
+    _timestamp SimpleAggregateFunction(max, DateTime),
+    -- retention period for this session, useful to show TTL for the recording
+    retention_period Nullable(String)
 ) ENGINE = {engine}
 """
 
@@ -127,8 +130,8 @@ def KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=True):
     )
 
 
-SESSION_REPLAY_EVENTS_TABLE_MV_SQL = (
-    lambda: """
+def SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=True):
+    return """
 CREATE MATERIALIZED VIEW IF NOT EXISTS session_replay_events_mv {on_cluster_clause}
 TO {database}.{target_table} {explictly_specify_columns}
 AS SELECT
@@ -164,12 +167,15 @@ sum(message_count) as message_count,
 sum(event_count) as event_count,
 argMinState(snapshot_source, first_timestamp) as snapshot_source,
 argMinState(snapshot_library, first_timestamp) as snapshot_library,
-max(_timestamp) as _timestamp
+max(_timestamp) as _timestamp,
+-- CH will pick the retention period here, but only if there is a single unique non-null value across all blocks
+-- ...otherwise this column will be NULL
+singleValueOrNull(retention_period) as retention_period
 FROM {database}.kafka_session_replay_events
 group by session_id, team_id
 """.format(
         target_table="writable_session_replay_events",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(),
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         database=settings.CLICKHOUSE_DATABASE,
         # ClickHouse is incorrectly expanding the type of the snapshot source column
         # Despite it being a LowCardinality(Nullable(String)) in writable_session_replay_events
@@ -190,10 +196,11 @@ group by session_id, team_id
 `event_count` Int64,
 `snapshot_source` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
 `snapshot_library` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-`_timestamp` Nullable(DateTime)
+`_timestamp` Nullable(DateTime),
+`retention_period` Nullable(String)
 )""",
     )
-)
+
 
 # Distributed engine tables are only created if CLICKHOUSE_REPLICATED
 
