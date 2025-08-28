@@ -146,12 +146,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
                                 return <></>
                             }
 
-                            let visualValue: string
-                            if (value != null) {
-                                visualValue = value.toString().slice(0, 4) + '...' + value.toString().slice(-4)
-                            } else {
-                                visualValue = '-'
-                            }
+                            const visualValue = truncateValue(value)
 
                             if (!traceId) {
                                 return <strong>{visualValue}</strong>
@@ -220,8 +215,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
                                 return <></>
                             }
 
-                            const visualValue: string =
-                                (value as string).slice(0, 4) + '...' + (value as string).slice(-4)
+                            const visualValue = truncateValue(value)
 
                             return (
                                 <Tooltip title={value as string}>
@@ -341,4 +335,12 @@ export function LLMAnalyticsScene(): JSX.Element {
             </SceneContent>
         </BindLogic>
     )
+}
+
+function truncateValue(value: unknown): string {
+    if (value == null) {
+        return '-'
+    }
+    const stringValue = value.toString()
+    return stringValue.slice(0, 4) + '...' + stringValue.slice(-4)
 }
