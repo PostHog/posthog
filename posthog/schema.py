@@ -1210,6 +1210,7 @@ class ExternalDataSourceType(StrEnum):
     BIG_QUERY = "BigQuery"
     CHARGEBEE = "Chargebee"
     GOOGLE_ADS = "GoogleAds"
+    LINKEDIN_ADS = "LinkedinAds"
     META_ADS = "MetaAds"
     KLAVIYO = "Klaviyo"
     MAILCHIMP = "Mailchimp"

@@ -47,6 +47,7 @@ class ExternalDataSourceType(models.TextChoices):
     BIGQUERY = "BigQuery", "BigQuery"
     CHARGEBEE = "Chargebee", "Chargebee"
     GOOGLEADS = "GoogleAds", "GoogleAds"
+    LINKEDINADS = "LinkedinAds", "LinkedinAds"
     TEMPORALIO = "TemporalIO", "TemporalIO"
     DOIT = "DoIt", "DoIt"
     GOOGLESHEETS = "GoogleSheets", "GoogleSheets"

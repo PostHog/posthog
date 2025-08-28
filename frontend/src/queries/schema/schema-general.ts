@@ -3795,6 +3795,7 @@ export const externalDataSources = [
     'BigQuery',
     'Chargebee',
     'GoogleAds',
+    'LinkedinAds',
     'MetaAds',
     'Klaviyo',
     'Mailchimp',

@@ -294,7 +294,7 @@ class OauthIntegration:
                 token_url="https://www.linkedin.com/oauth/v2/accessToken",
                 client_id=settings.LINKEDIN_APP_CLIENT_ID,
                 client_secret=settings.LINKEDIN_APP_CLIENT_SECRET,
-                scope="r_ads rw_conversions openid profile email",
+                scope="r_ads r_ads_reporting openid profile email",
                 id_path="sub",
                 name_path="email",
             )
@@ -905,7 +905,7 @@ class LinkedInAdsIntegration:
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
-                "LinkedIn-Version": "202409",
+                "LinkedIn-Version": "202508",
             },
         )
 
@@ -914,11 +914,11 @@ class LinkedInAdsIntegration:
     def list_linkedin_ads_accounts(self) -> dict:
         response = requests.request(
             "GET",
-            "https://api.linkedin.com/v2/adAccountsV2?q=search",
+            "https://api.linkedin.com/rest/adAccounts?q=search",
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
-                "LinkedIn-Version": "202409",
+                "LinkedIn-Version": "202508",
             },
         )
 
