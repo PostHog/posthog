@@ -58,9 +58,9 @@ export const SideBar = (): JSX.Element => {
                 onChange={(tab) => setSideBarTab(tab as SideBarTab)}
                 tabs={tabs}
                 className="pt-1"
-                barClassName="px-2"
+                barClassName="px-3"
             />
-            <div className="flex-1 overflow-y-auto p-2">{TABS_TO_CONTENT[activeSideBarTab].content}</div>
+            <div className="flex-1 overflow-y-auto">{TABS_TO_CONTENT[activeSideBarTab].content}</div>
         </div>
     )
 }

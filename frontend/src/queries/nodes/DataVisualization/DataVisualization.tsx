@@ -164,7 +164,6 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         yData,
         chartSettings,
         dashboardId,
-        showEditingUI,
         dataVisualizationProps,
         presetChartHeight,
     } = useValues(dataVisualizationLogic)
