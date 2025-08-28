@@ -1,7 +1,7 @@
 import gzip
 import json
 import base64
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -78,7 +78,7 @@ from ee.models.license import License
 logger = structlog.get_logger(__name__)
 
 
-def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
+def _setup_replay_data(team_id: int, include_mobile_replay: bool, include_zero_duration: bool = False) -> None:
     # recordings in period  - 5 sessions
     for i in range(1, 6):
         session_id = str(i)
@@ -88,7 +88,7 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
             session_id=session_id,
             distinct_id=str(uuid4()),
             first_timestamp=timestamp,
-            last_timestamp=timestamp,
+            last_timestamp=timestamp + timedelta(seconds=1),
             size=10,
         )
 
@@ -99,9 +99,18 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
             session_id="a-single-mobile-recording",
             distinct_id=str(uuid4()),
             first_timestamp=timestamp,
-            last_timestamp=timestamp,
+            last_timestamp=timestamp + timedelta(seconds=1),
             snapshot_source="mobile",
             size=6,
+        )
+
+    if include_zero_duration:
+        produce_replay_summary(
+            team_id=team_id,
+            session_id="zero-duration",
+            distinct_id=str(uuid4()),
+            first_timestamp=now() - relativedelta(hours=12),
+            last_timestamp=now() - relativedelta(hours=12),
         )
 
     # recordings out of period  - 11 sessions
@@ -113,7 +122,7 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
             session_id=id1,
             distinct_id=str(uuid4()),
             first_timestamp=timestamp1,
-            last_timestamp=timestamp1,
+            last_timestamp=timestamp1 + timedelta(seconds=1),
             size=10,
         )
         # we maybe also include a single mobile recording out of period
@@ -123,7 +132,7 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
                 session_id=f"{id1}-mobile",
                 distinct_id=str(uuid4()),
                 first_timestamp=timestamp1,
-                last_timestamp=timestamp1,
+                last_timestamp=timestamp1 + timedelta(seconds=1),
                 snapshot_source="mobile",
                 size=6,
             )
@@ -138,7 +147,7 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
         session_id=session_that_will_not_match,
         distinct_id=str(uuid4()),
         first_timestamp=timestamp2,
-        last_timestamp=timestamp2,
+        last_timestamp=timestamp2 + timedelta(seconds=1),
         size=10,
     )
     produce_replay_summary(
@@ -146,7 +155,7 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
         session_id=session_that_will_not_match,
         distinct_id=str(uuid4()),
         first_timestamp=start_of_day,
-        last_timestamp=start_of_day,
+        last_timestamp=start_of_day + timedelta(seconds=1),
         size=10,
     )
     timestamp3 = start_of_day + relativedelta(hours=1)
@@ -155,13 +164,13 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
         session_id=session_that_will_not_match,
         distinct_id=str(uuid4()),
         first_timestamp=timestamp3,
-        last_timestamp=timestamp3,
+        last_timestamp=timestamp3 + timedelta(seconds=1),
         size=10,
     )
 
 
 @freeze_time("2022-01-10T00:01:00Z")
-class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin, QueryMatchingTest):
+class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin, QueryMatchingTest):
     def setUp(self) -> None:
         super().setUp()
 
@@ -945,7 +954,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
 
 
 @freeze_time("2022-01-09T00:01:00Z")
-class ReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
+class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
     @also_test_with_materialized_columns(event_properties=["$lib"], verify_no_jsonextract=False)
     def test_usage_report_replay(self) -> None:
         _setup_replay_data(self.team.pk, include_mobile_replay=False)
@@ -958,6 +967,7 @@ class ReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTable
 
         assert report.recording_count_in_period == 5
         assert report.mobile_recording_count_in_period == 0
+        assert report.zero_duration_recording_count_in_period == 0
 
         org_reports: dict[str, OrgReport] = {}
         _add_team_report_to_org_reports(org_reports, self.team, report, period_start)
@@ -965,6 +975,28 @@ class ReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTable
         assert org_reports[str(self.organization.id)].recording_count_in_period == 5
         assert org_reports[str(self.organization.id)].mobile_recording_count_in_period == 0
         assert org_reports[str(self.organization.id)].mobile_billable_recording_count_in_period == 0
+
+    @also_test_with_materialized_columns(event_properties=["$lib"], verify_no_jsonextract=False)
+    def test_usage_report_replay_with_zero_duration(self) -> None:
+        _setup_replay_data(self.team.pk, include_mobile_replay=False, include_zero_duration=True)
+
+        period = get_previous_day()
+        period_start, period_end = period
+
+        all_reports = _get_all_usage_data_as_team_rows(period_start, period_end)
+        report = _get_team_report(all_reports, self.team)
+
+        assert report.recording_count_in_period == 6
+        assert report.mobile_recording_count_in_period == 0
+        assert report.zero_duration_recording_count_in_period == 1
+
+        org_reports: dict[str, OrgReport] = {}
+        _add_team_report_to_org_reports(org_reports, self.team, report, period_start)
+
+        assert org_reports[str(self.organization.id)].recording_count_in_period == 6
+        assert org_reports[str(self.organization.id)].mobile_recording_count_in_period == 0
+        assert org_reports[str(self.organization.id)].mobile_billable_recording_count_in_period == 0
+        assert org_reports[str(self.organization.id)].zero_duration_recording_count_in_period == 1
 
     @also_test_with_materialized_columns(event_properties=["$lib"], verify_no_jsonextract=False)
     def test_usage_report_replay_with_mobile(self) -> None:
@@ -1041,7 +1073,7 @@ class ReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTable
         assert org_reports[str(self.organization.id)].mobile_billable_recording_count_in_period == 2
 
 
-class HogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
+class TestHogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
     # @also_test_with_materialized_columns(event_properties=["$lib"], verify_no_jsonextract=False)
     @pytest.mark.skip(reason="Skipping due to flakiness")
     def test_usage_report_hogql_queries(self) -> None:
@@ -2194,7 +2226,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         assert org_1_report["teams"]["3"]["ai_event_count_in_period"] == 7
 
 
-class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
+class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
 
@@ -2410,7 +2442,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         assert mock_client.capture.call_args[1]["timestamp"] == datetime(2021, 10, 10, 23, 1, tzinfo=tzutc())
 
 
-class SendNoUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
+class TestSendNoUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
     @freeze_time("2021-10-10T23:01:00Z")
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("requests.post")
@@ -2423,7 +2455,7 @@ class SendNoUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTe
         mock_post.assert_not_called()
 
 
-class SendUsageNoLicenseTest(APIBaseTest):
+class TestSendUsageNoLicense(APIBaseTest):
     @freeze_time("2021-10-10T23:01:00Z")
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("requests.post")
@@ -2483,35 +2515,27 @@ class SendUsageNoLicenseTest(APIBaseTest):
             _ = team.organization.for_internal_metrics
 
 
-class TestQuerySplitting(ClickhouseTestMixin, TestCase):
-    team: Team = None  # type: ignore
-    begin: datetime = None  # type: ignore
-    end: datetime = None  # type: ignore
-
-    @classmethod
-    def setUpTestData(cls) -> None:
-        # Clear existing ClickHouse data
-        sync_execute("TRUNCATE TABLE events")
-        sync_execute("TRUNCATE TABLE person")
-        sync_execute("TRUNCATE TABLE person_distinct_id")
+class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, TestCase):
+    def setUp(self) -> None:
+        super().setUp()
 
         # Clear existing Django data
         Team.objects.all().delete()
         Organization.objects.all().delete()
 
         # Create a fresh team for testing
-        cls.team = Team.objects.create(organization=Organization.objects.create(name="test"))
+        self.team = Team.objects.create(organization=Organization.objects.create(name="test"))
         # Create test events across a time period
-        cls.begin = datetime(2023, 1, 1, 0, 0)
-        cls.end = datetime(2023, 1, 2, 0, 0)
+        self.begin = datetime(2023, 1, 1, 0, 0)
+        self.end = datetime(2023, 1, 2, 0, 0)
 
         # Create 10 events in the time period
         for i in range(10):
             _create_event(
                 event="test_event",
-                team=cls.team,
+                team=self.team,
                 distinct_id=f"user_{i}",
-                timestamp=cls.begin + relativedelta(hours=i),
+                timestamp=self.begin + relativedelta(hours=i),
                 properties={},
                 person_mode="propertyless",
             )
@@ -2520,9 +2544,9 @@ class TestQuerySplitting(ClickhouseTestMixin, TestCase):
         for i in range(5):
             _create_event(
                 event="enhanced_event",
-                team=cls.team,
+                team=self.team,
                 distinct_id=f"enhanced_user_{i}",
-                timestamp=cls.begin + relativedelta(hours=i),
+                timestamp=self.begin + relativedelta(hours=i),
                 properties={"$lib": "web"},
                 person_mode="full",
             )
@@ -2531,9 +2555,9 @@ class TestQuerySplitting(ClickhouseTestMixin, TestCase):
         for i in range(3):
             _create_event(
                 event="survey sent",
-                team=cls.team,
+                team=self.team,
                 distinct_id=f"survey_user_{i}",
-                timestamp=cls.begin + relativedelta(hours=i),
+                timestamp=self.begin + relativedelta(hours=i),
                 properties={"survey_id": f"survey_{i}"},
                 person_mode="full",
             )
@@ -2541,20 +2565,98 @@ class TestQuerySplitting(ClickhouseTestMixin, TestCase):
         for i in range(3):
             _create_event(
                 event="$feature_flag_called",
-                team=cls.team,
+                team=self.team,
                 distinct_id=f"ff_user_{i}",
-                timestamp=cls.begin + relativedelta(hours=i),
+                timestamp=self.begin + relativedelta(hours=i),
                 properties={"$feature_flag": f"flag_{i}"},
                 person_mode="full",
             )
 
-        flush_persons_and_events()
+        # Create various types of AI events that should NOT be counted in billable events
+        # $ai_generation events
+        for i in range(3):
+            _create_event(
+                event="$ai_generation",
+                team=self.team,
+                distinct_id=f"ai_gen_user_{i}",
+                timestamp=self.begin + relativedelta(hours=i),
+                properties={
+                    "$ai_model": "gpt-4",
+                    "$ai_provider": "openai",
+                    "$ai_input_tokens": 100,
+                    "$ai_output_tokens": 50,
+                },
+                person_mode="full",
+            )
 
-    def setUp(self) -> None:
-        # Copy class attributes to instance attributes
-        self.team = self.__class__.team
-        self.begin = self.__class__.begin
-        self.end = self.__class__.end
+        # $ai_span events
+        for i in range(2):
+            _create_event(
+                event="$ai_span",
+                team=self.team,
+                distinct_id=f"ai_span_user_{i}",
+                timestamp=self.begin + relativedelta(hours=i),
+                properties={
+                    "$ai_trace_id": f"trace_{i}",
+                    "$ai_span_id": f"span_{i}",
+                },
+                person_mode="full",
+            )
+
+        # $ai_trace events
+        _create_event(
+            event="$ai_trace",
+            team=self.team,
+            distinct_id="ai_trace_user",
+            timestamp=self.begin + relativedelta(hours=1),
+            properties={
+                "$ai_trace_id": "trace_1",
+            },
+            person_mode="full",
+        )
+
+        # $ai_embedding events
+        for i in range(2):
+            _create_event(
+                event="$ai_embedding",
+                team=self.team,
+                distinct_id=f"ai_embed_user_{i}",
+                timestamp=self.begin + relativedelta(hours=i),
+                properties={
+                    "$ai_model": "text-embedding-ada-002",
+                    "$ai_provider": "openai",
+                    "$ai_input_tokens": 50,
+                },
+                person_mode="full",
+            )
+
+        # $ai_feedback events
+        _create_event(
+            event="$ai_feedback",
+            team=self.team,
+            distinct_id="ai_feedback_user",
+            timestamp=self.begin + relativedelta(hours=2),
+            properties={
+                "$ai_trace_id": "trace_1",
+                "rating": 5,
+            },
+            person_mode="full",
+        )
+
+        # $ai_metric events
+        _create_event(
+            event="$ai_metric",
+            team=self.team,
+            distinct_id="ai_metric_user",
+            timestamp=self.begin + relativedelta(hours=3),
+            properties={
+                "$ai_trace_id": "trace_1",
+                "latency_ms": 250,
+            },
+            person_mode="full",
+        )
+
+        flush_persons_and_events()
 
     @patch("posthog.tasks.usage_report.sync_execute")
     def test_execute_split_query_splits_correctly(self, mock_sync_execute: MagicMock) -> None:
@@ -2644,13 +2746,14 @@ class TestQuerySplitting(ClickhouseTestMixin, TestCase):
         self.assertEqual(result["mobile_events"], [(self.team.id, 1)])
 
     def test_get_teams_with_billable_event_count_in_period(self) -> None:
-        """Test that get_teams_with_billable_event_count_in_period returns correct results after splitting."""
+        """Test that get_teams_with_billable_event_count_in_period returns correct results after splitting and excludes AI events."""
         from posthog.tasks.usage_report import get_teams_with_billable_event_count_in_period
 
         # Run the function with our test data
         result = get_teams_with_billable_event_count_in_period(self.begin, self.end)
 
-        # We should get 10 events for our team
+        # We should get 15 events for our team (10 test_event + 5 enhanced_event)
+        # NOT counting: 3 survey sent, 3 $feature_flag_called, 10 AI events
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0][0], self.team.id)
         self.assertEqual(result[0][1], 15)
@@ -2659,7 +2762,7 @@ class TestQuerySplitting(ClickhouseTestMixin, TestCase):
         result_distinct = get_teams_with_billable_event_count_in_period(self.begin, self.end, count_distinct=True)
         self.assertEqual(len(result_distinct), 1)
         self.assertEqual(result_distinct[0][0], self.team.id)
-        # Should still be 15 since we created 15 distinct events
+        # Should still be 15 since we created 15 distinct billable events (excluding AI events)
         self.assertEqual(result_distinct[0][1], 15)
 
     def test_get_teams_with_billable_enhanced_persons_event_count_in_period(self) -> None:
@@ -2698,6 +2801,51 @@ class TestQuerySplitting(ClickhouseTestMixin, TestCase):
         # Second call (get_all_event_metrics_in_period) should use 3 splits
         second_call_kwargs = mock_execute_split_query.call_args_list[1][1]
         self.assertEqual(second_call_kwargs["num_splits"], 3)
+
+    def test_ai_events_not_double_counted(self) -> None:
+        """Test that AI events are excluded from billable event counts and counted separately."""
+        from posthog.tasks.usage_report import (
+            get_teams_with_ai_event_count_in_period,
+            get_teams_with_billable_event_count_in_period,
+        )
+
+        # First, get the baseline billable count with existing events
+        billable_result_before = get_teams_with_billable_event_count_in_period(self.begin, self.end)
+        baseline_count = billable_result_before[0][1] if billable_result_before else 0
+
+        # Create additional AI events that should NOT increase billable count
+        for i in range(5):
+            _create_event(
+                event="$ai_generation",
+                team=self.team,
+                distinct_id=f"new_ai_user_{i}",
+                timestamp=self.begin + relativedelta(hours=i + 10),
+                properties={"$ai_model": "claude-3", "$ai_provider": "anthropic"},
+            )
+
+        flush_persons_and_events()
+
+        # Get counts after adding more AI events
+        billable_result_after = get_teams_with_billable_event_count_in_period(self.begin, self.end)
+        ai_result = get_teams_with_ai_event_count_in_period(self.begin, self.end)
+
+        # Billable count should NOT have increased
+        self.assertEqual(billable_result_after[0][1], baseline_count)
+
+        # AI count should include original 10 + 5 new = 15
+        self.assertEqual(ai_result[0][1], 15)
+
+        # Now add a regular event and verify it DOES increase billable count
+        _create_event(
+            event="regular_event",
+            team=self.team,
+            distinct_id="regular_user",
+            timestamp=self.begin + relativedelta(hours=12),
+        )
+        flush_persons_and_events()
+
+        billable_result_final = get_teams_with_billable_event_count_in_period(self.begin, self.end)
+        self.assertEqual(billable_result_final[0][1], baseline_count + 1)
 
     def test_integration_with_usage_report(self) -> None:
         """Test that the usage report generation still works with the new query splitting."""

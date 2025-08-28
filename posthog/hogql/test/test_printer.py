@@ -2564,6 +2564,58 @@ class TestPrinter(BaseTest):
 
         assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot  # type: ignore
 
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_s3_tables_global_join_with_in_and_property_type(self):
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="test_table",
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="http://s3/folder/",
+            credential=credential,
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
+        )
+
+        printed = self._select("""
+            SELECT event FROM events
+            WHERE properties.$browser IN (
+                SELECT id FROM test_table
+            )""")
+
+        assert "globalIn" in printed
+
+        assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot  # type: ignore
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_s3_tables_global_join_anonymous_tables(self):
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="test_table",
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="http://s3/folder/",
+            credential=credential,
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
+        )
+
+        printed = self._select("""
+            select e.event, ij.remote_id
+            from events e
+            inner join (
+                select *
+                from (
+                    select p.id as person_id, rt.id as remote_id
+                    from persons p
+                    left join (
+                        select * from test_table
+                    ) rt on rt.id = p.id
+                )
+            ) as ij on e.event = ij.remote_id""")
+
+        assert "GLOBAL INNER JOIN" in printed
+
+        assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot  # type: ignore
+
 
 class TestPrinted(APIBaseTest):
     def test_can_call_parametric_function(self):

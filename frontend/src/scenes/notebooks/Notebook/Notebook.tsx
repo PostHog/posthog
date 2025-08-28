@@ -125,7 +125,7 @@ export function Notebook({
                     {shortId === SCRATCHPAD_NOTEBOOK.short_id ? (
                         <LemonBanner
                             type="info"
-                            className="my-4"
+                            className="mb-3"
                             action={{
                                 children: 'Convert to Notebook',
                                 onClick: duplicateNotebook,
@@ -136,7 +136,7 @@ export function Notebook({
                         </LemonBanner>
                     ) : null}
 
-                    <div className="flex flex-1 justify-center">
+                    <div className="Notebook_content">
                         <NotebookColumnLeft />
                         <ErrorBoundary>
                             <Editor />

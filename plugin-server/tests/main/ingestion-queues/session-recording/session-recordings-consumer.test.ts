@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
 import { Redis } from 'ioredis'
 import { Message, TopicPartitionOffset } from 'node-rdkafka'
-import { mkdirSync, readdirSync, rmSync } from 'node:fs'
+import { mkdirSync, rmSync } from 'node:fs'
 import path from 'path'
 
 import { KafkaConsumer } from '~/kafka/consumer'
@@ -483,108 +483,6 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                 await ingester.handleEachBatch(events)
                 expect(ingester.sessions[`${team.id}-sid2`].buffer.count).toBe(1)
                 expect(ingester.sessions[`${team.id}-sid1`].buffer.count).toBe(1)
-            })
-        })
-
-        describe('simulated rebalanng', () => {
-            let otherIngester: SessionRecordingIngester
-            jest.setTimeout(5000) // Increased to cover lock delay
-
-            beforeEach(async () => {
-                otherIngester = new SessionRecordingIngester(
-                    config,
-                    hub.postgres,
-                    hub.objectStorage!,
-                    consumeOverflow,
-                    undefined
-                )
-                otherIngester['kafkaConsumer'] = mockConsumer as any
-                await otherIngester.start()
-            })
-
-            afterEach(async () => {
-                await otherIngester.stop()
-            })
-
-            /**
-             * It is really hard to actually do rebalance tests against kafka, so we instead simulate the various methods and ensure the correct logic occurs
-             */
-            it('rebalances new consumers', async () => {
-                const partitionMsgs1 = [createMessage('session_id_1', 1), createMessage('session_id_2', 1)]
-                const partitionMsgs2 = [createMessage('session_id_3', 2), createMessage('session_id_4', 2)]
-
-                mockConsumer.assignments.mockImplementation(() => [
-                    createTP(1, consumedTopic),
-                    createTP(2, consumedTopic),
-                    createTP(3, consumedTopic),
-                ])
-                await ingester.handleEachBatch([...partitionMsgs1, ...partitionMsgs2])
-
-                expect(
-                    Object.values(ingester.sessions).map((x) => `${x.partition}:${x.sessionId}:${x.buffer.count}`)
-                ).toEqual(['1:session_id_1:1', '1:session_id_2:1', '2:session_id_3:1', '2:session_id_4:1'])
-
-                const rebalancePromises = [
-                    ingester.onRevokePartitions([createTP(2, consumedTopic), createTP(3, consumedTopic)]),
-                ]
-
-                // Should immediately be removed from the tracked sessions
-                expect(
-                    Object.values(ingester.sessions).map((x) => `${x.partition}:${x.sessionId}:${x.buffer.count}`)
-                ).toEqual(['1:session_id_1:1', '1:session_id_2:1'])
-
-                // Call the second ingester to receive the messages. The revocation should still be in progress meaning they are "paused" for a bit
-                // Once the revocation is complete the second ingester should receive the messages but drop most of them as they got flushes by the revoke
-                mockConsumer.assignments.mockImplementation(() => [
-                    createTP(2, consumedTopic),
-                    createTP(3, consumedTopic),
-                ])
-                await otherIngester.handleEachBatch([...partitionMsgs2, createMessage('session_id_4', 2)])
-                await Promise.all(rebalancePromises)
-
-                // Should still have the partition 1 sessions that didnt move
-                expect(
-                    Object.values(ingester.sessions).map((x) => `${x.partition}:${x.sessionId}:${x.buffer.count}`)
-                ).toEqual(['1:session_id_1:1', '1:session_id_2:1'])
-
-                // Should have session_id_4 but not session_id_3 as it was flushed
-                expect(
-                    Object.values(otherIngester.sessions).map((x) => `${x.partition}:${x.sessionId}:${x.buffer.count}`)
-                ).toEqual(['2:session_id_3:1', '2:session_id_4:1'])
-            })
-
-            it("flushes and commits as it's revoked", async () => {
-                await ingester.handleEachBatch([createMessage('sid1'), createMessage('sid2'), createMessage('sid3', 2)])
-
-                expect(readdirSync(config.SESSION_RECORDING_LOCAL_DIRECTORY + '/session-buffer-files')).toEqual([
-                    expect.stringContaining(`${team.id}.sid1.`), // gz
-                    expect.stringContaining(`${team.id}.sid1.`), // json
-                    expect.stringContaining(`${team.id}.sid2.`), // gz
-                    expect.stringContaining(`${team.id}.sid2.`), // json
-                    expect.stringContaining(`${team.id}.sid3.`), // gz
-                    expect.stringContaining(`${team.id}.sid3.`), // json
-                ])
-
-                const revokePromise = ingester.onRevokePartitions([createTP(1, consumedTopic)])
-
-                expect(Object.keys(ingester.sessions)).toEqual([`${team.id}-sid3`])
-
-                await revokePromise
-
-                // Only files left on the system should be the sid3 ones
-                expect(readdirSync(config.SESSION_RECORDING_LOCAL_DIRECTORY + '/session-buffer-files')).toEqual([
-                    expect.stringContaining(`${team.id}.sid3.`), // gz
-                    expect.stringContaining(`${team.id}.sid3.`), // json
-                ])
-
-                expect(mockConsumer.offsetsStore).toHaveBeenCalledTimes(1)
-                expect(mockConsumer.offsetsStore).toHaveBeenLastCalledWith([
-                    {
-                        topic: consumedTopic,
-                        offset: 2 + 1,
-                        partition: 1,
-                    },
-                ])
             })
         })
 

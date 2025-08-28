@@ -112,11 +112,12 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     const hasPathsAdvanced = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
     const hasAttribution = isStepsFunnel || isTrendsFunnel
     const hasPathsHogQL = isPaths && pathsFilter?.includeEventTypes?.includes(PathType.HogQL)
-    const isLineGraph =
-        isTrends &&
-        [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsLineGraphCumulative].includes(
-            display || ChartDisplayType.ActionsLineGraph
-        )
+    const displayGoalLines =
+        (isTrends &&
+            [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsLineGraphCumulative].includes(
+                display || ChartDisplayType.ActionsLineGraph
+            )) ||
+        (isFunnels && isTrendsFunnel)
 
     const leftEditorFilterGroups: InsightEditorFilterGroup[] = [
         {
@@ -378,18 +379,17 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                               key: 'sampling',
                               component: SamplingFilter,
                           },
-                          isTrends &&
-                              isLineGraph && {
-                                  key: 'goal-lines',
-                                  label: 'Goal lines',
-                                  tooltip: (
-                                      <>
-                                          Goal lines can be used to highlight specific goals (Revenue, Signups, etc.) or
-                                          limits (Web Vitals, etc.)
-                                      </>
-                                  ),
-                                  component: GoalLines,
-                              },
+                          displayGoalLines && {
+                              key: 'goal-lines',
+                              label: 'Goal lines',
+                              tooltip: (
+                                  <>
+                                      Goal lines can be used to highlight specific goals (Revenue, Signups, etc.) or
+                                      limits (Web Vitals, etc.)
+                                  </>
+                              ),
+                              component: GoalLines,
+                          },
                       ]),
                   },
               ]

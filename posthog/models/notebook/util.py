@@ -22,12 +22,12 @@ def create_bullet_list(items: list[str] | list[TipTapContent] | TipTapContent) -
     return {"type": "bulletList", "content": list_items}
 
 
-def create_heading_with_text(text: str, level: int) -> TipTapNode:
+def create_heading_with_text(text: str, level: int, *, collapsed: bool = False) -> TipTapNode:
     """Create a heading node with sanitized text content."""
     heading_id = str(uuid.uuid4())
     return {
         "type": "heading",
-        "attrs": {"id": heading_id, "level": level, "data-toc-id": heading_id},
+        "attrs": {"id": heading_id, "level": level, "data-toc-id": heading_id, "collapsed": collapsed},
         "content": [{"type": "text", "text": sanitize_text_content(text)}],
     }
 

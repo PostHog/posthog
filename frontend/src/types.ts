@@ -9,6 +9,7 @@ import { LogLevel } from '@posthog/rrweb-plugin-console-record'
 import { eventWithTime } from '@posthog/rrweb-types'
 
 import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
+import { AlertType } from 'lib/components/Alerts/types'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import {
@@ -2096,6 +2097,7 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     /** Only used in the frontend to toggle showing Baseline in funnels or not */
     disable_baseline?: boolean
     filters: Partial<FilterType>
+    alerts?: AlertType[]
     query?: Node | null
     query_status?: QueryStatus
     /** Only used when creating objects */
@@ -2428,6 +2430,7 @@ export type BreakdownType =
     | 'data_warehouse'
     | 'data_warehouse_person_property'
 export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
+export type SimpleIntervalType = 'day' | 'month'
 export type SmoothingType = number
 
 export enum InsightType {
@@ -4611,6 +4614,8 @@ export enum ActivityScope {
     USER_INTERVIEW = 'UserInterview',
     TAG = 'Tag',
     TAGGED_ITEM = 'TaggedItem',
+    EXTERNAL_DATA_SOURCE = 'ExternalDataSource',
+    EXTERNAL_DATA_SCHEMA = 'ExternalDataSchema',
 }
 
 export type CommentType = {

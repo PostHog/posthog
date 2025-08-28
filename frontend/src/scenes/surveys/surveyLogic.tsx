@@ -10,7 +10,7 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { FeatureFlagsSet, featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
-import { allOperatorsMapping, dateStringToDayJs, debounce, hasFormErrors, isObject } from 'lib/utils'
+import { allOperatorsMapping, debounce, hasFormErrors, isObject } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { Scene } from 'scenes/sceneTypes'
@@ -78,6 +78,7 @@ import { surveysLogic } from './surveysLogic'
 import {
     DATE_FORMAT,
     buildPartialResponsesFilter,
+    buildSurveyTimestampFilter,
     calculateSurveyRates,
     createAnswerFilterHogQLExpression,
     getResponseFieldWithId,
@@ -1230,38 +1231,7 @@ export const surveyLogic = kea<surveyLogicType>([
         timestampFilter: [
             (s) => [s.survey, s.dateRange],
             (survey: Survey, dateRange: SurveyDateRange): string => {
-                // If no date range provided, use the survey's default date range
-                if (!dateRange) {
-                    return `AND timestamp >= '${getSurveyStartDateForQuery(survey)}'
-                AND timestamp <= '${getSurveyEndDateForQuery(survey)}'`
-                }
-
-                // ----- Handle FROM date -----
-                // Parse the date string to a dayjs object
-                let fromDateDayjs = dateStringToDayJs(dateRange.date_from)
-
-                // Use survey creation date as lower bound if needed
-                const surveyStartDayjs = dayjs(getSurveyStartDateForQuery(survey))
-                if (surveyStartDayjs && fromDateDayjs && fromDateDayjs.isBefore(surveyStartDayjs)) {
-                    fromDateDayjs = surveyStartDayjs
-                }
-
-                // Fall back to survey start date if no valid from date
-                const fromDate = fromDateDayjs
-                    ? fromDateDayjs.utc().format(DATE_FORMAT)
-                    : getSurveyStartDateForQuery(survey)
-
-                // ----- Handle TO date -----
-                // Parse the date string or use current time
-                const toDateDayjs = dateStringToDayJs(dateRange.date_to) || dayjs()
-
-                // Use survey end date as upper bound if it exists
-                const toDate = survey.end_date
-                    ? getSurveyEndDateForQuery(survey)
-                    : toDateDayjs.utc().format(DATE_FORMAT)
-
-                return `AND timestamp >= '${fromDate}'
-                AND timestamp <= '${toDate}'`
+                return buildSurveyTimestampFilter(survey, dateRange)
             },
         ],
         partialResponsesFilter: [
@@ -1666,7 +1636,7 @@ export const surveyLogic = kea<surveyLogicType>([
         defaultInterval: [
             (s) => [s.survey],
             (survey: Survey): IntervalType => {
-                const start = getSurveyStartDateForQuery(survey)
+                const start = dayjs(survey.created_at).utc().startOf('day').format(DATE_FORMAT)
                 const end = getSurveyEndDateForQuery(survey)
                 const diffInDays = dayjs(end).diff(dayjs(start), 'days')
                 const diffInWeeks = dayjs(end).diff(dayjs(start), 'weeks')
