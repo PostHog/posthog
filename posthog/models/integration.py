@@ -735,7 +735,7 @@ class GoogleAdsIntegration:
 
         if response.status_code != 200:
             capture_exception(Exception(f"GoogleAdsIntegration: Failed to list accessible accounts: {response.text}"))
-            raise Exception(f"There was an internal error {response.text}")
+            raise Exception(f"There was an internal error")
 
         accessible_accounts = response.json()
         all_accounts: list[dict[str, str]] = []
