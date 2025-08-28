@@ -368,7 +368,6 @@ export const experimentLogic = kea<experimentLogicType>([
             variantPreviewMediaIds,
         }),
         setExposureCriteria: (exposureCriteria: ExperimentExposureCriteria) => ({ exposureCriteria }),
-        setTabKey: (tabKey: string) => ({ tabKey }),
         createExperimentDashboard: true,
         setIsCreatingExperimentDashboard: (isCreating: boolean) => ({ isCreating }),
         setUnmodifiedExperiment: (experiment: Experiment) => ({ experiment }),
@@ -709,12 +708,6 @@ export const experimentLogic = kea<experimentLogicType>([
             null as Experiment | null,
             {
                 setUnmodifiedExperiment: (_, { experiment }) => experiment,
-            },
-        ],
-        tabKey: [
-            'results',
-            {
-                setTabKey: (_, { tabKey }) => tabKey,
             },
         ],
         // PRIMARY METRICS
