@@ -149,7 +149,7 @@ export const llmAnalyticsDatasetsLogic = kea<llmAnalyticsDatasetsLogicType>([
         setFilters: async ({ debounce }, breakpoint, __, previousState) => {
             const oldFilters = selectors.filters(previousState)
             const firstLoad = selectors.rawFilters(previousState) === null
-            const { filters } = values // not taking from props because sometimes we merge them
+            const { filters } = values
 
             if (
                 debounce &&

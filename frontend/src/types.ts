@@ -5735,4 +5735,6 @@ export interface DatasetItem {
     ref_trace_timestamp: string | null
     ref_span_id: string | null
     created_by: UserBasicType
+    updated_at: string
+    created_at: string
 }

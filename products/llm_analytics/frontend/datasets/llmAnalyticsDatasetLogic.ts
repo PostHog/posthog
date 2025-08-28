@@ -3,10 +3,13 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
-import api, { ApiError } from '~/lib/api'
+import api, { ApiError, CountedPaginatedResponse } from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
+import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
+import { objectsEqual } from '~/lib/utils'
+import { sceneLogic } from '~/scenes/sceneLogic'
 import { urls } from '~/scenes/urls'
-import { Breadcrumb, Dataset } from '~/types'
+import { Breadcrumb, Dataset, DatasetItem } from '~/types'
 
 import type { llmAnalyticsDatasetLogicType } from './llmAnalyticsDatasetLogicType'
 import { llmAnalyticsDatasetsLogic } from './llmAnalyticsDatasetsLogic'
@@ -26,6 +29,20 @@ interface DatasetFormValues {
     metadata: string | null
 }
 
+interface DatasetItemsFilters {
+    page: number
+    limit: number
+}
+
+export const DATASET_ITEMS_PER_PAGE = 50
+
+function cleanFilters(values: Partial<DatasetItemsFilters>): DatasetItemsFilters {
+    return {
+        page: parseInt(String(values.page)) || 1,
+        limit: parseInt(String(values.limit)) || DATASET_ITEMS_PER_PAGE,
+    }
+}
+
 function isDataset(dataset: Dataset | DatasetFormValues): dataset is Dataset {
     return 'id' in dataset
 }
@@ -42,6 +59,8 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
         editDataset: (editing: boolean) => ({ editing }),
         deleteDataset: true,
         setActiveTab: (tab: DatasetTab) => ({ tab }),
+        setFilters: (filters: Partial<DatasetItemsFilters>, debounce: boolean = true) => ({ filters, debounce }),
+        deleteDatasetItem: (itemId: string) => ({ itemId }),
     }),
 
     reducers(({ props }) => ({
@@ -66,9 +85,22 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
                 setActiveTab: (_, { tab }) => tab,
             },
         ],
+
+        rawFilters: [
+            null as Partial<DatasetItemsFilters> | null,
+            {
+                setFilters: (state, { filters }) =>
+                    cleanFilters({
+                        ...state,
+                        ...filters,
+                        // Reset page on filter change except if it's page that's being updated
+                        ...('page' in filters ? {} : { page: 1 }),
+                    }),
+            },
+        ],
     })),
 
-    loaders(({ props }) => ({
+    loaders(({ props, values }) => ({
         dataset: {
             loadDataset: async () => {
                 try {
@@ -84,6 +116,41 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
                 }
             },
         },
+
+        datasetItems: [
+            { results: [], count: 0, offset: 0 } as CountedPaginatedResponse<DatasetItem>,
+            {
+                loadDatasetItems: async (debounce: boolean = false, breakpoint) => {
+                    if (debounce && values.datasetItems.results.length > 0) {
+                        await breakpoint(300)
+                    }
+
+                    const { filters } = values
+
+                    // Scroll to top if the page changed, except if changed via back/forward
+                    if (
+                        sceneLogic.findMounted()?.values.activeSceneId === 'LLMAnalyticsDatasets' &&
+                        router.values.lastMethod !== 'POP' &&
+                        values.datasetItems.results.length > 0 &&
+                        values.rawFilters?.page !== filters.page
+                    ) {
+                        window.scrollTo(0, 0)
+                    }
+
+                    try {
+                        const response = await api.datasetItems.list({
+                            dataset: props.datasetId,
+                            offset: Math.max(0, (filters.page - 1) * DATASET_ITEMS_PER_PAGE),
+                            limit: DATASET_ITEMS_PER_PAGE,
+                        })
+                        return response
+                    } catch (error) {
+                        lemonToast.error('Failed to load dataset items')
+                        throw error
+                    }
+                },
+            },
+        ],
     })),
 
     forms(({ actions, props }) => ({
@@ -136,6 +203,26 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
             (dataset, datasetLoading) => !datasetLoading && dataset === null,
         ],
 
+        filters: [
+            (s) => [s.rawFilters],
+            (rawFilters: Partial<DatasetItemsFilters> | null): DatasetItemsFilters => cleanFilters(rawFilters || {}),
+        ],
+
+        datasetItemsCount: [
+            (s) => [s.datasetItems],
+            (datasetItems: CountedPaginatedResponse<DatasetItem>) => datasetItems.count,
+        ],
+
+        pagination: [
+            (s) => [s.filters, s.datasetItemsCount],
+            (filters: DatasetItemsFilters, count: number): PaginationManual => ({
+                controlled: true,
+                pageSize: filters.limit,
+                currentPage: filters.page,
+                entryCount: count,
+            }),
+        ],
+
         breadcrumbs: [
             (s) => [s.dataset],
             (dataset): Breadcrumb[] => [
@@ -147,9 +234,21 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
                 },
             ],
         ],
+
+        datasetItemsCountLabel: [
+            (s) => [s.filters, s.datasetItemsCount],
+            (filters, count) => {
+                const start = (filters.page - 1) * DATASET_ITEMS_PER_PAGE + 1
+                const end = Math.min(filters.page * DATASET_ITEMS_PER_PAGE, count)
+
+                return count === 0
+                    ? '0 dataset items'
+                    : `${start}-${end} of ${count} dataset item${count === 1 ? '' : 's'}`
+            },
+        ],
     }),
 
-    listeners(({ actions, props }) => ({
+    listeners(({ actions, props, values, selectors, asyncActions }) => ({
         deleteDataset: async () => {
             if (props.datasetId !== 'new') {
                 try {
@@ -162,10 +261,47 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
             }
         },
 
+        deleteDatasetItem: async ({ itemId }) => {
+            if (props.datasetId !== 'new') {
+                try {
+                    await api.datasetItems.update(itemId, { deleted: true })
+                    lemonToast.success('Dataset item deleted successfully')
+                    actions.loadDatasetItems()
+                } catch {
+                    lemonToast.error('Failed to delete dataset item')
+                }
+            }
+        },
+
         loadDatasetSuccess: ({ dataset }) => {
             if (isDataset(dataset)) {
                 // Set form defaults when dataset is loaded
                 actions.setDatasetFormValues(getDatasetFormDefaults(dataset))
+            }
+        },
+
+        setFilters: async ({ debounce }, breakpoint, __, previousState) => {
+            const oldFilters = selectors.filters(previousState)
+            const firstLoad = selectors.rawFilters(previousState) === null
+            const { filters } = values
+
+            if (
+                debounce &&
+                !firstLoad &&
+                typeof filters.search !== 'undefined' &&
+                filters.search !== oldFilters.search
+            ) {
+                await breakpoint(300)
+            }
+
+            if (firstLoad || !objectsEqual(oldFilters, filters)) {
+                await asyncActions.loadDatasetItems(debounce)
+            }
+        },
+
+        setActiveTab: ({ tab }) => {
+            if (tab === DatasetTab.Items && props.datasetId !== 'new') {
+                actions.loadDatasetItems()
             }
         },
     })),
@@ -179,47 +315,60 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
             ) {
                 actions.setActiveTab(searchParams.tab as DatasetTab)
             }
+
+            // Set default filters if they're not set yet
+            if (values.rawFilters === null) {
+                actions.setFilters(cleanFilters(searchParams), false)
+            }
         },
     })),
 
     // TRICKY: Order matters here. Keep it in the bottom.
-    defaults(({ props }) => {
-        const defaultDataset: DatasetFormValues = {
-            name: '',
-            description: '',
-            metadata: '{\n  \n}',
-        }
+    defaults(
+        ({
+            props,
+        }): {
+            dataset: DatasetFormValues | Dataset | null
+            datasetForm: DatasetFormValues
+        } => {
+            const defaultDataset: DatasetFormValues = {
+                name: '',
+                description: '',
+                metadata: '{\n  \n}',
+            }
 
-        if (props.datasetId === 'new') {
+            if (props.datasetId === 'new') {
+                return {
+                    dataset: defaultDataset,
+                    datasetForm: defaultDataset,
+                }
+            }
+
+            // Don't show a loader if the dataset has already been loaded.
+            const existingDataset = llmAnalyticsDatasetsLogic
+                .findMounted()
+                ?.values.datasets.results.find((dataset) => dataset.id === props.datasetId)
+
+            if (existingDataset) {
+                return {
+                    dataset: existingDataset,
+                    datasetForm: getDatasetFormDefaults(existingDataset),
+                }
+            }
+
             return {
-                dataset: defaultDataset,
+                dataset: null,
                 datasetForm: defaultDataset,
             }
         }
-
-        // Don't show a loader if the dataset has already been loaded.
-        const existingDataset = llmAnalyticsDatasetsLogic
-            .findMounted()
-            ?.values.datasets.results.find((dataset) => dataset.id === props.datasetId)
-
-        if (existingDataset) {
-            return {
-                dataset: existingDataset,
-                datasetForm: getDatasetFormDefaults(existingDataset),
-            }
-        }
-
-        return {
-            dataset: null,
-            datasetForm: defaultDataset,
-        }
-    }),
+    ),
 
     // TRICKY: Order matters here. Keep it in the bottom.
     afterMount(({ actions, values }) => {
         // Load dataset in any case, as it might be stale.
         if (!values.isNewDataset) {
             actions.loadDataset()
+            actions.loadDatasetItems()
         }
     }),
 ])

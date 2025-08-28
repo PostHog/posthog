@@ -1429,6 +1429,10 @@ export class ApiRequest {
     public datasetItems(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('dataset_items')
     }
+
+    public datasetItem(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('dataset_items').addPathComponent(id)
+    }
 }
 
 const normalizeUrl = (url: string): string => {
@@ -3937,8 +3941,20 @@ const api = {
     },
 
     datasetItems: {
-        list(datasetId: string): Promise<PaginatedResponse<DatasetItem>> {
-            return new ApiRequest().datasetItems().withQueryString({ dataset: datasetId }).get()
+        list(data: {
+            dataset: string
+            limit?: number
+            offset?: number
+        }): Promise<CountedPaginatedResponse<DatasetItem>> {
+            return new ApiRequest().datasetItems().withQueryString(data).get()
+        },
+
+        async create(data: Partial<DatasetItem>): Promise<DatasetItem> {
+            return await new ApiRequest().datasetItems().create({ data })
+        },
+
+        async update(datasetItemId: string, data: Record<string, any>): Promise<DatasetItem> {
+            return await new ApiRequest().datasetItem(datasetItemId).update({ data })
         },
     },
 
