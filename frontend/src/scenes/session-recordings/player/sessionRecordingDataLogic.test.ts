@@ -263,7 +263,6 @@ describe('sessionRecordingDataLogic', () => {
         })
     })
 
-    // TODO need deduplication tests for blob_v2 sources before we deprecate blob_v1
     describe('deduplicateSnapshots', () => {
         const sources: SessionRecordingSnapshotSource[] = [
             {
