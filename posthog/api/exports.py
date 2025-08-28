@@ -156,7 +156,23 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
 
                 def _spawn_workflow():
                     with VIDEO_EXPORT_SEMAPHORE:
-                        asyncio.run(_start())
+                        try:
+                            logger.info("starting_video_export_workflow", asset_id=instance.id)
+
+                            # Create a new event loop for this thread
+                            loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(loop)
+                            try:
+                                loop.run_until_complete(_start())
+                            finally:
+                                loop.close()
+
+                            logger.info("video_export_workflow_dispatched", asset_id=instance.id)
+                        except Exception as e:
+                            logger.exception(
+                                "video_export_workflow_dispatch_failed", asset_id=instance.id, error=str(e)
+                            )
+                            raise
 
                 threading.Thread(target=_spawn_workflow, daemon=True).start()
             else:
