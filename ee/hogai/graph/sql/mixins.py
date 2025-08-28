@@ -1,11 +1,9 @@
 import asyncio
-from typing import cast
 
 from langchain_core.prompts import ChatPromptTemplate
 
 from posthog.schema import AssistantHogQLQuery
 
-from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database, create_hogql_database
 from posthog.hogql.errors import (
@@ -14,7 +12,6 @@ from posthog.hogql.errors import (
     ResolutionError,
 )
 from posthog.hogql.parser import parse_select
-from posthog.hogql.placeholders import FindPlaceholders, find_placeholders, replace_placeholders
 from posthog.hogql.printer import print_ast, print_prepared_ast
 
 from posthog.sync import database_sync_to_async
@@ -82,19 +79,6 @@ class HogQLGeneratorMixin(AssistantContextMixin):
         cleaned_query = result.query.rstrip(";").strip() if result.query else ""
         return SQLSchemaGeneratorOutput(query=AssistantHogQLQuery(query=cleaned_query))
 
-    def _handle_placeholders_query(
-        self, finder: FindPlaceholders, parsed_query: ast.SelectQuery | ast.SelectSetQuery, hogql_context: HogQLContext
-    ) -> str:
-        dummy_placeholders: dict[str, ast.Expr] = {
-            str(field[0]): ast.Constant(value=1) for field in finder.placeholder_fields
-        }
-        if finder.has_filters:
-            dummy_placeholders["filters"] = ast.Constant(value=1)
-        validated_query = cast(ast.SelectQuery, replace_placeholders(parsed_query, dummy_placeholders))
-        print_ast(validated_query, context=hogql_context, dialect="hogql")
-
-        return print_prepared_ast(parsed_query, context=hogql_context, dialect="hogql")
-
     @database_sync_to_async(thread_sensitive=False)
     def _quality_check_output(self, output: SQLSchemaGeneratorOutput):
         database = self._get_database()
@@ -103,14 +87,17 @@ class HogQLGeneratorMixin(AssistantContextMixin):
         if not query:
             raise PydanticOutputParserException(llm_output="", validation_message="Output is empty")
         try:
-            parsed_query = parse_select(query, placeholders={})
+            # First pass to fix the query syntax
+            normalized_query = print_prepared_ast(
+                parse_select(query, placeholders={}), context=hogql_context, dialect="hogql"
+            )
+            parsed_query = parse_select(normalized_query, placeholders={})
 
-            # Replace placeholders with dummy values to compile the generated query.
-            finder = find_placeholders(parsed_query)
-            if finder.placeholder_fields or finder.has_filters:
-                return self._handle_placeholders_query(finder, parsed_query, hogql_context)
+            # Validate that the query is valid
+            print_ast(parsed_query, context=hogql_context, dialect="hogql")
 
-            return print_ast(parsed_query, context=hogql_context, dialect="hogql")
+            # Return the normalized query
+            return normalized_query
         except (ExposedHogQLError, HogQLNotImplementedError, ResolutionError) as err:
             err_msg = str(err)
             if err_msg.startswith("no viable alternative"):
