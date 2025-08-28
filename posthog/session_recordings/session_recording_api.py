@@ -971,7 +971,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         # blob v1 API has been deprecated for a while now,
         # we now only allow blob v1 on self-hosted installs
         # before we can have a release that officially deprecates it for self-hosted
-        blob_v1_sources_are_allowed = False if is_cloud() or settings.DEBUG or settings.TEST else True
+        blob_v1_sources_are_allowed = False if is_cloud() or settings.DEBUG else True
         if is_personal_api_key:
             personal_api_authenticator = cast(PersonalAPIKeyAuthentication, request.successful_authenticator)
             used_key = personal_api_authenticator.personal_api_key
