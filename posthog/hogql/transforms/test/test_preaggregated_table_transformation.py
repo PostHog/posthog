@@ -769,6 +769,8 @@ class TestPreaggregatedTableTransformationIntegration(APIBaseTest, ClickhouseTes
          false as has_gclid,
          false as has_gad_source_paid_search,
          false as has_fbclid,
+         null as mat_metadata_loggedIn,
+         '' as mat_metadata_backend,
 
          initializeAggregation('uniqState', generateUUIDv7()) as persons_uniq,
          initializeAggregation('uniqState', toString(generateUUIDv7())) as sessions_uniq,

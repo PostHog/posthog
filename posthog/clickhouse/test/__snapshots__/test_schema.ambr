@@ -3420,6 +3420,8 @@
   has_gclid Bool,
   has_gad_source_paid_search Bool,
   has_fbclid Bool,
+  mat_metadata_loggedIn Nullable(Bool),
+  mat_metadata_backend Nullable(String),
       persons_uniq_state AggregateFunction(uniq, UUID),
       sessions_uniq_state AggregateFunction(uniq, String),
       pageviews_count_state AggregateFunction(sum, UInt64),
@@ -3452,7 +3454,9 @@
       region_name,
       has_gclid,
       has_gad_source_paid_search,
-      has_fbclid
+      has_fbclid,
+      mat_metadata_loggedIn,
+      mat_metadata_backend
   )
       
   '''
@@ -3486,6 +3490,8 @@
   has_gclid Bool,
   has_gad_source_paid_search Bool,
   has_fbclid Bool,
+  mat_metadata_loggedIn Nullable(Bool),
+  mat_metadata_backend Nullable(String),
       persons_uniq_state AggregateFunction(uniq, UUID),
       sessions_uniq_state AggregateFunction(uniq, String),
       pageviews_count_state AggregateFunction(sum, UInt64),
@@ -3517,7 +3523,9 @@
       region_name,
       has_gclid,
       has_gad_source_paid_search,
-      has_fbclid
+      has_fbclid,
+      mat_metadata_loggedIn,
+      mat_metadata_backend
   )
       PARTITION BY formatDateTime(period_bucket, '%Y%m%d%H')
       TTL period_bucket + INTERVAL 24 HOUR DELETE
@@ -3553,6 +3561,8 @@
   has_gclid Bool,
   has_gad_source_paid_search Bool,
   has_fbclid Bool,
+  mat_metadata_loggedIn Nullable(Bool),
+  mat_metadata_backend Nullable(String),
       persons_uniq_state AggregateFunction(uniq, UUID),
       sessions_uniq_state AggregateFunction(uniq, String),
       pageviews_count_state AggregateFunction(sum, UInt64),
@@ -3585,7 +3595,9 @@
       region_name,
       has_gclid,
       has_gad_source_paid_search,
-      has_fbclid
+      has_fbclid,
+      mat_metadata_loggedIn,
+      mat_metadata_backend
   )
       
   '''
@@ -3620,6 +3632,8 @@
   has_gclid Bool,
   has_gad_source_paid_search Bool,
   has_fbclid Bool,
+  mat_metadata_loggedIn Nullable(Bool),
+  mat_metadata_backend Nullable(String),
       persons_uniq_state AggregateFunction(uniq, UUID),
       sessions_uniq_state AggregateFunction(uniq, String),
       pageviews_count_state AggregateFunction(sum, UInt64),
@@ -3650,7 +3664,9 @@
       region_name,
       has_gclid,
       has_gad_source_paid_search,
-      has_fbclid
+      has_fbclid,
+      mat_metadata_loggedIn,
+      mat_metadata_backend
   )
       
   '''
@@ -3685,6 +3701,8 @@
   has_gclid Bool,
   has_gad_source_paid_search Bool,
   has_fbclid Bool,
+  mat_metadata_loggedIn Nullable(Bool),
+  mat_metadata_backend Nullable(String),
       persons_uniq_state AggregateFunction(uniq, UUID),
       sessions_uniq_state AggregateFunction(uniq, String),
       pageviews_count_state AggregateFunction(sum, UInt64),
@@ -3715,7 +3733,9 @@
       region_name,
       has_gclid,
       has_gad_source_paid_search,
-      has_fbclid
+      has_fbclid,
+      mat_metadata_loggedIn,
+      mat_metadata_backend
   )
       
   '''
@@ -3750,6 +3770,8 @@
   has_gclid Bool,
   has_gad_source_paid_search Bool,
   has_fbclid Bool,
+  mat_metadata_loggedIn Nullable(Bool),
+  mat_metadata_backend Nullable(String),
       persons_uniq_state AggregateFunction(uniq, UUID),
       sessions_uniq_state AggregateFunction(uniq, String),
       pageviews_count_state AggregateFunction(sum, UInt64),
@@ -3779,7 +3801,9 @@
       region_name,
       has_gclid,
       has_gad_source_paid_search,
-      has_fbclid
+      has_fbclid,
+      mat_metadata_loggedIn,
+      mat_metadata_backend
   )
       PARTITION BY formatDateTime(period_bucket, '%Y%m%d%H')
       TTL period_bucket + INTERVAL 24 HOUR DELETE
@@ -5300,6 +5324,8 @@
   has_gclid Bool,
   has_gad_source_paid_search Bool,
   has_fbclid Bool,
+  mat_metadata_loggedIn Nullable(Bool),
+  mat_metadata_backend Nullable(String),
       persons_uniq_state AggregateFunction(uniq, UUID),
       sessions_uniq_state AggregateFunction(uniq, String),
       pageviews_count_state AggregateFunction(sum, UInt64),
@@ -5332,7 +5358,9 @@
       region_name,
       has_gclid,
       has_gad_source_paid_search,
-      has_fbclid
+      has_fbclid,
+      mat_metadata_loggedIn,
+      mat_metadata_backend
   )
       
   '''
@@ -5366,6 +5394,8 @@
   has_gclid Bool,
   has_gad_source_paid_search Bool,
   has_fbclid Bool,
+  mat_metadata_loggedIn Nullable(Bool),
+  mat_metadata_backend Nullable(String),
       persons_uniq_state AggregateFunction(uniq, UUID),
       sessions_uniq_state AggregateFunction(uniq, String),
       pageviews_count_state AggregateFunction(sum, UInt64),
@@ -5397,7 +5427,9 @@
       region_name,
       has_gclid,
       has_gad_source_paid_search,
-      has_fbclid
+      has_fbclid,
+      mat_metadata_loggedIn,
+      mat_metadata_backend
   )
       PARTITION BY formatDateTime(period_bucket, '%Y%m%d%H')
       TTL period_bucket + INTERVAL 24 HOUR DELETE
@@ -5433,6 +5465,8 @@
   has_gclid Bool,
   has_gad_source_paid_search Bool,
   has_fbclid Bool,
+  mat_metadata_loggedIn Nullable(Bool),
+  mat_metadata_backend Nullable(String),
       persons_uniq_state AggregateFunction(uniq, UUID),
       sessions_uniq_state AggregateFunction(uniq, String),
       pageviews_count_state AggregateFunction(sum, UInt64),
@@ -5465,7 +5499,9 @@
       region_name,
       has_gclid,
       has_gad_source_paid_search,
-      has_fbclid
+      has_fbclid,
+      mat_metadata_loggedIn,
+      mat_metadata_backend
   )
       
   '''
@@ -5500,6 +5536,8 @@
   has_gclid Bool,
   has_gad_source_paid_search Bool,
   has_fbclid Bool,
+  mat_metadata_loggedIn Nullable(Bool),
+  mat_metadata_backend Nullable(String),
       persons_uniq_state AggregateFunction(uniq, UUID),
       sessions_uniq_state AggregateFunction(uniq, String),
       pageviews_count_state AggregateFunction(sum, UInt64),
@@ -5530,7 +5568,9 @@
       region_name,
       has_gclid,
       has_gad_source_paid_search,
-      has_fbclid
+      has_fbclid,
+      mat_metadata_loggedIn,
+      mat_metadata_backend
   )
       
   '''
@@ -5565,6 +5605,8 @@
   has_gclid Bool,
   has_gad_source_paid_search Bool,
   has_fbclid Bool,
+  mat_metadata_loggedIn Nullable(Bool),
+  mat_metadata_backend Nullable(String),
       persons_uniq_state AggregateFunction(uniq, UUID),
       sessions_uniq_state AggregateFunction(uniq, String),
       pageviews_count_state AggregateFunction(sum, UInt64),
@@ -5595,7 +5637,9 @@
       region_name,
       has_gclid,
       has_gad_source_paid_search,
-      has_fbclid
+      has_fbclid,
+      mat_metadata_loggedIn,
+      mat_metadata_backend
   )
       
   '''
@@ -5630,6 +5674,8 @@
   has_gclid Bool,
   has_gad_source_paid_search Bool,
   has_fbclid Bool,
+  mat_metadata_loggedIn Nullable(Bool),
+  mat_metadata_backend Nullable(String),
       persons_uniq_state AggregateFunction(uniq, UUID),
       sessions_uniq_state AggregateFunction(uniq, String),
       pageviews_count_state AggregateFunction(sum, UInt64),
@@ -5659,7 +5705,9 @@
       region_name,
       has_gclid,
       has_gad_source_paid_search,
-      has_fbclid
+      has_fbclid,
+      mat_metadata_loggedIn,
+      mat_metadata_backend
   )
       PARTITION BY formatDateTime(period_bucket, '%Y%m%d%H')
       TTL period_bucket + INTERVAL 24 HOUR DELETE

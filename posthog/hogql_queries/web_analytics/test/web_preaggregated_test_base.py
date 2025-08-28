@@ -30,6 +30,8 @@ class WebAnalyticsPreAggregatedTestBase(ClickhouseTestMixin, APIBaseTest, ABC):
         "$geoip_city_name",
         "$geoip_subdivision_1_code",
         "$pathname",
+        "mat_metadata_loggedIn",
+        "mat_metadata_backend",
     ]
 
     def setUp(self):
