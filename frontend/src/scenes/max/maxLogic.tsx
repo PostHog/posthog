@@ -54,7 +54,7 @@ export const maxLogic = kea<maxLogicType>([
     connect(() => ({
         values: [
             maxGlobalLogic,
-            ['dataProcessingAccepted', 'tools'],
+            ['dataProcessingAccepted', 'tools', 'toolSuggestions'],
             maxSettingsLogic,
             ['coreMemory'],
             // Actions are lazy-loaded. In order to display their names in the UI, we're loading them here.
@@ -285,6 +285,23 @@ export const maxLogic = kea<maxLogicType>([
                     return threadKeys[conversationId] || conversationId
                 }
                 return frontendConversationId
+            },
+        ],
+        allSuggestions: [
+            (s) => [s.toolSuggestions],
+            (toolSuggestions: string[]): readonly SuggestionGroup[] => {
+                // If we have MaxTool suggestions, show only those
+                if (toolSuggestions && toolSuggestions.length > 0) {
+                    return [
+                        {
+                            label: 'Suggestions',
+                            icon: <IconGraph />,
+                            suggestions: toolSuggestions.map((content: string) => ({ content })),
+                        },
+                    ]
+                }
+
+                return QUESTION_SUGGESTIONS_DATA
             },
         ],
     }),

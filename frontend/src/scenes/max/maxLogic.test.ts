@@ -5,7 +5,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { QUESTION_SUGGESTIONS_DATA, maxLogic } from './maxLogic'
+import { maxLogic } from './maxLogic'
 import { maxMocks, mockStream } from './testUtils'
 
 describe('maxLogic', () => {
@@ -86,8 +86,11 @@ describe('maxLogic', () => {
             activeSuggestionGroup: null,
         })
 
+        // Get allSuggestions from the logic values
+        const { allSuggestions } = logic.values
+
         await expectLogic(logic, () => {
-            logic.actions.setActiveGroup(QUESTION_SUGGESTIONS_DATA[1])
+            logic.actions.setActiveGroup(allSuggestions[1])
         })
             .toDispatchActions(['setActiveGroup'])
             .toMatchValues({
@@ -104,7 +107,7 @@ describe('maxLogic', () => {
         })
 
         // Test setting to a different index
-        logic.actions.setActiveGroup(QUESTION_SUGGESTIONS_DATA[0])
+        logic.actions.setActiveGroup(allSuggestions[0])
 
         await expectLogic(logic).toMatchValues({
             activeSuggestionGroup: partial({
