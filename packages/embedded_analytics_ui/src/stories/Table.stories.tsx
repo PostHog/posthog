@@ -189,7 +189,7 @@ const browserTableData: TableResponse = {
 
 export const Default: Story = {
     args: {
-        respose: standardTableData,
+        response: standardTableData,
         loading: false,
         currentPage: 1,
         pageSize: 25,
@@ -213,7 +213,7 @@ export const WithError: Story = {
 
 export const WithSorting: Story = {
     args: {
-        respose: standardTableData,
+        response: standardTableData,
         loading: false,
         currentSort: { column: 'visitors', direction: 'desc' },
         currentPage: 1,
@@ -223,7 +223,7 @@ export const WithSorting: Story = {
 
 export const BrowserData: Story = {
     args: {
-        respose: browserTableData,
+        response: browserTableData,
         loading: false,
         currentPage: 2,
         pageSize: 10,
@@ -239,7 +239,7 @@ export const BrowserData: Story = {
 
 export const WithoutFillBars: Story = {
     args: {
-        respose: {
+        response: {
             ...standardTableData,
             rows: standardTableData.rows.map(({ fillRatio: _, ...rowWithoutFill }) => rowWithoutFill),
         },
@@ -255,7 +255,7 @@ export const WithClickHandlers: Story = {
         loading: false,
         currentPage: 1,
         pageSize: 25,
-        onClick: (row): void => {
+        onRowClick: (row): void => {
             alert(`Clicked on ${row.breakdown_value}`)
         },
     } as TableProps,
@@ -270,7 +270,7 @@ export const WithClickHandlers: Story = {
 
 export const SmallPageSize: Story = {
     args: {
-        respose: standardTableData,
+        response: standardTableData,
         loading: false,
         currentPage: 1,
         pageSize: 3,
@@ -279,7 +279,7 @@ export const SmallPageSize: Story = {
 
 export const EmptyTable: Story = {
     args: {
-        respose: {
+        response: {
             columns: standardColumns,
             rows: [],
             count: 0,
@@ -294,7 +294,7 @@ export const EmptyTable: Story = {
 
 export const SingleRow: Story = {
     args: {
-        respose: {
+        response: {
             columns: standardColumns,
             rows: [generatePageData()[0]],
             count: 1,
@@ -309,7 +309,7 @@ export const SingleRow: Story = {
 
 export const LargeNumbers: Story = {
     args: {
-        respose: {
+        response: {
             columns: [
                 {
                     key: 'breakdown_value',
@@ -371,7 +371,7 @@ export const LargeNumbers: Story = {
 
 export const MixedDataTypes: Story = {
     args: {
-        respose: {
+        response: {
             columns: [
                 {
                     key: 'breakdown_value',
