@@ -5,14 +5,14 @@ from infi.clickhouse_orm import migrations
 
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.cluster import Query, get_cluster
-from posthog.settings.data_stores import CLICKHOUSE_MIGRATIONS_CLUSTER
+from posthog.settings.data_stores import CLICKHOUSE_MIGRATIONS_CLUSTER, CLICKHOUSE_MIGRATIONS_HOST
 
 logger = logging.getLogger("migrations")
 
 
 @cache
 def get_migrations_cluster():
-    return get_cluster(cluster=CLICKHOUSE_MIGRATIONS_CLUSTER)
+    return get_cluster(host=CLICKHOUSE_MIGRATIONS_HOST, cluster=CLICKHOUSE_MIGRATIONS_CLUSTER)
 
 
 def run_sql_with_exceptions(
@@ -48,12 +48,13 @@ def run_sql_with_exceptions(
         Raised in certain scenarios when the input arguments conflict with the expected
         configuration, such as when the sharded flag is set for roles other than DATA.
     """
-    cluster = get_migrations_cluster()
-
-    if "ON CLUSTER" in sql:
-        logger.warning("you are not suppose to use ON CLUSTER in migration")
 
     def run_migration():
+        if "ON CLUSTER" in sql:
+            logger.error("ON CLUSTER is not supposed to used in migration, query: %s", sql)
+
+        cluster = get_migrations_cluster()
+
         query = Query(sql)
         if node_role == NodeRole.ALL:
             assert not sharded
