@@ -1,14 +1,13 @@
 use std::{
     collections::{HashMap, HashSet},
-    time::Duration,
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use common_database::{PostgresReader, PostgresWriter};
 use common_types::{PersonId, ProjectId, TeamId};
 use serde_json::Value;
 use sha1::{Digest, Sha1};
-use sqlx::{postgres::PgQueryResult, Acquire, Row};
+use sqlx::{Acquire, Row};
 use tokio::time::{sleep, timeout};
 use tracing::{info, instrument, warn};
 
@@ -508,47 +507,136 @@ pub async fn set_feature_flag_hash_key_overrides(
         let mut conn = writer.get_connection().await?;
         let mut transaction = conn.begin().await?;
 
-        let query = r#"
-            WITH target_person_ids AS (
-                SELECT team_id, person_id FROM posthog_persondistinctid WHERE team_id = $1 AND
-                distinct_id = ANY($2)
-            ),
-            existing_overrides AS (
-                SELECT team_id, person_id, feature_flag_key, hash_key FROM posthog_featureflaghashkeyoverride
-                WHERE team_id = $1 AND person_id IN (SELECT person_id FROM target_person_ids)
-            ),
-            flags_to_override AS (
-                SELECT flag.key FROM posthog_featureflag flag
-                JOIN posthog_team team ON flag.team_id = team.id
-                WHERE team.project_id = $3 
+        // Query 1: Get person_ids from distinct_ids
+        let person_query = r#"
+            SELECT person_id 
+            FROM posthog_persondistinctid 
+            WHERE team_id = $1 AND distinct_id = ANY($2)
+        "#;
+
+        // Query 2: Get existing overrides for these person_ids
+        let existing_overrides_query = r#"
+            SELECT person_id, feature_flag_key 
+            FROM posthog_featureflaghashkeyoverride
+            WHERE team_id = $1 AND person_id = ANY($2)
+        "#;
+
+        // Query 3: Get active feature flags with experience continuity
+        let flags_query = r#"
+            SELECT flag.key 
+            FROM posthog_featureflag flag
+            JOIN posthog_team team ON flag.team_id = team.id
+            WHERE team.project_id = $1 
                 AND flag.ensure_experience_continuity = TRUE 
                 AND flag.active = TRUE 
                 AND flag.deleted = FALSE
-                AND flag.key NOT IN (SELECT feature_flag_key FROM existing_overrides)
-            )
+        "#;
+
+        // Query 4: Verify person exists (for foreign key constraint)
+        let person_exists_query = r#"
+            SELECT id 
+            FROM posthog_person 
+            WHERE id = ANY($1) AND team_id = $2
+        "#;
+
+        // Query 5: Insert new overrides
+        let insert_query = r#"
             INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
-                SELECT team_id, person_id, key, $4
-                FROM flags_to_override, target_person_ids
-                WHERE EXISTS (SELECT 1 FROM posthog_person WHERE id = person_id AND team_id = $1)
+            VALUES ($1, $2, $3, $4)
             ON CONFLICT DO NOTHING
         "#;
 
-        let result: Result<PgQueryResult, sqlx::Error> = sqlx::query(query)
-            .bind(team_id)
-            .bind(&distinct_ids)
-            .bind(project_id)
-            .bind(&hash_key_override)
-            .execute(&mut *transaction)
-            .await;
+        let result: Result<u64, sqlx::Error> = async {
+            // Step 1: Get person_ids
+            let person_rows = sqlx::query(person_query)
+                .bind(team_id)
+                .bind(&distinct_ids)
+                .fetch_all(&mut *transaction)
+                .await?;
+
+            if person_rows.is_empty() {
+                return Ok(0); // No persons found, nothing to insert
+            }
+
+            let person_ids: Vec<i64> = person_rows.iter().map(|row| row.get::<i64, _>(0)).collect();
+
+            // Step 2: Get existing overrides
+            let override_rows = sqlx::query(existing_overrides_query)
+                .bind(team_id)
+                .bind(&person_ids)
+                .fetch_all(&mut *transaction)
+                .await?;
+
+            // Create a set of (person_id, flag_key) pairs that already exist
+            let existing_overrides: HashSet<(i64, String)> = override_rows
+                .iter()
+                .map(|row| (row.get::<i64, _>(0), row.get::<String, _>(1)))
+                .collect();
+
+            // Step 3: Get active feature flags
+            let flag_rows = sqlx::query(flags_query)
+                .bind(project_id)
+                .fetch_all(&mut *transaction)
+                .await?;
+
+            let flag_keys: Vec<String> = flag_rows
+                .iter()
+                .map(|row| row.get::<String, _>(0))
+                .collect();
+
+            if flag_keys.is_empty() {
+                return Ok(0); // No flags to override
+            }
+
+            // Step 4: Verify which persons still exist (to avoid foreign key violations)
+            let existing_person_rows = sqlx::query(person_exists_query)
+                .bind(&person_ids)
+                .bind(team_id)
+                .fetch_all(&mut *transaction)
+                .await?;
+
+            let existing_person_ids: HashSet<i64> = existing_person_rows
+                .iter()
+                .map(|row| row.get::<i64, _>(0))
+                .collect();
+
+            // Step 5: Insert new overrides for each person-flag combination
+            let mut rows_affected = 0u64;
+            for person_id in &person_ids {
+                if !existing_person_ids.contains(person_id) {
+                    continue; // Skip persons that don't exist
+                }
+
+                for flag_key in &flag_keys {
+                    // Skip if override already exists
+                    if existing_overrides.contains(&(*person_id, flag_key.clone())) {
+                        continue;
+                    }
+
+                    let result = sqlx::query(insert_query)
+                        .bind(team_id)
+                        .bind(person_id)
+                        .bind(flag_key)
+                        .bind(&hash_key_override)
+                        .execute(&mut *transaction)
+                        .await?;
+
+                    rows_affected += result.rows_affected();
+                }
+            }
+
+            Ok(rows_affected)
+        }
+        .await;
 
         match result {
-            Ok(query_result) => {
+            Ok(rows_affected) => {
                 // Commit the transaction if successful
                 transaction
                     .commit()
                     .await
                     .map_err(|e| FlagError::DatabaseError(e.to_string()))?;
-                return Ok(query_result.rows_affected() > 0);
+                return Ok(rows_affected > 0);
             }
             Err(e) => {
                 // Rollback the transaction on error
@@ -595,22 +683,28 @@ pub async fn should_write_hash_key_override(
 
     let distinct_ids = vec![distinct_id, hash_key_override.clone()];
 
-    let query = r#"
-        WITH target_person_ids AS (
-            SELECT team_id, person_id 
-            FROM posthog_persondistinctid 
-            WHERE team_id = $1 AND distinct_id = ANY($2)
-        ),
-        existing_overrides AS (
-            SELECT team_id, person_id, feature_flag_key, hash_key 
-            FROM posthog_featureflaghashkeyoverride
-            WHERE team_id = $1 AND person_id IN (SELECT person_id FROM target_person_ids)
-        )
+    // Query 1: Get person_ids from persons table
+    let person_query = r#"
+        SELECT person_id 
+        FROM posthog_persondistinctid 
+        WHERE team_id = $1 AND distinct_id = ANY($2)
+    "#;
+
+    // Query 2: Get existing overrides from persons table
+    let overrides_query = r#"
+        SELECT feature_flag_key 
+        FROM posthog_featureflaghashkeyoverride
+        WHERE team_id = $1 AND person_id = ANY($2)
+    "#;
+
+    // Query 3: Get feature flags from non-persons tables
+    let flags_query = r#"
         SELECT key FROM posthog_featureflag flag
         JOIN posthog_team team ON flag.team_id = team.id
-        WHERE team.project_id = $3
-            AND flag.ensure_experience_continuity = TRUE AND flag.active = TRUE AND flag.deleted = FALSE
-            AND key NOT IN (SELECT feature_flag_key FROM existing_overrides)
+        WHERE team.project_id = $1
+            AND flag.ensure_experience_continuity = TRUE 
+            AND flag.active = TRUE 
+            AND flag.deleted = FALSE
     "#;
 
     for retry in 0..MAX_RETRIES {
@@ -628,15 +722,54 @@ pub async fn should_write_hash_key_override(
             })?;
             conn_timer.fin();
 
-            let rows = sqlx::query(query)
+            // Step 1: Get person_ids
+            let person_rows = sqlx::query(person_query)
                 .bind(team_id)
                 .bind(&distinct_ids)
+                .fetch_all(&mut *conn)
+                .await
+                .map_err(|e| {
+                    FlagError::DatabaseError(format!("Failed to fetch person IDs: {e}"))
+                })?;
+
+            // If no person_ids found, there's nothing to check
+            if person_rows.is_empty() {
+                return Ok(false);
+            }
+
+            // Extract person_ids from the rows
+            let person_ids: Vec<i64> = person_rows.iter().map(|row| row.get::<i64, _>(0)).collect();
+
+            // Step 2: Get existing overrides for these person_ids
+            let override_rows = sqlx::query(overrides_query)
+                .bind(team_id)
+                .bind(&person_ids)
+                .fetch_all(&mut *conn)
+                .await
+                .map_err(|e| FlagError::DatabaseError(format!("Failed to fetch overrides: {e}")))?;
+
+            // Extract flag keys from overrides
+            let existing_flag_keys: HashSet<String> = override_rows
+                .iter()
+                .map(|row| row.get::<String, _>(0))
+                .collect();
+
+            // Step 3: Get active feature flags with experience continuity
+            let flag_rows = sqlx::query(flags_query)
                 .bind(project_id)
                 .fetch_all(&mut *conn)
                 .await
-                .map_err(|e| FlagError::DatabaseError(format!("Query execution failed: {e}")))?;
+                .map_err(|e| FlagError::DatabaseError(format!("Failed to fetch flags: {e}")))?;
 
-            Ok::<bool, FlagError>(!rows.is_empty())
+            // Check if there are any flags that don't have overrides
+            for row in flag_rows {
+                let flag_key: String = row.get(0);
+                if !existing_flag_keys.contains(&flag_key) {
+                    return Ok(true); // Found a flag without override
+                }
+            }
+
+            Ok::<bool, FlagError>(false) // All flags have overrides
         })
         .await;
 
