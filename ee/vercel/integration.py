@@ -89,9 +89,17 @@ class VercelIntegration:
             logger.info("Vercel installation updated", installation_id=installation_id)
             return
 
+        email = payload.get("account", {}).get("contact", {}).get("email")
+        if not email:
+            logger.exception("Vercel installation payload missing email", installation_id=installation_id)
+            raise exceptions.ValidationError(
+                {"validation_error": "Email is required in the payload."},
+                code="invalid",
+            )
+
         # It's possible that there's already a user with this email signed up to PostHog,
         # either due to a reinstallation of the integration, or manual signup through PostHog itself.
-        user = User.objects.filter(email=payload["account"]["contact"]["email"]).first()
+        user = User.objects.filter(email=email).first()
         user_created = False
 
         with transaction.atomic():
