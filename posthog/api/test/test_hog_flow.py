@@ -91,11 +91,11 @@ class TestHogFlowAPI(APIBaseTest):
         hog_flow = HogFlow.objects.get(pk=response.json()["id"])
 
         assert hog_flow.trigger["filters"].get("bytecode") == snapshot(
-            ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11, 3, 1, 4, 1]
+            ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]
         )
 
         assert hog_flow.actions[0]["filters"].get("bytecode") == snapshot(
-            ["_H", 1, 32, "custom_event", 32, "event", 1, 1, 11, 3, 1, 4, 1]
+            ["_H", 1, 32, "custom_event", 32, "event", 1, 1, 11]
         )
 
         assert hog_flow.actions[0]["config"]["inputs"] == snapshot(

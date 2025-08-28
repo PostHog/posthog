@@ -60,6 +60,36 @@ class TestSQLMixins(NonAtomicBaseTest):
         self.assertIsInstance(result, SQLSchemaGeneratorOutput)
         self.assertEqual(result.query.query, "")
 
+    def test_parse_output_removes_semicolon(self):
+        """Test that semicolons are removed from the end of queries."""
+        mixin = self._node
+
+        test_output = {"query": "SELECT count() FROM events;"}
+        result = mixin._parse_output(test_output)
+
+        self.assertIsInstance(result, SQLSchemaGeneratorOutput)
+        self.assertEqual(result.query.query, "SELECT count() FROM events")
+
+    def test_parse_output_removes_multiple_semicolons(self):
+        """Test that multiple semicolons are removed from the end of queries."""
+        mixin = self._node
+
+        test_output = {"query": "SELECT count() FROM events;;;"}
+        result = mixin._parse_output(test_output)
+
+        self.assertIsInstance(result, SQLSchemaGeneratorOutput)
+        self.assertEqual(result.query.query, "SELECT count() FROM events")
+
+    def test_parse_output_preserves_semicolons_in_middle(self):
+        """Test that semicolons in the middle of queries are preserved."""
+        mixin = self._node
+
+        test_output = {"query": "SELECT 'hello;world' FROM events;"}
+        result = mixin._parse_output(test_output)
+
+        self.assertIsInstance(result, SQLSchemaGeneratorOutput)
+        self.assertEqual(result.query.query, "SELECT 'hello;world' FROM events")
+
     async def test_quality_check_output_success_simple_query(self):
         """Test successful quality check with simple valid query."""
         mixin = self._node

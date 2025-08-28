@@ -52,6 +52,7 @@ class TestBatchImportActivityLogging(ActivityLogTestHelper):
         self.assertIn("import_config", batch_import_masked)
 
     def test_batch_import_integration_test(self):
+        """Integration test to verify the basic setup works"""
         from posthog.models.activity_logging.utils import activity_storage
 
         activity_storage.set_user(self.user)

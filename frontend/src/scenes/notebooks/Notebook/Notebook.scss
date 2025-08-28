@@ -8,7 +8,7 @@
         position: relative;
         flex: 1;
         width: 100%;
-        overflow: hidden;
+        margin: 0 auto;
 
         .ProseMirror {
             &-focused {
@@ -20,7 +20,33 @@
             > h3,
             > h4,
             > h5 {
+                position: relative; // For the heading toggle
                 margin-top: 0.5rem;
+
+                > .ProseMirror-widget {
+                    position: absolute;
+                    top: 50%;
+                    left: 0;
+                    padding-right: 0.375rem;
+                    opacity: 0.5; // Reduced opacity so that this doesn't stand out like a sore thumb
+                    transform: translateY(-50%) translateX(-100%);
+
+                    .SidePanel3000 & {
+                        padding-right: 1px;
+                    }
+
+                    &:hover {
+                        opacity: 1;
+                    }
+                }
+
+                &:not(:hover) > .ProseMirror-widget {
+                    opacity: 0;
+                }
+
+                &[data-collapsed='true'] > .ProseMirror-widget {
+                    opacity: 0.8;
+                }
             }
 
             > p {
@@ -112,6 +138,10 @@
                 padding: 0.2rem;
                 background-color: rgb(0 0 0 / 5%);
                 border-radius: var(--radius);
+            }
+
+            [data-collapsed-by] {
+                display: none; // Node hidden as the heading it's under is collapsed
             }
         }
 
@@ -333,5 +363,15 @@
             padding: 0;
             border-bottom-width: 0;
         }
+    }
+}
+
+.Notebook_content {
+    display: flex;
+    flex: 1;
+    justify-content: center;
+
+    .SidePanel3000 & {
+        padding: 0 0.75rem; // Padding to fit in the HeadingToggles
     }
 }
