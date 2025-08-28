@@ -101,7 +101,7 @@ def _convert_llm_content_to_session_summary(
     session_duration: int,
     final_validation: bool = False,
 ) -> SessionSummarySerializer | None:
-    """Parse and enrich LLM YAML output, returning a JSON string."""
+    """Parse and enrich LLM YAML output, returning a schema object."""
     # Try to parse the accumulated text as YAML
     raw_session_summary = load_raw_session_summary_from_llm_content(
         raw_content=content,
