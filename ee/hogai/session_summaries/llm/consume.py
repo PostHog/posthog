@@ -347,6 +347,14 @@ async def stream_llm_single_session_summary(
             user_id=user_id,
         )
         raise ExceptionToRetry() from err
+    finally:
+        # Safety check to prevent hanging connections if the processing fails
+        if stream is not None:
+            try:
+                await stream.aclose()
+            except Exception:
+                logger.warning("Failed to close LLM stream", session_id=session_id, user_id=user_id)
+
     # Final validation of accumulated content (to decide if to retry the whole stream or not)
     try:
         if accumulated_usage:
