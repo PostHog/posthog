@@ -116,14 +116,13 @@ export function LegacyMetricModal({
                     data-attr="metrics-selector"
                     value={insightType}
                     onChange={(newInsightType) => {
+                        const newMetric =
+                            newInsightType === InsightType.TRENDS ? getDefaultTrendsMetric() : getDefaultFunnelsMetric()
                         setExperiment({
                             ...experiment,
-                            [metricsField]: [
-                                ...metrics.filter((m) => m.uuid !== metricUuid),
-                                newInsightType === InsightType.TRENDS
-                                    ? getDefaultTrendsMetric()
-                                    : getDefaultFunnelsMetric(),
-                            ],
+                            [metricsField]: metrics.map((m) =>
+                                m.uuid === metricUuid ? { ...newMetric, uuid: metricUuid, name: m.name } : m
+                            ),
                         })
                     }}
                     options={[

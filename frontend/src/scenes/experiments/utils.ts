@@ -320,6 +320,7 @@ export function featureFlagEligibleForExperiment(featureFlag: FeatureFlagType): 
 export function getDefaultTrendsMetric(): ExperimentTrendsQuery {
     return {
         kind: NodeKind.ExperimentTrendsQuery,
+        uuid: uuid(),
         count_query: {
             kind: NodeKind.TrendsQuery,
             series: [
@@ -346,6 +347,7 @@ export function getDefaultTrendsMetric(): ExperimentTrendsQuery {
 export function getDefaultFunnelsMetric(): ExperimentFunnelsQuery {
     return {
         kind: NodeKind.ExperimentFunnelsQuery,
+        uuid: uuid(),
         funnels_query: {
             kind: NodeKind.FunnelsQuery,
             filterTestAccounts: true,
@@ -433,14 +435,29 @@ export function getDefaultRatioMetric(): ExperimentMetric {
 /**
  * TODO: review. Probably deprecated
  */
-export function getDefaultExperimentMetric(metricType: ExperimentMetricType): ExperimentMetric {
+export function getDefaultExperimentMetric(
+    metricType: ExperimentMetricType,
+    uuid?: string,
+    name?: string
+): ExperimentMetric {
+    let defaultMetric: ExperimentMetric
+
     switch (metricType) {
         case ExperimentMetricType.FUNNEL:
-            return getDefaultFunnelMetric()
+            defaultMetric = getDefaultFunnelMetric()
+            break
         case ExperimentMetricType.RATIO:
-            return getDefaultRatioMetric()
+            defaultMetric = getDefaultRatioMetric()
+            break
         default:
-            return getDefaultCountMetric()
+            defaultMetric = getDefaultCountMetric()
+            break
+    }
+
+    return {
+        ...defaultMetric,
+        ...(uuid && { uuid }),
+        ...(name !== undefined && { name }),
     }
 }
 
