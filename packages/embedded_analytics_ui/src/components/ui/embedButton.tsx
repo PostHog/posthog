@@ -42,6 +42,6 @@ const EmbedButton = React.forwardRef<HTMLButtonElement, ButtonProps>(
         return <Comp className={cn(buttonVariants({ variant, size, className }))} ref={ref} {...props} />
     }
 )
-EmbedButton.displayName = 'Button'
+EmbedButton.displayName = 'EmbedButton'
 
 export { EmbedButton, buttonVariants }
