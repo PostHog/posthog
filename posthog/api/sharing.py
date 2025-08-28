@@ -393,7 +393,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 if isinstance(self.request.successful_authenticator, SharingPasswordProtectedAuthentication):
                     jwt_sharing_config = self.request.successful_authenticator.sharing_configuration
                     if jwt_sharing_config.access_token != access_token:
-                        raise NotFound()  # JWT is valid but for a different share
+                        # JWT is valid but for a different share - clear authentication to show unlock page
+                        self.request._not_authenticated()
 
                 return sharing_configuration
 
