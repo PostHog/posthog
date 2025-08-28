@@ -48,6 +48,10 @@ export const modalsLogic = kea<modalsLogicType>([
         closeVariantDeltaTimeseriesModal: true,
         openCalculateRunningTimeModal: true,
         closeCalculateRunningTimeModal: true,
+        openPrimaryMetricsReorderModal: true,
+        closePrimaryMetricsReorderModal: true,
+        openSecondaryMetricsReorderModal: true,
+        closeSecondaryMetricsReorderModal: true,
     }),
     reducers({
         isExperimentCollectionGoalModalOpen: [
@@ -153,6 +157,20 @@ export const modalsLogic = kea<modalsLogicType>([
             {
                 openCalculateRunningTimeModal: () => true,
                 closeCalculateRunningTimeModal: () => false,
+            },
+        ],
+        isPrimaryMetricsReorderModalOpen: [
+            false,
+            {
+                openPrimaryMetricsReorderModal: () => true,
+                closePrimaryMetricsReorderModal: () => false,
+            },
+        ],
+        isSecondaryMetricsReorderModalOpen: [
+            false,
+            {
+                openSecondaryMetricsReorderModal: () => true,
+                closeSecondaryMetricsReorderModal: () => false,
             },
         ],
         isDescriptionModalOpen: [

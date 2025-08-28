@@ -188,6 +188,8 @@
             "uuid": "434cb6ba-7fa6-4ca1-b7a0-8970b2d9a47d"
         }
     ],
+    "primary_metrics_ordered_uuids": ["aeb07709-c5ae-414e-89a9-1a53b3d0a8b9"],
+    "secondary_metrics_ordered_uuids": ["cbdd02f8-4a27-4017-a8d8-5f989b304ada"],
     "metrics_secondary": [
         {
             "kind": "ExperimentTrendsQuery",

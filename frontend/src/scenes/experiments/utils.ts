@@ -714,3 +714,29 @@ export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts:
         filterTestAccounts,
     }
 }
+
+/**
+ * Appends a metric UUID to the appropriate ordering array
+ * Returns a new array with the UUID added
+ */
+export function appendMetricToOrderingArray(experiment: Experiment, uuid: string, isSecondary: boolean): string[] {
+    const orderingField = isSecondary ? 'secondary_metrics_ordered_uuids' : 'primary_metrics_ordered_uuids'
+    const orderingArray = experiment[orderingField] ?? []
+
+    if (!orderingArray.includes(uuid)) {
+        return [...orderingArray, uuid]
+    }
+
+    return orderingArray
+}
+
+/**
+ * Removes a metric UUID from the appropriate ordering array
+ * Returns a new array with the UUID removed
+ */
+export function removeMetricFromOrderingArray(experiment: Experiment, uuid: string, isSecondary: boolean): string[] {
+    const orderingField = isSecondary ? 'secondary_metrics_ordered_uuids' : 'primary_metrics_ordered_uuids'
+    const orderingArray = experiment[orderingField] ?? []
+
+    return orderingArray.filter((existingUuid) => existingUuid !== uuid)
+}
