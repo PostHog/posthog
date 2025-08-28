@@ -1,4 +1,3 @@
-import time
 from typing import Any
 
 from posthog.test.base import BaseTest
@@ -396,7 +395,6 @@ class TestSingleSessionSummaryBulk(BaseTest):
 
     def test_get_bulk_summaries_latest_per_session(self) -> None:
         session_id: str = "session-latest-test"
-
         summary_data_1: dict[str, Any] = {
             "segments": [],
             "key_actions": [],
@@ -412,9 +410,6 @@ class TestSingleSessionSummaryBulk(BaseTest):
             exception_event_ids=[],
             extra_summary_context=None,
         )
-
-        time.sleep(0.01)
-
         summary_data_2: dict[str, Any] = {
             "segments": [],
             "key_actions": [],
@@ -430,13 +425,11 @@ class TestSingleSessionSummaryBulk(BaseTest):
             exception_event_ids=[],
             extra_summary_context=None,
         )
-
         result: SessionSummaryPage = SingleSessionSummary.objects.get_bulk_summaries(
             team_id=self.team.id,
             session_ids=[session_id],
             extra_summary_context=None,
         )
-
         self.assertEqual(len(result.results), 1)
         # Should get the latest one (version 2)
         self.assertEqual(result.results[0].summary["session_outcome"]["description"], "Newer summary - version 2")
