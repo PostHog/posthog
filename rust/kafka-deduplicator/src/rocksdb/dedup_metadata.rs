@@ -171,6 +171,9 @@ impl MetadataV1 {
     }
 }
 
+/// Type alias for property differences
+type PropertyDifference = (String, Option<(String, String)>);
+
 /// Represents the similarity between two events
 #[derive(Debug)]
 pub struct EventSimilarity {
@@ -184,8 +187,9 @@ pub struct EventSimilarity {
     pub properties_similarity: f64,
     /// Number of properties that differ
     pub different_property_count: u32,
-    /// List of property keys that differ or exist in only one event
-    pub different_properties: Vec<String>,
+    /// List of properties that differ with values for $ properties, just key names for others
+    /// Format: (property_name, Option<(original_value, new_value)>)
+    pub different_properties: Vec<PropertyDifference>,
 }
 
 impl EventSimilarity {
@@ -311,7 +315,7 @@ impl EventSimilarity {
     fn compare_properties(
         original: &HashMap<String, serde_json::Value>,
         new: &HashMap<String, serde_json::Value>,
-    ) -> (f64, Vec<String>) {
+    ) -> (f64, Vec<PropertyDifference>) {
         let mut different_properties = Vec::new();
 
         // Get all unique keys from both maps
@@ -323,9 +327,28 @@ impl EventSimilarity {
 
         let mut matching = 0;
         for key in &all_keys {
-            match (original.get(*key), new.get(*key)) {
+            let original_val = original.get(*key);
+            let new_val = new.get(*key);
+
+            match (original_val, new_val) {
                 (Some(v1), Some(v2)) if v1 == v2 => matching += 1,
-                _ => different_properties.push((*key).to_string()),
+                (original_opt, new_opt) => {
+                    // For $ properties (PostHog system properties), include values
+                    // For other properties, just record the key for privacy
+                    let values = if key.starts_with('$') {
+                        let orig_str = original_opt
+                            .map(|v| v.to_string())
+                            .unwrap_or_else(|| "<not set>".to_string());
+                        let new_str = new_opt
+                            .map(|v| v.to_string())
+                            .unwrap_or_else(|| "<not set>".to_string());
+                        Some((orig_str, new_str))
+                    } else {
+                        None
+                    };
+
+                    different_properties.push(((*key).to_string(), values));
+                }
             }
         }
 
@@ -565,10 +588,14 @@ mod tests {
             .any(|(field, _, _)| field == "timestamp"));
 
         assert_eq!(similarity.different_property_count, 2); // url differs, browser is new
-        assert!(similarity.different_properties.contains(&"url".to_string()));
         assert!(similarity
             .different_properties
-            .contains(&"browser".to_string()));
+            .iter()
+            .any(|(prop, _)| prop == "url"));
+        assert!(similarity
+            .different_properties
+            .iter()
+            .any(|(prop, _)| prop == "browser"));
 
         assert!(similarity.properties_similarity > 0.0 && similarity.properties_similarity < 1.0);
         assert!(similarity.overall_score > 0.0 && similarity.overall_score < 1.0);

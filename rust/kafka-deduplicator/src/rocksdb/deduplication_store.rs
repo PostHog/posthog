@@ -252,24 +252,36 @@ impl DeduplicationStore {
             );
 
             // Log detailed differences if similarity is not perfect
-            if similarity.overall_score < 1.0 {
-                if !similarity.different_fields.is_empty() {
-                    for (field_name, original_val, new_val) in &similarity.different_fields {
+            if !similarity.different_fields.is_empty() {
+                for (field_name, original_val, new_val) in &similarity.different_fields {
+                    info!(
+                        "Different field '{}' for key {}: '{}' -> '{}'",
+                        field_name,
+                        key.get_formatted_key(),
+                        original_val,
+                        new_val
+                    );
+                }
+            }
+            if !similarity.different_properties.is_empty() {
+                for (prop_name, values_opt) in &similarity.different_properties {
+                    if let Some((orig_val, new_val)) = values_opt {
+                        // $ properties - show values
                         info!(
-                            "Different field '{}' for key {}: '{}' -> '{}'",
-                            field_name,
+                            "Different property '{}' for key {}: '{}' -> '{}'",
+                            prop_name,
                             key.get_formatted_key(),
-                            original_val,
+                            orig_val,
                             new_val
                         );
+                    } else {
+                        // Non-$ properties - just show key name for privacy
+                        info!(
+                            "Different property '{}' for key {} (values hidden for privacy)",
+                            prop_name,
+                            key.get_formatted_key()
+                        );
                     }
-                }
-                if !similarity.different_properties.is_empty() {
-                    info!(
-                        "Different properties for key {}: {:?}",
-                        key.get_formatted_key(),
-                        similarity.different_properties
-                    );
                 }
             }
 
