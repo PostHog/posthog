@@ -14,7 +14,7 @@ export const FilterBar = ({ top, left, right }: FilterBarProps): JSX.Element => 
     const [expanded, setExpanded] = useState(false)
 
     return (
-        <div className="sticky z-20 bg-primary border-b py-2 top-[var(--breadcrumbs-height-compact)]">
+        <div className="sticky z-20 bg-primary border-b py-2 top-[var(--breadcrumbs-height-compact)] space-y-2">
             {top}
 
             <div className="flex flex-col md:flex-row md:justify-between gap-2">
