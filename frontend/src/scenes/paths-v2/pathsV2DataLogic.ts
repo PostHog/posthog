@@ -1,4 +1,5 @@
 import { connect, kea, key, path, props, selectors } from 'kea'
+
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
@@ -49,7 +50,7 @@ export const pathsV2DataLogic = kea<pathsV2DataLogicType>([
         results: [
             (s) => [s.insightQuery, s.insightData],
             (insightQuery, insightData): Paths[] => {
-                return isPathsV2Query(insightQuery) ? convertToLegacyPaths(insightData?.result) ?? [] : []
+                return isPathsV2Query(insightQuery) ? (convertToLegacyPaths(insightData?.result) ?? []) : []
             },
         ],
         paths: [
@@ -62,8 +63,8 @@ export const pathsV2DataLogic = kea<pathsV2DataLogicType>([
                     type: nodeName.includes(POSTHOG_DROPOFF)
                         ? PathNodeType.Dropoff
                         : nodeName.includes(POSTHOG_OTHER)
-                        ? PathNodeType.Other
-                        : PathNodeType.Node,
+                          ? PathNodeType.Other
+                          : PathNodeType.Node,
                     step_index: parseInt(nodeName.split('_')[0], 10),
                 }))
 
