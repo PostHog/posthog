@@ -31,7 +31,7 @@ export interface ActivityLogDetail {
     name: string | null
     short_id?: InsightShortId | null
     /** e.g. for property definition carries event, person, or group */
-    type?: string | null
+    type?: string
     context?: Record<string, any> | null
 }
 

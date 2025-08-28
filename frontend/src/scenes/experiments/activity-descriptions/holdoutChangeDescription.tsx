@@ -10,15 +10,15 @@ export const getHoldoutChangeDescription = (holdoutChange: ActivityChange): stri
     /**
      * a little type assertion to force field into the allowed holdout fields
      */
-    return match(holdoutChange as ActivityChange & { field: keyof AllowedHoldoutFields })
-        .with({ field: 'name' }, () => {
+    return match(holdoutChange.field as keyof AllowedHoldoutFields)
+        .with('name', () => {
             return 'updated experiment holdout name:'
         })
-        .with({ field: 'description' }, () => {
+        .with('description', () => {
             return 'updated experiment holdout description:'
         })
-        .with({ field: 'filters' }, () => {
+        .with('filters', () => {
             return 'updated experiment holdout filters:'
         })
-        .otherwise(() => null)
+        .exhaustive()
 }

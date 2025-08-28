@@ -9,6 +9,7 @@ import { ProgressStatus } from '~/types'
 import { StatusTag } from './ExperimentView/components'
 import {
     getExperimentChangeDescription,
+    getHoldoutChangeDescription,
     getSharedMetricChangeDescription,
     nameOrLinkToExperiment,
     nameOrLinkToSharedMetric,
@@ -132,55 +133,36 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
                 ),
             }
         })
-        .with({ activity: 'updated' }, ({ detail: updateLogDetail }) => {
-            const changes = logItem.detail.changes || []
-            /**
-             * if there are no changes, we don't need to describe the update.
-             */
-            if (changes.length === 0) {
-                return {
-                    description: (
-                        <SentenceList
-                            prefix={<strong>{userNameForLogItem(logItem)}</strong>}
-                            listParts={['updated']}
-                            suffix={match(updateLogDetail)
-                                .with({ type: null }, () =>
-                                    nameOrLinkToExperiment(updateLogDetail.name, logItem.item_id)
-                                )
-                                .with({ type: 'shared_metric' }, () =>
-                                    nameOrLinkToSharedMetric(updateLogDetail.name, logItem.item_id)
-                                )
-                                .with({ type: 'holdout' }, () => <strong>{updateLogDetail.name}</strong>)
-                                .otherwise(() => {
-                                    return null
-                                })}
-                        />
-                    ),
-                }
-            }
+        .with({ activity: 'updated' }, ({ item_id, detail: updateLogDetail }) => {
+            const changes = updateLogDetail.changes || []
 
-            const listParts = changes
-                .map((change) =>
-                    (isSharedMetric ? getSharedMetricChangeDescription : getExperimentChangeDescription)(change)
-                )
-                .filter((part) => part !== null)
+            const listParts =
+                changes.length === 0
+                    ? ['updated']
+                    : changes
+                          .map((change) =>
+                              match(updateLogDetail.type)
+                                  .with('shared_metric', () => getSharedMetricChangeDescription(change))
+                                  .with('holdout', () => getHoldoutChangeDescription(change))
+                                  .otherwise(() => getExperimentChangeDescription(change))
+                          )
+                          .filter((part) => part !== null)
 
-            if (listParts.length === 0) {
+            if (changes.length > 0 && listParts.length === 0) {
                 return { description: null }
             }
 
-            /**
-             * we always prefix with the user name, and suffix with a link to the resource
-             */
+            const suffix = match(updateLogDetail.type)
+                .with('shared_metric', () => nameOrLinkToSharedMetric(updateLogDetail.name, item_id))
+                .with('holdout', () => <strong>{updateLogDetail.name}</strong>)
+                .otherwise(() => nameOrLinkToExperiment(updateLogDetail.name, item_id))
+
             return {
                 description: (
                     <SentenceList
                         prefix={<strong>{userNameForLogItem(logItem)}</strong>}
                         listParts={listParts}
-                        suffix={(isSharedMetric ? nameOrLinkToSharedMetric : nameOrLinkToExperiment)(
-                            logItem.detail.name,
-                            logItem.item_id
-                        )}
+                        suffix={suffix}
                     />
                 ),
             }
