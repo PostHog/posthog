@@ -36,7 +36,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 '/api/projects/:team_id/notebooks/recording_comments': { results: [] },
                 '/api/environments/:team_id/session_recordings/:id/snapshots/': (req, res, ctx) => {
                     // with no sources, returns sources...
-                    if (req.url.searchParams.get('source') === 'blob_v2') {
+                    if (req.url.searchParams.get('source') === 'blob') {
                         return res(ctx.text(snapshotsAsJSONLines()))
                     }
                     // with no source requested should return sources
@@ -45,10 +45,10 @@ describe('sessionRecordingPlayerLogic', () => {
                         {
                             sources: [
                                 {
-                                    source: 'blob_v2',
+                                    source: 'blob',
                                     start_timestamp: '2023-08-11T12:03:36.097000Z',
                                     end_timestamp: '2023-08-11T12:04:52.268000Z',
-                                    blob_key: '0',
+                                    blob_key: '1691755416097-1691755492268',
                                 },
                             ],
                         },
@@ -68,7 +68,7 @@ describe('sessionRecordingPlayerLogic', () => {
         })
         initKeaTests()
         featureFlagLogic.mount()
-        logic = sessionRecordingPlayerLogic({ sessionRecordingId: '2', playerKey: 'test', pollingDisabled: true })
+        logic = sessionRecordingPlayerLogic({ sessionRecordingId: '2', playerKey: 'test' })
         logic.mount()
     })
 
@@ -101,12 +101,7 @@ describe('sessionRecordingPlayerLogic', () => {
 
         it('loads metadata and snapshots if autoplay', async () => {
             logic.unmount()
-            logic = sessionRecordingPlayerLogic({
-                sessionRecordingId: '2',
-                playerKey: 'test',
-                autoPlay: true,
-                pollingDisabled: true,
-            })
+            logic = sessionRecordingPlayerLogic({ sessionRecordingId: '2', playerKey: 'test', autoPlay: true })
             logic.mount()
 
             silenceKeaLoadersErrors()
@@ -134,12 +129,7 @@ describe('sessionRecordingPlayerLogic', () => {
 
         it('marks as viewed once playing', async () => {
             logic.unmount()
-            logic = sessionRecordingPlayerLogic({
-                sessionRecordingId: '2',
-                playerKey: 'test',
-                autoPlay: true,
-                pollingDisabled: true,
-            })
+            logic = sessionRecordingPlayerLogic({ sessionRecordingId: '2', playerKey: 'test', autoPlay: true })
             logic.mount()
 
             silenceKeaLoadersErrors()

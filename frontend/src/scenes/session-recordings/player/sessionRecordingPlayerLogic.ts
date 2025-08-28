@@ -219,6 +219,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'urls',
                 'snapshotsLoaded',
                 'snapshotsLoading',
+                'isRealtimePolling',
                 'sessionPlayerData',
                 'sessionPlayerMetaData',
                 'sessionPlayerMetaDataLoading',

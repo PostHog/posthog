@@ -6,9 +6,10 @@ import posthog from 'posthog-js'
 import { EventType, customEvent, eventWithTime } from '@posthog/rrweb-types'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { chainToElements } from 'lib/utils/elements-chain'
 import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
@@ -45,12 +46,15 @@ import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 
 const TWENTY_FOUR_HOURS_IN_MS = 24 * 60 * 60 * 1000 // +- before and after start and end of a recording to query for session linked events.
 const FIVE_MINUTES_IN_MS = 5 * 60 * 1000 // +- before and after start and end of a recording to query for events related by person.
+const DEFAULT_REALTIME_POLLING_MILLIS = 3000
 const DEFAULT_V2_POLLING_INTERVAL_MS = 10000
 
 export interface SessionRecordingDataLogicProps {
     sessionRecordingId: SessionRecordingId
+    // allows altering v1 polling interval in tests
+    realTimePollingIntervalMilliseconds?: number
     // allows disabling polling for new sources in tests
-    pollingDisabled?: boolean
+    blobV2PollingDisabled?: boolean
     playerKey?: string
     accessToken?: string
 }
@@ -90,6 +94,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         reportUsageIfFullyLoaded: true,
         persistRecording: true,
         maybePersistRecording: true,
+        pollRealtimeSnapshots: true,
+        stopRealtimePolling: true,
         setTrackedWindow: (windowId: string | null) => ({ windowId }),
     }),
     reducers(() => ({
@@ -103,6 +109,13 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             {} as Partial<RecordingEventsFilters>,
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
+            },
+        ],
+        isRealtimePolling: [
+            false as boolean,
+            {
+                pollRealtimeSnapshots: () => true,
+                stopRealtimePolling: () => false,
             },
         ],
         isNotFound: [
@@ -196,7 +209,18 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         headers.Authorization = `Bearer ${props.accessToken}`
                     }
 
-                    const response = await api.recordings.listSnapshotSources(props.sessionRecordingId, headers)
+                    const blob_v2 =
+                        values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY] || !!props.accessToken
+                    const blob_v2_lts =
+                        values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_LTS_REPLAY] || !!props.accessToken
+                    const response = await api.recordings.listSnapshotSources(
+                        props.sessionRecordingId,
+                        {
+                            blob_v2,
+                            blob_v2_lts,
+                        },
+                        headers
+                    )
 
                     if (!response.sources) {
                         return []
@@ -206,7 +230,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     if (anyBlobV2) {
                         return response.sources.filter((s) => s.source === SnapshotSourceType.blob_v2)
                     }
-                    throw new Error('Only blob_v2 sources are supported')
+                    return response.sources.filter((s) => s.source !== SnapshotSourceType.blob_v2)
                 },
             },
         ],
@@ -230,7 +254,14 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     } else {
                         const source = sources[0]
 
-                        if (source.source === SnapshotSourceType.blob_v2) {
+                        if (source.source === SnapshotSourceType.blob) {
+                            if (!source.blob_key) {
+                                throw new Error('Missing key')
+                            }
+                            params = { blob_key: source.blob_key, source: 'blob' }
+                        } else if (source.source === SnapshotSourceType.realtime) {
+                            params = { source: 'realtime' }
+                        } else if (source.source === SnapshotSourceType.blob_v2) {
                             params = { source: 'blob_v2', blob_key: source.blob_key }
                         } else if (source.source === SnapshotSourceType.file) {
                             // no need to load a file source, it is already loaded
@@ -246,7 +277,15 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     if (props.accessToken) {
                         headers.Authorization = `Bearer ${props.accessToken}`
                     }
-                    const response = await api.recordings.getSnapshots(props.sessionRecordingId, params, headers)
+                    const response = await api.recordings
+                        .getSnapshots(props.sessionRecordingId, params, headers)
+                        .catch((e) => {
+                            if (sources[0].source === 'realtime' && e.status === 404) {
+                                // Realtime source is not always available, so a 404 is expected
+                                return []
+                            }
+                            throw e
+                        })
 
                     // sorting is very cheap for already sorted lists
                     const parsedSnapshots = (await parseEncodedSnapshots(response, props.sessionRecordingId)).sort(
@@ -483,7 +522,7 @@ AND properties.$lib != 'web'`
             const newSnapshotsCount = snapshots.length
 
             if ((cache.lastSnapshotsCount ?? newSnapshotsCount) === newSnapshotsCount) {
-                // if we're getting no results from polling, we can increment faster
+                // if we're getting no results from realtime polling, we can increment faster
                 // so that we stop polling sooner
                 const increment = newSnapshotsCount === 0 ? 2 : 1
                 cache.lastSnapshotsUnchangedCount = (cache.lastSnapshotsUnchangedCount ?? 0) + increment
@@ -517,8 +556,7 @@ AND properties.$lib != 'web'`
                     return actions.loadSnapshotsForSource(nextSourcesToLoad.slice(0, 30))
                 }
 
-                // no need to poll forever
-                if (!props.pollingDisabled && (cache.lastSnapshotsUnchangedCount ?? 0) < 20) {
+                if (!props.blobV2PollingDisabled) {
                     actions.loadSnapshotSources(DEFAULT_V2_POLLING_INTERVAL_MS)
                 }
             } else {
@@ -530,9 +568,30 @@ AND properties.$lib != 'web'`
                 if (nextSourceToLoad) {
                     return actions.loadSnapshotsForSource([nextSourceToLoad])
                 }
+
+                // If we have a realtime source, start polling it
+                const realTimeSource = values.snapshotSources?.find((s) => s.source === SnapshotSourceType.realtime)
+                if (realTimeSource) {
+                    actions.pollRealtimeSnapshots()
+                }
             }
 
             actions.reportUsageIfFullyLoaded()
+        },
+        pollRealtimeSnapshots: () => {
+            // always make sure we've cleared up the last timeout
+            clearTimeout(cache.realTimePollingTimeoutID)
+            cache.realTimePollingTimeoutID = null
+
+            // ten is an arbitrary limit to try to avoid sending requests to our backend unnecessarily
+            // we could change this or add to it e.g. only poll if browser is visible to user
+            if ((cache.lastSnapshotsUnchangedCount ?? 0) <= 10) {
+                cache.realTimePollingTimeoutID = setTimeout(() => {
+                    actions.loadSnapshotsForSource([{ source: SnapshotSourceType.realtime }])
+                }, props.realTimePollingIntervalMilliseconds || DEFAULT_REALTIME_POLLING_MILLIS)
+            } else {
+                actions.stopRealtimePolling()
+            }
         },
         loadEventsSuccess: () => {
             actions.reportUsageIfFullyLoaded()
@@ -682,8 +741,20 @@ AND properties.$lib != 'web'`
 
         snapshotsLoading: [
             (s) => [s.snapshotSourcesLoading, s.snapshotsForSourceLoading, s.featureFlags],
-            (snapshotSourcesLoading: boolean, snapshotsForSourceLoading: boolean): boolean => {
-                return snapshotSourcesLoading || snapshotsForSourceLoading
+            (
+                snapshotSourcesLoading: boolean,
+                snapshotsForSourceLoading: boolean,
+                featureFlags: FeatureFlagsSet
+            ): boolean => {
+                // For v2 recordings, only show loading if we have no snapshots yet
+                if (featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY]) {
+                    return snapshotSourcesLoading || snapshotsForSourceLoading
+                }
+
+                // Default behavior for non-v2 recordings
+                // if there's a realTimePollingTimeoutID, don't signal that we're loading
+                // we don't want the UI to flip to "loading" every time we poll
+                return !cache.realTimePollingTimeoutID && (snapshotSourcesLoading || snapshotsForSourceLoading)
             },
         ],
 
@@ -873,10 +944,11 @@ AND properties.$lib != 'web'`
         isLikelyPastTTL: [
             (s) => [s.start, s.snapshotSources],
             (start, snapshotSources) => {
-                // this will soon be redundant since we'll have explicit ttl in metadata 🤩
+                // If the recording is older than 30 days and has only realtime sources being reported, it is likely past its TTL
                 const isOlderThan30Days = dayjs().diff(start, 'hour') > 30
+                const onlyHasRealTime = snapshotSources?.every((s) => s.source === SnapshotSourceType.realtime)
                 const hasNoSources = snapshotSources?.length === 0
-                return isOlderThan30Days && hasNoSources
+                return isOlderThan30Days && (onlyHasRealTime || hasNoSources)
             },
         ],
 
@@ -948,6 +1020,12 @@ AND properties.$lib != 'web'`
     })),
     beforeUnmount(({ cache }) => {
         // Clear the cache
+
+        if (cache.realTimePollingTimeoutID) {
+            clearTimeout(cache.realTimePollingTimeoutID)
+            cache.realTimePollingTimeoutID = undefined
+        }
+
         cache.windowIdForTimestamp = undefined
         cache.viewportForTimestamp = undefined
         cache.snapshotsBySource = undefined
