@@ -575,9 +575,7 @@ def get_source_aggregation_expr(
             ExperimentMetricMathType.UNIQUE_GROUP,
         ]:
             # Clickhouse count NULL and empty values as distinct, so need to explicitly exclude them here
-            return parse_expr(
-                f"toFloat(countDistinctIf({table_alias}.value, {table_alias}.value is not null and {table_alias}.value != ''))"
-            )
+            return parse_expr(f"toFloat(countDistinctIf({table_alias}.value, notEmpty(toString({table_alias}.value))))")
         elif math_type == ExperimentMetricMathType.MIN:
             return parse_expr(f"min(coalesce(toFloat({table_alias}.value), 0))")
         elif math_type == ExperimentMetricMathType.MAX:
