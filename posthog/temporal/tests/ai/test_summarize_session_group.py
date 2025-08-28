@@ -18,7 +18,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog import constants
-from posthog.caching.test.test_stale_utils import Team
+from posthog.models import Team
 from posthog.models.user import User
 from posthog.redis import get_async_client
 from posthog.sync import database_sync_to_async
