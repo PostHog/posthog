@@ -13,7 +13,6 @@ import { SceneConfig } from 'scenes/sceneTypes'
 
 import { PanelLayout } from '~/layout/panel-layout/PanelLayout'
 
-import { MaxFloatingInput } from '../../scenes/max/MaxFloatingInput'
 import { ProjectNotice } from '../navigation/ProjectNotice'
 import { navigationLogic } from '../navigation/navigationLogic'
 import { SceneLayout } from '../scenes/SceneLayout'
@@ -43,7 +42,6 @@ export function Navigation({
             <div className="Navigation3000 flex-col" style={theme?.mainStyle}>
                 {mode === 'minimal' ? <MinimalNavigation /> : null}
                 <main>{children}</main>
-                <MaxFloatingInput />
             </div>
         )
     }
@@ -111,7 +109,6 @@ export function Navigation({
             </main>
             <SidePanel />
             <CommandBar />
-            <MaxFloatingInput />
         </div>
     )
 }
