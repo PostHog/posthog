@@ -26,7 +26,7 @@ from social_django.models import UserSocialAuth
 from two_factor.utils import totp_digits
 
 from posthog.api.authentication import password_reset_token_generator, post_login, social_login_notification
-from posthog.auth import OAuthAccessTokenAuthentication, ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
+from posthog.auth import OAuthAccessTokenAuthentication, ProjectSecretAPIKeyAuthentication, SecuredSDKEndpointUser
 from posthog.models import User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -986,7 +986,7 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         user, _ = result
 
         self.assertIsNotNone(user)
-        self.assertIsInstance(user, ProjectSecretAPIKeyUser)
+        self.assertIsInstance(user, SecuredSDKEndpointUser)
         self.assertEqual(user.team, self.team)
 
     def test_authenticate_with_valid_secret_api_key_in_body(self):
@@ -1005,7 +1005,7 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         user, _ = result
 
         self.assertIsNotNone(user)
-        self.assertIsInstance(user, ProjectSecretAPIKeyUser)
+        self.assertIsInstance(user, SecuredSDKEndpointUser)
         self.assertEqual(user.team, self.team)
 
     def test_authenticate_with_secret_api_key_in_query_string_not_supported(self):
@@ -1054,7 +1054,7 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
 
         assert result is not None
         user, _ = result
-        self.assertIsInstance(user, ProjectSecretAPIKeyUser)
+        self.assertIsInstance(user, SecuredSDKEndpointUser)
         self.assertEqual(user.team, self.team)
 
     def test_authenticate_with_no_project_api_key_in_body_passes(self):
@@ -1073,7 +1073,7 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
 
         assert result is not None
         user, _ = result
-        self.assertIsInstance(user, ProjectSecretAPIKeyUser)
+        self.assertIsInstance(user, SecuredSDKEndpointUser)
         self.assertEqual(user.team, self.team)
 
 

@@ -3,6 +3,167 @@ from posthog.test.base import APIBaseTest
 from rest_framework import status
 
 from posthog.models import FeatureFlag
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+
+
+class TestLocalEvaluation(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.team.secret_api_token = "phs_supersecretapitoken"
+        self.team.api_token = "phc_properlookingapitoken"
+        self.team.save()
+        # Clean up existing flags to avoid interference
+        FeatureFlag.objects.all().delete()
+
+    def test_local_evaluation_with_personal_api_key_and_project_api_token_in_url(self):
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-a",
+            name="Flag A",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+            },
+        )
+        personal_api_key = "phx_personalapitoken"
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Test Key",
+            secure_value=hash_key_value(personal_api_key),
+            scopes=["feature_flag:read"],
+        )
+        response = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
+            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        # flags is a list, not a dictionary, so find the flag by key
+        flag_found = any(flag["key"] == "flag-a" for flag in data["flags"])
+        self.assertTrue(flag_found)
+
+    def test_local_evaluation_with_personal_api_key_and_no_project_api_token_in_url(self):
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-a",
+            name="Flag A",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+            },
+        )
+        personal_api_key = "phx_personalapitoken"
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Test Key",
+            secure_value=hash_key_value(personal_api_key),
+            scopes=["feature_flag:read"],
+        )
+        response = self.client.get(
+            f"/api/feature_flag/local_evaluation",
+            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        # flags is a list, not a dictionary, so find the flag by key
+        flag_found = any(flag["key"] == "flag-a" for flag in data["flags"])
+        self.assertTrue(flag_found)
+
+    def test_local_evaluation_with_personal_api_key_not_matching_project_api_token(self):
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-a",
+            name="Flag A",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+            },
+        )
+        personal_api_key = "phx_personalapitoken"
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Test Key",
+            secure_value=hash_key_value(personal_api_key),
+            scopes=["feature_flag:read"],
+        )
+        response = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}xxx",
+            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_local_evaluation_with_secret_api_key_and_project_api_token_in_url(self):
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-a",
+            name="Flag A",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+            },
+        )
+
+        response = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
+            HTTP_AUTHORIZATION=f"Bearer {self.team.secret_api_token}",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        # flags is a list, not a dictionary, so find the flag by key
+        flag_found = any(flag["key"] == "flag-a" for flag in data["flags"])
+        self.assertTrue(flag_found)
+
+    def test_local_evaluation_with_secret_api_key_and_no_project_api_token_in_url(self):
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-a",
+            name="Flag A",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+            },
+        )
+
+        response = self.client.get(
+            f"/api/feature_flag/local_evaluation",
+            HTTP_AUTHORIZATION=f"Bearer {self.team.secret_api_token}",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        # flags is a list, not a dictionary, so find the flag by key
+        flag_found = any(flag["key"] == "flag-a" for flag in data["flags"])
+        self.assertTrue(flag_found)
+
+    def test_local_evaluation_with_secret_api_key_not_matching_project_api_token(self):
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-a",
+            name="Flag A",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+            },
+        )
+
+        response = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}xxx",
+            HTTP_AUTHORIZATION=f"Bearer {self.team.secret_api_token}",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_local_evaluation_with_wrong_secret_api_key(self):
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-a",
+            name="Flag A",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+            },
+        )
+
+        response = self.client.get(
+            f"/api/feature_flag/local_evaluation",
+            HTTP_AUTHORIZATION=f"Bearer {self.team.secret_api_token}123",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
 
 class TestFeatureFlagDependencyTransformation(APIBaseTest):
@@ -71,7 +232,9 @@ class TestFeatureFlagDependencyTransformation(APIBaseTest):
             },
         )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/local_evaluation?token={self.team.api_token}"
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         flags = data["flags"]
@@ -142,7 +305,9 @@ class TestFeatureFlagDependencyTransformation(APIBaseTest):
         }
         flag_a.save()
 
-        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/local_evaluation?token={self.team.api_token}"
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
 
@@ -218,7 +383,9 @@ class TestFeatureFlagDependencyTransformation(APIBaseTest):
             },
         )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/local_evaluation?token={self.team.api_token}"
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         flags = data["flags"]
@@ -269,7 +436,9 @@ class TestFeatureFlagDependencyTransformation(APIBaseTest):
             },
         )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/local_evaluation?token={self.team.api_token}"
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         flags = data["flags"]
@@ -319,7 +488,9 @@ class TestFeatureFlagDependencyTransformation(APIBaseTest):
             },
         )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/local_evaluation?token={self.team.api_token}"
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         flags = data["flags"]
@@ -368,7 +539,9 @@ class TestFeatureFlagDependencyTransformation(APIBaseTest):
             },
         )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/local_evaluation?token={self.team.api_token}"
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         flags = data["flags"]
@@ -420,7 +593,9 @@ class TestFeatureFlagDependencyTransformation(APIBaseTest):
             )
             dependent_flags.append(flag)
 
-        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/local_evaluation?token={self.team.api_token}"
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         flags = data["flags"]

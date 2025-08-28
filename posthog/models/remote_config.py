@@ -5,7 +5,7 @@ from typing import Any, Optional
 from django.conf import settings
 from django.core.cache import cache
 from django.db import models, transaction
-from django.db.models.signals import post_save
+from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
 from django.http import HttpRequest
 from django.utils import timezone
@@ -19,9 +19,12 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.error_tracking.error_tracking import ErrorTrackingSuppressionRule
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.hog_functions.hog_function import HogFunction
+from posthog.models.organization import OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.plugin import PluginConfig
 from posthog.models.surveys.survey import Survey
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.models.utils import UUIDTModel, execute_with_timeout
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
 
@@ -471,6 +474,19 @@ def _update_team_remote_config(team_id: int):
 def team_saved(sender, instance: "Team", created, **kwargs):
     transaction.on_commit(lambda: _update_team_remote_config(instance.id))
 
+    # Handle team access cache invalidation with change detection
+    from posthog.storage.team_access_cache_signal_handlers import update_team_authentication_cache
+
+    transaction.on_commit(lambda: update_team_authentication_cache(instance, created, **kwargs))
+
+
+@receiver(post_delete, sender=Team)
+def team_deleted(sender, instance: "Team", **kwargs):
+    """Handle team deletion for access cache."""
+    from posthog.storage.team_access_cache_signal_handlers import update_team_authentication_cache_on_delete
+
+    transaction.on_commit(lambda: update_team_authentication_cache_on_delete(instance, **kwargs))
+
 
 @receiver(post_save, sender=FeatureFlag)
 def feature_flag_saved(sender, instance: "FeatureFlag", created, **kwargs):
@@ -500,3 +516,61 @@ def survey_saved(sender, instance: "Survey", created, **kwargs):
 @receiver(post_save, sender=ErrorTrackingSuppressionRule)
 def error_tracking_suppression_rule_saved(sender, instance: "ErrorTrackingSuppressionRule", created, **kwargs):
     transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
+
+
+@receiver(post_save, sender=PersonalAPIKey)
+def personal_api_key_saved(sender, instance: "PersonalAPIKey", created, **kwargs):
+    """
+    Handle PersonalAPIKey save for team access cache invalidation.
+    """
+    from posthog.storage.team_access_cache_signal_handlers import update_personal_api_key_authentication_cache
+
+    # Defer cache invalidation until after transaction commits
+    transaction.on_commit(lambda: update_personal_api_key_authentication_cache(instance, created, **kwargs))
+
+
+@receiver(post_delete, sender=PersonalAPIKey)
+def personal_api_key_deleted(sender, instance: "PersonalAPIKey", **kwargs):
+    """
+    Handle PersonalAPIKey delete for team access cache invalidation.
+    """
+    from posthog.storage.team_access_cache_signal_handlers import update_personal_api_key_authentication_cache_on_delete
+
+    # Defer cache invalidation until after transaction commits
+    transaction.on_commit(lambda: update_personal_api_key_authentication_cache_on_delete(instance, **kwargs))
+
+
+@receiver(post_save, sender=User)
+def user_saved(sender, instance: "User", created, **kwargs):
+    """
+    Handle User save for team access cache updates when is_active changes.
+
+    When a user's is_active status changes, their Personal API Keys need to be
+    added or removed from team authentication caches.
+    """
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "is_active" not in update_fields:
+        logger.debug(f"User {instance.id} updated but is_active unchanged, skipping cache update")
+        return
+
+    # If update_fields is None, we need to update cache since all fields (including is_active) might have changed
+
+    from posthog.storage.team_access_cache_signal_handlers import update_user_authentication_cache
+
+    # Defer cache updates until after transaction commits
+    transaction.on_commit(lambda: update_user_authentication_cache(instance, **kwargs))
+
+
+@receiver(post_delete, sender=OrganizationMembership)
+def organization_membership_deleted(sender, instance: "OrganizationMembership", **kwargs):
+    """
+    Handle OrganizationMembership deletion for team access cache invalidation.
+
+    When a user is removed from an organization, their unscoped personal API keys
+    should no longer have access to teams within that organization. This ensures
+    that the authentication cache is updated to reflect the change in access rights.
+    """
+    from posthog.storage.team_access_cache_signal_handlers import update_user_authentication_cache
+
+    # Defer cache updates until after transaction commits
+    transaction.on_commit(lambda: update_user_authentication_cache(instance.user, **kwargs))

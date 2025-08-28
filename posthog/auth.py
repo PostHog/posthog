@@ -187,7 +187,7 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
     Authenticates using a project secret API key. Unlike a personal API key, this is not associated with a
     user and should only be used for local_evaluation and flags remote_config (not to be confused with the
     other remote_config endpoint) requests. When authenticated, this returns a "synthetic"
-    ProjectSecretAPIKeyUser object that has the team set. This allows us to use the existing permissioning
+    SecuredSdkEndpointUser object that has the team set. This allows us to use the existing permissioning
     system for local_evaluation and flags remote_config requests.
 
     Only the first key candidate found in the request is tried, and the order is:
@@ -233,9 +233,9 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
             if team is None:
                 return None
 
-            # Secret api keys are not associated with a user, so we create a ProjectSecretAPIKeyUser
+            # Secret api keys are not associated with a user, so we create a SecuredSdkEndpointUser
             # and attach the team. The team is the important part here.
-            return (ProjectSecretAPIKeyUser(team), None)
+            return (SecuredSDKEndpointUser(team), None)
         except Team.DoesNotExist:
             return None
 
@@ -244,9 +244,9 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
         return cls.keyword
 
 
-class ProjectSecretAPIKeyUser:
+class SecuredSDKEndpointUser:
     """
-    A "synthetic" user object returned by the ProjectSecretAPIKeyAuthentication when authenticating with a project secret API key.
+    A "synthetic" user object returned by the ProjectSecretAPIKeyAuthentication or LocalEvaluationAuthentication when authenticating with a project secret API key.
     """
 
     def __init__(self, team):

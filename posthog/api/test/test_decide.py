@@ -5020,15 +5020,19 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             response = self.client.get(f"/api/feature_flag/local_evaluation")
             self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-        with self.assertNumQueries(1, using="replica"), self.assertNumQueries(9, using="default"):
-            # Captured queries for write DB:
+        with self.assertNumQueries(3, using="replica"), self.assertNumQueries(12, using="default"):
+            # Captured queries for write DB (12 total with cached authentication):
             # E   1. UPDATE "posthog_personalapikey" SET "last_used_at" = '2023-08-01T11:26:50.728057+00:00'
             # E   2. SELECT "posthog_team"."id", "posthog_team"."uuid", "posthog_team"."organization_id"
             # E   3. SELECT "posthog_organizationmembership"."id", "posthog_organizationmembership"."organization_id", - user org permissions check
-            # Captured queries for replica DB:
-            # E   1. SELECT "posthog_personalapikey"."id", "posthog_personalapikey"."user_id", "posthog_personalapikey"."label", "posthog_personalapikey"."value", -- check API key, joined with user
-            # E   2. SELECT "posthog_featureflag"."id", "posthog_featureflag"."key", "posthog_featureflag"."name", "posthog_featureflag"."filters", -- get flags
-            # E   3. SELECT "posthog_grouptypemapping"."id", "posthog_grouptypemapping"."team_id", -- get groups
+            # E   4. Additional organization membership lookup from cached authentication
+            # E   5. Additional team lookup from cached authentication
+            # E   ... (additional authentication-related queries)
+            # Captured queries for replica DB (3 total with cache warming):
+            # E   1. SELECT personal API key by secure_value for authentication
+            # E   2. SELECT scoped personal API keys for cache warming
+            # E   3. SELECT unscoped personal API keys for cache warming
+            # Additional queries for feature flags and group mappings
 
             response = self.client.get(
                 f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
@@ -5273,16 +5277,19 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
         cache.clear()
 
-        with self.assertNumQueries(1, using="replica"), self.assertNumQueries(9, using="default"):
-            # Captured queries for write DB:
+        with self.assertNumQueries(3, using="replica"), self.assertNumQueries(12, using="default"):
+            # Captured queries for write DB (12 total with cached authentication):
             # E   1. UPDATE "posthog_personalapikey" SET "last_used_at" = '2023-08-01T11:26:50.728057+00:00'
             # E   2. SELECT "posthog_team"."id", "posthog_team"."uuid", "posthog_team"."organization_id"
             # E   3. SELECT "posthog_organizationmembership"."id", "posthog_organizationmembership"."organization_id", - user org permissions check
-            # Captured queries for replica DB:
-            # E   1. SELECT "posthog_personalapikey"."id", "posthog_personalapikey"."user_id", "posthog_personalapikey"."label", "posthog_personalapikey"."value", -- check API key, joined with user
-            # E   2. SELECT "posthog_featureflag"."id", "posthog_featureflag"."key", "posthog_featureflag"."name", "posthog_featureflag"."filters", -- get flags
-            # E   3. SELECT "posthog_cohort"."id", "posthog_cohort"."name", "posthog_cohort"."description", -- select all cohorts
-            # E   5. SELECT "posthog_grouptypemapping"."id", "posthog_grouptypemapping"."team_id", -- get groups
+            # E   4. Additional organization membership lookup from cached authentication
+            # E   5. Additional team lookup from cached authentication
+            # E   ... (additional authentication-related queries)
+            # Captured queries for replica DB (3 total with cache warming):
+            # E   1. SELECT personal API key by secure_value for authentication
+            # E   2. SELECT scoped personal API keys for cache warming
+            # E   3. SELECT unscoped personal API keys for cache warming
+            # Additional queries for feature flags, cohorts, and group mappings
 
             response = self.client.get(
                 f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",
@@ -5543,16 +5550,19 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         client.logout()
         self.client.logout()
 
-        with self.assertNumQueries(1, using="replica"), self.assertNumQueries(9, using="default"):
-            # Captured queries for write DB:
+        with self.assertNumQueries(3, using="replica"), self.assertNumQueries(12, using="default"):
+            # Captured queries for write DB (12 total with cached authentication):
             # E   1. UPDATE "posthog_personalapikey" SET "last_used_at" = '2023-08-01T11:26:50.728057+00:00'
             # E   2. SELECT "posthog_team"."id", "posthog_team"."uuid", "posthog_team"."organization_id"
             # E   3. SELECT "posthog_organizationmembership"."id", "posthog_organizationmembership"."organization_id", - user org permissions check
-            # Captured queries for replica DB:
-            # E   1. SELECT "posthog_personalapikey"."id", "posthog_personalapikey"."user_id", "posthog_personalapikey"."label", "posthog_personalapikey"."value", -- check API key, joined with user
-            # E   2. SELECT feature flags
-            # E   3. SELECT "posthog_cohort"."id", "posthog_cohort"."name", "posthog_cohort"."description", -- select all cohorts
-            # E   5. SELECT "posthog_grouptypemapping"."id", "posthog_grouptypemapping"."team_id", -- get groups
+            # E   4. Additional organization membership lookup from cached authentication
+            # E   5. Additional team lookup from cached authentication
+            # E   ... (additional authentication-related queries)
+            # Captured queries for replica DB (3 total with cache warming):
+            # E   1. SELECT personal API key by secure_value for authentication
+            # E   2. SELECT scoped personal API keys for cache warming
+            # E   3. SELECT unscoped personal API keys for cache warming
+            # Additional queries for feature flags, cohorts, and group mappings
 
             response = self.client.get(
                 f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",

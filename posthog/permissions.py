@@ -18,6 +18,7 @@ from posthog.auth import (
     SessionAuthentication,
     SharingAccessTokenAuthentication,
 )
+from posthog.authentication.cached_authentication import LocalEvaluationAuthentication
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions import Conflict, EnterpriseFeatureException
@@ -195,7 +196,9 @@ class TeamMemberAccessPermission(BasePermission):
 
 
 def is_authenticated_via_project_secret_api_token(request: Request) -> bool:
-    return isinstance(request.successful_authenticator, ProjectSecretAPIKeyAuthentication)
+    return isinstance(request.successful_authenticator, ProjectSecretAPIKeyAuthentication) or isinstance(
+        request.successful_authenticator, LocalEvaluationAuthentication
+    )
 
 
 def _is_request_for_project_secret_api_token_secured_endpoint(request: Request) -> bool:
@@ -671,7 +674,7 @@ class ProjectSecretAPITokenPermission(BasePermission):
 
         # Check team consistency: authenticated team must match resolved team
         # This prevents cross-team access when project_api_key is provided in request body
-        authenticated_team = request.user.team  # From ProjectSecretAPIKeyUser
+        authenticated_team = request.user.team  # From SecuredSdkEndpointUser
         try:
             resolved_team = view.team  # From routing logic (may use project_api_key override)
         except (AttributeError, Team.DoesNotExist):

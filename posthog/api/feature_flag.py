@@ -30,6 +30,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication, TemporaryTokenAuthentication
+from posthog.authentication.cached_authentication import LocalEvaluationAuthentication
 from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX, FlagRequestType
 from posthog.date_util import thirty_days_ago
 from posthog.event_usage import report_user_action
@@ -1214,7 +1215,12 @@ class FeatureFlagViewSet(
         detail=False,
         throttle_classes=[LocalEvaluationThrottle],
         required_scopes=["feature_flag:read"],
-        authentication_classes=[TemporaryTokenAuthentication, ProjectSecretAPIKeyAuthentication],
+        authentication_classes=[
+            LocalEvaluationAuthentication,
+            ProjectSecretAPIKeyAuthentication,
+            PersonalAPIKeyAuthentication,
+            TemporaryTokenAuthentication,
+        ],
         permission_classes=[ProjectSecretAPITokenPermission],
     )
     def local_evaluation(self, request: request.Request, **kwargs) -> Response:
