@@ -353,7 +353,8 @@ export async function filterFunctionInstrumented(options: {
         }
 
         // check whether we have a match with our pre-filter
-        if (filters?.events?.length) {
+        // Only run if we have event filters and NO action filters (as actions are pre-saved event filters)
+        if (filters?.events?.length && !filters?.actions?.length) {
             preFilterMatch = preFilterResult(filters, filterGlobals)
         }
 
