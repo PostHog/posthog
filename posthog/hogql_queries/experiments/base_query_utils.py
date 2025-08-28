@@ -574,8 +574,15 @@ def get_source_aggregation_expr(
             ExperimentMetricMathType.DAU,
             ExperimentMetricMathType.UNIQUE_GROUP,
         ]:
-            # Clickhouse count NULL and empty values as distinct, so need to explicitly exclude them here
-            return parse_expr(f"toFloat(countDistinctIf({table_alias}.value, notEmpty(toString({table_alias}.value))))")
+            # Clickhouse counts empty values as distinct, so need to explicitly exclude them
+            # Also handle the special case of null UUIDs (00000000-0000-0000-0000-000000000000)
+            return parse_expr(f"""toFloat(count(distinct
+                multiIf(
+                    toTypeName({table_alias}.value) = 'UUID' AND reinterpretAsUInt128({table_alias}.value) = 0, NULL,
+                    toString({table_alias}.value) = '', NULL,
+                    {table_alias}.value
+                )
+            ))""")
         elif math_type == ExperimentMetricMathType.MIN:
             return parse_expr(f"min(coalesce(toFloat({table_alias}.value), 0))")
         elif math_type == ExperimentMetricMathType.MAX:

@@ -1933,7 +1933,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
     def test_query_runner_with_unique_users_metric(self):
-        """Test basic structure for unique users metric."""
+        """Test that unique users metric correctly counts unique users, not total events."""
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
             feature_flag=feature_flag, start_date=datetime(2020, 1, 1), end_date=datetime(2020, 1, 10)
@@ -1958,33 +1958,62 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        # Create test data
-        person_number = 0
-        for variant, prices in [("control", [50, 75]), ("test", [60, 80, 100])]:
-            person_number += 1
-            for i, price in enumerate(prices):
-                _create_person(distinct_ids=[f"user_{variant}_{i}"], team_id=self.team.pk)
-                # Create exposure event
-                _create_event(
-                    team=self.team,
-                    event="$feature_flag_called",
-                    distinct_id=f"user_{variant}_{i}",
-                    timestamp="2020-01-02T12:00:00Z",
-                    properties={
-                        feature_flag_property: variant,
-                        "$feature_flag_response": variant,
-                        "$feature_flag": feature_flag.key,
-                    },
-                )
-                # Create purchase event
+        # Create test data with multiple events per user to verify unique counting
+        # Control: 3 users, but user_0 has 3 events, user_1 has 2 events, user_2 has 1 event
+        for i in range(3):
+            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
+            # Create exposure event
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_control_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    feature_flag_property: "control",
+                    "$feature_flag_response": "control",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            # Create multiple purchase events for some users
+            num_purchases = 2 - i  # user_0: 2 events, user_1: 1 events, user_2: 0 event
+            for j in range(num_purchases):
                 _create_event(
                     team=self.team,
                     event="purchase",
-                    distinct_id=f"user_{variant}_{i}",
-                    timestamp="2020-01-02T12:01:00Z",
+                    distinct_id=f"user_control_{i}",
+                    timestamp=f"2020-01-0{2+j}T12:01:00Z",  # Different timestamps
                     properties={
-                        feature_flag_property: variant,
-                        "price": price,
+                        feature_flag_property: "control",
+                        "price": 50 + (i * 10) + j,
+                    },
+                )
+
+        # Test: 4 users, with varying numbers of events
+        for i in range(4):
+            _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
+            # Create exposure event
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_test_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    feature_flag_property: "test",
+                    "$feature_flag_response": "test",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            # Create multiple purchase events: user_0: 4 events, user_1: 3 events, user_2: 2 events, user_3: 1 event
+            num_purchases = 4 - i
+            for j in range(num_purchases):
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_test_{i}",
+                    timestamp=f"2020-01-0{2+j}T12:01:00Z",  # Different timestamps
+                    properties={
+                        feature_flag_property: "test",
+                        "price": 60 + (i * 10) + j,
                     },
                 )
 
@@ -2001,11 +2030,14 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         test_variant = result.variant_results[0]
         assert test_variant is not None
 
+        # DAU should count unique users, not total events
+        # Control: 3 unique users (even though total events = 3+2+1 = 6)
         self.assertEqual(control_variant.sum, 2)
-        self.assertEqual(control_variant.number_of_samples, 2)
+        self.assertEqual(control_variant.number_of_samples, 3)
 
-        self.assertEqual(test_variant.sum, 3)
-        self.assertEqual(test_variant.number_of_samples, 3)
+        # Test: 4 unique users (even though total events = 4+3+2+1 = 10)
+        self.assertEqual(test_variant.sum, 4)
+        self.assertEqual(test_variant.number_of_samples, 4)
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
