@@ -1,26 +1,22 @@
 from datetime import datetime
 from uuid import UUID
 
+from django.db import models
+
 import structlog
 import temporalio
-from django.db import models
-from posthog.warehouse.types import ExternalDataSourceType
 
 from posthog.helpers.encrypted_fields import EncryptedJSONField
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.team import Team
-from posthog.models.utils import (
-    CreatedMetaFields,
-    DeletedMetaFields,
-    UpdatedMetaFields,
-    UUIDTModel,
-    sane_repr,
-)
+from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
+from posthog.warehouse.types import ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
 
 
-class ExternalDataSource(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
+class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"
         PAUSED = "Paused", "Paused"
@@ -61,10 +57,7 @@ class ExternalDataSource(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         self.save()
 
     def reload_schemas(self):
-        from posthog.warehouse.data_load.service import (
-            sync_external_data_job_workflow,
-            trigger_external_data_workflow,
-        )
+        from posthog.warehouse.data_load.service import sync_external_data_job_workflow, trigger_external_data_workflow
         from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 
         for schema in (

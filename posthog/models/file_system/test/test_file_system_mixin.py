@@ -1,16 +1,6 @@
 from django.test import TestCase
 
-from posthog.models import (
-    Team,
-    User,
-    Organization,
-    FeatureFlag,
-    Experiment,
-    Insight,
-    Dashboard,
-    Notebook,
-    FileSystem,
-)
+from posthog.models import Dashboard, Experiment, FeatureFlag, FileSystem, Insight, Notebook, Organization, Team, User
 
 
 class TestFileSystemSyncMixin(TestCase):

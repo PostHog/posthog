@@ -11,6 +11,7 @@ import { cn } from 'lib/utils/css-classes'
 import { SceneTab } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { SceneTabContextMenu } from '~/layout/scenes/SceneTabContextMenu'
 import { sceneLogic } from '~/scenes/sceneLogic'
 
@@ -41,18 +42,20 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
         >
             <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
                 <SortableContext items={[...tabs.map((t) => t.id), 'new']} strategy={horizontalListSortingStrategy}>
-                    <div className={cn('flex flex-row flex-wrap gap-1 pt-1', className)}>
-                        <div className="flex items-center gap-1">
+                    <div className={cn('flex flex-row gap-1 pt-1 max-w-full', className)}>
+                        <div className="flex items-center gap-1 shrink-0">
                             <ProjectDropdownMenu
                                 buttonProps={{
                                     className: 'h-[32px] mt-[-2px]',
                                 }}
                             />
                         </div>
-                        {tabs.map((tab) => (
-                            <SortableSceneTab key={tab.id} tab={tab} />
-                        ))}
-                        <div className="py-1">
+                        <div className="flex flex-row flex-1 min-w-0">
+                            {tabs.map((tab) => (
+                                <SortableSceneTab key={tab.id} tab={tab} />
+                            ))}
+                        </div>
+                        <div className="py-1 shrink-0">
                             <Link
                                 to={urls.newTab()}
                                 data-attr="scene-tab-new-button"
@@ -66,6 +69,11 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                                         'p-1 flex flex-row items-center gap-1 cursor-pointer rounded-tr rounded-tl border-b',
                                     iconOnly: true,
                                 }}
+                                tooltip={
+                                    <>
+                                        New tab <KeyboardShortcut command b />
+                                    </>
+                                }
                             >
                                 <IconPlus className="!ml-0" fontSize={14} />
                             </Link>
@@ -86,7 +94,13 @@ function SortableSceneTab({ tab }: { tab: SceneTab }): JSX.Element {
     }
 
     return (
-        <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+        <div
+            ref={setNodeRef}
+            style={style}
+            {...attributes}
+            {...listeners}
+            className="grow-0 shrink basis-auto min-w-[40px] max-w-[200px]"
+        >
             <SceneTabContextMenu tab={tab}>
                 <SceneTabComponent tab={tab} isDragging={isDragging} />
             </SceneTabContextMenu>
@@ -121,6 +135,7 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
             }}
             to={isDragging ? undefined : `${tab.pathname}${tab.search}${tab.hash}`}
             className={cn(
+                'w-full',
                 'h-[37px] p-0.5 flex flex-row items-center gap-1 rounded-tr rounded-tl border border-transparent bottom-[-1px] relative',
                 tab.active
                     ? 'cursor-default text-primary bg-surface-secondary border-primary border-b-transparent'
@@ -130,7 +145,7 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                 className
             )}
         >
-            <div className={cn('flex-grow text-left whitespace-pre', tab.customTitle && 'italic')}>
+            <div className={cn('flex-grow text-left max-w-[200px] truncate', tab.customTitle && 'italic')}>
                 {tab.customTitle || tab.title}
             </div>
             {canRemoveTab && (
@@ -142,6 +157,15 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                     }}
                     iconOnly
                     size="xs"
+                    tooltip={
+                        tab.active ? (
+                            <>
+                                Close active tab <KeyboardShortcut shift command b />
+                            </>
+                        ) : (
+                            'Close tab'
+                        )
+                    }
                 >
                     <IconX />
                 </ButtonPrimitive>

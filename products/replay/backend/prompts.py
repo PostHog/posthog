@@ -246,14 +246,14 @@ Below is a refined description for the date fields and their types:
 <date_from>
 - Relative Date (Days): Use the format "-Nd" for the last N days (e.g., "last 5 days" becomes "-5d", "yesterday" becomes "-1d").
 - Relative Date (Hours): Use the format "-Nh" for the last N hours (e.g., "last 5 hours" becomes "-5h").
-- Custom Date: If a specific start date is provided, use the format "YYYY-MM-DD".
+- Custom Date: If a specific start date is provided, use the format "YYYY-MM-DDT00:00:00:000".
 - If a date is provided but without a year or month, use the current year and month.
-- Default Behavior: If the user does not specify a date range, default to the last 5 days (i.e., use "-5d"). date_from MUST be set.
+- Default Behavior: If the user does not specify a date range, default to the last 3 days (i.e., use "-5d"). date_from MUST be set.
 </date_from>
 
 <date_to>
 - Default Value: Set as null when the date range extends to today. Set as null when the user does not specify an end date.
-- Custom Date: If a specific end date is required, use the format "YYYY-MM-DD".
+- Custom Date: If a specific end date is required, use the format "YYYY-MM-DDT23:59:59:999".
 </date_to>
 </date_fields>
 """.strip()

@@ -7,12 +7,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import ConstantType, FieldTraverserType
 from posthog.hogql.base import _T_AST
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import (
-    FunctionCallTable,
-    LazyTable,
-    SavedQuery,
-    StringJSONDatabaseField,
-)
+from posthog.hogql.database.models import FunctionCallTable, LazyTable, SavedQuery, StringJSONDatabaseField
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
@@ -21,13 +16,9 @@ from posthog.hogql.escape_sql import safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
 from posthog.hogql.functions.cohort import cohort_query_node
-from posthog.hogql.functions.mapping import (
-    HOGQL_CLICKHOUSE_FUNCTIONS,
-    compare_types,
-    validate_function_args,
-)
-from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.explain_csp_report import explain_csp_report
+from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS, compare_types, validate_function_args
+from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS, convert_to_hx
 from posthog.hogql.parser import parse_select
@@ -39,6 +30,7 @@ from posthog.hogql.resolver_utils import (
     lookup_table_by_name,
 )
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
+
 from posthog.models.utils import UUIDT
 
 # https://github.com/ClickHouse/ClickHouse/issues/23194 - "Describe how identifiers in SELECT queries are resolved"
@@ -373,7 +365,6 @@ class Resolver(CloningVisitor):
             node.next_join = self.visit(node.next_join)
 
             # Look ahead if current is events table and next is s3 table, global join must be used for distributed query on external data to work
-            is_global = False
             global_table: ast.TableType | None = None
 
             if isinstance(node.type, ast.TableAliasType) and isinstance(node.type.table_type, ast.TableType):
@@ -382,16 +373,27 @@ class Resolver(CloningVisitor):
                 global_table = node.type
 
             if global_table and isinstance(global_table.table, EventsTable):
-                if self._is_next_s3(node.next_join):
-                    is_global = True
-                # Use GLOBAL joins for nested subqueries for S3 tables until https://github.com/ClickHouse/ClickHouse/pull/85839 is in
-                elif node.next_join and isinstance(node.next_join.type, ast.SelectQueryAliasType):
-                    select_query_type = node.next_join.type.select_query_type
-                    tables = self._extract_tables_from_query_type(select_query_type)
-                    is_global = any(self._is_s3_table(table) for table in tables)
+                next_join = node.next_join
+                is_global = False
 
-            if is_global and node.next_join is not None:
-                node.next_join.join_type = f"GLOBAL {node.next_join.join_type}"
+                while next_join:
+                    if self._is_next_s3(next_join):
+                        is_global = True
+                    # Use GLOBAL joins for nested subqueries for S3 tables until https://github.com/ClickHouse/ClickHouse/pull/85839 is in
+                    elif isinstance(next_join.type, ast.SelectQueryAliasType):
+                        select_query_type = next_join.type.select_query_type
+                        tables = self._extract_tables_from_query_type(select_query_type)
+                        if any(self._is_s3_table(table) for table in tables):
+                            is_global = True
+
+                    next_join = next_join.next_join
+
+                # If there exists a S3 table in the chain, then all joins require to be a GLOBAL join
+                if is_global:
+                    next_join = node.next_join
+                    while next_join:
+                        next_join.join_type = f"GLOBAL {next_join.join_type}"
+                        next_join = next_join.next_join
 
             if node.constraint and node.constraint.constraint_type == "ON":
                 node.constraint = self.visit_join_constraint(node.constraint)
@@ -900,6 +902,11 @@ class Resolver(CloningVisitor):
                 return isinstance(node.type.table_type.table_type.table, EventsTable)
             if isinstance(node.type.table_type, ast.TableType):
                 return isinstance(node.type.table_type.table, EventsTable)
+        elif isinstance(node, ast.Field) and isinstance(node.type, ast.PropertyType):
+            if isinstance(node.type.field_type.table_type, ast.TableAliasType):
+                return isinstance(node.type.field_type.table_type.table_type.table, EventsTable)
+            if isinstance(node.type.field_type.table_type, ast.TableType):
+                return isinstance(node.type.field_type.table_type.table, EventsTable)
         return False
 
     def _is_s3_cluster(self, node: ast.Expr) -> bool:
@@ -937,7 +944,14 @@ class Resolver(CloningVisitor):
     ) -> list[ast.TableOrSelectType]:
         tables: list[ast.TableOrSelectType] = []
         if isinstance(select_query_type, ast.SelectQueryType):
-            tables.extend(list(select_query_type.tables.values()))
+            for t in select_query_type.tables.values():
+                if isinstance(t, ast.SelectQueryAliasType):
+                    tables.extend(self._extract_tables_from_query_type(t.select_query_type))
+                else:
+                    tables.append(t)
+
+            for at in select_query_type.anonymous_tables:
+                tables.extend(self._extract_tables_from_query_type(at))
         else:
             for sqt in select_query_type.types:
                 tables.extend(self._extract_tables_from_query_type(sqt))

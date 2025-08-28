@@ -2,8 +2,9 @@
 
 import datetime as dt
 
-import pyarrow as pa
 import pytest
+
+import pyarrow as pa
 from google.cloud import bigquery
 
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (

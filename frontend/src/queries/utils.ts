@@ -41,11 +41,14 @@ import {
     QuerySchema,
     QueryStatusResponse,
     ResultCustomizationBy,
+    ResultCustomizationByPosition,
+    ResultCustomizationByValue,
     RetentionQuery,
+    RevenueAnalyticsGrossRevenueQuery,
     RevenueAnalyticsGrowthRateQuery,
+    RevenueAnalyticsMRRQuery,
     RevenueAnalyticsMetricsQuery,
     RevenueAnalyticsOverviewQuery,
-    RevenueAnalyticsRevenueQuery,
     RevenueAnalyticsTopCustomersQuery,
     RevenueExampleDataWarehouseTablesQuery,
     RevenueExampleEventsQuery,
@@ -154,6 +157,12 @@ export function isHogQLMetadata(node?: Record<string, any> | null): node is HogQ
     return node?.kind === NodeKind.HogQLMetadata
 }
 
+export function isRevenueAnalyticsGrossRevenueQuery(
+    node?: Record<string, any> | null
+): node is RevenueAnalyticsGrossRevenueQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsGrossRevenueQuery
+}
+
 export function isRevenueAnalyticsGrowthRateQuery(
     node?: Record<string, any> | null
 ): node is RevenueAnalyticsGrowthRateQuery {
@@ -166,16 +175,14 @@ export function isRevenueAnalyticsMetricsQuery(
     return node?.kind === NodeKind.RevenueAnalyticsMetricsQuery
 }
 
+export function isRevenueAnalyticsMRRQuery(node?: Record<string, any> | null): node is RevenueAnalyticsMRRQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsMRRQuery
+}
+
 export function isRevenueAnalyticsOverviewQuery(
     node?: Record<string, any> | null
 ): node is RevenueAnalyticsOverviewQuery {
     return node?.kind === NodeKind.RevenueAnalyticsOverviewQuery
-}
-
-export function isRevenueAnalyticsRevenueQuery(
-    node?: Record<string, any> | null
-): node is RevenueAnalyticsRevenueQuery {
-    return node?.kind === NodeKind.RevenueAnalyticsRevenueQuery
 }
 
 export function isRevenueAnalyticsTopCustomersQuery(
@@ -482,6 +489,28 @@ export const getShowMultipleYAxes = (query: InsightQueryNode): boolean | undefin
 export const getResultCustomizationBy = (query: InsightQueryNode): ResultCustomizationBy | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.resultCustomizationBy
+    } else if (isStickinessQuery(query)) {
+        return query.stickinessFilter?.resultCustomizationBy
+    }
+    return undefined
+}
+
+export function getResultCustomizations(query: FunnelsQuery): Record<string, ResultCustomizationByValue> | undefined
+export function getResultCustomizations(
+    query: TrendsQuery | StickinessQuery
+): Record<number, ResultCustomizationByPosition> | undefined
+export function getResultCustomizations(
+    query: InsightQueryNode
+): Record<string, ResultCustomizationByValue> | Record<number, ResultCustomizationByPosition> | undefined
+export function getResultCustomizations(
+    query: InsightQueryNode
+): Record<string, ResultCustomizationByValue> | Record<number, ResultCustomizationByPosition> | undefined {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.resultCustomizations
+    } else if (isStickinessQuery(query)) {
+        return query.stickinessFilter?.resultCustomizations
+    } else if (isFunnelsQuery(query)) {
+        return query.funnelsFilter?.resultCustomizations
     }
     return undefined
 }
@@ -489,7 +518,10 @@ export const getResultCustomizationBy = (query: InsightQueryNode): ResultCustomi
 export const getGoalLines = (query: InsightQueryNode): GoalLine[] | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.goalLines
+    } else if (isFunnelsQuery(query)) {
+        return query.funnelsFilter?.goalLines
     }
+
     return undefined
 }
 

@@ -1,20 +1,19 @@
 import abc
-import datetime as dt
-import typing
 import uuid
+import typing
+import datetime as dt
 
-from posthog.batch_exports.service import (
-    BatchExportModel,
-    BatchExportSchema,
-)
-from posthog.clickhouse import query_tagging
-from posthog.clickhouse.query_tagging import Product
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.hogql import ast
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+
+from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
+from posthog.clickhouse import query_tagging
+from posthog.clickhouse.query_tagging import Product
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
+
 from products.batch_exports.backend.temporal import sql
 
 Query = str

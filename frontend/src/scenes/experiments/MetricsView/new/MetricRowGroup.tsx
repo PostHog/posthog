@@ -52,7 +52,6 @@ interface MetricRowGroupProps {
     isLastMetric: boolean
     isAlternatingRow: boolean
     onDuplicateMetric?: () => void
-    canDuplicateMetric?: boolean
     error?: any
     isLoading?: boolean
     hasMinimumExposureForResults?: boolean
@@ -70,7 +69,6 @@ export function MetricRowGroup({
     isLastMetric,
     isAlternatingRow,
     onDuplicateMetric,
-    canDuplicateMetric,
     error,
     isLoading,
     hasMinimumExposureForResults = true,
@@ -192,7 +190,6 @@ export function MetricRowGroup({
                         metric={metric}
                         metricType={metricType}
                         isPrimaryMetric={!isSecondary}
-                        canDuplicateMetric={canDuplicateMetric || false}
                         onDuplicateMetricClick={() => onDuplicateMetric?.()}
                     />
                 </td>
@@ -281,7 +278,6 @@ export function MetricRowGroup({
                         metric={metric}
                         metricType={metricType}
                         isPrimaryMetric={!isSecondary}
-                        canDuplicateMetric={canDuplicateMetric || false}
                         onDuplicateMetricClick={() => onDuplicateMetric?.()}
                     />
                 </td>

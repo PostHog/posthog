@@ -39,13 +39,13 @@ import {
     PropertyGroupFilterValue,
     PropertyMathType,
     PropertyOperator,
-    QueryBasedInsightModel,
     RecordingPropertyFilter,
     RetentionDashboardDisplayType,
     RetentionFilterType,
     RevenueAnalyticsPropertyFilter,
     SessionPropertyFilter,
     SessionRecordingType,
+    SimpleIntervalType,
     StepOrderValue,
     StickinessFilterType,
     TrendsFilterType,
@@ -119,13 +119,15 @@ export enum NodeKind {
     WebVitalsQuery = 'WebVitalsQuery',
     WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
     WebPageURLSearchQuery = 'WebPageURLSearchQuery',
+    WebTrendsQuery = 'WebTrendsQuery',
     WebAnalyticsExternalSummaryQuery = 'WebAnalyticsExternalSummaryQuery',
 
     // Revenue analytics queries
+    RevenueAnalyticsGrossRevenueQuery = 'RevenueAnalyticsGrossRevenueQuery',
     RevenueAnalyticsGrowthRateQuery = 'RevenueAnalyticsGrowthRateQuery',
     RevenueAnalyticsMetricsQuery = 'RevenueAnalyticsMetricsQuery',
+    RevenueAnalyticsMRRQuery = 'RevenueAnalyticsMRRQuery',
     RevenueAnalyticsOverviewQuery = 'RevenueAnalyticsOverviewQuery',
-    RevenueAnalyticsRevenueQuery = 'RevenueAnalyticsRevenueQuery',
     RevenueAnalyticsTopCustomersQuery = 'RevenueAnalyticsTopCustomersQuery',
 
     // Marketing analytics queries
@@ -166,10 +168,11 @@ export type AnyDataNode =
     | HogQLQuery
     | HogQLMetadata
     | HogQLAutocomplete
+    | RevenueAnalyticsGrossRevenueQuery
     | RevenueAnalyticsGrowthRateQuery
     | RevenueAnalyticsMetricsQuery
+    | RevenueAnalyticsMRRQuery
     | RevenueAnalyticsOverviewQuery
-    | RevenueAnalyticsRevenueQuery
     | RevenueAnalyticsTopCustomersQuery
     | MarketingAnalyticsTableQuery
     | WebOverviewQuery
@@ -179,6 +182,7 @@ export type AnyDataNode =
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
     | WebPageURLSearchQuery
+    | WebTrendsQuery
     | WebAnalyticsExternalSummaryQuery
     | SessionAttributionExplorerQuery
     | RevenueExampleEventsQuery
@@ -234,10 +238,11 @@ export type QuerySchema =
     | WebAnalyticsExternalSummaryQuery
 
     // Revenue analytics
+    | RevenueAnalyticsGrossRevenueQuery
     | RevenueAnalyticsGrowthRateQuery
     | RevenueAnalyticsMetricsQuery
+    | RevenueAnalyticsMRRQuery
     | RevenueAnalyticsOverviewQuery
-    | RevenueAnalyticsRevenueQuery
     | RevenueAnalyticsTopCustomersQuery
 
     // Marketing analytics
@@ -303,7 +308,6 @@ export type AnyResponseType =
     | EventsQueryResponse
     | ErrorTrackingQueryResponse
     | LogsQueryResponse
-    | Partial<QueryBasedInsightModel>
 
 /** Tags that will be added to the Query log comment  **/
 export interface QueryLogTags {
@@ -779,10 +783,11 @@ export interface DataTableNode
                     | WebVitalsQuery
                     | WebVitalsPathBreakdownQuery
                     | SessionAttributionExplorerQuery
+                    | RevenueAnalyticsGrossRevenueQuery
                     | RevenueAnalyticsGrowthRateQuery
                     | RevenueAnalyticsMetricsQuery
+                    | RevenueAnalyticsMRRQuery
                     | RevenueAnalyticsOverviewQuery
-                    | RevenueAnalyticsRevenueQuery
                     | RevenueAnalyticsTopCustomersQuery
                     | RevenueExampleEventsQuery
                     | RevenueExampleDataWarehouseTablesQuery
@@ -812,10 +817,11 @@ export interface DataTableNode
         | WebVitalsQuery
         | WebVitalsPathBreakdownQuery
         | SessionAttributionExplorerQuery
+        | RevenueAnalyticsGrossRevenueQuery
         | RevenueAnalyticsGrowthRateQuery
         | RevenueAnalyticsMetricsQuery
+        | RevenueAnalyticsMRRQuery
         | RevenueAnalyticsOverviewQuery
-        | RevenueAnalyticsRevenueQuery
         | RevenueAnalyticsTopCustomersQuery
         | RevenueExampleEventsQuery
         | RevenueExampleDataWarehouseTablesQuery
@@ -1264,6 +1270,8 @@ export type FunnelsFilter = {
     useUdf?: boolean
     /** Customizations for the appearance of result datasets. */
     resultCustomizations?: Record<string, ResultCustomizationByValue>
+    /** Goal Lines */
+    goalLines?: GoalLine[]
 }
 
 export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
@@ -1430,6 +1438,15 @@ export type StickinessFilter = {
         value: integer
     }
     computedAs?: StickinessComputationMode
+    /**
+     * Whether result datasets are associated by their values or by their order.
+     * @default value
+     **/
+    resultCustomizationBy?: ResultCustomizationBy
+    /** Customizations for the appearance of result datasets. */
+    resultCustomizations?:
+        | Record<string, ResultCustomizationByValue>
+        | Record<numerical_key, ResultCustomizationByPosition>
 }
 
 export const STICKINESS_FILTER_PROPERTIES = new Set<keyof StickinessFilter>([
@@ -1566,6 +1583,7 @@ interface CachedQueryResponseMixin {
     query_status?: QueryStatus
     /** What triggered the calculation of the query, leave empty if user/immediate */
     calculation_trigger?: string
+    query_metadata?: object
 }
 
 type CachedQueryResponse<T> = T & CachedQueryResponseMixin
@@ -1785,14 +1803,16 @@ export interface WebOverviewQuery extends WebAnalyticsQueryBase<WebOverviewQuery
     kind: NodeKind.WebOverviewQuery
 }
 
-export type WebOverviewItemKind = 'unit' | 'duration_s' | 'percentage' | 'currency'
-export interface WebOverviewItem {
+export type WebAnalyticsItemKind = 'unit' | 'duration_s' | 'percentage' | 'currency'
+export interface WebAnalyticsItemBase<T> {
     key: string
-    value?: number
-    previous?: number
-    kind: WebOverviewItemKind
+    value?: T
+    previous?: T
+    kind: WebAnalyticsItemKind
     changeFromPreviousPct?: number
     isIncreaseBad?: boolean
+}
+export interface WebOverviewItem extends WebAnalyticsItemBase<number> {
     usedPreAggregatedTables?: boolean
 }
 
@@ -2006,6 +2026,7 @@ export type CachedRevenueExampleDataWarehouseTablesQueryResponse =
  * Revenue Analytics
  */
 export type RevenueAnalyticsPropertyFilters = RevenueAnalyticsPropertyFilter[]
+
 export interface RevenueAnalyticsBaseQuery<R extends Record<string, any>> extends DataNode<R> {
     dateRange?: DateRange
     properties: RevenueAnalyticsPropertyFilters
@@ -2021,13 +2042,27 @@ export enum RevenueAnalyticsGroupBy {
     PRODUCT = 'product',
 }
 
-export interface RevenueAnalyticsRevenueQuery extends RevenueAnalyticsBaseQuery<RevenueAnalyticsRevenueQueryResponse> {
-    kind: NodeKind.RevenueAnalyticsRevenueQuery
+export interface RevenueAnalyticsGrossRevenueQuery
+    extends RevenueAnalyticsBaseQuery<RevenueAnalyticsGrossRevenueQueryResponse> {
+    kind: NodeKind.RevenueAnalyticsGrossRevenueQuery
     groupBy: RevenueAnalyticsGroupBy[]
-    interval: IntervalType
+    interval: SimpleIntervalType
 }
 
-export interface RevenueAnalyticsRevenueQueryResultItem {
+export interface RevenueAnalyticsGrossRevenueQueryResponse extends AnalyticsQueryResponseBase {
+    results: unknown[]
+    columns?: string[]
+}
+export type CachedRevenueAnalyticsGrossRevenueQueryResponse =
+    CachedQueryResponse<RevenueAnalyticsGrossRevenueQueryResponse>
+
+export interface RevenueAnalyticsMRRQuery extends RevenueAnalyticsBaseQuery<RevenueAnalyticsMRRQueryResponse> {
+    kind: NodeKind.RevenueAnalyticsMRRQuery
+    groupBy: RevenueAnalyticsGroupBy[]
+    interval: SimpleIntervalType
+}
+
+export interface RevenueAnalyticsMRRQueryResultItem {
     total: unknown
     new: unknown
     expansion: unknown
@@ -2035,16 +2070,11 @@ export interface RevenueAnalyticsRevenueQueryResultItem {
     churn: unknown
 }
 
-export interface RevenueAnalyticsRevenueQueryResult {
-    // This is just the total, while mrr is then split with all of the individual total/new/expansion/contraction/churn calculations
-    gross: unknown[]
-    mrr: RevenueAnalyticsRevenueQueryResultItem[]
-}
-export interface RevenueAnalyticsRevenueQueryResponse extends AnalyticsQueryResponseBase {
-    results: RevenueAnalyticsRevenueQueryResult
+export interface RevenueAnalyticsMRRQueryResponse extends AnalyticsQueryResponseBase {
+    results: RevenueAnalyticsMRRQueryResultItem[]
     columns?: string[]
 }
-export type CachedRevenueAnalyticsRevenueQueryResponse = CachedQueryResponse<RevenueAnalyticsRevenueQueryResponse>
+export type CachedRevenueAnalyticsMRRQueryResponse = CachedQueryResponse<RevenueAnalyticsMRRQueryResponse>
 
 export interface RevenueAnalyticsOverviewQuery
     extends RevenueAnalyticsBaseQuery<RevenueAnalyticsOverviewQueryResponse> {
@@ -2065,7 +2095,7 @@ export type CachedRevenueAnalyticsOverviewQueryResponse = CachedQueryResponse<Re
 export interface RevenueAnalyticsMetricsQuery extends RevenueAnalyticsBaseQuery<RevenueAnalyticsMetricsQueryResponse> {
     kind: NodeKind.RevenueAnalyticsMetricsQuery
     groupBy: RevenueAnalyticsGroupBy[]
-    interval: IntervalType
+    interval: SimpleIntervalType
 }
 
 export interface RevenueAnalyticsMetricsQueryResponse extends AnalyticsQueryResponseBase {
@@ -2357,6 +2387,7 @@ export type FileSystemIconType =
     | 'insightStickiness'
     | 'insightHogQL'
     | 'insightCalendarHeatmap'
+    | 'code'
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
     iconType?: FileSystemIconType
@@ -3203,6 +3234,9 @@ export enum DefaultChannelTypes {
     Unknown = 'Unknown',
 }
 
+// IMPORTANT: Changes to AIEventType values impact usage reporting and billing
+// These values are used in SQL queries to compute usage and exclude AI events from standard event counts
+// Any changes here will be reflected in the Python schema and affect billing calculations
 export type AIEventType = '$ai_generation' | '$ai_embedding' | '$ai_span' | '$ai_trace' | '$ai_metric' | '$ai_feedback'
 
 export interface LLMTraceEvent {
@@ -3526,6 +3560,51 @@ export interface WebPageURLSearchQueryResponse extends AnalyticsQueryResponseBas
 
 export type CachedWebPageURLSearchQueryResponse = CachedQueryResponse<WebPageURLSearchQueryResponse>
 
+export enum WebTrendsMetric {
+    UNIQUE_USERS = 'UniqueUsers',
+    PAGE_VIEWS = 'PageViews',
+    SESSIONS = 'Sessions',
+    BOUNCES = 'Bounces',
+    SESSION_DURATION = 'SessionDuration',
+    TOTAL_SESSIONS = 'TotalSessions',
+}
+
+export interface WebTrendsQuery extends WebAnalyticsQueryBase<WebTrendsQueryResponse> {
+    kind: NodeKind.WebTrendsQuery
+    interval: IntervalType
+    metrics: WebTrendsMetric[]
+    limit?: integer
+    offset?: integer
+}
+
+export interface WebTrendsItem {
+    bucket: string
+    metrics: Partial<Record<WebTrendsMetric, number>>
+}
+
+export interface WebTrendsQueryResponse extends AnalyticsQueryResponseBase {
+    results: WebTrendsItem[]
+    /** Input query string */
+    query?: string
+    /** Executed ClickHouse query */
+    clickhouse?: string
+    /** Returned columns */
+    columns?: any[]
+    /** Types of returned columns */
+    types?: any[]
+    /** Query explanation output */
+    explain?: string[]
+    /** Query metadata output */
+    metadata?: HogQLMetadataResponse
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    samplingRate?: SamplingRate
+    usedPreAggregatedTables?: boolean
+}
+
+export type CachedWebTrendsQueryResponse = CachedQueryResponse<WebTrendsQueryResponse>
+
 export type MarketingAnalyticsOrderBy = [string, 'ASC' | 'DESC']
 
 export interface MarketingAnalyticsTableQuery
@@ -3547,8 +3626,12 @@ export interface MarketingAnalyticsTableQuery
     compareFilter?: CompareFilter
 }
 
+export interface MarketingAnalyticsItem extends WebAnalyticsItemBase<number | string> {
+    hasComparison?: boolean
+}
+
 export interface MarketingAnalyticsTableQueryResponse extends AnalyticsQueryResponseBase {
-    results: unknown[]
+    results: MarketingAnalyticsItem[][]
     types?: unknown[]
     columns?: unknown[]
     hogql?: string
@@ -3669,10 +3752,10 @@ export interface MarketingAnalyticsConfig {
 export enum MarketingAnalyticsBaseColumns {
     Campaign = 'Campaign',
     Source = 'Source',
-    TotalCost = 'Total Cost',
-    TotalClicks = 'Total Clicks',
-    TotalImpressions = 'Total Impressions',
-    CostPerClick = 'Cost per Click',
+    Cost = 'Cost',
+    Clicks = 'Clicks',
+    Impressions = 'Impressions',
+    CPC = 'CPC',
     CTR = 'CTR',
 }
 
@@ -3792,3 +3875,8 @@ export const externalDataSources = [
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
+
+export enum InfinityValue {
+    INFINITY_VALUE = 999999,
+    NEGATIVE_INFINITY_VALUE = -999999,
+}

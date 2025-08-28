@@ -3,12 +3,12 @@ from typing import Optional
 from rest_framework.exceptions import ValidationError
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import Workload
 from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.models.property import GroupTypeIndex
 from posthog.models.team.team import Team
 from posthog.queries.base import relative_date_parse_for_feature_flag_matching
-from posthog.clickhouse.client.connection import Workload
 
 
 def replace_proxy_properties(team: Team, feature_flag_condition: dict):

@@ -1,22 +1,15 @@
 from __future__ import annotations
 
 import abc
-import itertools
-import logging
 import time
+import logging
+import itertools
 from collections import defaultdict
-from collections.abc import Callable, Iterator, Mapping, Sequence, Set
-from concurrent.futures import (
-    ALL_COMPLETED,
-    FIRST_EXCEPTION,
-    Future,
-    ThreadPoolExecutor,
-    as_completed,
-)
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence, Set
+from concurrent.futures import ALL_COMPLETED, FIRST_EXCEPTION, Future, ThreadPoolExecutor, as_completed
 from copy import copy
 from dataclasses import dataclass, field
-from typing import Any, Generic, Literal, NamedTuple, TypeVar, Optional
-from collections.abc import Iterable
+from typing import Any, Generic, Literal, NamedTuple, Optional, TypeVar
 
 import dagster
 from clickhouse_driver import Client
@@ -26,7 +19,6 @@ from posthog import settings
 from posthog.clickhouse.client.connection import NodeRole, Workload, _make_ch_pool, default_client
 from posthog.settings import CLICKHOUSE_PER_TEAM_SETTINGS
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
-
 
 logger = dagster.get_dagster_logger("clickhouse")
 
@@ -382,13 +374,14 @@ def get_cluster(
     client_settings: Mapping[str, str] | None = None,
     cluster: str | None = None,
     retry_policy: RetryPolicy | None = None,
+    host: str = settings.CLICKHOUSE_HOST,
 ) -> ClickhouseCluster:
     extra_hosts = []
     for host_config in map(copy, CLICKHOUSE_PER_TEAM_SETTINGS.values()):
         extra_hosts.append(ConnectionInfo(host_config.pop("host"), None))
         assert len(host_config) == 0, f"unexpected values: {host_config!r}"
     return ClickhouseCluster(
-        default_client(),
+        default_client(host=host),
         extra_hosts=extra_hosts,
         logger=logger,
         client_settings=client_settings,

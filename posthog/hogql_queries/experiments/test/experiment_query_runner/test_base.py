@@ -1,22 +1,12 @@
-from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from datetime import datetime, timedelta
 
-from django.test import override_settings
 from freezegun import freeze_time
+from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
+
+from django.test import override_settings
+
 from parameterized import parameterized
 
-from posthog.hogql_queries.experiments.experiment_query_runner import (
-    ExperimentQueryRunner,
-)
-from posthog.hogql_queries.experiments.test.experiment_query_runner.base import (
-    ExperimentQueryRunnerBaseTest,
-)
-from posthog.hogql_queries.experiments.test.experiment_query_runner.utils import (
-    create_standard_group_test_events,
-)
-from posthog.models.action.action import Action
-from posthog.models.cohort.cohort import Cohort
-from posthog.models.group.util import create_group
 from posthog.schema import (
     ActionsNode,
     EventPropertyFilter,
@@ -29,13 +19,15 @@ from posthog.schema import (
     MultipleVariantHandling,
     PropertyOperator,
 )
-from posthog.test.base import (
-    _create_event,
-    _create_person,
-    flush_persons_and_events,
-    snapshot_clickhouse_queries,
-)
+
+from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
+from posthog.hogql_queries.experiments.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
+from posthog.hogql_queries.experiments.test.experiment_query_runner.utils import create_standard_group_test_events
+from posthog.models.action.action import Action
+from posthog.models.cohort.cohort import Cohort
+from posthog.models.group.util import create_group
 from posthog.test.test_journeys import journeys_for
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
 @override_settings(IN_UNIT_TESTING=True)
