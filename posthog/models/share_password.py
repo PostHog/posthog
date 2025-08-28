@@ -22,10 +22,8 @@ class SharePassword(models.Model):
         "posthog.SharingConfiguration", on_delete=models.CASCADE, related_name="share_passwords"
     )
 
-    # Password is stored hashed using Django's password hashers
     password_hash = models.CharField(max_length=128)
 
-    # Metadata about who created this password
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, related_name="created_share_passwords"
     )
@@ -34,7 +32,6 @@ class SharePassword(models.Model):
     # Optional note for the creator to identify this password
     note = models.CharField(max_length=100, blank=True, null=True)
 
-    # Track if this password is active
     is_active = models.BooleanField(default=True)
 
     class Meta:
