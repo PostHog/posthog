@@ -1613,6 +1613,13 @@ def team_api_test_factory():
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
 
+            self.organization.available_product_features = [
+                *self.organization.available_product_features,
+                {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "limit": 100},
+                {"key": AvailableFeature.ENVIRONMENTS, "limit": 100},
+            ]
+            self.organization.save()
+
             response = self.client.post(
                 "/api/projects/@current/environments/",
                 {"name": "Test Environment", "access_control": True},
@@ -1633,6 +1640,9 @@ def team_api_test_factory():
         @patch("posthoganalytics.capture_exception")
         def test_access_control_field_deprecated_on_update(self, mock_capture_exception):
             """Test that access_control field is deprecated and cannot be used when updating a team."""
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
             response = self.client.patch(
                 "/api/environments/@current/",
                 {"name": "Updated Name", "access_control": False},
@@ -1653,6 +1663,9 @@ def team_api_test_factory():
         @patch("posthoganalytics.capture_exception")
         def test_access_control_field_deprecated_on_partial_update(self, mock_capture_exception):
             """Test that access_control field is deprecated and cannot be used when partially updating a team."""
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
             response = self.client.patch(
                 "/api/environments/@current/",
                 {"access_control": True},
@@ -1673,6 +1686,9 @@ def team_api_test_factory():
         @patch("posthoganalytics.capture_exception")
         def test_access_control_field_deprecated_with_other_valid_fields(self, mock_capture_exception):
             """Test that access_control field is deprecated even when other valid fields are provided."""
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
             response = self.client.patch(
                 "/api/environments/@current/",
                 {"timezone": "Europe/London", "access_control": True},
