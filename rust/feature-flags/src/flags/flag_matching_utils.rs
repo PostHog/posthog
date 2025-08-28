@@ -539,10 +539,11 @@ pub async fn set_feature_flag_hash_key_overrides(
             WHERE id = ANY($1) AND team_id = $2
         "#;
 
-        // Query 5: Insert new overrides
-        let insert_query = r#"
+        // Query 5: Bulk insert query with multiple value rows
+        let bulk_insert_query = r#"
             INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
-            VALUES ($1, $2, $3, $4)
+            SELECT $1, person_id, flag_key, $2
+            FROM UNNEST($3::bigint[], $4::text[]) AS t(person_id, flag_key)
             ON CONFLICT DO NOTHING
         "#;
 
@@ -600,32 +601,35 @@ pub async fn set_feature_flag_hash_key_overrides(
                 .map(|row| row.get::<i64, _>(0))
                 .collect();
 
-            // Step 5: Insert new overrides for each person-flag combination
-            let mut rows_affected = 0u64;
-            for person_id in &person_ids {
-                if !existing_person_ids.contains(person_id) {
-                    continue; // Skip persons that don't exist
-                }
-
-                for flag_key in &flag_keys {
+            // Step 5: Build values for bulk insert
+            // Create all person-flag combinations that need to be inserted
+            let values_to_insert: Vec<(i64, String)> = person_ids
+                .iter()
+                .filter(|pid| existing_person_ids.contains(pid)) // Only persons that exist
+                .flat_map(|pid| flag_keys.iter().map(move |fk| (*pid, fk.clone())))
+                .filter(|(pid, fk)| {
                     // Skip if override already exists
-                    if existing_overrides.contains(&(*person_id, flag_key.clone())) {
-                        continue;
-                    }
+                    !existing_overrides.contains(&(*pid, fk.clone()))
+                })
+                .collect();
 
-                    let result = sqlx::query(insert_query)
-                        .bind(team_id)
-                        .bind(person_id)
-                        .bind(flag_key)
-                        .bind(&hash_key_override)
-                        .execute(&mut *transaction)
-                        .await?;
-
-                    rows_affected += result.rows_affected();
-                }
+            if values_to_insert.is_empty() {
+                return Ok(0); // Nothing to insert
             }
 
-            Ok(rows_affected)
+            // Separate the tuples into parallel arrays for UNNEST
+            let (person_ids_to_insert, flag_keys_to_insert): (Vec<i64>, Vec<String>) =
+                values_to_insert.into_iter().unzip();
+
+            let result = sqlx::query(bulk_insert_query)
+                .bind(team_id)
+                .bind(&hash_key_override)
+                .bind(&person_ids_to_insert)
+                .bind(&flag_keys_to_insert)
+                .execute(&mut *transaction)
+                .await?;
+
+            Ok(result.rows_affected())
         }
         .await;
 
