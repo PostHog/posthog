@@ -21,8 +21,6 @@ ENDPOINTS = (
 )
 
 INCREMENTAL_ENDPOINTS = (
-    LinkedinAdsResource.Campaigns,
-    LinkedinAdsResource.CampaignGroups,
     LinkedinAdsResource.CampaignStats,
     LinkedinAdsResource.CampaignGroupStats,
 )

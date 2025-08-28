@@ -58,15 +58,48 @@ class LinkedinAdsSource(BaseSource[LinkedinAdsSourceConfig], OAuthMixin):
     def validate_credentials(self, config: LinkedinAdsSourceConfig, team_id: int) -> tuple[bool, str | None]:
         try:
             from posthog.models.integration import Integration
-            from posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads import LinkedinAdsClient
+            from posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads import (
+                LinkedinAdsClient, 
+                LinkedinAdsAuthError, 
+                LinkedinAdsRateLimitError, 
+                LinkedinAdsError
+            )
+            from posthog.exceptions_capture import capture_exception
 
-            integration = Integration.objects.get(id=config.linkedin_ads_integration_id, team_id=team_id)
+            # Validate config
+            if not config.account_id:
+                return False, "Account ID is required"
+            if not config.linkedin_ads_integration_id:
+                return False, "LinkedIn Ads integration ID is required"
+
+            # Get integration
+            try:
+                integration = Integration.objects.get(id=config.linkedin_ads_integration_id, team_id=team_id)
+            except Integration.DoesNotExist:
+                return False, "LinkedIn Ads integration not found"
+
+            if not integration.access_token:
+                return False, "LinkedIn Ads access token not found. Please re-authenticate."
+
+            # Test API access
             client = LinkedinAdsClient(integration.access_token)
+            accounts = client.get_accounts()
+            
+            # Verify the specified account exists
+            account_ids = [str(acc.get('id')) for acc in accounts if acc.get('id')]
+            if config.account_id not in account_ids:
+                return False, f"Account ID '{config.account_id}' not found in accessible accounts: {account_ids[:5]}"
 
-            # Test API access by fetching accounts
-            client.get_accounts()
             return True, None
+            
+        except LinkedinAdsAuthError as e:
+            return False, f"LinkedIn authentication failed: {str(e)}"
+        except LinkedinAdsRateLimitError as e:
+            return False, f"LinkedIn rate limit exceeded: {str(e)}"
+        except LinkedinAdsError as e:
+            return False, f"LinkedIn API error: {str(e)}"
         except Exception as e:
+            capture_exception(e)
             return False, f"Failed to validate LinkedIn Ads credentials: {str(e)}"
 
     def get_schemas(self, config: LinkedinAdsSourceConfig, team_id: int) -> list[SourceSchema]:
