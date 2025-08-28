@@ -2055,7 +2055,7 @@ def find_hogql_posthog_function(name: str) -> Optional[HogQLFunctionMeta]:
     return _find_function(name, HOGQL_POSTHOG_FUNCTIONS)
 
 
-def find_correct_function_name(name: str) -> str:
+def find_function_name_case_insensitive(name: str) -> str:
     """Get the correct casing for a HogQL function name."""
     # Check if it's already correctly cased first (fast path)
     if HOGQL_CLICKHOUSE_FUNCTIONS.get(name) or HOGQL_AGGREGATIONS.get(name) or HOGQL_POSTHOG_FUNCTIONS.get(name):

@@ -42,7 +42,7 @@ from posthog.hogql.functions import (
 from posthog.hogql.functions.mapping import (
     ALL_EXPOSED_FUNCTION_NAMES,
     HOGQL_COMPARISON_MAPPING,
-    find_correct_function_name,
+    find_function_name_case_insensitive,
     is_allowed_parametric_function,
     validate_function_args,
 )
@@ -1072,7 +1072,7 @@ class _Printer(Visitor[str]):
 
     def visit_call(self, node: ast.Call):
         if self.context.loose_syntax:
-            corrected_name = find_correct_function_name(node.name)
+            corrected_name = find_function_name_case_insensitive(node.name)
             if corrected_name != node.name:
                 node.name = corrected_name
         # If the argument(s) are part of a property group, special optimizations may apply here to ensure that data
