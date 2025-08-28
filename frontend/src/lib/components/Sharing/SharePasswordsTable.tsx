@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonModal, LemonTable } from '@posthog/lemon-ui'
+import { IconCopy, IconPlus, IconTrash, IconWarning } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { humanFriendlyDetailedTime } from 'lib/utils'
@@ -50,77 +50,74 @@ export function SharePasswordsTable({
         setNewPasswordData({ password: '', note: '' })
     }
 
-    const columns = [
-        {
-            title: 'Created',
-            dataIndex: 'created_at' as keyof SharePassword,
-            render: (created_at: string) => humanFriendlyDetailedTime(created_at),
-            sorter: (a: SharePassword, b: SharePassword) =>
-                new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
-        },
-        {
-            title: 'Creator',
-            dataIndex: 'created_by_email' as keyof SharePassword,
-            render: (email: string) => email,
-        },
-        {
-            title: 'Note',
-            dataIndex: 'note' as keyof SharePassword,
-            render: (note: string) => note || <span className="text-muted">No note</span>,
-        },
-        {
-            title: 'Actions',
-            key: 'actions',
-            render: (_: any, password: SharePassword) => (
-                <LemonButton
-                    icon={<IconTrash />}
-                    status="danger"
-                    size="small"
-                    onClick={() => {
-                        LemonDialog.open({
-                            title: 'Delete password?',
-                            description:
-                                `Are you sure you want to delete this share password${password.note ? ` (${password.note})` : ''}? ` +
-                                'Anyone using this password will lose access immediately.',
-                            primaryButton: {
-                                children: 'Delete password',
-                                status: 'danger',
-                                onClick: () => deletePassword(password.id),
-                            },
-                            secondaryButton: {
-                                children: 'Cancel',
-                            },
-                        })
-                    }}
-                    tooltip="Delete this password"
-                    tooltipPlacement="left"
-                />
-            ),
-        },
-    ]
-
     return (
-        <div className="space-y-2">
-            <div className="flex items-center justify-between">
-                <h4 className="mb-0">Share passwords</h4>
+        <div>
+            {/* Header section with minimal separation */}
+            <div className="flex items-center justify-between mt-4 mb-2">
+                <span className="text-xs text-muted-alt uppercase tracking-wide font-semibold">Passwords</span>
                 <LemonButton
-                    type="primary"
-                    size="small"
+                    type="tertiary"
+                    size="xsmall"
                     icon={<IconPlus />}
                     onClick={() => setNewPasswordModalOpen(true)}
+                    tooltip="Add a new password"
                 >
-                    Create new password
+                    Add
                 </LemonButton>
             </div>
 
-            <LemonTable
-                columns={columns}
-                dataSource={sharePasswords}
-                loading={sharePasswordsLoading}
-                size="small"
-                pagination={false}
-                emptyState="No passwords created yet"
-            />
+            {/* Password list - no container, just dividers */}
+            {sharePasswordsLoading ? (
+                <div className="py-3 text-center text-muted-alt text-sm">Loading passwords...</div>
+            ) : sharePasswords.length === 0 ? (
+                <div className="py-3 text-center border-t border-border">
+                    <div className="text-muted-alt text-sm">No passwords created yet</div>
+                </div>
+            ) : (
+                <div className="border-t border-border">
+                    {sharePasswords.map((password) => (
+                        <div
+                            key={password.id}
+                            className="group flex items-start justify-between gap-2 py-2.5 border-b border-border hover:bg-bg-light -mx-3 px-3"
+                        >
+                            <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 text-xs text-muted mb-0.5">
+                                    <span className="truncate">{password.created_by_email}</span>
+                                    <span>•</span>
+                                    <span className="whitespace-nowrap">
+                                        {humanFriendlyDetailedTime(password.created_at)}
+                                    </span>
+                                </div>
+                                <div className="text-sm">{password.note || 'No description'}</div>
+                            </div>
+                            <LemonButton
+                                icon={<IconTrash />}
+                                size="xsmall"
+                                status="stealth"
+                                className="opacity-0 group-hover:opacity-100 transition-opacity"
+                                onClick={() => {
+                                    LemonDialog.open({
+                                        title: 'Remove password?',
+                                        description: password.note
+                                            ? `Remove the password "${password.note}"? Anyone using this password will lose access immediately.`
+                                            : 'Remove this password? Anyone using it will lose access immediately.',
+                                        primaryButton: {
+                                            children: 'Remove',
+                                            status: 'danger',
+                                            onClick: () => deletePassword(password.id),
+                                        },
+                                        secondaryButton: {
+                                            children: 'Cancel',
+                                        },
+                                    })
+                                }}
+                                tooltip="Remove password"
+                                tooltipPlacement="left"
+                            />
+                        </div>
+                    ))}
+                </div>
+            )}
 
             <LemonModal
                 isOpen={newPasswordModalOpen}
@@ -145,24 +142,48 @@ export function SharePasswordsTable({
             >
                 {createdPasswordResult ? (
                     <div className="space-y-4">
-                        <div className="bg-success-highlight border border-success rounded p-4">
-                            <h4 className="text-success mb-2">Password created successfully!</h4>
-                            <p className="mb-3">
-                                Copy this password now - it won't be shown again for security reasons.
-                            </p>
-                            <div className="flex items-center space-x-2">
-                                <LemonInput
-                                    value={createdPasswordResult.password}
-                                    readOnly
-                                    type="text"
-                                    className="font-mono"
-                                />
-                                <LemonButton
-                                    icon={<IconCopy />}
-                                    onClick={() => {
-                                        copyToClipboard(createdPasswordResult.password, 'share password')
-                                    }}
-                                />
+                        <div>
+                            <div className="text-sm text-muted mb-3">
+                                Save this password - it won't be shown again for security reasons.
+                            </div>
+                            <div className="rounded bg-bg-3000 border border-border p-3">
+                                <div className="flex items-center justify-between gap-2">
+                                    <div className="flex-1 overflow-hidden">
+                                        <div className="text-xs text-muted-alt uppercase tracking-wide font-semibold mb-1">
+                                            Password
+                                        </div>
+                                        <div className="font-mono text-sm text-default break-all select-all bg-white dark:bg-gray-900 px-2 py-1.5 rounded border border-border">
+                                            {createdPasswordResult.password}
+                                        </div>
+                                    </div>
+                                    <div className="flex-shrink-0">
+                                        <LemonButton
+                                            icon={<IconCopy />}
+                                            type="secondary"
+                                            size="small"
+                                            onClick={() => {
+                                                copyToClipboard(createdPasswordResult.password, 'password')
+                                            }}
+                                            tooltip="Copy to clipboard"
+                                        />
+                                    </div>
+                                </div>
+                                {createdPasswordResult.note && (
+                                    <div className="mt-3 pt-3 border-t border-border">
+                                        <div className="text-xs text-muted">Note</div>
+                                        <div className="text-sm mt-0.5">{createdPasswordResult.note}</div>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="mt-3 p-3 bg-warning-highlight border border-warning rounded">
+                                <div className="flex gap-2">
+                                    <IconWarning className="text-warning text-lg flex-shrink-0 mt-0.5" />
+                                    <div className="text-sm">
+                                        <strong>Important:</strong> Store this password securely. Anyone with this
+                                        password will be able to access this{' '}
+                                        {dashboardId ? 'dashboard' : insightShortId ? 'insight' : 'recording'}.
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>

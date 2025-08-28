@@ -130,12 +130,18 @@ class SharePasswordCreateSerializer(serializers.Serializer):
 
 
 class SharingConfigurationSerializer(serializers.ModelSerializer):
-    share_passwords = SharePasswordSerializer(many=True, read_only=True)
+    share_passwords = serializers.SerializerMethodField()
 
     class Meta:
         model = SharingConfiguration
         fields = ["created_at", "enabled", "access_token", "password", "password_required", "share_passwords"]
         read_only_fields = ["created_at", "access_token", "share_passwords"]
+
+    def get_share_passwords(self, obj):
+        # Return empty list for unsaved instances to avoid database relationship access
+        if not obj.pk:
+            return []
+        return SharePasswordSerializer(obj.share_passwords.filter(is_active=True), many=True).data
 
 
 class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
@@ -208,9 +214,7 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
         context = self.get_serializer_context()
         instance = self._get_sharing_configuration(context)
 
-        serializer = self.get_serializer(instance, context)
-        serializer.is_valid(raise_exception=True)
-
+        serializer = self.get_serializer(instance)
         return response.Response(serializer.data)
 
     def patch(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
