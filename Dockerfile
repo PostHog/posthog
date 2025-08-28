@@ -206,15 +206,6 @@ RUN groupadd -g 1000 posthog && \
     chown posthog:posthog /code
 USER posthog
 
-# Install Playwright Chromium browser for video export (as posthog user)
-RUN /python-runtime/bin/python -m playwright install --with-deps chromium
-
-# Validate video export dependencies
-RUN ffmpeg -version && \
-    /python-runtime/bin/python -c "import playwright; print('Playwright package imported successfully')" && \
-    /python-runtime/bin/python -c "from playwright.sync_api import sync_playwright; print('Playwright sync API available')" && \
-    /python-runtime/bin/python -m playwright --version
-
 # Add the commit hash
 ARG COMMIT_HASH
 RUN echo $COMMIT_HASH > /code/commit.txt
@@ -238,6 +229,15 @@ COPY --from=posthog-build --chown=posthog:posthog /code/staticfiles /code/static
 COPY --from=posthog-build --chown=posthog:posthog /python-runtime /python-runtime
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
+
+# Install Playwright Chromium browser for video export (now that Python runtime is available)
+RUN /python-runtime/bin/python -m playwright install --with-deps chromium
+
+# Validate video export dependencies
+RUN ffmpeg -version && \
+    /python-runtime/bin/python -c "import playwright; print('Playwright package imported successfully')" && \
+    /python-runtime/bin/python -c "from playwright.sync_api import sync_playwright; print('Playwright sync API available')" && \
+    /python-runtime/bin/python -m playwright --version
 
 # Copy the frontend assets from the frontend-build stage.
 # TODO: this copy should not be necessary, we should remove it once we verify everything still works.
