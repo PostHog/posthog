@@ -336,11 +336,13 @@ def mock_single_session_summary(
         run_metadata=mock_session_summary_run_meta,
         created_by=user,
     )
-    return SingleSessionSummary.objects.get_summary(
+    summary = SingleSessionSummary.objects.get_summary(
         team_id=team.id,
         session_id=mock_session_id,
         extra_summary_context=mock_extra_summary_context,
     )
+    assert summary is not None, "Summary should exist in DB"
+    return summary
 
 
 @pytest.fixture
