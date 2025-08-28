@@ -338,9 +338,15 @@ export function LLMAnalyticsScene(): JSX.Element {
 }
 
 function truncateValue(value: unknown): string {
-    if (value == null) {
+    if (value === null || value === undefined) {
         return '-'
     }
-    const stringValue = value.toString()
+    
+    const stringValue = String(value)
+    
+    if (stringValue.length <= 12) {
+        return stringValue
+    }
+    
     return stringValue.slice(0, 4) + '...' + stringValue.slice(-4)
 }
