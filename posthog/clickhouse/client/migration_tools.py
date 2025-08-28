@@ -51,7 +51,7 @@ def run_sql_with_exceptions(
 
     def run_migration():
         if "ON CLUSTER" in sql:
-            logger.error("you are not suppose to use ON CLUSTER in migration: %s", sql)
+            logger.error("ON CLUSTER is not supposed to used in migration, query: %s", sql)
 
         cluster = get_migrations_cluster()
 
