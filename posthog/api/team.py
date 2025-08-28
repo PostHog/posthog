@@ -452,7 +452,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         return value
 
-    def validate_access_control(self, value):
+    def validate_access_control(self, value) -> None:
         """Validate that access_control field is not being used as it's deprecated."""
         if value is not None:
             import posthoganalytics
@@ -475,7 +475,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 "Please use the new access control system instead. "
                 "For more information, visit: https://posthog.com/docs/settings/access-control"
             )
-        return value
+        return None
 
     def validate_app_urls(self, value: list[str | None] | None) -> list[str] | None:
         if value is None:
