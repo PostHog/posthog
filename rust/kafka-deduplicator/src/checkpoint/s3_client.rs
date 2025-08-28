@@ -6,8 +6,6 @@ use std::path::Path;
 use tokio::fs;
 use tracing::{info, warn};
 
-use crate::kafka::types::{Partition, PartitionOffset};
-
 use super::client::CheckpointClient;
 use super::config::CheckpointConfig;
 use super::metadata::{CheckpointInfo, CheckpointMetadata};
@@ -100,12 +98,9 @@ impl CheckpointClient for S3CheckpointClient {
         for key in keys {
             if key.ends_with("/metadata.json") {
                 // Parse the key to extract checkpoint info
-                if let Some(partition_offset) =
+                if let Some((topic_parsed, partition_parsed, _timestamp)) =
                     CheckpointInfo::parse_s3_key(&key, &self.config.s3_key_prefix)
                 {
-                    let topic_parsed = partition_offset.topic();
-                    let partition_parsed = partition_offset.partition_number();
-                    let _timestamp = partition_offset.offset();
 
                     if topic_parsed == topic && partition_parsed == partition {
                         // Get the metadata
@@ -222,7 +217,7 @@ impl CheckpointClient for S3CheckpointClient {
 
 impl CheckpointInfo {
     /// Parse S3 key to extract topic, partition, and timestamp
-    pub fn parse_s3_key(key: &str, prefix: &str) -> Option<PartitionOffset> {
+    pub fn parse_s3_key(key: &str, prefix: &str) -> Option<(String, i32, u64)> {
         // Remove prefix and split remaining path
         let path = key.strip_prefix(prefix)?.trim_start_matches('/');
         let parts: Vec<&str> = path.split('/').collect();
@@ -235,9 +230,6 @@ impl CheckpointInfo {
         let partition = parts[1].parse().ok()?;
         let timestamp = parts[2].parse().ok()?;
 
-        Some(PartitionOffset::new(
-            Partition::new(topic, partition),
-            timestamp,
-        ))
+        Some((topic, partition, timestamp))
     }
 }

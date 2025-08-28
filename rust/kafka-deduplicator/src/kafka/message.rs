@@ -99,7 +99,7 @@ impl Drop for AckableMessage {
     fn drop(&mut self) {
         if !self.acked {
             error!(
-                "💀 MESSAGE DROPPED WITHOUT ACK: id={}, offset={}, topic={}, partition={}",
+                "MESSAGE DROPPED WITHOUT ACK: id={}, offset={}, topic={}, partition={}",
                 self.handle.message_id,
                 self.handle.offset,
                 self.message.topic(),
@@ -115,12 +115,12 @@ impl Drop for AckableMessage {
 
             if self.handle.completion_tx.send(completion).is_err() {
                 error!(
-                    "💀💀 CRITICAL: Failed to send auto-nack for dropped message: id={}, offset={}",
+                    "CRITICAL: Failed to send auto-nack for dropped message: id={}, offset={}",
                     self.handle.message_id, self.handle.offset
                 );
             } else {
                 warn!(
-                    "⚠️ Auto-nacked dropped message: id={}, offset={}",
+                    "Auto-nacked dropped message: id={}, offset={}",
                     self.handle.message_id, self.handle.offset
                 );
                 // Increment auto-nack counter

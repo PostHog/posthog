@@ -191,26 +191,20 @@ impl PartitionTracker {
                     };
 
                     let gap_size = offset - expected;
-                    if gap_size > 10 {
-                        warn!(
-                            "🔴 Partition {}-{}: OFFSET GAP - expected={}, received={}, gap={}, pending={}",
-                            topic, partition, expected, offset,
-                            gap_size, pending_completions.len()
-                        );
+                
+                    // Emit gap metrics
+                    metrics::gauge!(PARTITION_OFFSET_GAP_SIZE,
+                        "topic" => topic.clone(),
+                        "partition" => partition.to_string()
+                    )
+                    .set(gap_size as f64);
 
-                        // Emit gap metrics
-                        metrics::gauge!(PARTITION_OFFSET_GAP_SIZE,
-                            "topic" => topic.clone(),
-                            "partition" => partition.to_string()
-                        )
-                        .set(gap_size as f64);
-
-                        metrics::counter!(PARTITION_OFFSET_GAP_DETECTED,
-                            "topic" => topic.clone(),
-                            "partition" => partition.to_string()
-                        )
-                        .increment(1);
-                    }
+                    metrics::counter!(PARTITION_OFFSET_GAP_DETECTED,
+                        "topic" => topic.clone(),
+                        "partition" => partition.to_string()
+                    )
+                    .increment(1);
+                    
                 }
                 // If offset <= last_committed, it's a duplicate - ignore
 
@@ -444,7 +438,7 @@ impl InFlightTracker {
 
                     if offset != expected_offset && last_committed != -1 {
                         warn!(
-                        "⚠️ TRACKING NON-SEQUENTIAL OFFSET: topic={}, partition={}, offset={}, expected={}, last_committed={}, global_in_flight={}",
+                        "TRACKING NON-SEQUENTIAL OFFSET: topic={}, partition={}, offset={}, expected={}, last_committed={}, global_in_flight={}",
                         topic, partition, offset, expected_offset, last_committed, in_flight
                     );
                     }

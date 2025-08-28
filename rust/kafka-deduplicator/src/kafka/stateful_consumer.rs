@@ -94,14 +94,14 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
 
                 // Publish metrics every 10 seconds
                 _ = metrics_interval.tick() => {
-                    info!("📊 Starting metrics publication cycle");
+                    info!("Starting metrics publication cycle");
 
                     let stats = self.tracker.get_stats().await;
                     let available_permits = self.tracker.available_permits();
                     let partition_health = self.tracker.get_partition_health().await;
 
                     info!(
-                        "📈 Global Metrics: in_flight={}, completed={}, failed={}, memory={}MB, available_permits={}",
+                        "Global Metrics: in_flight={}, completed={}, failed={}, memory={}MB, available_permits={}",
                         stats.in_flight, stats.completed, stats.failed,
                         stats.memory_usage / (1024 * 1024),
                         available_permits
@@ -109,18 +109,10 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
 
                     // Log partition health status
                     for health in &partition_health {
-                        let status = if health.in_flight_count > 1000 {
-                            "⚠️ HIGH"
-                        } else if health.in_flight_count > 100 {
-                            "🔶 MODERATE"
-                        } else {
-                            "✅ HEALTHY"
-                        };
-
                         info!(
-                            "📍 Partition {}-{}: last_committed={}, in_flight={} {}",
+                            "Partition {}-{}: last_committed={}, in_flight={}",
                             health.topic, health.partition,
-                            health.last_committed_offset, health.in_flight_count, status
+                            health.last_committed_offset, health.in_flight_count
                         );
                     }
 
@@ -130,7 +122,7 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
                     metrics::gauge!("kafka_consumer_available_permits")
                         .set(available_permits as f64);
 
-                    info!("✅ Metrics published successfully");
+                    info!("Metrics published successfully");
                 }
 
                 // Commit offsets periodically
