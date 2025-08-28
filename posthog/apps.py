@@ -1,16 +1,16 @@
 import os
 
-import posthoganalytics
-import structlog
-from asgiref.sync import async_to_sync
 from django.apps import AppConfig
 from django.conf import settings
+
+import structlog
+import posthoganalytics
+from asgiref.sync import async_to_sync
 from posthoganalytics.client import Client
 
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.tasks.tasks import sync_all_organization_available_product_features
-from posthog.utils import get_machine_id, initialize_self_capture_api_token, get_instance_region
-
+from posthog.utils import get_instance_region, get_machine_id, initialize_self_capture_api_token
 
 logger = structlog.get_logger(__name__)
 

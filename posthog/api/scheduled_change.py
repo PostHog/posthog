@@ -1,8 +1,6 @@
 from typing import Any
-from rest_framework import (
-    serializers,
-    viewsets,
-)
+
+from rest_framework import serializers, viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer

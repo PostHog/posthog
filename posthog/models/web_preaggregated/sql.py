@@ -1,6 +1,7 @@
-from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
-from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.hogql.database.schema.web_analytics_s3 import get_s3_function_args
+
+from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
+from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
 from posthog.models.web_preaggregated.team_selection import WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME
 
 
@@ -164,19 +165,19 @@ def DROP_PARTITION_SQL(table_name, date_start, granularity="daily"):
     """
 
 
-def WEB_STATS_DAILY_SQL(table_name="web_stats_daily"):
-    return TABLE_TEMPLATE(table_name, WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC("period_bucket"))
-
-
-def WEB_BOUNCES_DAILY_SQL(table_name="web_bounces_daily"):
-    return TABLE_TEMPLATE(table_name, WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"))
-
-
-def WEB_STATS_SQL(table_name="web_pre_aggregated_stats", on_cluster=True):
+def WEB_STATS_DAILY_SQL(table_name="web_stats_daily", on_cluster=False):
     return TABLE_TEMPLATE(table_name, WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC("period_bucket"), on_cluster)
 
 
-def WEB_BOUNCES_SQL(table_name="web_pre_aggregated_bounces", on_cluster=True):
+def WEB_BOUNCES_DAILY_SQL(table_name="web_bounces_daily", on_cluster=False):
+    return TABLE_TEMPLATE(table_name, WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"), on_cluster)
+
+
+def WEB_STATS_SQL(table_name="web_pre_aggregated_stats", on_cluster=False):
+    return TABLE_TEMPLATE(table_name, WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC("period_bucket"), on_cluster)
+
+
+def WEB_BOUNCES_SQL(table_name="web_pre_aggregated_bounces", on_cluster=False):
     return TABLE_TEMPLATE(table_name, WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"), on_cluster)
 
 

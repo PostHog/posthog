@@ -1,7 +1,8 @@
+from posthog.test.base import APIBaseTest
+
 from rest_framework import status
 
 from posthog.models import FeatureFlag
-from posthog.test.base import APIBaseTest
 
 
 class TestFeatureFlagDependencyTransformation(APIBaseTest):

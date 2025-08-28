@@ -1,6 +1,8 @@
 from collections import defaultdict
+
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
+
 from products.revenue_analytics.backend.views import (
     RevenueAnalyticsBaseView,
     RevenueAnalyticsChargeView,

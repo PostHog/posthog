@@ -1,20 +1,25 @@
-import logging
 import json
+import logging
+
+from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
+
+from posthog.schema import MaxRecordingUniversalFilters
+
+from posthog.models import Team, User
+
+from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
 from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
-from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
 from ee.hogai.graph.taxonomy.tools import base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
 from ee.hogai.tool import MaxTool
-from langchain_core.prompts import ChatPromptTemplate
-from posthog.models import Team, User
-from posthog.schema import MaxRecordingUniversalFilters
+
 from .prompts import (
+    DATE_FIELDS_PROMPT,
+    FILTER_FIELDS_TAXONOMY_PROMPT,
     PRODUCT_DESCRIPTION_PROMPT,
     SESSION_REPLAY_EXAMPLES_PROMPT,
-    FILTER_FIELDS_TAXONOMY_PROMPT,
-    DATE_FIELDS_PROMPT,
     USER_FILTER_OPTIONS_PROMPT,
 )
 

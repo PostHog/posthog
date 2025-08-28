@@ -1,18 +1,17 @@
-from typing import TYPE_CHECKING
-from posthog.constants import FlagRequestType
-from posthog.helpers.dashboard_templates import (
-    add_enriched_insights_to_feature_flag_dashboard,
-)
-from django.db.models import Q
-from posthog.models.feature_flag.feature_flag import FeatureFlag
-from posthog.models import Team
-from posthog.redis import redis, get_client
 import time
-from posthog.exceptions_capture import capture_exception
-from django.conf import settings
-from posthog.clickhouse.client import sync_execute
 from datetime import datetime
+from typing import TYPE_CHECKING
 
+from django.conf import settings
+from django.db.models import Q
+
+from posthog.clickhouse.client import sync_execute
+from posthog.constants import FlagRequestType
+from posthog.exceptions_capture import capture_exception
+from posthog.helpers.dashboard_templates import add_enriched_insights_to_feature_flag_dashboard
+from posthog.models import Team
+from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.redis import get_client, redis
 
 if TYPE_CHECKING:
     from posthoganalytics import Posthog

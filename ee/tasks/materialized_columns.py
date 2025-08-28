@@ -1,10 +1,12 @@
 from collections.abc import Iterator
+
 from celery.utils.log import get_task_logger
 
-from ee.clickhouse.materialized_columns.columns import MaterializedColumn
 from posthog.clickhouse.client import sync_execute
-from posthog.settings import CLICKHOUSE_DATABASE
 from posthog.clickhouse.materialized_columns import ColumnName, TablesWithMaterializedColumns
+from posthog.settings import CLICKHOUSE_DATABASE
+
+from ee.clickhouse.materialized_columns.columns import MaterializedColumn
 
 logger = get_task_logger(__name__)
 
