@@ -14,7 +14,6 @@ from langchain_core.messages import (
 from langchain_core.output_parsers import PydanticToolsParser, StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
-from langchain_perplexity import ChatPerplexity
 from langgraph.errors import NodeInterrupt
 from pydantic import BaseModel, Field, ValidationError
 
@@ -159,7 +158,7 @@ class MemoryOnboardingNode(MemoryInitializerContextMixin, MemoryOnboardingShould
 
 class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
     """
-    Scrapes the product description from the given origin or app bundle IDs with Perplexity.
+    Scrapes the product description from the given origin or app bundle IDs.
     """
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
@@ -189,7 +188,7 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
 
         chain = prompt | self._model() | StrOutputParser()
         answer = chain.invoke({}, config=config)
-        # Perplexity has failed to scrape the data, continue.
+        # The model has failed to scrape the data, continue.
         if "no data available." in answer.lower():
             return PartialAssistantState(
                 messages=[AssistantMessage(content=SCRAPING_TERMINATION_MESSAGE, id=str(uuid4()))]
@@ -220,12 +219,19 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
         return SCRAPING_SUCCESS_MESSAGE + re.sub(r"\[\d+\]", "", message)
 
     def _model(self):
-        return ChatPerplexity(model="sonar-pro", temperature=0.3, streaming=True, timeout=60)
+        return MaxChatOpenAI(
+            model="gpt-5-mini",
+            disable_streaming=True,
+            use_responses_api=True,
+            store=False,
+            user=self._user,
+            team=self._team,
+        ).bind_tools([{"type": "web_search"}])
 
 
 class MemoryInitializerInterruptNode(AssistantNode):
     """
-    Prompts the user to confirm or reject the scraped memory. Since Perplexity doesn't guarantee the quality of the scraped data, we need to verify it with the user.
+    Prompts the user to confirm or reject the scraped memory.
     """
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:

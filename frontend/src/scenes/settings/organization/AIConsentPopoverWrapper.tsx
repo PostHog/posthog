@@ -35,11 +35,7 @@ export function AIConsentPopoverWrapper({
                         Max needs your approval to potentially process
                         <br />
                         identifying user data with{' '}
-                        <Tooltip
-                            title={`As of ${dayjs().format(
-                                'MMMM YYYY'
-                            )}: OpenAI for core analysis, Perplexity for fetching product information`}
-                        >
+                        <Tooltip title={`As of ${dayjs().format('MMMM YYYY')}: OpenAI`}>
                             <dfn>external AI providers</dfn>
                         </Tooltip>
                         .<br />
