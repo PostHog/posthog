@@ -230,14 +230,16 @@ COPY --from=posthog-build --chown=posthog:posthog /python-runtime /python-runtim
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
 
-# Install Playwright Chromium browser for video export (now that Python runtime is available)
+# Debug and install Playwright Chromium browser for video export
+RUN /python-runtime/bin/python --version
+RUN /python-runtime/bin/python -c "import playwright; print('Playwright package found')"
+RUN /python-runtime/bin/python -m playwright --version
 RUN /python-runtime/bin/python -m playwright install --with-deps chromium
 
 # Validate video export dependencies
-RUN ffmpeg -version && \
-    /python-runtime/bin/python -c "import playwright; print('Playwright package imported successfully')" && \
-    /python-runtime/bin/python -c "from playwright.sync_api import sync_playwright; print('Playwright sync API available')" && \
-    /python-runtime/bin/python -m playwright --version
+RUN ffmpeg -version
+RUN /python-runtime/bin/python -c "import playwright; print('Playwright package imported successfully')"
+RUN /python-runtime/bin/python -c "from playwright.sync_api import sync_playwright; print('Playwright sync API available')"
 
 # Copy the frontend assets from the frontend-build stage.
 # TODO: this copy should not be necessary, we should remove it once we verify everything still works.
