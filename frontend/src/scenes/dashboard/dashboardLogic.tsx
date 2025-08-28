@@ -1642,7 +1642,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         receiveTileFromStream: async (_, breakpoint) => {
-            // Debounce tile processing with a 50ms breakpoint
             await breakpoint(50)
 
             // When the breakpoint expires, process all buffered tiles
