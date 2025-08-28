@@ -123,7 +123,7 @@ async def test_get_llm_single_session_summary_activity_standalone(
         redis_output_key,
     )
     # Verify summary doesn't exist in DB before the activity
-    summary_before = await database_sync_to_async(SingleSessionSummary.objects.get_summary)(
+    summary_before = await database_sync_to_async(SingleSessionSummary.objects.get_summary, thread_sensitive=False)(
         team_id=ateam.id,
         session_id=mock_session_id,
         extra_summary_context=input_data.extra_summary_context,
@@ -142,7 +142,7 @@ async def test_get_llm_single_session_summary_activity_standalone(
         assert spy_get.call_count == 1  # Get input data from Redis
         assert spy_setex.call_count == 1  # Only initial setup, output goes to the DB
         # Verify summary was stored in DB after the activity
-        summary_after = await database_sync_to_async(SingleSessionSummary.objects.get_summary)(
+        summary_after = await database_sync_to_async(SingleSessionSummary.objects.get_summary, thread_sensitive=False)(
             team_id=ateam.id,
             session_id=mock_session_id,
             extra_summary_context=input_data.extra_summary_context,
@@ -173,7 +173,7 @@ async def test_extract_session_group_patterns_activity_standalone(
 
     # Store session summaries in DB for each session (following the new approach)
     for session_id in session_ids:
-        await database_sync_to_async(SingleSessionSummary.objects.add_summary)(
+        await database_sync_to_async(SingleSessionSummary.objects.add_summary, thread_sensitive=False)(
             team_id=ateam.id,
             session_id=session_id,
             summary=mock_intermediate_session_summary_serializer,
@@ -183,7 +183,9 @@ async def test_extract_session_group_patterns_activity_standalone(
         )
 
     # Verify summaries exist in DB before the activity
-    summaries_before = await database_sync_to_async(SingleSessionSummary.objects.summaries_exist)(
+    summaries_before = await database_sync_to_async(
+        SingleSessionSummary.objects.summaries_exist, thread_sensitive=False
+    )(
         team_id=ateam.id,
         session_ids=session_ids,
         extra_summary_context=activity_inputs.extra_summary_context,
@@ -264,7 +266,7 @@ async def test_assign_events_to_patterns_activity_standalone(
 
     # Store session summaries in DB for each session (following the new approach)
     for session_id in session_ids:
-        await database_sync_to_async(SingleSessionSummary.objects.add_summary)(
+        await database_sync_to_async(SingleSessionSummary.objects.add_summary, thread_sensitive=False)(
             team_id=ateam.id,
             session_id=session_id,
             summary=mock_session_summary_serializer,
@@ -274,7 +276,9 @@ async def test_assign_events_to_patterns_activity_standalone(
         )
 
     # Verify summaries exist in DB before the activity
-    summaries_before = await database_sync_to_async(SingleSessionSummary.objects.summaries_exist)(
+    summaries_before = await database_sync_to_async(
+        SingleSessionSummary.objects.summaries_exist, thread_sensitive=False
+    )(
         team_id=ateam.id,
         session_ids=session_ids,
         extra_summary_context=activity_input.extra_summary_context,
@@ -371,7 +375,7 @@ async def test_assign_events_to_patterns_threshold_check(
 
     # Store session summaries in DB for each session (following the new approach)
     for session_id in session_ids:
-        await database_sync_to_async(SingleSessionSummary.objects.add_summary)(
+        await database_sync_to_async(SingleSessionSummary.objects.add_summary, thread_sensitive=False)(
             team_id=ateam.id,
             session_id=session_id,
             summary=mock_session_summary_serializer,
@@ -381,7 +385,9 @@ async def test_assign_events_to_patterns_threshold_check(
         )
 
     # Verify summaries exist in DB before testing
-    summaries_before = await database_sync_to_async(SingleSessionSummary.objects.summaries_exist)(
+    summaries_before = await database_sync_to_async(
+        SingleSessionSummary.objects.summaries_exist, thread_sensitive=False
+    )(
         team_id=ateam.id,
         session_ids=session_ids,
         extra_summary_context=activity_input.extra_summary_context,
@@ -708,7 +714,7 @@ class TestSummarizeSessionGroupWorkflow:
 
         # Store session summaries in DB for each session (following the new approach)
         for session_id in session_ids:
-            await database_sync_to_async(SingleSessionSummary.objects.add_summary)(
+            await database_sync_to_async(SingleSessionSummary.objects.add_summary, thread_sensitive=False)(
                 team_id=ateam.id,
                 session_id=session_id,
                 summary=mock_session_summary_serializer,
@@ -791,7 +797,7 @@ class TestSummarizeSessionGroupWorkflow:
 
         # Store session summaries in DB for each session (following the new approach)
         for session_id in session_ids:
-            await database_sync_to_async(SingleSessionSummary.objects.add_summary)(
+            await database_sync_to_async(SingleSessionSummary.objects.add_summary, thread_sensitive=False)(
                 team_id=ateam.id,
                 session_id=session_id,
                 summary=mock_session_summary_serializer,
@@ -893,7 +899,7 @@ class TestPatternExtractionChunking:
 
         # Store session summaries in DB for each session
         for session_id in session_ids:
-            await database_sync_to_async(SingleSessionSummary.objects.add_summary)(
+            await database_sync_to_async(SingleSessionSummary.objects.add_summary, thread_sensitive=False)(
                 team_id=ateam.id,
                 session_id=session_id,
                 summary=mock_intermediate_session_summary_serializer,
@@ -903,7 +909,9 @@ class TestPatternExtractionChunking:
             )
 
         # Verify summaries exist in DB before the activity
-        summaries_before = await database_sync_to_async(SingleSessionSummary.objects.summaries_exist)(
+        summaries_before = await database_sync_to_async(
+            SingleSessionSummary.objects.summaries_exist, thread_sensitive=False
+        )(
             team_id=ateam.id,
             session_ids=session_ids,
             extra_summary_context=ExtraSummaryContext(focus_area="test"),
@@ -950,7 +958,7 @@ class TestPatternExtractionChunking:
 
         # Store session summaries in DB for each session
         for session_id in session_ids:
-            await database_sync_to_async(SingleSessionSummary.objects.add_summary)(
+            await database_sync_to_async(SingleSessionSummary.objects.add_summary, thread_sensitive=False)(
                 team_id=ateam.id,
                 session_id=session_id,
                 summary=mock_intermediate_session_summary_serializer,
@@ -960,7 +968,9 @@ class TestPatternExtractionChunking:
             )
 
         # Verify summaries exist in DB before the activity
-        summaries_before = await database_sync_to_async(SingleSessionSummary.objects.summaries_exist)(
+        summaries_before = await database_sync_to_async(
+            SingleSessionSummary.objects.summaries_exist, thread_sensitive=False
+        )(
             team_id=ateam.id,
             session_ids=session_ids,
             extra_summary_context=None,
@@ -1010,7 +1020,7 @@ class TestPatternExtractionChunking:
 
         # Store session summaries in DB for each session
         for session_id in session_ids:
-            await database_sync_to_async(SingleSessionSummary.objects.add_summary)(
+            await database_sync_to_async(SingleSessionSummary.objects.add_summary, thread_sensitive=False)(
                 team_id=ateam.id,
                 session_id=session_id,
                 summary=mock_intermediate_session_summary_serializer,
@@ -1020,7 +1030,9 @@ class TestPatternExtractionChunking:
             )
 
         # Verify summaries exist in DB before the activity
-        summaries_before = await database_sync_to_async(SingleSessionSummary.objects.summaries_exist)(
+        summaries_before = await database_sync_to_async(
+            SingleSessionSummary.objects.summaries_exist, thread_sensitive=False
+        )(
             team_id=ateam.id,
             session_ids=session_ids,
             extra_summary_context=None,

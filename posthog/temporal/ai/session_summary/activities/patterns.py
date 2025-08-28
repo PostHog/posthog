@@ -112,7 +112,8 @@ async def split_session_summaries_into_chunks_for_patterns_extraction_activity(
         strings=[prompt.system_prompt, prompt.patterns_prompt], model=SESSION_SUMMARIES_SYNC_MODEL
     )
     # Get ready session summaries from DB
-    ready_summaries = await database_sync_to_async(get_ready_summaries_from_db)(
+    # Disable thread-sensitive as the call is heavy (N summaries through pagination)
+    ready_summaries = await database_sync_to_async(get_ready_summaries_from_db, thread_sensitive=False)(
         team_id=inputs.team_id,
         session_ids=session_ids,
         extra_summary_context=inputs.extra_summary_context,
@@ -205,7 +206,8 @@ async def extract_session_group_patterns_activity(inputs: SessionGroupSummaryOfS
         # Cached successfully
         return redis_output_key
     # Get ready session summaries from DB
-    ready_summaries = await database_sync_to_async(get_ready_summaries_from_db)(
+    # Disable thread-sensitive as the call is heavy (N summaries through pagination)
+    ready_summaries = await database_sync_to_async(get_ready_summaries_from_db, thread_sensitive=False)(
         team_id=inputs.team_id,
         session_ids=session_ids,
         extra_summary_context=inputs.extra_summary_context,
@@ -348,7 +350,8 @@ async def assign_events_to_patterns_activity(
     if patterns_with_events_context:
         return patterns_with_events_context
     # Get ready session summaries from DB
-    ready_summaries = await database_sync_to_async(get_ready_summaries_from_db)(
+    # Disable thread-sensitive as the call is heavy (N summaries through pagination)
+    ready_summaries = await database_sync_to_async(get_ready_summaries_from_db, thread_sensitive=False)(
         team_id=inputs.team_id,
         session_ids=session_ids,
         extra_summary_context=inputs.extra_summary_context,

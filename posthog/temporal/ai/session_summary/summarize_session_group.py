@@ -107,7 +107,10 @@ async def fetch_session_batch_events_activity(
     fetched_session_ids = []
     redis_client = get_async_client()
     # Find sessions that have summaries already and stored in the DB
-    summaries_exist = await database_sync_to_async(SingleSessionSummary.objects.summaries_exist)(
+    # Disable thread-sensitive as we can check for lots of sessions here
+    summaries_exist = await database_sync_to_async(
+        SingleSessionSummary.objects.summaries_exist, thread_sensitive=False
+    )(
         team_id=inputs.team_id,
         session_ids=inputs.session_ids,
         extra_summary_context=inputs.extra_summary_context,
@@ -119,9 +122,11 @@ async def fetch_session_batch_events_activity(
     if not session_ids_to_fetch:
         return fetched_session_ids
     # Get the team
+    # Keeping thread-sensitive as getting a single team should be fast
     team = await database_sync_to_async(get_team)(team_id=inputs.team_id)
     # Fetch metadata for all sessions at once
-    metadata_dict = await database_sync_to_async(SessionReplayEvents().get_group_metadata)(
+    # Disable thread-sensitive as we can get metadata for lots of sessions here
+    metadata_dict = await database_sync_to_async(SessionReplayEvents().get_group_metadata, thread_sensitive=False)(
         session_ids=session_ids_to_fetch,
         team_id=inputs.team_id,
         recordings_min_timestamp=datetime.fromisoformat(inputs.min_timestamp_str),

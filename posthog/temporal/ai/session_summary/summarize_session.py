@@ -59,6 +59,7 @@ SESSION_SUMMARIES_STREAM_INTERVAL = 0.1  # 100ms
 async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> None:
     """Fetch data from DB for a single session and store/cache in Redis (to avoid hitting Temporal memory limits)"""
     # Check if the summary is already in the DB, so no need to fetch data from DB
+    # Keeping thread-sensitive as checking for a single summary should be fast
     summary_exists = await database_sync_to_async(SingleSessionSummary.objects.summaries_exist)(
         team_id=inputs.team_id,
         session_ids=[inputs.session_id],
@@ -126,6 +127,7 @@ async def get_llm_single_session_summary_activity(
 ) -> None:
     """Summarize a single session in one call and store/cache in Redis (to avoid hitting Temporal memory limits)"""
     # Check if summary is already in the DB (in case of race conditions/multiple group summaries running in parallel/etc.)
+    # Keeping thread-sensitive as checking for a single summary should be fast
     summary_exists = await database_sync_to_async(SingleSessionSummary.objects.summaries_exist)(
         team_id=inputs.team_id,
         session_ids=[inputs.session_id],
@@ -179,7 +181,8 @@ async def get_llm_single_session_summary_activity(
     )
     # Store the generated summary in the DB
     exception_event_ids = get_exception_event_ids_from_summary(session_summary)
-    await database_sync_to_async(SingleSessionSummary.objects.add_summary)(
+    # Disable thread-sensitive as the summary could be pretty heavy and it's a write
+    await database_sync_to_async(SingleSessionSummary.objects.add_summary, thread_sensitive=False)(
         session_id=inputs.session_id,
         team_id=inputs.team_id,
         summary=session_summary,
@@ -198,7 +201,8 @@ async def get_llm_single_session_summary_activity(
 async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummaryInputs) -> str:
     """Summarize a single session and stream the summary state as it becomes available"""
     # Check if summary is already in the DB, so no need to summarize again
-    ready_summary = await database_sync_to_async(SingleSessionSummary.objects.get_summary)(
+    # Disabling thread-sensitive as summaries can be heavy to load from DB
+    ready_summary = await database_sync_to_async(SingleSessionSummary.objects.get_summary, thread_sensitive=False)(
         team_id=inputs.team_id,
         session_id=inputs.session_id,
         extra_summary_context=inputs.extra_summary_context,
