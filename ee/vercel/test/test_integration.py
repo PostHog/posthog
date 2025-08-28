@@ -1,11 +1,16 @@
-from unittest.mock import patch
 from typing import Any
-from django.test import TestCase
+
+from unittest.mock import patch
+
 from django.db import IntegrityError
+from django.test import TestCase
+
 from rest_framework.exceptions import NotFound, ValidationError
-from posthog.models.organization_integration import OrganizationIntegration
+
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.user import User
+
 from ee.vercel.integration import VercelIntegration
 
 

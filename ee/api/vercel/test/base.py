@@ -1,11 +1,16 @@
-import jwt
 import base64
+
+from posthog.test.base import APIBaseTest
+
+from django.utils import timezone
+
+import jwt
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from django.utils import timezone
-from ee.api.authentication import VercelAuthentication
+
 from posthog.models.organization_integration import OrganizationIntegration
-from posthog.test.base import APIBaseTest
+
+from ee.api.authentication import VercelAuthentication
 
 
 class VercelTestBase(APIBaseTest):

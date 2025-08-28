@@ -1,15 +1,16 @@
 from typing import Any
-from django.conf import settings
-from django.db import IntegrityError
-from rest_framework import exceptions
-import structlog
-from posthog.exceptions_capture import capture_exception
 
+from django.conf import settings
+from django.db import IntegrityError, transaction
+
+import structlog
+from rest_framework import exceptions
+
+from posthog.event_usage import report_user_signed_up
+from posthog.exceptions_capture import capture_exception
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.user import User
-from posthog.models.organization import Organization, OrganizationMembership
-from django.db import transaction
-from posthog.event_usage import report_user_signed_up
 
 logger = structlog.get_logger(__name__)
 

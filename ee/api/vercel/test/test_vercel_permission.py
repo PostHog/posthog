@@ -1,12 +1,16 @@
-from unittest.mock import MagicMock
 import json
+
 import pytest
+from unittest.mock import MagicMock
+
 from rest_framework import status
 from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
+
+from posthog.models import Organization, Team
+from posthog.models.organization_integration import OrganizationIntegration
+
 from ee.api.vercel.test.base import VercelTestBase
 from ee.api.vercel.vercel_permission import VercelPermission
-from posthog.models.organization_integration import OrganizationIntegration
-from posthog.models import Organization, Team
 
 
 class TestVercelPermission(VercelTestBase):

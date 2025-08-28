@@ -1,15 +1,16 @@
 import re
 from typing import Any
-from rest_framework import serializers, viewsets, exceptions
+
+from rest_framework import decorators, exceptions, serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework import decorators
+
+from posthog.models.organization_integration import OrganizationIntegration
 
 from ee.api.authentication import VercelAuthentication
+from ee.api.vercel.vercel_error_mixin import VercelErrorResponseMixin
 from ee.api.vercel.vercel_permission import VercelPermission
 from ee.vercel.integration import VercelIntegration
-from ee.api.vercel.vercel_error_mixin import VercelErrorResponseMixin
-from posthog.models.organization_integration import OrganizationIntegration
 
 
 class VercelCredentialsSerializer(serializers.Serializer):

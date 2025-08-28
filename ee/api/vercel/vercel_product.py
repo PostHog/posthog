@@ -1,7 +1,9 @@
 from typing import Any
+
 from rest_framework import decorators, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
+
 from ee.api.authentication import VercelAuthentication
 from ee.api.vercel.vercel_error_mixin import VercelErrorResponseMixin
 from ee.api.vercel.vercel_permission import VercelPermission

@@ -1,5 +1,7 @@
-from unittest.mock import patch, MagicMock, _patch
+from unittest.mock import MagicMock, _patch, patch
+
 from rest_framework import status
+
 from ee.api.vercel.test.base import VercelTestBase
 
 
