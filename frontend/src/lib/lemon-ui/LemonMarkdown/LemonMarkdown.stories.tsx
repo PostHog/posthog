@@ -48,11 +48,11 @@ LowKeyHeadings.args = {
 
 export const WithTables: Story = Template.bind({})
 WithTables.args = {
-    children: `# Analytics Dashboard
+    children: `# Analytics dashboard
 
 Here's a breakdown of our top traffic sources:
 
-| Source | Unique Users | Percentage |
+| Source | Unique users | Percentage |
 |--------|-------------|------------|
 | Direct | 362,389 | 45.2% |
 | Google | 122,910 | 15.3% |
@@ -64,9 +64,9 @@ Here's a breakdown of our top traffic sources:
 | Bing | 2,950 | 0.4% |
 | DuckDuckGo | 2,933 | 0.4% |
 
-## Browser Breakdown
+## Browser breakdown
 
-| Browser | Users | Market Share |
+| Browser | Users | Market share |
 |---------|-------|-------------|
 | Chrome | 450,123 | 72.1% |
 | Safari | 89,234 | 14.3% |
@@ -79,14 +79,14 @@ Here's a breakdown of our top traffic sources:
 
 export const GitHubFlavoredMarkdown: Story = Template.bind({})
 GitHubFlavoredMarkdown.args = {
-    children: `# GitHub Flavored Markdown Features
+    children: `# GitHub-flavored Markdown features
 
-## Strikethrough Text
+## Strikethrough text
 This text is ~~deleted~~ and this text is **bold**.
 
 You can also combine ~~**bold and deleted**~~ text.
 
-## Task Lists
+## Task lists
 Here's our development progress:
 
 - [x] Add remark-gfm plugin support
@@ -96,31 +96,12 @@ Here's our development progress:
 - [ ] Performance optimization
 - [ ] Mobile responsiveness testing
 
-## Autolink Literals
+## Autolink literals
 Visit https://posthog.com for more information about our product.
 
 You can also check out our GitHub repository at https://github.com/PostHog/posthog
 
-Email us at hello@posthog.com for support.
-
-## Footnotes
-PostHog is an open-source product analytics platform[^1] that helps you understand user behavior.
-
-We support multiple deployment options[^2] including cloud and self-hosted.
-
-[^1]: Learn more about product analytics at https://posthog.com/blog/what-is-product-analytics
-[^2]: See our deployment docs for more details
-
-## Combined Features
-~~Old pricing model~~
-
-**New features checklist:**
-- [x] ~~Analytics dashboard~~ ✅ Complete
-- [x] User segmentation with https://posthog.com/docs/data/cohorts
-- [ ] A/B testing framework
-- [ ] Custom event tracking[^3]
-
-[^3]: Custom events allow you to track specific user actions`,
+Email us at hello@posthog.com for support.`,
 }
 
 export const Strikethrough: Story = Template.bind({})
@@ -175,26 +156,4 @@ For technical support: support@posthog.com
 Our GitHub repository (https://github.com/PostHog/posthog) contains the full source code.
 
 For questions, email team@posthog.com or visit https://posthog.com/questions`,
-}
-
-export const Footnotes: Story = Template.bind({})
-Footnotes.args = {
-    children: `# Research Notes
-
-## Key Findings
-PostHog is a comprehensive analytics platform[^1] that offers both cloud and self-hosted options[^2].
-
-The platform supports real-time analytics[^3] and provides detailed user behavior insights.
-
-## Technical Details
-Our system architecture[^4] is designed for scalability and performance.
-
----
-
-## References
-
-[^1]: PostHog combines product analytics, session replay, feature flags, and A/B testing in one platform
-[^2]: Self-hosting gives you complete control over your data and infrastructure  
-[^3]: Real-time analytics help you understand user behavior as it happens
-[^4]: Built with Django, ClickHouse, and React for optimal performance`,
 }
