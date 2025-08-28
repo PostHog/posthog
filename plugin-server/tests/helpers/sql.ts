@@ -105,6 +105,39 @@ export async function resetTestDatabase(
     extraRows: ExtraDatabaseRows = {},
     { withExtendedTestData = true }: { withExtendedTestData?: boolean } = {}
 ): Promise<void> {
+    await resetTestDatabaseWithRouter(
+        code,
+        extraServerConfig,
+        extraRows,
+        { withExtendedTestData },
+        false // Don't reset migration DB by default to maintain backward compatibility
+    )
+}
+
+// Enhanced version that can also reset the migration database
+export async function resetTestDatabaseWithMigration(
+    code?: string,
+    extraServerConfig: Partial<PluginsServerConfig> = {},
+    extraRows: ExtraDatabaseRows = {},
+    { withExtendedTestData = true }: { withExtendedTestData?: boolean } = {}
+): Promise<void> {
+    await resetTestDatabaseWithRouter(
+        code,
+        extraServerConfig,
+        extraRows,
+        { withExtendedTestData },
+        true // Reset migration DB too
+    )
+}
+
+// Internal implementation that can handle both scenarios
+async function resetTestDatabaseWithRouter(
+    code?: string,
+    extraServerConfig: Partial<PluginsServerConfig> = {},
+    extraRows: ExtraDatabaseRows = {},
+    { withExtendedTestData = true }: { withExtendedTestData?: boolean } = {},
+    resetMigrationDb: boolean = false
+): Promise<void> {
     const config = { ...defaultConfig, ...extraServerConfig, POSTGRES_CONNECTION_POOL_SIZE: 1 }
     const db = new PostgresRouter(config)
 
@@ -120,6 +153,33 @@ export async function resetTestDatabase(
     const teamIds = mocks.pluginConfigRows.map((c) => c.team_id)
     const teamIdToCreate = teamIds[0]
     await createUserTeamAndOrganization(db, teamIdToCreate)
+
+    // If we need to reset migration DB, also set up the migration database
+    let migrationDb: PostgresRouter | null = null
+    if (resetMigrationDb && config.PERSONS_MIGRATION_DATABASE_URL) {
+        migrationDb = new PostgresRouter({
+            ...config,
+            // Point ALL database operations to the migration database
+            DATABASE_URL: config.PERSONS_MIGRATION_DATABASE_URL,
+            DATABASE_READONLY_URL:
+                config.PERSONS_MIGRATION_READONLY_DATABASE_URL || config.PERSONS_MIGRATION_DATABASE_URL,
+            PERSONS_DATABASE_URL: config.PERSONS_MIGRATION_DATABASE_URL,
+            PERSONS_READONLY_DATABASE_URL:
+                config.PERSONS_MIGRATION_READONLY_DATABASE_URL || config.PERSONS_MIGRATION_DATABASE_URL,
+        })
+
+        // Clear migration database tables (use COMMON_WRITE since all tables are routed to migration DB)
+        await migrationDb
+            .query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_OTHER_TABLES_QUERY, undefined, 'delete-migration-tables')
+            .catch((e) => {
+                console.error('Error deleting migration tables', e)
+                throw e
+            })
+
+        // Create the same team/org structure in migration DB
+        await createUserTeamAndOrganization(migrationDb, teamIdToCreate)
+    }
+
     if (withExtendedTestData) {
         await insertRow(db, 'posthog_action', {
             id: teamIdToCreate + 67,
@@ -157,7 +217,11 @@ export async function resetTestDatabase(
             await insertRow(db, 'posthog_pluginattachment', pluginAttachment)
         }
     }
+
     await db.end()
+    if (migrationDb) {
+        await migrationDb.end()
+    }
 }
 
 export async function insertRow(db: PostgresRouter, table: string, objectProvided: Record<string, any>) {
