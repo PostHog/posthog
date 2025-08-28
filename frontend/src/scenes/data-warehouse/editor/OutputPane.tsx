@@ -4,8 +4,7 @@ import 'react-data-grid/lib/styles.css'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useCallback, useMemo, useState } from 'react'
-import DataGrid, { RenderHeaderCellProps, SortColumn } from 'react-data-grid'
-import { DataGridProps } from 'react-data-grid'
+import DataGrid, { DataGridProps, RenderHeaderCellProps, SortColumn } from 'react-data-grid'
 
 import {
     IconBolt,
@@ -41,8 +40,10 @@ import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/L
 import { SideBar } from '~/queries/nodes/DataVisualization/Components/SideBar'
 import { Table } from '~/queries/nodes/DataVisualization/Components/Table'
 import { TableDisplay } from '~/queries/nodes/DataVisualization/Components/TableDisplay'
+import { seriesBreakdownLogic } from '~/queries/nodes/DataVisualization/Components/seriesBreakdownLogic'
 import { DataTableVisualizationProps } from '~/queries/nodes/DataVisualization/DataVisualization'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
+import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
 import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
 import { HogQLQueryResponse } from '~/queries/schema/schema-general'
 import { ChartDisplayType, ExporterFormat } from '~/types'
@@ -633,8 +634,23 @@ export function OutputPane(): JSX.Element {
 function InternalDataTableVisualization(
     props: DataTableVisualizationProps & { onSaveInsight: () => void }
 ): JSX.Element | null {
-    const { query, visualizationType, showEditingUI, response, responseLoading, isChartSettingsPanelOpen } =
-        useValues(dataVisualizationLogic)
+    const {
+        query,
+        visualizationType,
+        showEditingUI,
+        response,
+        responseLoading,
+        isChartSettingsPanelOpen,
+        xData,
+        yData,
+        chartSettings,
+        dashboardId,
+        dataVisualizationProps,
+        presetChartHeight,
+    } = useValues(dataVisualizationLogic)
+
+    const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
+    const { goalLines } = useValues(displayLogic)
 
     let component: JSX.Element | null = null
 
@@ -660,7 +676,19 @@ function InternalDataTableVisualization(
         visualizationType === ChartDisplayType.ActionsAreaGraph ||
         visualizationType === ChartDisplayType.ActionsStackedBar
     ) {
-        component = <LineGraph />
+        component = (
+            <LineGraph
+                xData={xData}
+                yData={yData}
+                seriesBreakdownData={seriesBreakdownData}
+                visualizationType={visualizationType}
+                chartSettings={chartSettings}
+                dashboardId={dashboardId}
+                goalLines={goalLines}
+                showEditingUI={showEditingUI}
+                presetChartHeight={presetChartHeight}
+            />
+        )
     } else if (visualizationType === ChartDisplayType.BoldNumber) {
         component = <HogQLBoldNumber />
     }

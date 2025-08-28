@@ -7,14 +7,15 @@ import dataLabelsPlugin from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100 from 'chartjs-plugin-stacked100'
 import chartTrendline from 'chartjs-plugin-trendline'
 import clsx from 'clsx'
-import { useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import { LemonTable } from '@posthog/lemon-ui'
-import { lemonToast } from '@posthog/lemon-ui'
+import { LemonTable, lemonToast } from '@posthog/lemon-ui'
 
 import {
+    Chart,
     ChartData,
+    ChartItem,
+    ChartOptions,
     ChartType,
     ChartTypeRegistry,
     Color,
@@ -23,24 +24,17 @@ import {
     TickOptions,
     TooltipModel,
 } from 'lib/Chart'
-import { Chart, ChartItem, ChartOptions } from 'lib/Chart'
 import { getGraphColors, getSeriesColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { hexToRGBA } from 'lib/utils'
 import { ensureTooltip } from 'scenes/insights/views/LineGraph/LineGraph'
 
-import { ChartSettings, YAxisSettings } from '~/queries/schema/schema-general'
+import { ChartSettings, GoalLine, YAxisSettings } from '~/queries/schema/schema-general'
 import { ChartDisplayType, GraphType } from '~/types'
 
-import {
-    AxisSeries,
-    AxisSeriesSettings,
-    dataVisualizationLogic,
-    formatDataWithSettings,
-} from '../../dataVisualizationLogic'
-import { displayLogic } from '../../displayLogic'
-import { AxisBreakdownSeries, seriesBreakdownLogic } from '../seriesBreakdownLogic'
+import { AxisSeries, AxisSeriesSettings, formatDataWithSettings } from '../../dataVisualizationLogic'
+import { AxisBreakdownSeries, BreakdownSeriesData } from '../seriesBreakdownLogic'
 
 Chart.register(annotationPlugin)
 Chart.register(ChartjsPluginStacked100)
@@ -95,32 +89,38 @@ const getYAxisSettings = (
     }
 }
 
+export type LineGraphProps = {
+    xData: AxisSeries<string> | null
+    yData: AxisSeries<number>[] | AxisBreakdownSeries<number>[]
+    seriesBreakdownData?: BreakdownSeriesData<number>
+    visualizationType: ChartDisplayType
+    chartSettings: ChartSettings
+    presetChartHeight?: boolean
+    showEditingUI?: boolean
+    dashboardId?: string
+    goalLines?: GoalLine[]
+}
+
 // LineGraph displays a graph using either x and y data or series breakdown data
-export const LineGraph = (): JSX.Element => {
+export const LineGraph = ({
+    xData,
+    yData,
+    presetChartHeight,
+    visualizationType,
+    showEditingUI,
+    chartSettings,
+    dashboardId,
+    goalLines = [],
+}: LineGraphProps): JSX.Element => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const chartId = useRef(`linegraph-dataviz-${Math.random().toString(36).substring(2, 11)}`)
     const { ref: containerRef, height } = useResizeObserver()
     const colors = getGraphColors()
 
-    // TODO: Extract this logic out of this component and inject values in
-    // via props. Make this a purely presentational component
-    const {
-        xData,
-        yData,
-        presetChartHeight,
-        visualizationType,
-        showEditingUI,
-        chartSettings,
-        dataVisualizationProps,
-        dashboardId,
-    } = useValues(dataVisualizationLogic)
     const isBarChart =
         visualizationType === ChartDisplayType.ActionsBar || visualizationType === ChartDisplayType.ActionsStackedBar
     const isStackedBarChart = visualizationType === ChartDisplayType.ActionsStackedBar
     const isAreaChart = visualizationType === ChartDisplayType.ActionsAreaGraph
-
-    const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
-    const { goalLines } = useValues(displayLogic)
 
     useEffect(() => {
         // we expect either x and y data or series breakdown data
@@ -128,14 +128,7 @@ export const LineGraph = (): JSX.Element => {
         let xSeriesData: AxisSeries<string>
         let hasRightYAxis = false
         let hasLeftYAxis = false
-        if (seriesBreakdownData.xData.data.length && seriesBreakdownData.seriesData.length) {
-            ySeriesData = seriesBreakdownData.seriesData
-            xSeriesData = seriesBreakdownData.xData
-            hasRightYAxis = !!ySeriesData.find((n) => n.settings?.display?.yAxisPosition === 'right')
-            hasLeftYAxis =
-                !chartSettings.stackBars100 &&
-                (!hasRightYAxis || !!ySeriesData.find((n) => n.settings?.display?.yAxisPosition === 'left'))
-        } else if (xData && yData) {
+        if (xData && yData) {
             ySeriesData = yData
             xSeriesData = xData
             hasRightYAxis = !!ySeriesData.find((n) => n.settings?.display?.yAxisPosition === 'right')
@@ -382,18 +375,16 @@ export const LineGraph = (): JSX.Element => {
                                 }
                             })
 
-                            const tooltipTotalData = (
-                                ySeriesData as (AxisSeries<number> | AxisBreakdownSeries<number>)[]
-                            ).filter((n) => n.settings?.formatting?.style !== 'percent')
+                            const tooltipTotalData = ySeriesData.filter(
+                                (n) => n.settings?.formatting?.style !== 'percent'
+                            )
 
                             if (tooltipTotalData.length > 1 && chartSettings.showTotalRow !== false) {
-                                const totalRawData = tooltipTotalData.reduce(
-                                    (acc: number, cur: AxisSeries<number> | AxisBreakdownSeries<number>) => {
-                                        acc += cur.data[referenceDataPoint.dataIndex]
-                                        return acc
-                                    },
-                                    0
-                                )
+                                const totalRawData = tooltipTotalData.reduce((acc, cur) => {
+                                    acc += cur.data[referenceDataPoint.dataIndex]
+                                    return acc
+                                }, 0)
+
                                 tooltipData.push({
                                     series: '',
                                     data: totalRawData.toLocaleString(),
@@ -539,7 +530,7 @@ export const LineGraph = (): JSX.Element => {
             plugins: [dataLabelsPlugin],
         })
         return () => newChart.destroy()
-    }, [xData, yData, seriesBreakdownData, visualizationType, goalLines, chartSettings]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [xData, yData, visualizationType, goalLines, chartSettings]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <div

@@ -20,13 +20,6 @@ export function AppMetricsFilters({ logicKey }: AppMetricsFiltersProps): JSX.Ele
             <LemonSelect
                 options={[
                     {
-                        label: 'Minute',
-                        value: 'minute',
-                        disabledReason: !availableIntervals.includes('minute')
-                            ? 'Please select a smaller date range'
-                            : undefined,
-                    },
-                    {
                         label: 'Hourly',
                         value: 'hour',
                         disabledReason: !availableIntervals.includes('hour')

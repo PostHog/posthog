@@ -39,6 +39,7 @@ import { AddVariableButton } from './Components/Variables/AddVariableButton'
 import { VariablesForInsight } from './Components/Variables/Variables'
 import { variableModalLogic } from './Components/Variables/variableModalLogic'
 import { VariablesLogicProps, variablesLogic } from './Components/Variables/variablesLogic'
+import { seriesBreakdownLogic } from './Components/seriesBreakdownLogic'
 import { DataVisualizationLogicProps, dataVisualizationLogic } from './dataVisualizationLogic'
 import { displayLogic } from './displayLogic'
 
@@ -159,7 +160,17 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         responseError,
         queryCancelled,
         isChartSettingsPanelOpen,
+        xData,
+        yData,
+        chartSettings,
+        dashboardId,
+        showEditingUI,
+        dataVisualizationProps,
+        presetChartHeight,
     } = useValues(dataVisualizationLogic)
+
+    const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
+    const { goalLines } = useValues(displayLogic)
 
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
 
@@ -194,7 +205,21 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         visualizationType === ChartDisplayType.ActionsAreaGraph ||
         visualizationType === ChartDisplayType.ActionsStackedBar
     ) {
-        component = <LineGraph />
+        const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
+        const _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
+        component = (
+            <LineGraph
+                xData={_xData}
+                yData={_yData}
+                seriesBreakdownData={seriesBreakdownData}
+                visualizationType={visualizationType}
+                chartSettings={chartSettings}
+                dashboardId={dashboardId}
+                goalLines={goalLines}
+                showEditingUI={showEditingUI}
+                presetChartHeight={presetChartHeight}
+            />
+        )
     } else if (visualizationType === ChartDisplayType.BoldNumber) {
         component = <HogQLBoldNumber />
     }
