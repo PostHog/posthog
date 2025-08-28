@@ -45,6 +45,7 @@ import {
     RevenueAnalyticsPropertyFilter,
     SessionPropertyFilter,
     SessionRecordingType,
+    SimpleIntervalType,
     StepOrderValue,
     StickinessFilterType,
     TrendsFilterType,
@@ -122,10 +123,11 @@ export enum NodeKind {
     WebAnalyticsExternalSummaryQuery = 'WebAnalyticsExternalSummaryQuery',
 
     // Revenue analytics queries
+    RevenueAnalyticsGrossRevenueQuery = 'RevenueAnalyticsGrossRevenueQuery',
     RevenueAnalyticsGrowthRateQuery = 'RevenueAnalyticsGrowthRateQuery',
     RevenueAnalyticsMetricsQuery = 'RevenueAnalyticsMetricsQuery',
+    RevenueAnalyticsMRRQuery = 'RevenueAnalyticsMRRQuery',
     RevenueAnalyticsOverviewQuery = 'RevenueAnalyticsOverviewQuery',
-    RevenueAnalyticsRevenueQuery = 'RevenueAnalyticsRevenueQuery',
     RevenueAnalyticsTopCustomersQuery = 'RevenueAnalyticsTopCustomersQuery',
 
     // Marketing analytics queries
@@ -166,10 +168,11 @@ export type AnyDataNode =
     | HogQLQuery
     | HogQLMetadata
     | HogQLAutocomplete
+    | RevenueAnalyticsGrossRevenueQuery
     | RevenueAnalyticsGrowthRateQuery
     | RevenueAnalyticsMetricsQuery
+    | RevenueAnalyticsMRRQuery
     | RevenueAnalyticsOverviewQuery
-    | RevenueAnalyticsRevenueQuery
     | RevenueAnalyticsTopCustomersQuery
     | MarketingAnalyticsTableQuery
     | WebOverviewQuery
@@ -235,10 +238,11 @@ export type QuerySchema =
     | WebAnalyticsExternalSummaryQuery
 
     // Revenue analytics
+    | RevenueAnalyticsGrossRevenueQuery
     | RevenueAnalyticsGrowthRateQuery
     | RevenueAnalyticsMetricsQuery
+    | RevenueAnalyticsMRRQuery
     | RevenueAnalyticsOverviewQuery
-    | RevenueAnalyticsRevenueQuery
     | RevenueAnalyticsTopCustomersQuery
 
     // Marketing analytics
@@ -780,10 +784,11 @@ export interface DataTableNode
                     | WebVitalsQuery
                     | WebVitalsPathBreakdownQuery
                     | SessionAttributionExplorerQuery
+                    | RevenueAnalyticsGrossRevenueQuery
                     | RevenueAnalyticsGrowthRateQuery
                     | RevenueAnalyticsMetricsQuery
+                    | RevenueAnalyticsMRRQuery
                     | RevenueAnalyticsOverviewQuery
-                    | RevenueAnalyticsRevenueQuery
                     | RevenueAnalyticsTopCustomersQuery
                     | RevenueExampleEventsQuery
                     | RevenueExampleDataWarehouseTablesQuery
@@ -813,10 +818,11 @@ export interface DataTableNode
         | WebVitalsQuery
         | WebVitalsPathBreakdownQuery
         | SessionAttributionExplorerQuery
+        | RevenueAnalyticsGrossRevenueQuery
         | RevenueAnalyticsGrowthRateQuery
         | RevenueAnalyticsMetricsQuery
+        | RevenueAnalyticsMRRQuery
         | RevenueAnalyticsOverviewQuery
-        | RevenueAnalyticsRevenueQuery
         | RevenueAnalyticsTopCustomersQuery
         | RevenueExampleEventsQuery
         | RevenueExampleDataWarehouseTablesQuery
@@ -2021,6 +2027,7 @@ export type CachedRevenueExampleDataWarehouseTablesQueryResponse =
  * Revenue Analytics
  */
 export type RevenueAnalyticsPropertyFilters = RevenueAnalyticsPropertyFilter[]
+
 export interface RevenueAnalyticsBaseQuery<R extends Record<string, any>> extends DataNode<R> {
     dateRange?: DateRange
     properties: RevenueAnalyticsPropertyFilters
@@ -2036,13 +2043,27 @@ export enum RevenueAnalyticsGroupBy {
     PRODUCT = 'product',
 }
 
-export interface RevenueAnalyticsRevenueQuery extends RevenueAnalyticsBaseQuery<RevenueAnalyticsRevenueQueryResponse> {
-    kind: NodeKind.RevenueAnalyticsRevenueQuery
+export interface RevenueAnalyticsGrossRevenueQuery
+    extends RevenueAnalyticsBaseQuery<RevenueAnalyticsGrossRevenueQueryResponse> {
+    kind: NodeKind.RevenueAnalyticsGrossRevenueQuery
     groupBy: RevenueAnalyticsGroupBy[]
-    interval: IntervalType
+    interval: SimpleIntervalType
 }
 
-export interface RevenueAnalyticsRevenueQueryResultItem {
+export interface RevenueAnalyticsGrossRevenueQueryResponse extends AnalyticsQueryResponseBase {
+    results: unknown[]
+    columns?: string[]
+}
+export type CachedRevenueAnalyticsGrossRevenueQueryResponse =
+    CachedQueryResponse<RevenueAnalyticsGrossRevenueQueryResponse>
+
+export interface RevenueAnalyticsMRRQuery extends RevenueAnalyticsBaseQuery<RevenueAnalyticsMRRQueryResponse> {
+    kind: NodeKind.RevenueAnalyticsMRRQuery
+    groupBy: RevenueAnalyticsGroupBy[]
+    interval: SimpleIntervalType
+}
+
+export interface RevenueAnalyticsMRRQueryResultItem {
     total: unknown
     new: unknown
     expansion: unknown
@@ -2050,16 +2071,11 @@ export interface RevenueAnalyticsRevenueQueryResultItem {
     churn: unknown
 }
 
-export interface RevenueAnalyticsRevenueQueryResult {
-    // This is just the total, while mrr is then split with all of the individual total/new/expansion/contraction/churn calculations
-    gross: unknown[]
-    mrr: RevenueAnalyticsRevenueQueryResultItem[]
-}
-export interface RevenueAnalyticsRevenueQueryResponse extends AnalyticsQueryResponseBase {
-    results: RevenueAnalyticsRevenueQueryResult
+export interface RevenueAnalyticsMRRQueryResponse extends AnalyticsQueryResponseBase {
+    results: RevenueAnalyticsMRRQueryResultItem[]
     columns?: string[]
 }
-export type CachedRevenueAnalyticsRevenueQueryResponse = CachedQueryResponse<RevenueAnalyticsRevenueQueryResponse>
+export type CachedRevenueAnalyticsMRRQueryResponse = CachedQueryResponse<RevenueAnalyticsMRRQueryResponse>
 
 export interface RevenueAnalyticsOverviewQuery
     extends RevenueAnalyticsBaseQuery<RevenueAnalyticsOverviewQueryResponse> {
@@ -2080,7 +2096,7 @@ export type CachedRevenueAnalyticsOverviewQueryResponse = CachedQueryResponse<Re
 export interface RevenueAnalyticsMetricsQuery extends RevenueAnalyticsBaseQuery<RevenueAnalyticsMetricsQueryResponse> {
     kind: NodeKind.RevenueAnalyticsMetricsQuery
     groupBy: RevenueAnalyticsGroupBy[]
-    interval: IntervalType
+    interval: SimpleIntervalType
 }
 
 export interface RevenueAnalyticsMetricsQueryResponse extends AnalyticsQueryResponseBase {
@@ -3567,12 +3583,24 @@ export interface WebTrendsItem {
     metrics: Partial<Record<WebTrendsMetric, number>>
 }
 
-export interface WebTrendsQueryResponse extends HogQLQueryResponse<WebTrendsItem[]> {
+export interface WebTrendsQueryResponse extends AnalyticsQueryResponseBase {
+    results: WebTrendsItem[]
+    /** Input query string */
+    query?: string
+    /** Executed ClickHouse query */
+    clickhouse?: string
+    /** Returned columns */
+    columns?: any[]
+    /** Types of returned columns */
+    types?: any[]
+    /** Query explanation output */
+    explain?: string[]
+    /** Query metadata output */
+    metadata?: HogQLMetadataResponse
     hasMore?: boolean
     limit?: integer
     offset?: integer
     samplingRate?: SamplingRate
-    types?: unknown[]
     usedPreAggregatedTables?: boolean
 }
 

@@ -1,5 +1,17 @@
 import { arrayMove } from '@dnd-kit/sortable'
-import { BuiltLogic, actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    BuiltLogic,
+    actions,
+    afterMount,
+    beforeUnmount,
+    connect,
+    kea,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { combineUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
@@ -7,8 +19,9 @@ import { useEffect, useState } from 'react'
 
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
-import { TeamMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getRelativeNextPath, identifierToHuman } from 'lib/utils'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
@@ -115,7 +128,14 @@ export const sceneLogic = kea<sceneLogicType>([
             inviteLogic,
             ['hideInviteModal'],
         ],
-        values: [billingLogic, ['billing'], organizationLogic, ['organizationBeingDeleted']],
+        values: [
+            billingLogic,
+            ['billing'],
+            organizationLogic,
+            ['organizationBeingDeleted'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
     })),
     afterMount(({ cache }) => {
         cache.mountedTabLogic = {} as Record<string, () => void>
@@ -962,4 +982,27 @@ export const sceneLogic = kea<sceneLogicType>([
             }
         },
     })),
+    afterMount(({ actions, cache, values }) => {
+        cache.onKeyDown = (event: KeyboardEvent) => {
+            if (
+                values.featureFlags[FEATURE_FLAGS.SCENE_TABS] &&
+                (event.ctrlKey || event.metaKey) &&
+                event.key === 'b'
+            ) {
+                event.preventDefault()
+                event.stopPropagation()
+                if (event.shiftKey) {
+                    if (values.activeTab) {
+                        actions.removeTab(values.activeTab)
+                    }
+                } else {
+                    actions.newTab()
+                }
+            }
+        }
+        window.addEventListener('keydown', cache.onKeyDown)
+    }),
+    beforeUnmount(({ cache }) => {
+        window.removeEventListener('keydown', cache.onKeyDown)
+    }),
 ])

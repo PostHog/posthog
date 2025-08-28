@@ -26,7 +26,7 @@ const SATURATION_FLOOR = 0.2
 /** The tooltip is offset by a few pixels from the cursor to give it some breathing room. */
 const WORLD_MAP_TOOLTIP_OFFSET_PX = 8
 
-function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGElement> {
+function useWorldMapTooltip(showPersonsModal: boolean, chartId: string): React.RefObject<SVGSVGElement> {
     const { insightProps } = useValues(insightLogic)
     const { series, trendsFilter, breakdownFilter, isTooltipShown, currentTooltip, tooltipCoordinates } = useValues(
         worldMapLogic(insightProps)
@@ -36,7 +36,7 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
     const svgRef = useRef<SVGSVGElement>(null)
 
     const svgRect = svgRef.current?.getBoundingClientRect()
-    const [tooltipRoot, tooltipEl] = ensureTooltip()
+    const [tooltipRoot, tooltipEl] = ensureTooltip(chartId)
 
     useEffect(() => {
         tooltipEl.style.opacity = isTooltipShown ? '1' : '0'
@@ -211,7 +211,8 @@ export function WorldMap({ showPersonsModal = true, context }: ChartParams): JSX
     const { countryCodeToSeries, maxAggregatedValue, querySource, theme } = useValues(worldMapLogic(insightProps))
     const { showTooltip, hideTooltip, updateTooltipCoordinates } = useActions(worldMapLogic(insightProps))
 
-    const svgRef = useWorldMapTooltip(showPersonsModal)
+    const chartId = useRef(`worldmap-${Math.random().toString(36).substring(2, 11)}`)
+    const svgRef = useWorldMapTooltip(showPersonsModal, chartId.current)
 
     const backgroundColor = theme?.['preset-1'] || '#000000' // Default to black if no color found
 
