@@ -24,7 +24,6 @@ function sanitizeAlias(text: string, maxLen = 50): string {
         text
             .replace(/["'`]/g, '')         // Remove quotes and backticks
             .replace(/[^\w\s]/g, '')       // Remove non-word characters (optional)
-            .replace(/\s+/g, '_')          // Replace whitespace with underscores
             .slice(0, maxLen)              // Truncate to maxLen chars
     )
 }
