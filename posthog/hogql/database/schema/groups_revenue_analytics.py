@@ -75,7 +75,7 @@ def select_from_groups_revenue_analytics_table(context: HogQLContext) -> ast.Sel
         # because we don't expose what group a person belongs to, only
         # Otherwise, we need to join with the groups table by checking whether it exists
         # connected to the virtual CustomerView
-        group_key_chains: list[ast.Field] = []
+        group_key_chains: list[ast.Expr] = []
         if customer_view.is_event_view():
             group_key_chains = [
                 ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), f"group_{index}_key"])
