@@ -5,7 +5,9 @@ import { EventPropertyFilter, PropertyFilterType, Survey, SurveyAppearance, Surv
 import {
     calculateNpsBreakdown,
     createAnswerFilterHogQLExpression,
+    getSurveyEndDateForQuery,
     getSurveyResponse,
+    getSurveyStartDateForQuery,
     sanitizeColor,
     sanitizeSurveyAppearance,
     validateCSSProperty,
@@ -643,6 +645,57 @@ describe('createAnswerFilterHogQLExpression', () => {
             expect(result).toBe(
                 `AND (NOT arrayExists(x -> match(x, '.*test.*'), ${getSurveyResponse(surveyWithMultipleChoiceQuestion.questions[0], 0)}))`
             )
+        })
+    })
+})
+
+describe('timezone handling in survey date queries', () => {
+    const createMockSurvey = (createdAt: string, endDate?: string): Pick<Survey, 'created_at' | 'end_date'> => ({
+        created_at: createdAt,
+        end_date: endDate || null,
+    })
+
+    describe('regression test for timezone parsing bug', () => {
+        it('parses UTC dates correctly regardless of user timezone', () => {
+            // Mock different timezones to ensure our fix works
+            const timezones = [
+                { name: 'UTC', offset: 0 },
+                { name: 'GMT-3', offset: 180 },
+                { name: 'GMT+8', offset: -480 },
+            ]
+
+            timezones.forEach(({ offset }) => {
+                const originalGetTimezoneOffset = Date.prototype.getTimezoneOffset
+                Date.prototype.getTimezoneOffset = jest.fn(() => offset)
+
+                try {
+                    const survey = createMockSurvey('2024-08-27T15:30:00Z', '2024-08-30T10:00:00Z')
+
+                    const startDate = getSurveyStartDateForQuery(survey)
+                    const endDate = getSurveyEndDateForQuery(survey)
+
+                    // All timezones should produce the same UTC results
+                    expect(startDate).toBe('2024-08-27T00:00:00')
+                    expect(endDate).toBe('2024-08-30T23:59:59')
+                } finally {
+                    Date.prototype.getTimezoneOffset = originalGetTimezoneOffset
+                }
+            })
+        })
+
+        it('handles null end_date correctly', () => {
+            const originalGetTimezoneOffset = Date.prototype.getTimezoneOffset
+            Date.prototype.getTimezoneOffset = jest.fn(() => 180) // GMT-3
+
+            try {
+                const survey = createMockSurvey('2024-08-27T15:30:00Z')
+                const result = getSurveyEndDateForQuery(survey)
+
+                // Should use current day end, format should be consistent
+                expect(result).toMatch(/^\d{4}-\d{2}-\d{2}T23:59:59$/)
+            } finally {
+                Date.prototype.getTimezoneOffset = originalGetTimezoneOffset
+            }
         })
     })
 })

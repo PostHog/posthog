@@ -96,8 +96,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
     }
 
     return (
-        // Margin bottom hacks the fact that our wrapping container has an annoyingly large padding
-        <div className="-mb-14">
+        <div>
             <PageHeader
                 buttons={
                     <div className="flex justify-between items-center gap-2">
