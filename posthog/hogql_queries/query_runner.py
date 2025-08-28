@@ -426,6 +426,19 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
+    if kind == "RevenueAnalyticsGrossRevenueQuery":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_gross_revenue_query_runner import (
+            RevenueAnalyticsGrossRevenueQueryRunner,
+        )
+
+        return RevenueAnalyticsGrossRevenueQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
     if kind == "RevenueAnalyticsGrowthRateQuery":
         from products.revenue_analytics.backend.hogql_queries.revenue_analytics_growth_rate_query_runner import (
             RevenueAnalyticsGrowthRateQueryRunner,
@@ -452,12 +465,12 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
-    if kind == "RevenueAnalyticsOverviewQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_overview_query_runner import (
-            RevenueAnalyticsOverviewQueryRunner,
+    if kind == "RevenueAnalyticsMRRQuery":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_mrr_query_runner import (
+            RevenueAnalyticsMRRQueryRunner,
         )
 
-        return RevenueAnalyticsOverviewQueryRunner(
+        return RevenueAnalyticsMRRQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -465,12 +478,12 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
-    if kind == "RevenueAnalyticsRevenueQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_revenue_query_runner import (
-            RevenueAnalyticsRevenueQueryRunner,
+    if kind == "RevenueAnalyticsOverviewQuery":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_overview_query_runner import (
+            RevenueAnalyticsOverviewQueryRunner,
         )
 
-        return RevenueAnalyticsRevenueQueryRunner(
+        return RevenueAnalyticsOverviewQueryRunner(
             query=query,
             team=team,
             timings=timings,

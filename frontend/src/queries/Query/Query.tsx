@@ -24,10 +24,11 @@ import {
 import { QueryContext } from '~/queries/types'
 
 import {
+    RevenueAnalyticsGrossRevenueNode,
     RevenueAnalyticsGrowthRateNode,
+    RevenueAnalyticsMRRNode,
     RevenueAnalyticsMetricsNode,
     RevenueAnalyticsOverviewNode,
-    RevenueAnalyticsRevenueNode,
     RevenueAnalyticsTopCustomersNode,
 } from 'products/revenue_analytics/frontend/nodes'
 
@@ -40,10 +41,11 @@ import {
     isDataVisualizationNode,
     isHogQuery,
     isInsightVizNode,
+    isRevenueAnalyticsGrossRevenueQuery,
     isRevenueAnalyticsGrowthRateQuery,
+    isRevenueAnalyticsMRRQuery,
     isRevenueAnalyticsMetricsQuery,
     isRevenueAnalyticsOverviewQuery,
-    isRevenueAnalyticsRevenueQuery,
     isRevenueAnalyticsTopCustomersQuery,
     isSavedInsightNode,
     isWebOverviewQuery,
@@ -172,21 +174,9 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 variablesOverride={variablesOverride}
             />
         )
-    } else if (isRevenueAnalyticsOverviewQuery(query)) {
+    } else if (isRevenueAnalyticsGrossRevenueQuery(query)) {
         component = (
-            <RevenueAnalyticsOverviewNode query={query} cachedResults={props.cachedResults} context={queryContext} />
-        )
-    } else if (isRevenueAnalyticsMetricsQuery(query)) {
-        component = (
-            <RevenueAnalyticsMetricsNode query={query} cachedResults={props.cachedResults} context={queryContext} />
-        )
-    } else if (isRevenueAnalyticsRevenueQuery(query)) {
-        component = (
-            <RevenueAnalyticsRevenueNode query={query} cachedResults={props.cachedResults} context={queryContext} />
-        )
-    } else if (isRevenueAnalyticsTopCustomersQuery(query)) {
-        component = (
-            <RevenueAnalyticsTopCustomersNode
+            <RevenueAnalyticsGrossRevenueNode
                 query={query}
                 cachedResults={props.cachedResults}
                 context={queryContext}
@@ -195,6 +185,24 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
     } else if (isRevenueAnalyticsGrowthRateQuery(query)) {
         component = (
             <RevenueAnalyticsGrowthRateNode query={query} cachedResults={props.cachedResults} context={queryContext} />
+        )
+    } else if (isRevenueAnalyticsMetricsQuery(query)) {
+        component = (
+            <RevenueAnalyticsMetricsNode query={query} cachedResults={props.cachedResults} context={queryContext} />
+        )
+    } else if (isRevenueAnalyticsMRRQuery(query)) {
+        component = <RevenueAnalyticsMRRNode query={query} cachedResults={props.cachedResults} context={queryContext} />
+    } else if (isRevenueAnalyticsOverviewQuery(query)) {
+        component = (
+            <RevenueAnalyticsOverviewNode query={query} cachedResults={props.cachedResults} context={queryContext} />
+        )
+    } else if (isRevenueAnalyticsTopCustomersQuery(query)) {
+        component = (
+            <RevenueAnalyticsTopCustomersNode
+                query={query}
+                cachedResults={props.cachedResults}
+                context={queryContext}
+            />
         )
     } else if (isWebOverviewQuery(query)) {
         component = <WebOverview query={query} cachedResults={props.cachedResults} context={queryContext} />

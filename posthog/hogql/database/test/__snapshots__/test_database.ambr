@@ -2239,6 +2239,26 @@
                   "table": null,
                   "type": "boolean"
               },
+              "api_key_label": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "api_key_label",
+                  "id": null,
+                  "name": "api_key_label",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "api_key_mask": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "api_key_mask",
+                  "id": null,
+                  "name": "api_key_mask",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "cpu_microseconds": {
                   "chain": null,
                   "fields": null,
@@ -3634,6 +3654,26 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "boolean"
+              },
+              "api_key_label": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "api_key_label",
+                  "id": null,
+                  "name": "api_key_label",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "api_key_mask": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "api_key_mask",
+                  "id": null,
+                  "name": "api_key_mask",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               },
               "cpu_microseconds": {
                   "chain": null,
