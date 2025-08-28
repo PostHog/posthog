@@ -74,7 +74,7 @@ class SingleSessionSummaryManager(models.Manager["SingleSessionSummary"]):
     ) -> None:
         """Store a new session summary"""
         extra_summary_context_dict = asdict(extra_summary_context) if extra_summary_context else None
-        run_metadata_dict = asdict(run_metadata) if run_metadata else {}
+        run_metadata_dict = asdict(run_metadata) if run_metadata else None
         self.create(
             team_id=team_id,
             session_id=session_id,
@@ -192,7 +192,7 @@ class SingleSessionSummary(ModelActivityMixin, UUIDModel):
         help_text="Additional context passed to the summary (ExtraSummaryContext schema)",
     )
     run_metadata = models.JSONField(
-        default=dict,
+        null=True,
         blank=True,
         help_text="Summary run metadata (SessionSummaryRunMeta schema)",
     )

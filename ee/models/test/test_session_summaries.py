@@ -182,6 +182,62 @@ class TestSingleSessionSummary(BaseTest):
         # Should get the latest one (Version 2)
         self.assertEqual(retrieved.summary["session_outcome"]["description"], "Version 2")
 
+    def test_run_metadata_storage(self) -> None:
+        summary_serializer = SessionSummarySerializer(data=self.summary_data)
+        summary_serializer.is_valid(raise_exception=True)
+
+        # Test with different run metadata values
+        run_metadata_gpt5 = SessionSummaryRunMeta(model_used="gpt-5", visual_confirmation=True)
+        SingleSessionSummary.objects.add_summary(
+            team_id=self.team.id,
+            session_id="session-with-gpt5",
+            summary=summary_serializer,
+            exception_event_ids=[],
+            run_metadata=run_metadata_gpt5,
+        )
+
+        run_metadata_claude = SessionSummaryRunMeta(model_used="claude-4-1-opus", visual_confirmation=False)
+        SingleSessionSummary.objects.add_summary(
+            team_id=self.team.id,
+            session_id="session-with-claude",
+            summary=summary_serializer,
+            exception_event_ids=[],
+            run_metadata=run_metadata_claude,
+        )
+
+        # Test with no run metadata (should store None)
+        SingleSessionSummary.objects.add_summary(
+            team_id=self.team.id,
+            session_id="session-no-metadata",
+            summary=summary_serializer,
+            exception_event_ids=[],
+            run_metadata=None,
+        )
+
+        # Verify GPT-5 metadata
+        gpt5_summary = SingleSessionSummary.objects.get_summary(
+            team_id=self.team.id,
+            session_id="session-with-gpt5",
+        )
+        assert gpt5_summary is not None
+        self.assertEqual(gpt5_summary.run_metadata, {"model_used": "gpt-5", "visual_confirmation": True})
+
+        # Verify Claude metadata
+        claude_summary = SingleSessionSummary.objects.get_summary(
+            team_id=self.team.id,
+            session_id="session-with-claude",
+        )
+        assert claude_summary is not None
+        self.assertEqual(claude_summary.run_metadata, {"model_used": "claude-4-1-opus", "visual_confirmation": False})
+
+        # Verify None metadata
+        no_metadata_summary = SingleSessionSummary.objects.get_summary(
+            team_id=self.team.id,
+            session_id="session-no-metadata",
+        )
+        assert no_metadata_summary is not None
+        self.assertIsNone(no_metadata_summary.run_metadata)
+
 
 class TestSingleSessionSummaryBulk(BaseTest):
     session_ids: list[str]

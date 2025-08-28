@@ -47,7 +47,7 @@ from ee.hogai.session_summaries.session.summarize_session import (
     prepare_single_session_summary_input,
 )
 from ee.hogai.session_summaries.utils import serialize_to_sse_event
-from ee.models.session_summaries import SingleSessionSummary
+from ee.models.session_summaries import SessionSummaryRunMeta, SingleSessionSummary
 
 logger = structlog.get_logger(__name__)
 
@@ -185,6 +185,10 @@ async def get_llm_single_session_summary_activity(
         summary=session_summary,
         exception_event_ids=exception_event_ids,
         extra_summary_context=inputs.extra_summary_context,
+        run_metadata=SessionSummaryRunMeta(
+            model_used=inputs.model_to_use,
+            visual_confirmation=False,
+        ),
     )
     # Returning nothing as the data is stored in Redis
     return None
