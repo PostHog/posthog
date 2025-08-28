@@ -40,6 +40,7 @@ import {
     AccessLevel,
     CohortType,
     DashboardMode,
+    DashboardTile,
     DashboardType,
     EntityType,
     Experiment,
@@ -294,14 +295,42 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportDashboardModeToggled: (mode: DashboardMode, source: DashboardEventSource | null) => ({ mode, source }),
         reportDashboardRefreshed: (
             dashboardId: number,
-            lastRefreshed?: string | Dayjs | null,
-            action?: string,
-            forceRefresh?: boolean
+            hasFilters: boolean,
+            hasVariables: boolean,
+            lastRefreshed: string | Dayjs | null,
+            action: string,
+            forceRefresh: boolean,
+            insightsRefreshedInfo: {
+                totalTileCount: number
+                tilesStaleCount: number
+                tilesRefreshedCount: number
+                tilesErroredCount: number
+                tilesAbortedCount: number
+                refreshDurationMs: number
+            }
         ) => ({
             dashboardId,
+            hasFilters,
+            hasVariables,
             lastRefreshed,
             action,
             forceRefresh,
+            insightsRefreshedInfo,
+        }),
+        reportDashboardTileRefreshed: (
+            dashboardId: number,
+            tile: DashboardTile<QueryBasedInsightModel>,
+            hasFilters: boolean,
+            hasVariables: boolean,
+            refreshDurationMs: number,
+            individualRefresh: boolean
+        ) => ({
+            dashboardId,
+            tile,
+            hasFilters,
+            hasVariables,
+            refreshDurationMs,
+            individualRefresh,
         }),
         reportDashboardDateRangeChanged: (dateFrom?: string | Dayjs | null, dateTo?: string | Dayjs | null) => ({
             dateFrom,
@@ -695,13 +724,54 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportDashboardModeToggled: async ({ mode, source }) => {
             posthog.capture('dashboard mode toggled', { mode, source })
         },
-        reportDashboardRefreshed: async ({ dashboardId, lastRefreshed, action, forceRefresh }) => {
+        reportDashboardRefreshed: async ({
+            dashboardId,
+            hasFilters,
+            hasVariables,
+            lastRefreshed,
+            action,
+            forceRefresh,
+            insightsRefreshedInfo,
+        }) => {
             posthog.capture(`dashboard refreshed`, {
                 dashboard_id: dashboardId,
                 last_refreshed: lastRefreshed?.toString(),
                 refreshAge: lastRefreshed ? now().diff(lastRefreshed, 'seconds') : undefined,
                 action: action,
                 force_refresh: forceRefresh,
+                has_filters: hasFilters,
+                has_variables: hasVariables,
+                refresh_duration_ms: insightsRefreshedInfo.refreshDurationMs,
+                total_tile_count: insightsRefreshedInfo.totalTileCount,
+                tiles_stale_count: insightsRefreshedInfo.tilesStaleCount,
+                tiles_refreshed_count: insightsRefreshedInfo.tilesRefreshedCount,
+                tiles_errored_count: insightsRefreshedInfo.tilesErroredCount,
+                tiles_aborted_count: insightsRefreshedInfo.tilesAbortedCount,
+            })
+        },
+        reportDashboardTileRefreshed: async ({
+            dashboardId,
+            tile,
+            hasFilters,
+            hasVariables,
+            refreshDurationMs,
+            individualRefresh,
+        }) => {
+            const insight = tile.insight
+            const sanitizedQuery = insight?.query ? sanitizeQuery(insight.query) : {}
+
+            posthog.capture('dashboard insight refreshed', {
+                dashboard_id: dashboardId,
+                insight_id: insight?.id,
+                insight_short_id: insight?.short_id,
+                was_cached: tile.is_cached,
+                last_refreshed: insight?.last_refresh?.toString(),
+                refresh_age: insight?.last_refresh ? now().diff(insight?.last_refresh, 'seconds') : undefined,
+                refresh_duration_ms: refreshDurationMs,
+                individual_refresh: individualRefresh,
+                has_filters: hasFilters,
+                has_variables: hasVariables,
+                ...sanitizedQuery,
             })
         },
         reportDashboardDateRangeChanged: async ({ dateFrom, dateTo }) => {
