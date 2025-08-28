@@ -777,8 +777,7 @@
          "posthog_sharingconfiguration"."access_token",
          "posthog_sharingconfiguration"."expires_at",
          "posthog_sharingconfiguration"."settings",
-         "posthog_sharingconfiguration"."password_required",
-         "posthog_sharingconfiguration"."password"
+         "posthog_sharingconfiguration"."password_required"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" IN (1,
                                                           2,
@@ -3342,8 +3341,7 @@
          "posthog_sharingconfiguration"."access_token",
          "posthog_sharingconfiguration"."expires_at",
          "posthog_sharingconfiguration"."settings",
-         "posthog_sharingconfiguration"."password_required",
-         "posthog_sharingconfiguration"."password"
+         "posthog_sharingconfiguration"."password_required"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" IN (1,
                                                           2,
@@ -5355,8 +5353,7 @@
          "posthog_sharingconfiguration"."access_token",
          "posthog_sharingconfiguration"."expires_at",
          "posthog_sharingconfiguration"."settings",
-         "posthog_sharingconfiguration"."password_required",
-         "posthog_sharingconfiguration"."password"
+         "posthog_sharingconfiguration"."password_required"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" = 99999
   '''
@@ -6771,8 +6768,7 @@
          "posthog_sharingconfiguration"."access_token",
          "posthog_sharingconfiguration"."expires_at",
          "posthog_sharingconfiguration"."settings",
-         "posthog_sharingconfiguration"."password_required",
-         "posthog_sharingconfiguration"."password"
+         "posthog_sharingconfiguration"."password_required"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" = 99999
   '''
@@ -7374,8 +7370,7 @@
          "posthog_sharingconfiguration"."access_token",
          "posthog_sharingconfiguration"."expires_at",
          "posthog_sharingconfiguration"."settings",
-         "posthog_sharingconfiguration"."password_required",
-         "posthog_sharingconfiguration"."password"
+         "posthog_sharingconfiguration"."password_required"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" IN (1,
                                                           2,
@@ -10662,8 +10657,7 @@
          "posthog_sharingconfiguration"."access_token",
          "posthog_sharingconfiguration"."expires_at",
          "posthog_sharingconfiguration"."settings",
-         "posthog_sharingconfiguration"."password_required",
-         "posthog_sharingconfiguration"."password"
+         "posthog_sharingconfiguration"."password_required"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" = 99999
   '''
@@ -10775,8 +10769,7 @@
          "posthog_sharingconfiguration"."access_token",
          "posthog_sharingconfiguration"."expires_at",
          "posthog_sharingconfiguration"."settings",
-         "posthog_sharingconfiguration"."password_required",
-         "posthog_sharingconfiguration"."password"
+         "posthog_sharingconfiguration"."password_required"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" = 99999
   '''
@@ -14138,8 +14131,7 @@
          "posthog_sharingconfiguration"."access_token",
          "posthog_sharingconfiguration"."expires_at",
          "posthog_sharingconfiguration"."settings",
-         "posthog_sharingconfiguration"."password_required",
-         "posthog_sharingconfiguration"."password"
+         "posthog_sharingconfiguration"."password_required"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" IN (1,
                                                           2,
@@ -15218,8 +15210,7 @@
          "posthog_sharingconfiguration"."access_token",
          "posthog_sharingconfiguration"."expires_at",
          "posthog_sharingconfiguration"."settings",
-         "posthog_sharingconfiguration"."password_required",
-         "posthog_sharingconfiguration"."password"
+         "posthog_sharingconfiguration"."password_required"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" = 99999
   '''
@@ -15331,8 +15322,7 @@
          "posthog_sharingconfiguration"."access_token",
          "posthog_sharingconfiguration"."expires_at",
          "posthog_sharingconfiguration"."settings",
-         "posthog_sharingconfiguration"."password_required",
-         "posthog_sharingconfiguration"."password"
+         "posthog_sharingconfiguration"."password_required"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" = 99999
   '''
@@ -16111,8 +16101,7 @@
          "posthog_sharingconfiguration"."access_token",
          "posthog_sharingconfiguration"."expires_at",
          "posthog_sharingconfiguration"."settings",
-         "posthog_sharingconfiguration"."password_required",
-         "posthog_sharingconfiguration"."password"
+         "posthog_sharingconfiguration"."password_required"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" = 99999
   '''
@@ -16224,8 +16213,7 @@
          "posthog_sharingconfiguration"."access_token",
          "posthog_sharingconfiguration"."expires_at",
          "posthog_sharingconfiguration"."settings",
-         "posthog_sharingconfiguration"."password_required",
-         "posthog_sharingconfiguration"."password"
+         "posthog_sharingconfiguration"."password_required"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" = 99999
   '''
@@ -16877,8 +16865,7 @@
          "posthog_sharingconfiguration"."access_token",
          "posthog_sharingconfiguration"."expires_at",
          "posthog_sharingconfiguration"."settings",
-         "posthog_sharingconfiguration"."password_required",
-         "posthog_sharingconfiguration"."password"
+         "posthog_sharingconfiguration"."password_required"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" IN (1,
                                                           2,
