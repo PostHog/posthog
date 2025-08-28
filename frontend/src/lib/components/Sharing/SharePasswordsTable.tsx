@@ -141,6 +141,7 @@ export function SharePasswordsTable({
                 isOpen={newPasswordModalOpen}
                 onClose={handleCloseModal}
                 title="Create new share password"
+                width={480}
                 footer={
                     createdPasswordResult ? (
                         <LemonButton type="primary" onClick={handleCloseModal}>
