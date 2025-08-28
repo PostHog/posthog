@@ -146,8 +146,12 @@ function LLMAnalyticsGenerations(): JSX.Element {
                                 return <></>
                             }
 
-                            const visualValue: string =
-                                (value as string).slice(0, 4) + '...' + (value as string).slice(-4)
+                            let visualValue: string
+                            if (typeof value === 'string') {
+                                visualValue = value.slice(0, 4) + '...' + value.slice(-4)
+                            } else {
+                                visualValue = '-'
+                            }
 
                             if (!traceId) {
                                 return <strong>{visualValue}</strong>
