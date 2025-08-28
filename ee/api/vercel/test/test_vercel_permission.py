@@ -12,6 +12,8 @@ from posthog.models.organization_integration import OrganizationIntegration
 from ee.api.vercel.test.base import VercelTestBase
 from ee.api.vercel.vercel_permission import VercelPermission
 
+##
+
 
 class TestVercelPermission(VercelTestBase):
     def setUp(self):
@@ -112,7 +114,11 @@ class TestVercelPermissionIntegration(VercelTestBase):
             "HTTP_X_VERCEL_AUTH": "user",
         }
         response = self.client.patch(
-            url, data=json.dumps({"billingPlanId": "pro200"}), content_type="application/json", **headers
+            url,
+            data=json.dumps({"billingPlanId": "pro200"}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
+            HTTP_X_VERCEL_AUTH=headers["HTTP_X_VERCEL_AUTH"],
         )
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
@@ -124,7 +130,9 @@ class TestVercelPermissionIntegration(VercelTestBase):
             "HTTP_AUTHORIZATION": f"Bearer {self._create_jwt_token(self._create_user_auth_payload(installation_id='inst_different'))}",
             "HTTP_X_VERCEL_AUTH": "user",
         }
-        response = self.client.delete(url, **headers)
+        response = self.client.delete(
+            url, HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"], HTTP_X_VERCEL_AUTH=headers["HTTP_X_VERCEL_AUTH"]
+        )
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
@@ -136,7 +144,11 @@ class TestVercelPermissionIntegration(VercelTestBase):
             "HTTP_X_VERCEL_AUTH": "system",
         }
         response = self.client.patch(
-            url, data=json.dumps({"billingPlanId": "pro200"}), content_type="application/json", **headers
+            url,
+            data=json.dumps({"billingPlanId": "pro200"}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
+            HTTP_X_VERCEL_AUTH=headers["HTTP_X_VERCEL_AUTH"],
         )
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
@@ -148,7 +160,9 @@ class TestVercelPermissionIntegration(VercelTestBase):
             "HTTP_AUTHORIZATION": f"Bearer {self._create_jwt_token(self._create_user_auth_payload())}",
             "HTTP_X_VERCEL_AUTH": "user",
         }
-        response = self.client.get(url, **headers)
+        response = self.client.get(
+            url, HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"], HTTP_X_VERCEL_AUTH=headers["HTTP_X_VERCEL_AUTH"]
+        )
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
@@ -171,7 +185,11 @@ class TestVercelPermissionIntegration(VercelTestBase):
             "HTTP_X_VERCEL_AUTH": "user",
         }
         response = self.client.patch(
-            url, data=json.dumps({"billingPlanId": "pro200"}), content_type="application/json", **headers
+            url,
+            data=json.dumps({"billingPlanId": "pro200"}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
+            HTTP_X_VERCEL_AUTH=headers["HTTP_X_VERCEL_AUTH"],
         )
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
