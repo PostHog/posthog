@@ -1,5 +1,3 @@
-import { instrumentFn } from '~/common/tracing/tracing-utils'
-
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Hub, PluginServerService, TeamId } from '../../types'
 import { logger } from '../../utils/logger'
@@ -84,10 +82,6 @@ export abstract class CdpConsumerBase {
             onShutdown: async () => await this.stop(),
             healthcheck: () => this.isHealthy() ?? false,
         }
-    }
-
-    protected runInstrumented<T>(name: string, func: () => Promise<T>): Promise<T> {
-        return instrumentFn<T>(`cdpConsumer.${name}`, func)
     }
 
     protected async runWithHeartbeat<T>(func: () => Promise<T> | T): Promise<T> {

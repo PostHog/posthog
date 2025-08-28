@@ -99,7 +99,14 @@ if ! grep -q "127.0.0.1 kafka clickhouse clickhouse-coordinator objectstorage" /
   echo
   echo "🚨 Amending /etc/hosts to map hostnames 'kafka', 'clickhouse', 'clickhouse-coordinator' and 'objectstorage' to 127.0.0.1..."
   echo "127.0.0.1 kafka clickhouse clickhouse-coordinator objectstorage" | sudo tee -a /etc/hosts 1> /dev/null
-  echo "✅ /etc/hosts amended"
+  echo "✅ /etc/hosts amended for IPv4"
+fi
+
+if ! grep -q "::1 kafka clickhouse clickhouse-coordinator objectstorage" /etc/hosts; then
+  echo
+  echo "🚨 Amending /etc/hosts to map hostnames 'kafka', 'clickhouse', 'clickhouse-coordinator' and 'objectstorage' to ::1..."
+  echo "::1 kafka clickhouse clickhouse-coordinator objectstorage" | sudo tee -a /etc/hosts 1> /dev/null
+  echo "✅ /etc/hosts amended for IPv6"
 fi
 
 if [ -f "$DOTENV_FILE" ]; then

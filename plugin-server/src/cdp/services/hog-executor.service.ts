@@ -4,6 +4,7 @@ import { Counter, Histogram } from 'prom-client'
 
 import { ExecResult, convertHogToJS } from '@posthog/hogvm'
 
+import { instrumented } from '~/common/tracing/tracing-utils'
 import {
     CyclotronInvocationQueueParametersEmailSchema,
     CyclotronInvocationQueueParametersFetchSchema,
@@ -89,7 +90,7 @@ const hogExecutionDuration = new Histogram({
     name: 'cdp_hog_function_execution_duration_ms',
     help: 'Processing time and success status of internal functions',
     // We have a timeout so we don't need to worry about much more than that
-    buckets: [0, 10, 20, 50, 100, 200],
+    buckets: [0, 10, 20, 50, 100, 200, 300, 500, 1000],
 })
 
 const hogFunctionStateMemory = new Histogram({
@@ -246,6 +247,7 @@ export class HogExecutorService {
         }
     }
 
+    @instrumented('hog-executor.executeWithAsyncFunctions')
     async executeWithAsyncFunctions(
         invocation: CyclotronJobInvocationHogFunction,
         options?: HogExecutorExecuteAsyncOptions
@@ -296,6 +298,7 @@ export class HogExecutorService {
         return result
     }
 
+    @instrumented('hog-executor.execute')
     async execute(
         invocation: CyclotronJobInvocationHogFunction,
         options: HogExecutorExecuteOptions = {}
@@ -534,6 +537,7 @@ export class HogExecutorService {
         return result
     }
 
+    @instrumented('hog-executor.executeFetch')
     async executeFetch(
         invocation: CyclotronJobInvocationHogFunction
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {

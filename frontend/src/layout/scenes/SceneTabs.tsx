@@ -11,6 +11,7 @@ import { cn } from 'lib/utils/css-classes'
 import { SceneTab } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { SceneTabContextMenu } from '~/layout/scenes/SceneTabContextMenu'
 import { sceneLogic } from '~/scenes/sceneLogic'
 
@@ -68,6 +69,11 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                                         'p-1 flex flex-row items-center gap-1 cursor-pointer rounded-tr rounded-tl border-b',
                                     iconOnly: true,
                                 }}
+                                tooltip={
+                                    <>
+                                        New tab <KeyboardShortcut command b />
+                                    </>
+                                }
                             >
                                 <IconPlus className="!ml-0" fontSize={14} />
                             </Link>
@@ -151,6 +157,15 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                     }}
                     iconOnly
                     size="xs"
+                    tooltip={
+                        tab.active ? (
+                            <>
+                                Close active tab <KeyboardShortcut shift command b />
+                            </>
+                        ) : (
+                            'Close tab'
+                        )
+                    }
                 >
                     <IconX />
                 </ButtonPrimitive>
