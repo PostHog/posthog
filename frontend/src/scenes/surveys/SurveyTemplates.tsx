@@ -1,22 +1,24 @@
-import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+
 import { PageHeader } from 'lib/components/PageHeader'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { Survey, SurveyAppearance } from '~/types'
 
-import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
+import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import {
-    defaultSurveyAppearance,
     NewSurvey,
     SurveyTemplate,
     SurveyTemplateType,
+    defaultSurveyAppearance,
     defaultSurveyTemplates as templates,
 } from './constants'
-import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { surveyLogic } from './surveyLogic'
 
 export const scene: SceneExport = {

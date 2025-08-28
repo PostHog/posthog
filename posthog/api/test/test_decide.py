@@ -1,19 +1,22 @@
-import base64
 import json
-import random
 import time
+import base64
+import random
 from typing import Optional
+
+import pytest
+from freezegun import freeze_time
+from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest.mock import patch
 
-from inline_snapshot import snapshot
-import pytest
 from django.conf import settings
 from django.core.cache import cache
 from django.db import connection, connections
 from django.http import HttpRequest
 from django.test import TestCase, TransactionTestCase
 from django.test.client import Client
-from freezegun import freeze_time
+
+from inline_snapshot import snapshot
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -21,10 +24,7 @@ from rest_framework.test import APIClient
 from posthog import redis
 from posthog.api.decide import get_decide, label_for_team_id_to_track
 from posthog.api.test.test_feature_flag import QueryTimeoutWrapper
-from posthog.exceptions import (
-    RequestParsingError,
-    UnspecifiedCompressionFallbackParsingError,
-)
+from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
 from posthog.models import (
     FeatureFlag,
     GroupTypeMapping,
@@ -46,11 +46,7 @@ from posthog.models.remote_config import RemoteConfig
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal
-from posthog.test.base import (
-    BaseTest,
-    QueryMatchingTest,
-    snapshot_postgres_queries,
-)
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
 def make_session_recording_decide_response(overrides: Optional[dict] = None) -> dict:
@@ -118,7 +114,15 @@ class TestDecide(BaseTest, QueryMatchingTest):
     ):
         if self.use_remote_config:
             # We test a lot with settings changes so the idea is to refresh the remote config
-            remote_config = RemoteConfig.objects.get(team=self.team)
+            try:
+                remote_config = RemoteConfig.objects.get(team=self.team)
+            except RemoteConfig.DoesNotExist:
+                # Force cache update to happen synchronously in tests
+                from posthog.tasks.remote_config import update_team_remote_config
+
+                update_team_remote_config(self.team.id)
+                remote_config = RemoteConfig.objects.get(team=self.team)
+
             # Force as sync as lots of the tests are clearing redis purposefully which messes with things
             remote_config.sync(force=True)
 
@@ -618,7 +622,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         with self.settings(
             SESSION_REPLAY_RRWEB_SCRIPT=rrweb_script_name,
-            SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS=",".join(team_allow_list or []),
+            SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS=team_allow_list or [],
         ):
             response = self._post_decide(api_version=3)
             assert response.status_code == 200
@@ -2401,7 +2405,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         assert self.team is not None
         self.team.save()
         self.client.logout()
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
         Person.objects.create(
@@ -4924,10 +4928,10 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         self.organization, self.team, self.user = org, team, user
 
         FeatureFlag.objects.all().delete()
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
         )
 

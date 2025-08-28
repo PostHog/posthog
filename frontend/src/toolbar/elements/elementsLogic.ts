@@ -1,7 +1,8 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { collectAllElementsDeep } from 'query-selector-shadow-dom'
+
 import { EXPERIMENT_TARGET_SELECTOR } from 'lib/actionUtils'
 import { debounce } from 'lib/utils'
-import { collectAllElementsDeep } from 'query-selector-shadow-dom'
 
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
@@ -152,7 +153,13 @@ export const elementsLogic = kea<elementsLogicType>([
                 toolbarConfigLogic.selectors.buttonVisible,
             ],
             (countedElements) =>
-                countedElements.map((e) => ({ ...e, rect: getRectForElement(e.element) }) as ElementWithMetadata),
+                countedElements.map(
+                    (e) =>
+                        ({
+                            ...e,
+                            rect: getRectForElement(e.element),
+                        }) as ElementWithMetadata
+                ),
         ],
 
         allInspectElements: [
@@ -175,7 +182,13 @@ export const elementsLogic = kea<elementsLogicType>([
             (s) => [s.allInspectElements, s.rectUpdateCounter, toolbarConfigLogic.selectors.buttonVisible],
             (allInspectElements) =>
                 allInspectElements
-                    .map((element) => ({ element, rect: getRectForElement(element) }) as ElementWithMetadata)
+                    .map(
+                        (element) =>
+                            ({
+                                element,
+                                rect: getRectForElement(element),
+                            }) as ElementWithMetadata
+                    )
                     .filter((e) => e.rect && e.rect.width * e.rect.height > 0),
         ],
 

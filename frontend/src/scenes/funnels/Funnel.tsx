@@ -1,6 +1,7 @@
 import './Funnel.scss'
 
 import { useValues } from 'kea'
+
 import { FunnelLayout } from 'lib/constants'
 import { FunnelLineGraph } from 'scenes/funnels/FunnelLineGraph'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -9,8 +10,8 @@ import { ChartParams, FunnelVizType } from '~/types'
 
 import { FunnelBarHorizontal } from './FunnelBarHorizontal/FunnelBarHorizontal'
 import { FunnelBarVertical } from './FunnelBarVertical/FunnelBarVertical'
-import { funnelDataLogic } from './funnelDataLogic'
 import { FunnelHistogram } from './FunnelHistogram'
+import { funnelDataLogic } from './funnelDataLogic'
 
 export function Funnel(props: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)

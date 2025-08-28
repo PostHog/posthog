@@ -1,42 +1,44 @@
-from pathlib import Path
 from decimal import Decimal
+from pathlib import Path
+
 from freezegun import freeze_time
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    snapshot_clickhouse_queries,
+)
+
 from parameterized import parameterized
+
+from posthog.schema import (
+    CurrencyCode,
+    DateRange,
+    HogQLQueryModifiers,
+    PersonsOnEventsMode,
+    RevenueAnalyticsEventItem,
+    RevenueCurrencyPropertyConfig,
+    TrendsQuery,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
-from posthog.schema import (
-    CurrencyCode,
-    HogQLQueryModifiers,
-    RevenueAnalyticsEventItem,
-    RevenueCurrencyPropertyConfig,
-    PersonsOnEventsMode,
-    TrendsQuery,
-    DateRange,
-)
-from posthog.warehouse.models import ExternalDataSchema, DataWarehouseJoin
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_person,
-    _create_event,
-)
-from posthog.test.base import snapshot_clickhouse_queries
 
-from posthog.temporal.data_imports.sources.stripe.constants import (
-    INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
-    CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
-)
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
+from posthog.temporal.data_imports.sources.stripe.constants import (
+    CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
+    INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
+)
+from posthog.warehouse.models import DataWarehouseJoin, ExternalDataSchema
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
+
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
-    STRIPE_INVOICE_COLUMNS,
     STRIPE_CUSTOMER_COLUMNS,
+    STRIPE_INVOICE_COLUMNS,
 )
-from products.revenue_analytics.backend.views.revenue_analytics_customer_view import (
-    SOURCE_VIEW_SUFFIX as CUSTOMER_REVENUE_VIEW_SUFFIX,
-)
+from products.revenue_analytics.backend.views.schemas.customer import SCHEMA
 
 INVOICES_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices"
 CUSTOMERS_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_customers"
@@ -133,7 +135,7 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
         # We also need a join between the persons table and the view
         self.join = DataWarehouseJoin.objects.create(
             team=self.team,
-            source_table_name=f"stripe.posthog_test.{CUSTOMER_REVENUE_VIEW_SUFFIX}",
+            source_table_name=f"stripe.posthog_test.{SCHEMA.source_suffix}",
             source_table_key="id",
             joining_table_name="persons",
             joining_table_key="pdi.distinct_id",
@@ -194,10 +196,10 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                     [
                         (distinct_id_to_person_id["cus_1"], Decimal("429.7423999996")),
                         (distinct_id_to_person_id["cus_2"], Decimal("477.2037499988")),
-                        (distinct_id_to_person_id["cus_3"], Decimal("26182.78099")),
+                        (distinct_id_to_person_id["cus_3"], Decimal("4171.09153")),
                         (distinct_id_to_person_id["cus_4"], Decimal("254.12345")),
                         (distinct_id_to_person_id["cus_5"], Decimal("1529.9212")),
-                        (distinct_id_to_person_id["cus_6"], Decimal("17476.47254")),
+                        (distinct_id_to_person_id["cus_6"], Decimal("2796.37014")),
                         (distinct_id_to_person_id["dummy"], None),
                     ],
                 )
@@ -242,17 +244,13 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                         Decimal("477.2037499988"),
                         Decimal("477.2037499988"),
                     ),
-                    (
-                        distinct_id_to_person_id["john.smith@example.com"],
-                        Decimal("26182.78099"),
-                        Decimal("26182.78099"),
-                    ),
+                    (distinct_id_to_person_id["john.smith@example.com"], Decimal("4171.09153"), Decimal("4171.09153")),
                     (distinct_id_to_person_id["jane.smith@example.com"], Decimal("254.12345"), Decimal("254.12345")),
                     (distinct_id_to_person_id["john.doejr@example.com"], Decimal("1529.9212"), Decimal("1529.9212")),
                     (
                         distinct_id_to_person_id["john.doejrjr@example.com"],
-                        Decimal("17476.47254"),
-                        Decimal("17476.47254"),
+                        Decimal("2796.37014"),
+                        Decimal("2796.37014"),
                     ),
                     (distinct_id_to_person_id["zdummy"], None, None),
                 ],
@@ -290,10 +288,10 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                 [
                     (distinct_id_to_person_id["cus_1_metadata"], Decimal("429.7423999996"), Decimal("429.7423999996")),
                     (distinct_id_to_person_id["cus_2_metadata"], Decimal("477.2037499988"), Decimal("477.2037499988")),
-                    (distinct_id_to_person_id["cus_3_metadata"], Decimal("26182.78099"), Decimal("26182.78099")),
+                    (distinct_id_to_person_id["cus_3_metadata"], Decimal("4171.09153"), Decimal("4171.09153")),
                     (distinct_id_to_person_id["cus_4_metadata"], Decimal("254.12345"), Decimal("254.12345")),
                     (distinct_id_to_person_id["cus_5_metadata"], Decimal("1529.9212"), Decimal("1529.9212")),
-                    (distinct_id_to_person_id["cus_6_metadata"], Decimal("17476.47254"), Decimal("17476.47254")),
+                    (distinct_id_to_person_id["cus_6_metadata"], Decimal("2796.37014"), Decimal("2796.37014")),
                     (distinct_id_to_person_id["dummy"], None, None),
                 ],
             )

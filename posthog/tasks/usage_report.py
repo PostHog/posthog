@@ -1,62 +1,60 @@
-import dataclasses
 import os
+import gzip
 import json
 import base64
-import gzip
+import logging
+import dataclasses
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from typing import Any, Literal, Optional, TypedDict, Union
-from collections.abc import Callable
 
-import requests
-import structlog
-import logging
-from cachetools import cached
-from celery import shared_task
-from dateutil import parser
 from django.conf import settings
 from django.db import connection
 from django.db.models import Count, Q, Sum
+
+import requests
+import structlog
+from cachetools import cached
+from celery import shared_task
+from dateutil import parser
 from posthoganalytics.client import Client as PostHogClient
 from psycopg import sql
 from retry import retry
 
-from posthog.clickhouse.query_tagging import tags_context
-from posthog.exceptions_capture import capture_exception
+from posthog.schema import AIEventType
 
 from posthog import version_requirement
-from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.query_tagging import tags_context
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import FlagRequestType
+from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed_log
-from posthog.models import GroupTypeMapping, OrganizationMembership, User
+from posthog.models import BatchExport, GroupTypeMapping, OrganizationMembership, User
 from posthog.models.dashboard import Dashboard
+from posthog.models.error_tracking import ErrorTrackingIssue, ErrorTrackingSymbolSet
 from posthog.models.feature_flag import FeatureFlag
+from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.models.organization import Organization
 from posthog.models.plugin import PluginConfig
 from posthog.models.property.util import get_property_string_expr
+from posthog.models.surveys.util import get_unique_survey_event_uuids_sql_subquery
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
 from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
 from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
-from posthog.utils import (
-    get_helm_info_env,
-    get_instance_realm,
-    get_instance_region,
-    get_previous_day,
-)
-from posthog.models import BatchExport
+from posthog.utils import get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
 from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseTable, ExternalDataJob, ExternalDataSchema
-from posthog.models.error_tracking import ErrorTrackingIssue, ErrorTrackingSymbolSet
-from posthog.models.surveys.util import get_unique_survey_event_uuids_sql_subquery
-from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
-
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
+
+# AI events dynamically generated from AIEventType TS enum
+# Changes to the AIEventType enum will impact usage reporting
+AI_EVENTS = [event.value for event in AIEventType]
 
 
 class Period(TypedDict):
@@ -152,11 +150,12 @@ class UsageReportCounters:
     symbol_sets_count: int
     resolved_symbol_sets_count: int
     exceptions_captured_in_period: int
-    # LLM Observability
+    # LLM Analytics
     ai_event_count_in_period: int
     # CDP Delivery
     hog_function_calls_in_period: int
     hog_function_fetch_calls_in_period: int
+    cdp_billable_invocations_in_period: int
     # SDK usage
     web_events_count_in_period: int
     web_lite_events_count_in_period: int
@@ -472,14 +471,25 @@ def get_teams_with_billable_event_count_in_period(
         distinct_expression = "1"
 
     # We are excluding $exception events during the beta
+    # We also exclude AI events as they are billed separately through ai_event_count_in_period
+    excluded_events = [
+        "$feature_flag_called",
+        "survey sent",
+        "survey shown",
+        "survey dismissed",
+        "$exception",
+        *AI_EVENTS,
+    ]
+
     query_template = f"""
         SELECT team_id, count({distinct_expression}) as count
         FROM events
-        WHERE timestamp >= %(begin)s AND timestamp < %(end)s AND event NOT IN ('$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception')
+        WHERE timestamp >= %(begin)s AND timestamp < %(end)s
+            AND event NOT IN %(excluded_events)s
         GROUP BY team_id
     """
 
-    return _execute_split_query(begin, end, query_template, {}, num_splits=3)
+    return _execute_split_query(begin, end, query_template, {"excluded_events": excluded_events}, num_splits=3)
 
 
 @timed_log()
@@ -498,14 +508,26 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
     else:
         distinct_expression = "1"
 
+    # We exclude AI events as they are billed separately through ai_event_count_in_period
+    excluded_events = [
+        "$feature_flag_called",
+        "survey sent",
+        "survey shown",
+        "survey dismissed",
+        "$exception",
+        *AI_EVENTS,
+    ]
+
     query_template = f"""
         SELECT team_id, count({distinct_expression}) as count
         FROM events
-        WHERE timestamp >= %(begin)s AND timestamp < %(end)s AND event NOT IN ('$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception') AND person_mode IN ('full', 'force_upgrade')
+        WHERE timestamp >= %(begin)s AND timestamp < %(end)s
+            AND event NOT IN %(excluded_events)s
+            AND person_mode IN ('full', 'force_upgrade')
         GROUP BY team_id
     """
 
-    return _execute_split_query(begin, end, query_template, {}, num_splits=3)
+    return _execute_split_query(begin, end, query_template, {"excluded_events": excluded_events}, num_splits=3)
 
 
 @timed_log()
@@ -848,10 +870,10 @@ def get_teams_with_ai_event_count_in_period(
         """
         SELECT team_id, COUNT() as count
         FROM events
-        WHERE event LIKE '$ai_%%' AND timestamp >= %(begin)s AND timestamp < %(end)s
+        WHERE event IN %(ai_events)s AND timestamp >= %(begin)s AND timestamp < %(end)s
         GROUP BY team_id
     """,
-        {"begin": begin, "end": end},
+        {"begin": begin, "end": end, "ai_events": AI_EVENTS},
         workload=Workload.OFFLINE,
         settings=CH_BILLING_SETTINGS,
     )
@@ -982,6 +1004,27 @@ def get_teams_with_hog_function_fetch_calls_in_period(
         FROM app_metrics2
         WHERE app_source='hog_function' AND metric_name IN ('fetch') AND timestamp >= %(begin)s AND timestamp < %(end)s
         GROUP BY team_id, metric_name
+    """,
+        {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
+    )
+
+    return results
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_cdp_billable_invocations_in_period(
+    begin: datetime,
+    end: datetime,
+) -> list[tuple[int, int]]:
+    results = sync_execute(
+        """
+        SELECT team_id, SUM(count) as count
+        FROM app_metrics2
+        WHERE app_source='hog_function' AND metric_name IN ('billable_invocation') AND timestamp >= %(begin)s AND timestamp < %(end)s
+        GROUP BY team_id
     """,
         {"begin": begin, "end": end},
         workload=Workload.OFFLINE,
@@ -1312,6 +1355,9 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_hog_function_fetch_calls_in_period": get_teams_with_hog_function_fetch_calls_in_period(
             period_start, period_end
         ),
+        "teams_with_cdp_billable_invocations_in_period": get_teams_with_cdp_billable_invocations_in_period(
+            period_start, period_end
+        ),
         "teams_with_ai_event_count_in_period": get_teams_with_ai_event_count_in_period(period_start, period_end),
         "teams_with_active_hog_destinations_in_period": get_teams_with_active_hog_destinations_in_period(),
         "teams_with_active_hog_transformations_in_period": get_teams_with_active_hog_transformations_in_period(),
@@ -1403,6 +1449,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         resolved_symbol_sets_count=all_data["teams_with_resolved_symbol_sets_count"].get(team.id, 0),
         hog_function_calls_in_period=all_data["teams_with_hog_function_calls_in_period"].get(team.id, 0),
         hog_function_fetch_calls_in_period=all_data["teams_with_hog_function_fetch_calls_in_period"].get(team.id, 0),
+        cdp_billable_invocations_in_period=all_data["teams_with_cdp_billable_invocations_in_period"].get(team.id, 0),
         web_events_count_in_period=all_data["teams_with_web_events_count_in_period"].get(team.id, 0),
         web_lite_events_count_in_period=all_data["teams_with_web_lite_events_count_in_period"].get(team.id, 0),
         node_events_count_in_period=all_data["teams_with_node_events_count_in_period"].get(team.id, 0),

@@ -1,28 +1,30 @@
-import logging
 import re
+import time
 import warnings
 from datetime import timedelta
 from typing import Literal
 from uuid import uuid4
 
-from asgiref.sync import sync_to_async
 from django.db.models import Max
 from django.utils import timezone
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage
+
+import structlog
+from langchain_core.messages import AIMessageChunk, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
+from langgraph.config import get_stream_writer
+from langgraph.types import StreamWriter
+
+from posthog.schema import AssistantToolCallMessage, VisualizationMessage
+
+from posthog.exceptions_capture import capture_exception
+from posthog.models import Insight
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
 from ee.hogai.graph.root.nodes import MAX_SUPPORTED_QUERY_KIND_TO_MODEL
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from posthog.exceptions_capture import capture_exception
-from posthog.models import Insight
-from posthog.schema import (
-    AssistantToolCallMessage,
-    VisualizationMessage,
-)
+from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
 
 from .prompts import (
     EMPTY_DATABASE_ERROR_MESSAGE,
@@ -35,13 +37,13 @@ from .prompts import (
     TOOL_BASED_EVALUATION_SYSTEM_PROMPT,
 )
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 # Silence Pydantic serializer warnings for creation of VisualizationMessage/Query execution
 warnings.filterwarnings("ignore", category=UserWarning, message=".*Pydantic serializer.*")
 
 
 class InsightSearchNode(AssistantNode):
-    PAGE_SIZE = 50
+    PAGE_SIZE = 500
     MAX_SEARCH_ITERATIONS = 6
     MAX_INSIGHTS_TO_RETURN = 3
     MAX_EVALUATION_ITERATIONS = 3
@@ -63,12 +65,44 @@ class InsightSearchNode(AssistantNode):
         self._cutoff_date_for_insights_in_days = self.INSIGHTS_CUTOFF_DAYS
         self._query_cache = {}
         self._insight_id_cache = {}
+        self._stream_writer = None
+
+    def _get_stream_writer(self) -> StreamWriter | None:
+        if self._stream_writer is None:
+            try:
+                self._stream_writer = get_stream_writer()
+            except Exception:
+                self._stream_writer = None
+        return self._stream_writer
+
+    def _stream_reasoning(
+        self, content: str, substeps: list[str] | None = None, writer: StreamWriter | None = None
+    ) -> None:
+        if not writer:
+            logger.warning("Cannot stream reasoning message!")
+            return
+
+        try:
+            display_content = content
+            if substeps:
+                display_content += "\n" + "\n".join(f"• {step}" for step in substeps)
+
+            message_chunk = AIMessageChunk(
+                content="",
+                additional_kwargs={"reasoning": {"summary": [{"text": f"**{display_content}**"}]}},
+            )
+            message = (message_chunk, {"langgraph_node": AssistantNodeName.INSIGHTS_SEARCH})
+
+            writer(("insights_search_node", "messages", message))
+
+        except Exception as e:
+            logger.exception("Failed to stream reasoning message", error=str(e), content=content)
 
     def _create_page_reader_tool(self):
         """Create tool for reading insights pages during agentic RAG loop."""
 
         @tool
-        def read_insights_page(page_number: int) -> str:
+        async def read_insights_page(page_number: int) -> str:
             """Read a page of insights data.
 
             Args:
@@ -77,7 +111,7 @@ class InsightSearchNode(AssistantNode):
             Returns:
                 Formatted insights data for the requested page
             """
-            page_insights = self._load_insights_page(page_number)
+            page_insights = await self._load_insights_page(page_number)
 
             if not page_insights:
                 return "No more insights available."
@@ -114,16 +148,27 @@ class InsightSearchNode(AssistantNode):
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         search_query = state.search_insights_query
-
         try:
             self._current_iteration = 0
 
-            total_count = await sync_to_async(self._get_total_insights_count)()
+            total_count = await self._get_total_insights_count()
             if total_count == 0:
                 return self._handle_empty_database(state)
 
             selected_insights = await self._search_insights_iteratively(search_query or "")
-            evaluation_result = await sync_to_async(self._evaluate_insights_with_tools)(
+            logger.warning(
+                f"search_insights_iteratively returned {len(selected_insights)} insights: {selected_insights}"
+            )
+
+            writer = self._get_stream_writer()
+            if selected_insights:
+                self._stream_reasoning(
+                    content=f"Evaluating {len(selected_insights)} insights to find the best match", writer=writer
+                )
+            else:
+                self._stream_reasoning(content="No existing insights found, creating a new one", writer=writer)
+
+            evaluation_result = await self._evaluate_insights_with_tools(
                 selected_insights, search_query or "", max_selections=1
             )
 
@@ -145,9 +190,9 @@ class InsightSearchNode(AssistantNode):
             .order_by("-latest_view_time")
         )
 
-    def _get_total_insights_count(self) -> int:
+    async def _get_total_insights_count(self) -> int:
         if self._total_insights_count is None:
-            self._total_insights_count = self._get_insights_queryset().count()
+            self._total_insights_count = await self._get_insights_queryset().acount()
         return self._total_insights_count
 
     def _handle_empty_database(self, state: AssistantState) -> PartialAssistantState:
@@ -220,16 +265,62 @@ class InsightSearchNode(AssistantNode):
         """Build the URL for an insight."""
         return f"/project/{self._team.id}/insights/{insight.short_id}"
 
-    def _load_insights_page(self, page_number: int) -> list[Insight]:
+    async def _load_insights_page(self, page_number: int) -> list[Insight]:
         """Load a specific page of insights from database."""
+        logger.warning(f"_load_insights_page called with page_number={page_number}")
+
         if page_number in self._loaded_pages:
+            logger.info(f"Page {page_number} found in cache with {len(self._loaded_pages[page_number])} insights")
             return self._loaded_pages[page_number]
 
         start_idx = page_number * self._page_size
         end_idx = start_idx + self._page_size
 
         insights_qs = self._get_insights_queryset()[start_idx:end_idx]
-        page_insights = list(insights_qs)
+        logger.warning(f"Executing async query for page {page_number} (range: {start_idx}-{end_idx})")
+
+        db_start = time.time()
+        page_insights = []
+        insight_count = 0
+        try:
+            logger.warning(f"Starting async iteration for page {page_number}")
+
+            last_progress_time = time.time()
+
+            async for i in insights_qs:
+                insight_count += 1
+                page_insights.append(i)
+                current_time = time.time()
+
+                # Log progress every 100 insights or every 10 seconds in order to understand why we are getting stuck
+                if insight_count % 100 == 0 or (current_time - last_progress_time) > 10:
+                    elapsed_so_far = current_time - db_start
+                    logger.warning(
+                        f"Progress: loaded {insight_count} insights for page {page_number} in {elapsed_so_far:.2f}s"
+                    )
+                    last_progress_time = current_time
+
+                # Certain insights may take too long
+                # Certain insights may take too long - check against db_start instead of last_progress_time
+                if (current_time - db_start) > 5 and insight_count == 1:
+                    logger.warning(f"Slow insight processing detected for page {page_number}, insight #{insight_count}")
+
+            logger.warning(f"Async iteration completed for page {page_number}, total insights: {insight_count}")
+
+        except Exception as e:
+            elapsed_on_error = time.time() - db_start
+            logger.error(
+                f"Exception during async iteration for page {page_number} after {elapsed_on_error:.2f}s, loaded {insight_count} insights: {e}",
+                exc_info=True,
+            )
+            raise
+
+        db_elapsed = time.time() - db_start
+
+        logger.warning(
+            f"Database query completed in {db_elapsed:.2f}s, loaded {len(page_insights)} insights for page {page_number}"
+        )
+        logger.warning(f"DB QUERY: took {db_elapsed:.2f}s to load page {page_number}")
 
         self._loaded_pages[page_number] = page_insights
 
@@ -240,8 +331,8 @@ class InsightSearchNode(AssistantNode):
 
     async def _search_insights_iteratively(self, search_query: str) -> list[int]:
         """Execute iterative insight search with LLM and tool calling."""
-        messages = await sync_to_async(self._build_search_messages)(search_query)
-        llm_with_tools = await sync_to_async(self._prepare_llm_with_tools)()
+        messages = await self._build_search_messages(search_query)
+        llm_with_tools = await self._prepare_llm_with_tools()
 
         selected_insights = await self._perform_iterative_search(messages, llm_with_tools)
 
@@ -250,10 +341,10 @@ class InsightSearchNode(AssistantNode):
 
         return selected_insights[: self._max_insights_to_select]
 
-    def _build_search_messages(self, search_query: str) -> list[BaseMessage]:
+    async def _build_search_messages(self, search_query: str) -> list[BaseMessage]:
         """Build the initial messages for the search."""
-        first_page = self._format_insights_page(0)
-        pagination_instructions = self._get_pagination_instructions()
+        first_page = await self._format_insights_page(0)
+        pagination_instructions = await self._get_pagination_instructions()
 
         system_prompt = ITERATIVE_SEARCH_SYSTEM_PROMPT.format(
             first_page_insights=first_page, pagination_instructions=pagination_instructions
@@ -262,18 +353,18 @@ class InsightSearchNode(AssistantNode):
 
         return [SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)]
 
-    def _get_pagination_instructions(self) -> str:
+    async def _get_pagination_instructions(self) -> str:
         """Get pagination instructions based on available insights."""
-        total_insights = self._get_total_insights_count()
+        total_insights = await self._get_total_insights_count()
         total_pages = self._calculate_total_pages(total_insights)
 
         if total_pages > 1:
             return PAGINATION_INSTRUCTIONS_TEMPLATE.format(total_pages=total_pages)
         return "This is the only page of insights available."
 
-    def _prepare_llm_with_tools(self):
+    async def _prepare_llm_with_tools(self):
         """Prepare LLM with pagination tools if needed."""
-        total_insights = self._get_total_insights_count()
+        total_insights = await self._get_total_insights_count()
         total_pages = self._calculate_total_pages(total_insights)
 
         if total_pages > 1:
@@ -284,9 +375,18 @@ class InsightSearchNode(AssistantNode):
     async def _perform_iterative_search(self, messages: list[BaseMessage], llm_with_tools) -> list[int]:
         """Perform the iterative search with the LLM."""
         selected_insights = []
+        writer = self._get_stream_writer()
+
+        self._stream_reasoning(
+            content=f"Searching through existing insights",
+            substeps=[f"Analyzing {await self._get_total_insights_count()} available insights"],
+            writer=writer,
+        )
+        logger.warning(f"Starting iterative search, max_iterations={self._max_iterations}")
 
         while self._current_iteration < self._max_iterations:
             self._current_iteration += 1
+            logger.warning(f"Iteration {self._current_iteration}/{self._max_iterations} starting")
 
             try:
                 response = await llm_with_tools.ainvoke(messages)
@@ -298,37 +398,59 @@ class InsightSearchNode(AssistantNode):
                     for tool_call in response.tool_calls:
                         if tool_call.get("name") == "read_insights_page":
                             page_num = tool_call.get("args", {}).get("page_number", 0)
-                            tool_response = await sync_to_async(self._get_page_content_for_tool)(page_num)
+                            logger.warning(f"Reading insights page {page_num}")
+
+                            page_message = "Finding the most relevant insights"
+                            logger.warning(
+                                f"STALL POINT(?): Streamed 'Finding the most relevant insights' - about to fetch page content"
+                            )
+                            self._stream_reasoning(content=page_message, writer=writer)
+
+                            logger.warning(f"Fetching page content for page {page_num}")
+                            tool_response = await self._get_page_content_for_tool(page_num)
+                            logger.warning(f"Page content fetched successfully, length={len(tool_response)}")
+
                             messages.append(
                                 ToolMessage(content=tool_response, tool_call_id=tool_call.get("id", "unknown"))
                             )
+
+                    logger.warning("Continuing to next iteration after tool calls")
                     continue
 
                 # No tool calls, extract insight IDs from the response. Done with the search
                 content = response.content if isinstance(response.content, str) else str(response.content)
                 selected_insights = self._parse_insight_ids(content)
+                if selected_insights:
+                    final_message = f"Found {len(selected_insights)} relevant insights"
+                    self._stream_reasoning(content=final_message, writer=writer)
+                else:
+                    no_results_message = "No matching insights found"
+                    self._stream_reasoning(content=no_results_message, writer=writer)
                 break
 
             except Exception as e:
                 capture_exception(e)
+                error_message = f"Error during search"
+                self._stream_reasoning(content=error_message, writer=writer)
                 break
+
         return selected_insights
 
-    def _get_page_content_for_tool(self, page_number: int) -> str:
+    async def _get_page_content_for_tool(self, page_number: int) -> str:
         """Get page content for tool response."""
         if page_number == 0:
             return "Page 0 data is already provided in the initial context above."
         else:
-            page_content = self._format_insights_page(page_number)
+            page_content = await self._format_insights_page(page_number)
             return f"Page {page_number + 1} results:\n{page_content}"
 
     def _calculate_total_pages(self, total_insights: int) -> int:
         """Calculate total number of pages for insights."""
         return (total_insights + self._page_size - 1) // self._page_size
 
-    def _format_insights_page(self, page_number: int) -> str:
+    async def _format_insights_page(self, page_number: int) -> str:
         """Format a page of insights for display."""
-        page_insights = self._load_insights_page(page_number)
+        page_insights = await self._load_insights_page(page_number)
 
         if not page_insights:
             return "No insights available on this page."
@@ -348,7 +470,7 @@ class InsightSearchNode(AssistantNode):
         """Find an insight by ID across all loaded pages (with cache)."""
         return self._insight_id_cache.get(insight_id)
 
-    def _process_insight_query(self, insight: Insight) -> tuple[SupportedQueryTypes | None, str | None]:
+    async def _process_insight_query(self, insight: Insight) -> tuple[SupportedQueryTypes | None, str | None]:
         """
         Process an insight's query and cache object and formatted results for reference
         """
@@ -361,7 +483,7 @@ class InsightSearchNode(AssistantNode):
         if not insight.query:
             return self._cache_and_return(insight_id, None, None)
 
-        query_obj, formatted_results = self._extract_and_execute_query(insight)
+        query_obj, formatted_results = await self._extract_and_execute_query(insight)
 
         return self._cache_and_return(insight_id, query_obj, formatted_results)
 
@@ -382,7 +504,7 @@ class InsightSearchNode(AssistantNode):
         self._query_cache[insight_id] = result
         return result
 
-    def _extract_and_execute_query(self, insight: Insight) -> tuple[SupportedQueryTypes | None, str | None]:
+    async def _extract_and_execute_query(self, insight: Insight) -> tuple[SupportedQueryTypes | None, str | None]:
         """Extract query object and execute it."""
         try:
             query_dict = insight.query
@@ -393,7 +515,7 @@ class InsightSearchNode(AssistantNode):
             if query_obj is None:
                 return None, "Query type not supported for execution"
 
-            formatted_results = self._execute_and_format_query(query_obj)
+            formatted_results = await self._execute_and_format_query(query_obj)
             return query_obj, formatted_results
 
         except Exception as e:
@@ -408,12 +530,12 @@ class InsightSearchNode(AssistantNode):
         AssistantQueryModel = MAX_SUPPORTED_QUERY_KIND_TO_MODEL[insight_type]
         return AssistantQueryModel.model_validate(query_source, strict=False)
 
-    def _execute_and_format_query(self, query_obj: SupportedQueryTypes) -> str:
+    async def _execute_and_format_query(self, query_obj: SupportedQueryTypes) -> str:
         """Execute query and format results."""
         try:
             query_executor = AssistantQueryExecutor(team=self._team, utc_now_datetime=self._utc_now_datetime)
-            query_result_dict = query_executor._execute_query(query_obj)
-            return query_executor._compress_results(query_obj, query_result_dict)
+            results, _ = await query_executor.arun_and_format_query(query_obj)
+            return results
         except Exception as e:
             capture_exception(e)
             return "Query execution failed"
@@ -441,7 +563,7 @@ class InsightSearchNode(AssistantNode):
 
         return valid_ids
 
-    def _create_enhanced_insight_summary(self, insight: Insight) -> str:
+    async def _create_enhanced_insight_summary(self, insight: Insight) -> str:
         """Create enhanced summary with metadata and basic execution info."""
         insight_id = insight.id
         name = insight.name or insight.derived_name or "Unnamed"
@@ -450,7 +572,7 @@ class InsightSearchNode(AssistantNode):
         insight_type = "Unknown"
         query_info = None
 
-        _, query_result = self._process_insight_query(insight)
+        _, query_result = await self._process_insight_query(insight)
 
         if insight.query:
             try:
@@ -511,20 +633,27 @@ class InsightSearchNode(AssistantNode):
             capture_exception(e)
             return None
 
-    def _create_visualization_message_for_insight(self, insight: Insight) -> VisualizationMessage | None:
+    async def _create_visualization_message_for_insight(self, insight: Insight) -> VisualizationMessage | None:
         """Create a VisualizationMessage to render the insight UI."""
         try:
-            query_obj, _ = self._process_insight_query(insight)
+            writer = self._get_stream_writer()
+            self._stream_reasoning(
+                content=f"Executing insight query...",
+                substeps=["Processing query parameters", "Running data analysis"],
+                writer=writer,
+            )
+
+            query_obj, _ = await self._process_insight_query(insight)
 
             if not query_obj:
                 return None
 
             insight_name = insight.name or insight.derived_name or "Unnamed Insight"
 
-            visualization_message = VisualizationMessage.model_construct(
+            visualization_message = VisualizationMessage(
                 query=f"Existing insight: {insight_name}",
                 plan=f"Showing existing insight: {insight_name}",
-                answer=query_obj,  # type: ignore[arg-type]
+                answer=query_obj,
                 id=str(uuid4()),
             )
 
@@ -548,7 +677,7 @@ class InsightSearchNode(AssistantNode):
             root_tool_call_id=None,
         )
 
-    def _evaluate_insights_with_tools(
+    async def _evaluate_insights_with_tools(
         self, selected_insights: list[int], user_query: str, max_selections: int = 1
     ) -> dict:
         """Evaluate insights using tool calls for fine-grained selection.
@@ -560,15 +689,15 @@ class InsightSearchNode(AssistantNode):
         """
         self._reset_evaluation_state()
 
-        insights_summary, final_selected_insights = self._prepare_insights_for_evaluation(selected_insights)
+        insights_summary, final_selected_insights = await self._prepare_insights_for_evaluation(selected_insights)
 
         if not final_selected_insights:
             return self._no_insights_found_result()
 
-        self._run_evaluation_loop(user_query, insights_summary, max_selections)
+        await self._run_evaluation_loop(user_query, insights_summary, max_selections)
 
         if self._evaluation_selections:
-            return self._create_successful_evaluation_result()
+            return await self._create_successful_evaluation_result()
         else:
             return self._create_rejection_result()
 
@@ -577,7 +706,7 @@ class InsightSearchNode(AssistantNode):
         self._evaluation_selections = {}
         self._rejection_reason = None
 
-    def _prepare_insights_for_evaluation(self, selected_insights: list[int]) -> tuple[list[str], list[int]]:
+    async def _prepare_insights_for_evaluation(self, selected_insights: list[int]) -> tuple[list[str], list[int]]:
         """Prepare insights for evaluation."""
         insights_summary = []
         final_selected_insights = []
@@ -585,7 +714,7 @@ class InsightSearchNode(AssistantNode):
         for insight_id in selected_insights:
             insight = self._find_insight_by_id(insight_id)
             if insight:
-                enhanced_summary = self._create_enhanced_insight_summary(insight)
+                enhanced_summary = await self._create_enhanced_insight_summary(insight)
                 insights_summary.append(enhanced_summary)
                 final_selected_insights.append(insight_id)
 
@@ -600,18 +729,30 @@ class InsightSearchNode(AssistantNode):
             "visualization_messages": [],
         }
 
-    def _run_evaluation_loop(self, user_query: str, insights_summary: list[str], max_selections: int) -> None:
+    async def _run_evaluation_loop(self, user_query: str, insights_summary: list[str], max_selections: int) -> None:
         """Run the evaluation loop with LLM."""
+        writer = self._get_stream_writer()
+        self._stream_reasoning(
+            content="Analyzing insights to match your request",
+            substeps=[
+                "Comparing insights for best fit",
+            ],
+            writer=writer,
+        )
+
         tools = self._create_insight_evaluation_tools()
         llm_with_tools = self._model.bind_tools(tools)
 
         selection_instruction = self._build_selection_instruction(max_selections)
         messages = self._build_evaluation_messages(user_query, insights_summary, selection_instruction)
 
-        for _ in range(self._max_insights_evaluation_iterations):
-            response = llm_with_tools.invoke(messages)
+        for iteration in range(self._max_insights_evaluation_iterations):
+            response = await llm_with_tools.ainvoke(messages)
 
             if getattr(response, "tool_calls", None):
+                # Only stream on first iteration to avoid noise
+                if iteration == 0:
+                    self._stream_reasoning(content="Making evaluation decisions", writer=writer)
                 self._process_evaluation_tool_calls(response, messages, tools)
             else:
                 break
@@ -643,14 +784,23 @@ class InsightSearchNode(AssistantNode):
                 result = tool_fn.invoke(tool_call["args"])
                 messages.append(ToolMessage(content=result, tool_call_id=tool_call["id"]))
 
-    def _create_successful_evaluation_result(self) -> dict:
+    async def _create_successful_evaluation_result(self) -> dict:
         """Create result for successful evaluation."""
         visualization_messages = []
         explanations = []
 
+        writer = self._get_stream_writer()
+        num_insights = len(self._evaluation_selections)
+        insight_word = "insight" if num_insights == 1 else "insights"
+
+        self._stream_reasoning(
+            content=f"Perfect! Found {num_insights} suitable {insight_word}",
+            writer=writer,
+        )
+
         for _, selection in self._evaluation_selections.items():
             insight = selection["insight"]
-            visualization_message = self._create_visualization_message_for_insight(insight)
+            visualization_message = await self._create_visualization_message_for_insight(insight)
             if visualization_message:
                 visualization_messages.append(visualization_message)
 
@@ -676,6 +826,13 @@ class InsightSearchNode(AssistantNode):
 
     def _create_rejection_result(self) -> dict:
         """Create result for when all insights are rejected."""
+        writer = self._get_stream_writer()
+        self._stream_reasoning(
+            content="No perfect match found in existing insights",
+            substeps=["Will create a custom insight tailored to your request"],
+            writer=writer,
+        )
+
         return {
             "should_use_existing": False,
             "selected_insights": [],

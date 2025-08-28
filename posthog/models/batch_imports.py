@@ -1,12 +1,12 @@
+from enum import Enum
+from typing import Self
+
 from django.db import models
 
-from posthog.models.utils import UUIDModel
-from posthog.models.team import Team
-
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
-
-from typing import Self
-from enum import Enum
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.team import Team
+from posthog.models.utils import UUIDTModel
 
 
 class DateRangeExportSource(str, Enum):
@@ -23,7 +23,7 @@ class ContentType(str, Enum):
         return {"type": self.value}
 
 
-class BatchImport(UUIDModel):
+class BatchImport(ModelActivityMixin, UUIDTModel):
     class Status(models.TextChoices):
         COMPLETED = "completed", "Completed"
         FAILED = "failed", "Failed"

@@ -2,10 +2,10 @@ from typing import Literal
 
 from prometheus_client import Histogram
 from rest_framework import request, response, serializers, viewsets
-from posthog.api.utils import ServerTimingsGathered, action
 from rest_framework.exceptions import ValidationError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.utils import ServerTimingsGathered, action
 from posthog.auth import TemporaryTokenAuthentication
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Element, Filter

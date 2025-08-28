@@ -1,20 +1,31 @@
-import { actions, afterMount, BuiltLogic, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { arrayMove } from '@dnd-kit/sortable'
+import {
+    BuiltLogic,
+    actions,
+    afterMount,
+    beforeUnmount,
+    connect,
+    kea,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { combineUrl, router, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
+import { useEffect, useState } from 'react'
+
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
-import { TeamMembershipLevel } from 'lib/constants'
-import { identifierToHuman, getRelativeNextPath } from 'lib/utils'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getRelativeNextPath, identifierToHuman } from 'lib/utils'
+import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { withForwardedSearchParams } from 'lib/utils/sceneLogicUtils'
-import posthog from 'posthog-js'
-import {
-    emptySceneParams,
-    forwardedRedirectQueryParams,
-    preloadedScenes,
-    redirects,
-    routes,
-    sceneConfigurations,
-} from 'scenes/scenes'
 import {
     LoadedScene,
     Params,
@@ -25,27 +36,35 @@ import {
     SceneTab,
     sceneToAccessControlResourceType,
 } from 'scenes/sceneTypes'
+import {
+    emptySceneParams,
+    forwardedRedirectQueryParams,
+    preloadedScenes,
+    redirects,
+    routes,
+    sceneConfigurations,
+} from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
-import { AccessControlLevel, PipelineTab, ProductKey, OnboardingStepKey } from '~/types'
+import { AccessControlLevel, OnboardingStepKey, PipelineTab, ProductKey } from '~/types'
 
+import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { handleLoginRedirect } from './authentication/loginLogic'
 import { billingLogic } from './billing/billingLogic'
 import { organizationLogic } from './organizationLogic'
-import { preflightLogic } from './PreflightCheck/preflightLogic'
 import type { sceneLogicType } from './sceneLogicType'
 import { inviteLogic } from './settings/organization/inviteLogic'
 import { teamLogic } from './teamLogic'
 import { userLogic } from './userLogic'
-import { arrayMove } from '@dnd-kit/sortable'
-import { subscriptions } from 'kea-subscriptions'
 
 const TAB_STATE_KEY = 'scene-tabs-state'
 const persistTabs = (tabs: SceneTab[]): void => {
-    sessionStorage.setItem(TAB_STATE_KEY, JSON.stringify(tabs))
+    const teamId = getCurrentTeamIdOrNone()
+    sessionStorage.setItem(`${TAB_STATE_KEY}-${teamId}`, JSON.stringify(tabs))
 }
 const getPersistedTabs: () => SceneTab[] | null = () => {
-    const savedTabs = sessionStorage.getItem(TAB_STATE_KEY)
+    const teamId = getCurrentTeamIdOrNone()
+    const savedTabs = sessionStorage.getItem(`${TAB_STATE_KEY}-${teamId}`)
     if (savedTabs) {
         try {
             return JSON.parse(savedTabs)
@@ -83,6 +102,15 @@ const pathPrefixesOnboardingNotRequiredFor = [
     urls.oauthAuthorize(),
 ]
 
+const DelayedLoadingSpinner = (): JSX.Element => {
+    const [show, setShow] = useState(false)
+    useEffect(() => {
+        const timeout = window.setTimeout(() => setShow(true), 500)
+        return () => window.clearTimeout(timeout)
+    }, [])
+    return <>{show ? <Spinner /> : null}</>
+}
+
 export const sceneLogic = kea<sceneLogicType>([
     props(
         {} as {
@@ -100,7 +128,14 @@ export const sceneLogic = kea<sceneLogicType>([
             inviteLogic,
             ['hideInviteModal'],
         ],
-        values: [billingLogic, ['billing'], organizationLogic, ['organizationBeingDeleted']],
+        values: [
+            billingLogic,
+            ['billing'],
+            organizationLogic,
+            ['organizationBeingDeleted'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
     })),
     afterMount(({ cache }) => {
         cache.mountedTabLogic = {} as Record<string, () => void>
@@ -167,7 +202,7 @@ export const sceneLogic = kea<sceneLogicType>([
         setLoadedSceneLogic: (logic: BuiltLogic) => ({ logic }),
         reloadBrowserDueToImportError: true,
 
-        newTab: true,
+        newTab: (href?: string | null) => ({ href }),
         setTabs: (tabs: SceneTab[]) => ({ tabs }),
         removeTab: (tab: SceneTab) => ({ tab }),
         activateTab: (tab: SceneTab) => ({ tab }),
@@ -182,15 +217,16 @@ export const sceneLogic = kea<sceneLogicType>([
             [] as SceneTab[],
             {
                 setTabs: (_, { tabs }) => tabs,
-                newTab: (state) => {
+                newTab: (state, { href }) => {
+                    const { pathname, search, hash } = combineUrl(href || '/new')
                     return [
                         ...state.map((tab) => (tab.active ? { ...tab, active: false } : tab)),
                         {
                             id: generateTabId(),
                             active: true,
-                            pathname: addProjectIdIfMissing('/new'),
-                            search: '',
-                            hash: '',
+                            pathname: addProjectIdIfMissing(pathname),
+                            search,
+                            hash,
                             title: 'New tab',
                         },
                     ]
@@ -393,7 +429,7 @@ export const sceneLogic = kea<sceneLogicType>([
             (s) => [s.activeSceneId, s.activeExportedScene, s.sceneParams, s.activeTabId],
             (activeSceneId, activeExportedScene, sceneParams, activeTabId): LoadedScene | null => {
                 return {
-                    ...(activeExportedScene ?? { component: (): JSX.Element => <>Loading...</> }),
+                    ...(activeExportedScene ?? { component: DelayedLoadingSpinner }),
                     id: activeSceneId ?? Scene.Error404,
                     tabId: activeTabId ?? undefined,
                     sceneParams: sceneParams,
@@ -487,9 +523,9 @@ export const sceneLogic = kea<sceneLogicType>([
         ],
     }),
     listeners(({ values, actions, cache, props, selectors }) => ({
-        newTab: () => {
+        newTab: ({ href }) => {
             persistTabs(values.tabs)
-            router.actions.push(urls.newTab())
+            router.actions.push(href || urls.newTab())
         },
         setTabs: () => persistTabs(values.tabs),
         activateTab: () => persistTabs(values.tabs),
@@ -946,4 +982,27 @@ export const sceneLogic = kea<sceneLogicType>([
             }
         },
     })),
+    afterMount(({ actions, cache, values }) => {
+        cache.onKeyDown = (event: KeyboardEvent) => {
+            if (
+                values.featureFlags[FEATURE_FLAGS.SCENE_TABS] &&
+                (event.ctrlKey || event.metaKey) &&
+                event.key === 'b'
+            ) {
+                event.preventDefault()
+                event.stopPropagation()
+                if (event.shiftKey) {
+                    if (values.activeTab) {
+                        actions.removeTab(values.activeTab)
+                    }
+                } else {
+                    actions.newTab()
+                }
+            }
+        }
+        window.addEventListener('keydown', cache.onKeyDown)
+    }),
+    beforeUnmount(({ cache }) => {
+        window.removeEventListener('keydown', cache.onKeyDown)
+    }),
 ])

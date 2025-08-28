@@ -1,14 +1,14 @@
 import base64
 from typing import Optional
-from unittest.mock import MagicMock, patch
 
 import pytest
+from posthog.test.base import APIBaseTest
+from unittest.mock import MagicMock, patch
 
 from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset
 from posthog.tasks import exporter
 from posthog.tasks.exports.image_exporter import get_driver
-from posthog.test.base import APIBaseTest
 
 
 class MockWebDriver(MagicMock):

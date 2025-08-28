@@ -1,11 +1,12 @@
-import { IconPlus, IconX } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
+import { IconPlus, IconX } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
 import AutoTab from './AutoTab'
-import { multitabEditorLogic, NEW_QUERY, QueryTab } from './multitabEditorLogic'
+import { NEW_QUERY, QueryTab, multitabEditorLogic } from './multitabEditorLogic'
 
 interface QueryTabsProps {
     models: QueryTab[]

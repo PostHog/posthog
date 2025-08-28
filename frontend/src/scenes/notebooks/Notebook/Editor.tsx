@@ -1,12 +1,23 @@
 import ExtensionDocument from '@tiptap/extension-document'
 import { FloatingMenu } from '@tiptap/extension-floating-menu'
-import { Placeholder } from '@tiptap/extensions'
 import { TaskItem, TaskList } from '@tiptap/extension-list'
+import TableOfContents, { getHierarchicalIndexes } from '@tiptap/extension-table-of-contents'
+import { Placeholder } from '@tiptap/extensions'
 import StarterKit from '@tiptap/starter-kit'
 import { useActions, useValues } from 'kea'
-import { sampleOne, uuid } from 'lib/utils'
-import { useCallback, useMemo } from 'react'
+import { useCallback } from 'react'
 
+import { IconComment } from '@posthog/icons'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+
+import { RichContentEditor } from 'lib/components/RichContentEditor'
+import { RichContentNodeMention } from 'lib/components/RichContentEditor/RichContentNodeMention'
+import { RichContentNode, TTEditor } from 'lib/components/RichContentEditor/types'
+import { createEditor } from 'lib/components/RichContentEditor/utils'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { uuid } from 'lib/utils'
+
+import { MentionsExtension } from '../../../lib/components/RichContentEditor/MentionsExtension'
 import { NotebookMarkComment } from '../Marks/NotebookMarkComment'
 import { NotebookMarkLink } from '../Marks/NotebookMarkLink'
 import { NotebookNodeBacklink } from '../Nodes/NotebookNodeBacklink'
@@ -30,27 +41,17 @@ import { NotebookNodeReplayTimestamp } from '../Nodes/NotebookNodeReplayTimestam
 import { NotebookNodeSurvey } from '../Nodes/NotebookNodeSurvey'
 import { FloatingSuggestions } from '../Suggestions/FloatingSuggestions'
 import { insertionSuggestionsLogic } from '../Suggestions/insertionSuggestionsLogic'
-import { InlineMenu } from './InlineMenu'
-import { MentionsExtension } from '../../../lib/components/RichContentEditor/MentionsExtension'
-import { notebookLogic } from './notebookLogic'
-import { SlashCommandsExtension } from './SlashCommands'
-import TableOfContents, { getHierarchicalIndexes } from '@tiptap/extension-table-of-contents'
-import { RichContentNodeMention } from 'lib/components/RichContentEditor/RichContentNodeMention'
-import { createEditor } from 'lib/components/RichContentEditor/utils'
-import { textContent } from '../utils'
-import { RichContentNode, TTEditor } from 'lib/components/RichContentEditor/types'
-import { RichContentEditor } from 'lib/components/RichContentEditor'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { NotebookEditor } from '../types'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconComment } from '@posthog/icons'
+import { textContent } from '../utils'
+import { CollapsibleHeading } from './CollapsibleHeading'
 import { DropAndPasteHandlerExtension } from './DropAndPasteHandlerExtension'
+import { InlineMenu } from './InlineMenu'
+import { SlashCommandsExtension } from './SlashCommands'
+import { notebookLogic } from './notebookLogic'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
 })
-
-const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes', 'Bug analysis']
 
 export function Editor(): JSX.Element {
     const { shortId, mode } = useValues(notebookLogic)
@@ -59,8 +60,6 @@ export function Editor(): JSX.Element {
     const hasDiscussions = useFeatureFlag('DISCUSSIONS')
 
     const { resetSuggestions, setPreviousNode } = useActions(insertionSuggestionsLogic)
-
-    const headingPlaceholder = useMemo(() => sampleOne(PLACEHOLDER_TITLES), [shortId])
 
     const updatePreviousNode = useCallback(
         (editor: TTEditor) => {
@@ -78,7 +77,9 @@ export function Editor(): JSX.Element {
                     document: false,
                     gapcursor: false,
                     link: false,
+                    heading: false, // replaced by CollapsibleHeading
                 }),
+                CollapsibleHeading.configure(),
                 TableOfContents.configure({
                     getIndex: getHierarchicalIndexes,
                     onUpdate(content) {
@@ -88,7 +89,7 @@ export function Editor(): JSX.Element {
                 Placeholder.configure({
                     placeholder: ({ node }: { node: any }) => {
                         if (node.type.name === 'heading' && node.attrs.level === 1) {
-                            return `Untitled - maybe.. "${headingPlaceholder}"`
+                            return 'Untitled'
                         }
 
                         if (node.type.name === 'heading') {

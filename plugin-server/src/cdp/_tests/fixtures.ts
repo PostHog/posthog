@@ -256,7 +256,7 @@ export const createHogExecutionGlobals = (
 
 export const createExampleInvocation = (
     _hogFunction: Partial<HogFunctionType> = {},
-    _globals: Partial<HogFunctionInvocationGlobals> = {},
+    _globals: Partial<HogFunctionInvocationGlobalsWithInputs> = {},
     queue: CyclotronJobQueueKind = 'hog'
 ): CyclotronJobInvocationHogFunction => {
     const hogFunction = createHogFunction(_hogFunction)

@@ -1,5 +1,6 @@
-from unittest import mock
 from uuid import uuid4
+
+from unittest import mock
 
 from kafka import KafkaAdminClient, KafkaConsumer, KafkaProducer
 from kafka.admin.new_topic import NewTopic

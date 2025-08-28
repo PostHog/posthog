@@ -1,3 +1,6 @@
+import { BindLogic, useActions, useValues } from 'kea'
+import { useRef } from 'react'
+
 import { IconGear, IconLaptop, IconPhone, IconRevert, IconTabletLandscape, IconTabletPortrait } from '@posthog/icons'
 import {
     LemonBanner,
@@ -7,19 +10,21 @@ import {
     LemonSegmentedButton,
     LemonSkeleton,
 } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
+
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
-import { appEditorUrl, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { AuthorizedUrlListType, appEditorUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { DetectiveHog, FilmCameraHog } from 'lib/components/hedgehogs'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { useRef } from 'react'
 import { FixedReplayHeatmapBrowser } from 'scenes/heatmaps/FixedReplayHeatmapBrowser'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 import { IframeHeatmapBrowser } from './IframeHeatmapBrowser'
+import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 
 function UrlSearchHeader(): JSX.Element {
     const logic = heatmapsBrowserLogic()
@@ -298,8 +303,17 @@ export function HeatmapsBrowser(): JSX.Element {
 
     return (
         <BindLogic logic={heatmapsBrowserLogic} props={logicProps}>
-            <div className="flex flex-col gap-2">
+            <SceneContent forceNewSpacing>
                 <Warnings />
+                <SceneTitleSection
+                    name="Heatmaps"
+                    description="See where users are clicking on your website."
+                    resourceType={{
+                        type: 'heatmap',
+                        typePlural: 'Heatmaps',
+                    }}
+                />
+                <SceneDivider />
                 <ReplayIframeDataIntro />
                 <div className="flex flex-col overflow-hidden w-full h-[90vh] rounded border">
                     <UrlSearchHeader />
@@ -322,7 +336,7 @@ export function HeatmapsBrowser(): JSX.Element {
                         )}
                     </div>
                 </div>
-            </div>
+            </SceneContent>
         </BindLogic>
     )
 }

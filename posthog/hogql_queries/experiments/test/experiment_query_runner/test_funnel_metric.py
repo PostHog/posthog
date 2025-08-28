@@ -2,21 +2,21 @@ import json
 from datetime import datetime
 from typing import cast
 
-from django.test import override_settings
 from freezegun import freeze_time
-from parameterized import parameterized
+from posthog.test.base import (
+    _create_event,
+    _create_person,
+    create_person_id_override_by_distinct_id,
+    flush_persons_and_events,
+    snapshot_clickhouse_queries,
+)
 from pytest import mark
+
+from django.test import override_settings
+
+from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
-from posthog.constants import ExperimentNoResultsErrorKeys
-from posthog.hogql_queries.experiments.experiment_query_runner import (
-    ExperimentQueryRunner,
-)
-from posthog.hogql_queries.experiments.test.experiment_query_runner.base import (
-    ExperimentQueryRunnerBaseTest,
-)
-from posthog.models.action.action import Action
-from posthog.models.filters.utils import GroupTypeIndex
 from posthog.schema import (
     ActionsNode,
     EventPropertyFilter,
@@ -28,13 +28,13 @@ from posthog.schema import (
     PropertyOperator,
     StepOrderValue,
 )
-from posthog.test.base import (
-    _create_event,
-    _create_person,
-    create_person_id_override_by_distinct_id,
-    flush_persons_and_events,
-    snapshot_clickhouse_queries,
-)
+
+from posthog.constants import ExperimentNoResultsErrorKeys
+from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
+from posthog.hogql_queries.experiments.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
+from posthog.models.action.action import Action
+from posthog.models.filters.utils import GroupTypeIndex
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -169,10 +169,9 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
 
         # Create test groups with enough variance for Bayesian testing
         from posthog.models.group.util import create_group
-        from posthog.models.group_type_mapping import GroupTypeMapping
 
         group_type_index: GroupTypeIndex = 0
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team,
             project_id=self.team.project_id,
             group_type_index=group_type_index,

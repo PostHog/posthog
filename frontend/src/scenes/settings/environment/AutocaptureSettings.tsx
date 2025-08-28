@@ -1,7 +1,9 @@
-import { LemonDivider, LemonSwitch, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { SupportedWebVitalsMetrics } from 'posthog-js'
+
+import { LemonDivider, LemonSwitch, Link } from '@posthog/lemon-ui'
+
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 

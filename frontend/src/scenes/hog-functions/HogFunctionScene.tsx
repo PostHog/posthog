@@ -1,14 +1,16 @@
 import { actions, connect, kea, key, path, props, reducers, selectors, useActions, useValues } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { HogFunctionConfiguration } from 'scenes/hog-functions/configuration/HogFunctionConfiguration'
 import {
-    hogFunctionConfigurationLogic,
     HogFunctionConfigurationLogicProps,
+    hogFunctionConfigurationLogic,
 } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { HogFunctionLogs } from 'scenes/hog-functions/logs/HogFunctionLogs'
 import { HogFunctionMetrics } from 'scenes/hog-functions/metrics/HogFunctionMetrics'
@@ -26,6 +28,7 @@ import {
 } from '~/types'
 
 import type { hogFunctionSceneLogicType } from './HogFunctionSceneType'
+import { HogFunctionMetricsV2 } from './metrics/HogFunctionMetricsV2'
 import { HogFunctionSkeleton } from './misc/HogFunctionSkeleton'
 
 const HOG_FUNCTION_SCENE_TABS = ['configuration', 'metrics', 'logs', 'testing', 'history'] as const
@@ -196,10 +199,10 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
     }),
 ])
 
-export const scene: SceneExport = {
+export const scene: SceneExport<HogFunctionConfigurationLogicProps> = {
     component: HogFunctionScene,
     logic: hogFunctionSceneLogic,
-    paramsToProps: ({ params: { id, templateId } }): (typeof hogFunctionSceneLogic)['props'] => ({ id, templateId }),
+    paramsToProps: ({ params: { id, templateId } }) => ({ id, templateId }),
 }
 
 export function HogFunctionScene(): JSX.Element {
@@ -241,7 +244,11 @@ export function HogFunctionScene(): JSX.Element {
             : {
                   label: 'Metrics',
                   key: 'metrics',
-                  content: <HogFunctionMetrics id={id} />,
+                  content: (
+                      <FlaggedFeature flag="cdp-app-metrics-new" fallback={<HogFunctionMetrics id={id} />}>
+                          <HogFunctionMetricsV2 id={id} />
+                      </FlaggedFeature>
+                  ),
               },
         type === 'site_app' || type === 'site_destination'
             ? null

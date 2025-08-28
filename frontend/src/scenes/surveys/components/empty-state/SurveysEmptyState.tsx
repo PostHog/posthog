@@ -1,20 +1,24 @@
-import { IconSparkles } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import posthog from 'posthog-js'
 import { toast } from 'react-toastify'
+
+import { IconSparkles } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import MaxTool from 'scenes/max/MaxTool'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
+
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { ProductKey, SidePanelTab } from '~/types'
-import { defaultSurveyTemplates, SURVEY_CREATED_SOURCE, SurveyTemplate, SurveyTemplateType } from '../../constants'
-import { surveysLogic } from '../../surveysLogic'
+
 import { TemplateCard } from '../../SurveyTemplates'
+import { SURVEY_CREATED_SOURCE, SurveyTemplate, SurveyTemplateType, defaultSurveyTemplates } from '../../constants'
+import { surveysLogic } from '../../surveysLogic'
 
 interface Props {
     numOfSurveys: number
@@ -25,7 +29,10 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
     const { user } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const { openSidePanel } = useActions(sidePanelLogic)
-    const { isOnNewEmptyStateExperiment } = useValues(surveysLogic)
+    const {
+        isOnNewEmptyStateExperiment,
+        data: { surveysCount },
+    } = useValues(surveysLogic)
 
     if (!isOnNewEmptyStateExperiment) {
         return (
@@ -72,7 +79,9 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
             <div className="flex items-center justify-center">
                 <div className="space-y-6">
                     <div>
-                        <h2 className="mb-0">Create your first survey</h2>
+                        <h2 className="mb-0">
+                            {surveysCount > 0 ? 'Create your next survey' : 'Create your first survey'}
+                        </h2>
                         <p className="mb-0">
                             Choose from our most popular templates to get started quickly, or create your own from
                             scratch.
@@ -116,7 +125,7 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
                                         intent_context: ProductIntentContext.SURVEY_CREATED,
                                         metadata: {
                                             survey_id: toolOutput.survey_id,
-                                            source: SURVEY_CREATED_SOURCE.MAX_AI,
+                                            source: SURVEY_CREATED_SOURCE.SURVEY_EMPTY_STATE,
                                             created_successfully: !toolOutput?.error,
                                         },
                                     })

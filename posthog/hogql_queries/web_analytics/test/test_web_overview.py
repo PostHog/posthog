@@ -1,33 +1,8 @@
+from datetime import UTC, datetime
 from typing import Optional
-from unittest.mock import MagicMock, patch
-from datetime import datetime, UTC
 from zoneinfo import ZoneInfo
 
-
 from freezegun import freeze_time
-
-from posthog.clickhouse.client.execute import sync_execute
-from posthog.hogql.constants import LimitContext
-from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
-from posthog.hogql_queries.web_analytics.web_overview_pre_aggregated import WebOverviewPreAggregatedQueryBuilder
-from posthog.models import Action, Element, Cohort
-from posthog.models.utils import uuid7
-from posthog.schema import (
-    CompareFilter,
-    CurrencyCode,
-    SessionPropertyFilter,
-    WebOverviewQuery,
-    DateRange,
-    SessionTableVersion,
-    HogQLQueryModifiers,
-    CustomEventConversionGoal,
-    ActionConversionGoal,
-    BounceRatePageViewMode,
-    WebOverviewQueryResponse,
-    RevenueCurrencyPropertyConfig,
-    RevenueAnalyticsEventItem,
-)
-from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -35,8 +10,34 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import MagicMock, patch
+
+from posthog.schema import (
+    ActionConversionGoal,
+    BounceRatePageViewMode,
+    CompareFilter,
+    CurrencyCode,
+    CustomEventConversionGoal,
+    DateRange,
+    HogQLQueryModifiers,
+    RevenueAnalyticsEventItem,
+    RevenueCurrencyPropertyConfig,
+    SessionPropertyFilter,
+    SessionTableVersion,
+    WebOverviewQuery,
+    WebOverviewQueryResponse,
+)
+
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import print_ast
+
+from posthog.clickhouse.client.execute import sync_execute
+from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
+from posthog.hogql_queries.web_analytics.web_overview_pre_aggregated import WebOverviewPreAggregatedQueryBuilder
+from posthog.models import Action, Cohort, Element
+from posthog.models.utils import uuid7
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 
 @snapshot_clickhouse_queries

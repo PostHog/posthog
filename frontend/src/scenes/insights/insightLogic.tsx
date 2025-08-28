@@ -1,14 +1,16 @@
-import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
-import { actions, connect, events, kea, key, listeners, LogicWrapper, path, props, reducers, selectors } from 'kea'
+import { LogicWrapper, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+
+import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
+
 import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
-import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
+import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -17,10 +19,11 @@ import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
+import { IndexedTrendResult } from 'scenes/trends/types'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { getLastNewFolder, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -121,7 +124,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         ) => ({
             metadataUpdate,
         }),
-        highlightSeries: (seriesIndex: number | null) => ({ seriesIndex }),
+        highlightSeries: (series: IndexedTrendResult | null) => ({ series }),
         setAccessDeniedToInsight: true,
         handleInsightSuggested: (suggestedInsight: Node | null) => ({ suggestedInsight }),
         onRejectSuggestedInsight: true,
@@ -220,9 +223,9 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
     })),
     reducers(({ props }) => ({
         highlightedSeries: [
-            null as number | null,
+            null as IndexedTrendResult | null,
             {
-                highlightSeries: (_, { seriesIndex }) => seriesIndex,
+                highlightSeries: (_, { series }) => series,
             },
         ],
         insight: {
@@ -452,10 +455,9 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             // since filters on dashboard might be different from filters on insight
             // we need to trigger dashboard reload to pick up results for updated insight
             savedInsight.dashboard_tiles?.forEach(({ dashboard_id }) =>
-                dashboardLogic.findMounted({ id: dashboard_id })?.actions.loadDashboard({
-                    action: DashboardLoadAction.Update,
-                    manualDashboardRefresh: false,
-                })
+                dashboardLogic
+                    .findMounted({ id: dashboard_id })
+                    ?.actions.loadDashboard({ action: DashboardLoadAction.Update })
             )
 
             const mountedInsightSceneLogic = insightSceneLogic.findMounted()

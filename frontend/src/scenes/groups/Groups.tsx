@@ -1,28 +1,32 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
+
+import { IconPeople } from '@posthog/icons'
+
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
+import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Link } from 'lib/lemon-ui/Link'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
+import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { groupsModel } from '~/models/groupsModel'
 import { Query } from '~/queries/Query/Query'
+import { QueryContext } from '~/queries/types'
 import { GroupTypeIndex } from '~/types'
 
-import { IconPeople } from '@posthog/icons'
-import { router } from 'kea-router'
-import { capitalizeFirstLetter } from 'lib/utils'
-import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
-import { urls } from 'scenes/urls'
-import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
-import { groupsModel } from '~/models/groupsModel'
-import { QueryContext } from '~/queries/types'
 import { getCRMColumns } from './crm/utils'
+import { groupViewLogic } from './groupViewLogic'
 import { groupsListLogic } from './groupsListLogic'
 import { groupsSceneLogic } from './groupsSceneLogic'
-import { groupViewLogic } from './groupViewLogic'
 
 export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): JSX.Element {
     const { groupTypeName, groupTypeNamePlural } = useValues(groupsSceneLogic)
