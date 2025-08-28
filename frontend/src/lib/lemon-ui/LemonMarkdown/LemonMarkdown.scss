@@ -75,19 +75,11 @@
         max-width: 100%;
     }
 
-    // Table styling
+    // Table styling - minimal approach
     table {
         width: 100%;
         margin: 1em 0;
-        overflow: hidden;
         border-collapse: collapse;
-        background: var(--bg-light);
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-    }
-
-    thead {
-        background: var(--bg-mid);
     }
 
     th,
@@ -101,23 +93,10 @@
     th {
         font-weight: 600;
         color: var(--default);
-        background: var(--bg-mid);
     }
 
     td {
         color: var(--default);
-    }
-
-    tbody tr:hover {
-        background: var(--bg-light);
-    }
-
-    tbody tr:nth-child(odd) {
-        background: var(--bg-3000);
-    }
-
-    tbody tr:nth-child(even) {
-        background: var(--bg-light);
     }
 
     tbody tr:last-child td {

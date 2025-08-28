@@ -76,3 +76,121 @@ Here's a breakdown of our top traffic sources:
 
 *Data from the last 30 days*`,
 }
+
+export const GitHubFlavoredMarkdown: Story = Template.bind({})
+GitHubFlavoredMarkdown.args = {
+    children: `# GitHub Flavored Markdown Features
+
+## Strikethrough Text
+This text is ~~deleted~~ and this text is **bold**.
+
+You can also combine ~~**bold and deleted**~~ text.
+
+## Task Lists
+Here's our development progress:
+
+- [x] Add remark-gfm plugin support
+- [x] Implement table styling  
+- [x] Create Storybook stories
+- [ ] Add comprehensive documentation
+- [ ] Performance optimization
+- [ ] Mobile responsiveness testing
+
+## Autolink Literals
+Visit https://posthog.com for more information about our product.
+
+You can also check out our GitHub repository at https://github.com/PostHog/posthog
+
+Email us at hello@posthog.com for support.
+
+## Footnotes
+PostHog is an open-source product analytics platform[^1] that helps you understand user behavior.
+
+We support multiple deployment options[^2] including cloud and self-hosted.
+
+[^1]: Learn more about product analytics at https://posthog.com/blog/what-is-product-analytics
+[^2]: See our deployment docs for more details
+
+## Combined Features
+~~Old pricing model~~
+
+**New features checklist:**
+- [x] ~~Analytics dashboard~~ ✅ Complete
+- [x] User segmentation with https://posthog.com/docs/data/cohorts
+- [ ] A/B testing framework
+- [ ] Custom event tracking[^3]
+
+[^3]: Custom events allow you to track specific user actions`,
+}
+
+export const Strikethrough: Story = Template.bind({})
+Strikethrough.args = {
+    children: `# Text Formatting
+
+This is ~~incorrect~~ **correct** information.
+
+~~The old way~~ → The new way
+
+You can combine ~~strikethrough~~ with *emphasis* and **bold** text.`,
+}
+
+export const TaskLists: Story = Template.bind({})
+TaskLists.args = {
+    children: `# Project Todo List
+
+## Sprint 1
+- [x] Setup project repository
+- [x] Configure CI/CD pipeline
+- [x] Write initial documentation
+- [ ] Implement core features
+- [ ] Add comprehensive tests
+
+## Sprint 2  
+- [ ] Performance optimization
+- [ ] Security audit
+- [ ] User acceptance testing
+- [x] Code review process
+
+## Notes
+- Use [x] for completed tasks
+- Use [ ] for pending tasks
+- Tasks can be nested and combined with other markdown`,
+}
+
+export const AutolinkLiterals: Story = Template.bind({})
+AutolinkLiterals.args = {
+    children: `# Automatic Links
+
+## Websites
+Visit https://posthog.com to learn more about our platform.
+
+Check out our documentation at https://posthog.com/docs
+
+## Email Addresses  
+Contact us at hello@posthog.com for general inquiries.
+
+For technical support: support@posthog.com
+
+## Mixed Content
+Our GitHub repository (https://github.com/PostHog/posthog) contains the full source code.
+
+For questions, email team@posthog.com or visit https://posthog.com/questions`,
+}
+
+export const Footnotes: Story = Template.bind({})
+Footnotes.args = {
+    children: `# Research Notes
+
+## Key Findings
+PostHog is a comprehensive analytics platform[^1] that offers both cloud and self-hosted options[^2].
+
+The platform supports real-time analytics[^3] and provides detailed user behavior insights.
+
+## Technical Details
+Our system architecture[^4] is designed for scalability and performance.
+
+[^1]: PostHog combines product analytics, session replay, feature flags, and A/B testing in one platform
+[^2]: Self-hosting gives you complete control over your data and infrastructure
+[^3]: Real-time analytics help you understand user behavior as it happens
+[^4]: Built with Django, ClickHouse, and React for optimal performance`,
+}
