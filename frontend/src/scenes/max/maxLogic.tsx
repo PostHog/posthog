@@ -48,6 +48,20 @@ const HEADLINES = [
     'What do you want to know today?',
 ]
 
+/**
+ * Setting the initial prompt from side panel options.
+ */
+function handleInitialPrompt(
+    actions: { setQuestion: (question: string) => void; setAutoRun: (autoRun: boolean) => void },
+    options: string
+): void {
+    const cleanedQuestion = options.replace(/^!/, '')
+    actions.setQuestion(cleanedQuestion)
+    if (options.startsWith('!')) {
+        actions.setAutoRun(true)
+    }
+}
+
 export const maxLogic = kea<maxLogicType>([
     path(['scenes', 'max', 'maxLogic']),
 
@@ -307,6 +321,12 @@ export const maxLogic = kea<maxLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
+        // Listen for when the side panel state changes and check for initial prompt
+        [sidePanelStateLogic.actionTypes.openSidePanel]: ({ tab, options }) => {
+            if (tab === SidePanelTab.Max && options && typeof options === 'string') {
+                handleInitialPrompt(actions, options)
+            }
+        },
         scrollThreadToBottom: ({ behavior }) => {
             requestAnimationFrame(() => {
                 // On next frame so that the message has been rendered
@@ -417,13 +437,10 @@ export const maxLogic = kea<maxLogicType>([
             !values.question &&
             sidePanelStateLogic.isMounted() &&
             sidePanelStateLogic.values.selectedTab === SidePanelTab.Max &&
-            sidePanelStateLogic.values.selectedTabOptions
+            sidePanelStateLogic.values.selectedTabOptions &&
+            typeof sidePanelStateLogic.values.selectedTabOptions === 'string'
         ) {
-            const cleanedQuestion = sidePanelStateLogic.values.selectedTabOptions.replace(/^!/, '')
-            actions.setQuestion(cleanedQuestion)
-            if (sidePanelStateLogic.values.selectedTabOptions.startsWith('!')) {
-                actions.setAutoRun(true)
-            }
+            handleInitialPrompt(actions, sidePanelStateLogic.values.selectedTabOptions)
         }
 
         // Load conversation history on mount
