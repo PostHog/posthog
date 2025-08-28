@@ -230,11 +230,10 @@ COPY --from=posthog-build --chown=posthog:posthog /python-runtime /python-runtim
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
 
-# Debug and install Playwright Chromium browser for video export
-RUN /python-runtime/bin/python --version
-RUN /python-runtime/bin/python -c "import playwright; print('Playwright package found')"
-RUN /python-runtime/bin/python -m playwright --version
+# Install Playwright Chromium browser for video export (as root for system deps)
+USER root
 RUN /python-runtime/bin/python -m playwright install --with-deps chromium
+USER posthog
 
 # Validate video export dependencies
 RUN ffmpeg -version
