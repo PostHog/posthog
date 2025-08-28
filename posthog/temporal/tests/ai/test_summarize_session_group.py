@@ -50,7 +50,6 @@ from posthog.temporal.ai.session_summary.types.group import (
     SessionSummaryStep,
     SessionSummaryStreamUpdate,
 )
-from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 from posthog.temporal.tests.ai.conftest import AsyncRedisTestContext
 
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
@@ -998,56 +997,67 @@ class TestPatternExtractionChunking:
         assert chunks[0] == ["session-0"]
         assert chunks[1] == ["session-1", "session-2"]
 
-    @patch("posthog.temporal.ai.session_summary.activities.patterns.get_async_client")
-    @patch("posthog.temporal.ai.session_summary.activities.patterns.json.dumps")
-    @patch(
-        "posthog.temporal.ai.session_summary.activities.patterns.remove_excessive_content_from_session_summary_for_llm"
-    )
-    @patch("posthog.temporal.ai.session_summary.activities.patterns.estimate_tokens_from_strings")
-    @patch("posthog.temporal.ai.session_summary.activities.patterns._get_session_summaries_str_from_inputs")
-    @patch("posthog.temporal.ai.session_summary.activities.patterns.logger")
     async def test_oversized_session_handling(
         self,
-        mock_logger,
-        mock_get_summaries,
-        mock_estimate_tokens,
-        mock_remove_excessive,
-        mock_json_dumps,
-        mock_get_async_client,
+        auser: User,
+        ateam: Team,
+        mock_intermediate_session_summary_serializer: SessionSummarySerializer,
+        mock_single_session_summary_inputs: Callable,
     ):
         """Test handling of sessions that exceed token limits."""
+        # Setup session IDs
+        session_ids = [f"session-{i}" for i in range(4)]
+
+        # Store session summaries in DB for each session
+        for session_id in session_ids:
+            await database_sync_to_async(SingleSessionSummary.objects.add_summary)(
+                team_id=ateam.id,
+                session_id=session_id,
+                summary=mock_intermediate_session_summary_serializer,
+                exception_event_ids=[],
+                extra_summary_context=None,
+                created_by=auser,
+            )
+
+        # Verify summaries exist in DB before the activity
+        summaries_before = await database_sync_to_async(SingleSessionSummary.objects.summaries_exist)(
+            team_id=ateam.id,
+            session_ids=session_ids,
+            extra_summary_context=None,
+        )
+        for session_id in session_ids:
+            assert summaries_before.get(session_id), f"Summary should exist in DB for session {session_id}"
+
         # Setup inputs with 4 sessions
+        single_session_inputs = [
+            mock_single_session_summary_inputs(session_id, ateam.id, auser.id) for session_id in session_ids
+        ]
+
         inputs = SessionGroupSummaryOfSummariesInputs(
-            single_session_summaries_inputs=[
-                SingleSessionSummaryInputs(
-                    session_id=f"session-{i}",
-                    user_id=1,
-                    team_id=1,
-                    redis_key_base="test",
-                    model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
-                )
-                for i in range(4)
-            ],
-            user_id=1,
+            single_session_summaries_inputs=single_session_inputs,
+            user_id=auser.id,
+            team_id=ateam.id,
             model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
             extra_summary_context=None,
             redis_key_base="test",
         )
-        # Mock Redis client
-        mock_redis_client = AsyncMock()
-        mock_get_async_client.return_value = mock_redis_client
-        # Mock Redis returning session summaries
-        mock_get_summaries.return_value = [f'{{"summary": "Summary {i}", "segments": []}}' for i in range(4)]
-        # Mock json.dumps to return a simple string
-        mock_json_dumps.side_effect = lambda x: f"cleaned_{x}"
-        # Mock token counts:
+
+        # Mock token counts and logger:
         # base=1000
         # session-0: 500 (fits normally)
         # session-1: 160000 (exceeds PATTERNS_EXTRACTION_MAX_TOKENS but fits in SINGLE_ENTITY_MAX_TOKENS)
         # session-2: 250000 (exceeds even SINGLE_ENTITY_MAX_TOKENS, should be skipped)
         # session-3: 600 (fits normally)
-        mock_estimate_tokens.side_effect = [1000, 500, 160000, 250000, 600]
-        chunks = await split_session_summaries_into_chunks_for_patterns_extraction_activity(inputs)
+        with (
+            patch(
+                "posthog.temporal.ai.session_summary.activities.patterns.estimate_tokens_from_strings"
+            ) as mock_estimate,
+            patch("posthog.temporal.ai.session_summary.activities.patterns.logger") as mock_logger,
+        ):
+            mock_estimate.side_effect = [1000, 500, 160000, 250000, 600]
+
+            chunks = await split_session_summaries_into_chunks_for_patterns_extraction_activity(inputs)
+
         # Expected behavior:
         # - session-0 goes into first chunk
         # - session-1 gets its own chunk (warning logged)
@@ -1057,12 +1067,14 @@ class TestPatternExtractionChunking:
         assert chunks[0] == ["session-0"]
         assert chunks[1] == ["session-1"]
         assert chunks[2] == ["session-3"]
+
         # Verify logging
         mock_logger.warning.assert_called_once()
         warning_call = mock_logger.warning.call_args[0][0]
         assert "session-1" in warning_call
         assert "PATTERNS_EXTRACTION_MAX_TOKENS" in warning_call
         assert "SINGLE_ENTITY_MAX_TOKENS" in warning_call
+
         mock_logger.error.assert_called_once()
         error_call = mock_logger.error.call_args[0][0]
         assert "session-2" in error_call
