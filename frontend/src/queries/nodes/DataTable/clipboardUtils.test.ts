@@ -49,17 +49,35 @@ describe('clipboardUtils', () => {
     })
 
     describe('flattenObject', () => {
-        it('returns primitive values with default key', () => {
-            expect(flattenObject('test')).toEqual({ value: 'test' })
-            expect(flattenObject(123)).toEqual({ value: 123 })
-            expect(flattenObject(true)).toEqual({ value: true })
-            expect(flattenObject(null)).toEqual({ value: null })
-            expect(flattenObject(undefined)).toEqual({ value: undefined })
+        it('returns primitive values with default key when prefix is provided', () => {
+            expect(flattenObject('test', 'someKey')).toEqual({ someKey: 'test' })
+            expect(flattenObject(123, 'someKey')).toEqual({ someKey: 123 })
+            expect(flattenObject(true, 'someKey')).toEqual({ someKey: true })
+            expect(flattenObject(null, 'someKey')).toEqual({ someKey: null })
+            expect(flattenObject(undefined, 'someKey')).toEqual({ someKey: undefined })
         })
 
-        it('returns arrays with default key', () => {
+        it('returns raw primitive values when prefix is empty string', () => {
+            expect(flattenObject('test', '')).toBe('test')
+            expect(flattenObject(123, '')).toBe(123)
+            expect(flattenObject(true, '')).toBe(true)
+            expect(flattenObject(null, '')).toBe(null)
+            expect(flattenObject(undefined, '')).toBe(undefined)
+        })
+
+        it('returns arrays with default key when prefix is provided', () => {
             const arr = [1, 2, 3]
-            expect(flattenObject(arr)).toEqual({ value: arr })
+            expect(flattenObject(arr, 'someKey')).toEqual({ someKey: arr })
+        })
+
+        it('returns raw arrays when prefix is empty string', () => {
+            const arr = [1, 2, 3]
+            expect(flattenObject(arr, '')).toBe(arr)
+        })
+
+        it('uses fallback "value" key when prefix is null/undefined', () => {
+            expect(flattenObject('test', null as any)).toEqual({ value: 'test' })
+            expect(flattenObject('test', undefined)).toEqual({ value: 'test' })
         })
 
         it('flattens nested objects', () => {

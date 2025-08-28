@@ -14,14 +14,20 @@ import { DataTableRow } from './dataTableLogic'
 const columnDisallowList = ['person.$delete', '*']
 
 // Helper function to recursively flatten objects for CSV export
-export const flattenObject = (obj: any, prefix = '', separator = '.'): Record<string, any> => {
+export const flattenObject = (obj: any, prefix?: string, separator = '.'): Record<string, any> => {
     const flattened: Record<string, any> = {}
 
     if (obj === null || obj === undefined) {
+        if (prefix === '') {
+            return obj
+        }
         return { [prefix || 'value']: obj }
     }
 
     if (typeof obj !== 'object' || Array.isArray(obj)) {
+        if (prefix === '') {
+            return obj
+        }
         return { [prefix || 'value']: obj }
     }
 
