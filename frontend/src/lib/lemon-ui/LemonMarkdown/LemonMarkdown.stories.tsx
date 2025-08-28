@@ -189,8 +189,12 @@ The platform supports real-time analytics[^3] and provides detailed user behavio
 ## Technical Details
 Our system architecture[^4] is designed for scalability and performance.
 
+---
+
+## References
+
 [^1]: PostHog combines product analytics, session replay, feature flags, and A/B testing in one platform
-[^2]: Self-hosting gives you complete control over your data and infrastructure
+[^2]: Self-hosting gives you complete control over your data and infrastructure  
 [^3]: Real-time analytics help you understand user behavior as it happens
 [^4]: Built with Django, ClickHouse, and React for optimal performance`,
 }
