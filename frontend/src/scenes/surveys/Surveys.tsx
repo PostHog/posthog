@@ -88,8 +88,8 @@ function NewSurveyButton(): JSX.Element {
                 })
 
                 if (toolOutput?.error || !toolOutput?.survey_id) {
-                    posthog.captureException('survey-creation-failed', {
-                        error: toolOutput.error,
+                    posthog.captureException(toolOutput.error || 'Undefined error when creating MaxAI survey', {
+                        action: 'max-ai-survey-creation-failed',
                     })
                     return
                 }

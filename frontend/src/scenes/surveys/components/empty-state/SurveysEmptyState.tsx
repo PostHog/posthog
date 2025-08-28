@@ -67,8 +67,8 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
         try {
             await createSurveyFromTemplate(survey)
         } catch (error) {
-            posthog.captureException('Failed to create survey from template', {
-                error,
+            posthog.captureException(error, {
+                action: 'survey-creation-from-template-failed',
             })
             toast.error('Error while creating survey from template. Please try again.')
         }
@@ -131,10 +131,12 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
                                     })
 
                                     if (toolOutput?.error || !toolOutput?.survey_id) {
-                                        posthog.captureException('survey-creation-via-max-ai-failed', {
-                                            error: toolOutput.error,
-                                            sessionRecordingUrl: posthog.get_session_replay_url(),
-                                        })
+                                        posthog.captureException(
+                                            toolOutput.error || 'Undefined error when creating MaxAI survey',
+                                            {
+                                                action: 'max-ai-survey-creation-failed',
+                                            }
+                                        )
                                         return
                                     }
 
