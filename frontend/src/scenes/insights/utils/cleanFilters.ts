@@ -12,7 +12,6 @@ import { clamp } from 'lib/utils'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
 import { isURLNormalizeable } from 'scenes/insights/filters/BreakdownFilter/taxonomicBreakdownFilterUtils'
 import {
-    isCalendarHeatmapFilter,
     isFunnelsFilter,
     isLifecycleFilter,
     isPathsFilter,
@@ -24,7 +23,6 @@ import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsDataLogic'
 
 import {
     AnyFilterType,
-    CalendarHeatmapFilterType,
     ChartDisplayType,
     Entity,
     EntityTypes,
@@ -528,13 +526,6 @@ export function cleanFilters(
     } else if ((filters as any).insight === 'SESSIONS') {
         // DEPRECATED: Used to show deprecation warning for dashboard items
         return cleanFilters({ insight: InsightType.TRENDS })
-    } else if (isCalendarHeatmapFilter(filters)) {
-        const calendarHeatmapFilter: Partial<CalendarHeatmapFilterType> = {
-            insight: InsightType.CALENDAR_HEATMAP,
-            ...filters,
-            ...commonFilters,
-        }
-        return calendarHeatmapFilter
     }
 
     throw new Error(`Unknown insight type "${(filters as any).insight}" given to cleanFilters`)

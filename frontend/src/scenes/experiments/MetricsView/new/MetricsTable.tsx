@@ -1,7 +1,5 @@
 import { useActions, useValues } from 'kea'
 
-import { EXPERIMENT_MAX_PRIMARY_METRICS, EXPERIMENT_MAX_SECONDARY_METRICS } from 'scenes/experiments/constants'
-
 import {
     ExperimentFunnelsQuery,
     ExperimentMetric,
@@ -32,12 +30,7 @@ export function MetricsTable({
     getInsightType,
     showDetailsModal = true,
 }: MetricsTableProps): JSX.Element {
-    const {
-        experiment,
-        hasMinimumExposureForResults,
-        primaryMetricsLengthWithSharedMetrics,
-        secondaryMetricsLengthWithSharedMetrics,
-    } = useValues(experimentLogic)
+    const { experiment, hasMinimumExposureForResults } = useValues(experimentLogic)
     const { duplicateMetric, updateExperimentMetrics } = useActions(experimentLogic)
 
     // Calculate shared axisRange across all metrics
@@ -53,13 +46,6 @@ export function MetricsTable({
 
     const axisMargin = Math.max(maxAbsValue * 0.05, 0.1)
     const axisRange = maxAbsValue + axisMargin
-
-    // Check if duplicating would exceed the metric limit
-    const currentMetricCount = isSecondary
-        ? secondaryMetricsLengthWithSharedMetrics
-        : primaryMetricsLengthWithSharedMetrics
-    const canDuplicateMetric =
-        currentMetricCount < (isSecondary ? EXPERIMENT_MAX_SECONDARY_METRICS : EXPERIMENT_MAX_PRIMARY_METRICS)
 
     if (metrics.length === 0) {
         return (
@@ -82,29 +68,31 @@ export function MetricsTable({
                 </colgroup>
                 <TableHeader axisRange={axisRange} />
                 <tbody>
-                    {metrics.map((metric, metricIndex) => {
-                        const result = results[metricIndex]
-                        const error = errors[metricIndex]
+                    {metrics.map((metric, index) => {
+                        const result = results[index]
+                        const error = errors[index]
 
                         const isLoading = !result && !error && !!experiment.start_date
 
                         return (
                             <MetricRowGroup
-                                key={metricIndex}
+                                key={metric.uuid || index}
                                 metric={metric}
                                 result={result}
                                 experiment={experiment}
                                 metricType={getInsightType(metric)}
-                                metricIndex={metricIndex}
+                                displayOrder={index}
                                 axisRange={axisRange}
                                 isSecondary={isSecondary}
-                                isLastMetric={metricIndex === metrics.length - 1}
-                                isAlternatingRow={metricIndex % 2 === 1}
+                                isLastMetric={index === metrics.length - 1}
+                                isAlternatingRow={index % 2 === 1}
                                 onDuplicateMetric={() => {
-                                    duplicateMetric({ metricIndex, isSecondary })
+                                    if (!metric.uuid) {
+                                        return
+                                    }
+                                    duplicateMetric({ uuid: metric.uuid, isSecondary })
                                     updateExperimentMetrics()
                                 }}
-                                canDuplicateMetric={canDuplicateMetric}
                                 error={error}
                                 isLoading={isLoading}
                                 hasMinimumExposureForResults={hasMinimumExposureForResults}

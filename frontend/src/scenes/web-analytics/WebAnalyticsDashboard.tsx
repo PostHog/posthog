@@ -7,6 +7,7 @@ import { LemonBanner, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect/LemonSegmentedSelect'
@@ -36,7 +37,7 @@ import { WebAnalyticsRecordingsTile } from 'scenes/web-analytics/tiles/WebAnalyt
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { QuerySchema } from '~/queries/schema/schema-general'
 import { ProductKey } from '~/types'
@@ -374,15 +375,15 @@ export const LearnMorePopover = ({ url, title, description }: LearnMorePopoverPr
 
 // We're switching the filters based on the productTab right now so it is abstracted here
 // until we decide if we want to keep the same components/states for both tabs
-const Filters = (): JSX.Element => {
+const Filters = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
     const { productTab } = useValues(webAnalyticsLogic)
     switch (productTab) {
         case ProductTab.PAGE_REPORTS:
-            return <PageReportsFilters />
+            return <PageReportsFilters tabs={tabs} />
         case ProductTab.MARKETING:
-            return <MarketingAnalyticsFilters />
+            return <MarketingAnalyticsFilters tabs={tabs} />
         default:
-            return <WebAnalyticsFilters />
+            return <WebAnalyticsFilters tabs={tabs} />
     }
 }
 
@@ -471,45 +472,41 @@ const marketingTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: 
 }
 
 export const WebAnalyticsDashboard = (): JSX.Element => {
-    const { productTab } = useValues(webAnalyticsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { mobileLayout } = useValues(navigationLogic)
-
-    const { setProductTab } = useActions(webAnalyticsLogic)
-
     return (
         <BindLogic logic={webAnalyticsLogic} props={{}}>
             <BindLogic logic={dataNodeCollectionLogic} props={{ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
                 <WebAnalyticsModal />
                 <VersionCheckerBanner />
-                <div className="WebAnalyticsDashboard w-full flex flex-col">
-                    <div
-                        className={clsx(
-                            'sticky z-20 bg-primary border-b pb-2',
-                            mobileLayout
-                                ? 'top-[var(--breadcrumbs-height-full)]'
-                                : 'top-[var(--breadcrumbs-height-compact)]'
-                        )}
-                    >
-                        <LemonTabs<ProductTab>
-                            activeKey={productTab}
-                            onChange={setProductTab}
-                            tabs={[
-                                { key: ProductTab.ANALYTICS, label: 'Web analytics', link: '/web' },
-                                { key: ProductTab.WEB_VITALS, label: 'Web vitals', link: '/web/web-vitals' },
-                                ...pageReportsTab(featureFlags),
-                                ...marketingTab(featureFlags),
-                            ]}
-                        />
-
-                        <Filters />
-                    </div>
+                <SceneContent className="WebAnalyticsDashboard w-full flex flex-col">
+                    <Filters tabs={<WebAnalyticsTabs />} />
 
                     <WebAnalyticsPageReportsCTA />
                     <WebAnalyticsHealthCheck />
                     <MainContent />
-                </div>
+                </SceneContent>
             </BindLogic>
         </BindLogic>
+    )
+}
+
+const WebAnalyticsTabs = (): JSX.Element => {
+    const { productTab } = useValues(webAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const { setProductTab } = useActions(webAnalyticsLogic)
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
+
+    return (
+        <LemonTabs<ProductTab>
+            activeKey={productTab}
+            onChange={setProductTab}
+            tabs={[
+                { key: ProductTab.ANALYTICS, label: 'Web analytics', link: '/web' },
+                { key: ProductTab.WEB_VITALS, label: 'Web vitals', link: '/web/web-vitals' },
+                ...pageReportsTab(featureFlags),
+                ...marketingTab(featureFlags),
+            ]}
+            sceneInset={newSceneLayout}
+        />
     )
 }
