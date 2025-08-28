@@ -21,9 +21,14 @@ from ee.hogai.session_summaries.constants import (
     SESSION_SUMMARIES_SYNC_MODEL,
 )
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
-from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext, SingleSessionSummaryLlmInputs
+from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
 from ee.hogai.session_summaries.tests.conftest import *
-from ee.models.session_summaries import SessionSummaryPage, SessionSummaryRunMeta, SingleSessionSummary
+from ee.models.session_summaries import (
+    ExtraSummaryContext,
+    SessionSummaryPage,
+    SessionSummaryRunMeta,
+    SingleSessionSummary,
+)
 
 # TODO: Check for unused fixtures
 

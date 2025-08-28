@@ -128,6 +128,7 @@ async def fetch_session_batch_events_activity(
         recordings_max_timestamp=datetime.fromisoformat(inputs.max_timestamp_str),
     )
     # Fetch events for all uncached sessions
+    # TODO: When increasing the amount of sessions - think about generator-ish approach to avoid OOM
     all_session_events: dict[str, list[tuple]] = {}  # session_id -> list of events
     columns, offset, page_size = None, 0, DEFAULT_TOTAL_EVENTS_PER_QUERY
     # Paginate
