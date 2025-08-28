@@ -1,11 +1,9 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
 
 import { IconEye, IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonCollapse, LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { IconEyeHidden } from 'lib/lemon-ui/icons'
 
 import { ChartDisplayType } from '~/types'
@@ -20,26 +18,13 @@ export const DisplayTab = (): JSX.Element => {
 
     const isStackedBarChart = visualizationType === ChartDisplayType.ActionsStackedBar
 
-    useEffect(() => {
-        console.log('mounted')
-        return () => {
-            console.log('unmounted')
-        }
-    }, [])
-
     const renderYAxisSettings = (name: 'leftYAxisSettings' | 'rightYAxisSettings'): JSX.Element => {
         return (
             <>
-                <LemonSwitch
-                    className="flex-1 mb-3 w-full"
-                    label="Show labels"
-                    checked={chartSettings[name]?.showTicks ?? true}
-                    onChange={(value) => {
-                        updateChartSettings({ [name]: { showTicks: value } })
-                    }}
-                />
-                <LemonField.Pure label="Scale" className="gap-0 mb-3">
+                <div className="flex gap-2 items-center justify-between">
+                    <span className="font-medium">Scale</span>
                     <LemonSelect
+                        size="xsmall"
                         value={chartSettings[name]?.scale ?? 'linear'}
                         options={[
                             { value: 'linear', label: 'Linear' },
@@ -49,9 +34,18 @@ export const DisplayTab = (): JSX.Element => {
                             updateChartSettings({ [name]: { scale: value } })
                         }}
                     />
-                </LemonField.Pure>
+                </div>
                 <LemonSwitch
-                    className="flex-1 mb-3 w-full"
+                    className="flex-1 w-full"
+                    label="Show labels"
+                    checked={chartSettings[name]?.showTicks ?? true}
+                    onChange={(value) => {
+                        updateChartSettings({ [name]: { showTicks: value } })
+                    }}
+                />
+
+                <LemonSwitch
+                    className="flex-1 w-full"
                     label="Show labels"
                     checked={chartSettings[name]?.showTicks ?? true}
                     onChange={(value) => {
@@ -59,7 +53,7 @@ export const DisplayTab = (): JSX.Element => {
                     }}
                 />
                 <LemonSwitch
-                    className="flex-1 mb-3 w-full"
+                    className="flex-1 w-full"
                     label="Begin at zero"
                     checked={chartSettings[name]?.startAtZero ?? chartSettings.yAxisAtZero ?? true}
                     onChange={(value) => {
@@ -67,7 +61,7 @@ export const DisplayTab = (): JSX.Element => {
                     }}
                 />
                 <LemonSwitch
-                    className="flex-1 mb-3 w-full"
+                    className="flex-1 w-full"
                     label="Show grid lines"
                     checked={chartSettings[name]?.showGridLines ?? true}
                     onChange={(value) => {
@@ -88,11 +82,11 @@ export const DisplayTab = (): JSX.Element => {
                     {
                         key: 'general',
                         header: 'General',
-                        className: 'p-2',
+                        className: 'p-2 flex flex-col gap-2',
                         content: (
                             <>
                                 <LemonSwitch
-                                    className="flex-1 mb-3 w-full"
+                                    className="flex-1 w-full"
                                     label="Show legend"
                                     checked={chartSettings.showLegend ?? false}
                                     onChange={(value) => {
@@ -100,7 +94,7 @@ export const DisplayTab = (): JSX.Element => {
                                     }}
                                 />
                                 <LemonSwitch
-                                    className="flex-1 mb-3 w-full"
+                                    className="flex-1 w-full"
                                     label="Show total row"
                                     checked={chartSettings.showTotalRow ?? true}
                                     onChange={(value) => {
@@ -108,7 +102,7 @@ export const DisplayTab = (): JSX.Element => {
                                     }}
                                 />
                                 <LemonSwitch
-                                    className="flex-1 mb-3 w-full"
+                                    className="flex-1 w-full"
                                     label="Show X-axis labels"
                                     checked={chartSettings.showXAxisTicks ?? true}
                                     onChange={(value) => {
@@ -116,7 +110,7 @@ export const DisplayTab = (): JSX.Element => {
                                     }}
                                 />
                                 <LemonSwitch
-                                    className="flex-1 mb-3 w-full"
+                                    className="flex-1 w-full"
                                     label="Show X-axis border"
                                     checked={chartSettings.showXAxisBorder ?? true}
                                     onChange={(value) => {
@@ -124,7 +118,7 @@ export const DisplayTab = (): JSX.Element => {
                                     }}
                                 />
                                 <LemonSwitch
-                                    className="flex-1 mb-3 w-full"
+                                    className="flex-1 w-full"
                                     label="Show Y-axis border"
                                     checked={chartSettings.showYAxisBorder ?? true}
                                     onChange={(value) => {
@@ -137,20 +131,20 @@ export const DisplayTab = (): JSX.Element => {
                     {
                         key: 'left-y-axis',
                         header: 'Left Y-axis',
-                        className: 'p-2',
+                        className: 'p-2 flex flex-col gap-2',
                         content: renderYAxisSettings('leftYAxisSettings'),
                     },
                     {
                         key: 'right-y-axis',
                         header: 'Right Y-axis',
-                        className: 'p-2',
+                        className: 'p-2 flex flex-col gap-2',
                         content: renderYAxisSettings('rightYAxisSettings'),
                     },
                     isStackedBarChart
                         ? {
                               key: 'stacked-bar-chart',
-                              header: 'Stack bars 100%',
-                              className: 'p-2',
+                              header: 'Stack bars',
+                              className: 'p-2 flex flex-col gap-2',
                               content: (
                                   <LemonSwitch
                                       className="flex-1"
@@ -165,7 +159,16 @@ export const DisplayTab = (): JSX.Element => {
                         : null,
                     {
                         key: 'goals',
-                        header: 'Goals',
+                        header: {
+                            children: (
+                                <div className="flex items-center gap-1 flex-1">
+                                    <span className="flex-1">Goals</span>
+                                    {goalLines.length > 0 && (
+                                        <LemonBadge.Number status="muted" size="small" count={goalLines.length} />
+                                    )}
+                                </div>
+                            ),
+                        },
                         className: 'p-2',
                         content: (
                             <>
