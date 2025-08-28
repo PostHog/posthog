@@ -617,6 +617,8 @@ class TestSummarizeSessionGroupWorkflow:
         mock_session_id: str,
         mock_session_group_summary_inputs: Callable,
         identifier_suffix: str,
+        mock_user: MagicMock,
+        mock_team: MagicMock,
     ) -> tuple[list[str], str, SessionGroupSummaryInputs]:
         # Prepare test data
         session_ids = [
@@ -624,7 +626,9 @@ class TestSummarizeSessionGroupWorkflow:
             f"{mock_session_id}-2-{identifier_suffix}",
         ]
         redis_input_key_base = f"test_group_fetch_{identifier_suffix}_base"
-        workflow_input = mock_session_group_summary_inputs(session_ids, redis_input_key_base)
+        workflow_input = mock_session_group_summary_inputs(
+            session_ids, mock_team.id, mock_user.id, redis_input_key_base
+        )
         workflow_id = f"test_workflow_{identifier_suffix}_{uuid.uuid4()}"
         return session_ids, workflow_id, workflow_input
 
@@ -637,7 +641,9 @@ class TestSummarizeSessionGroupWorkflow:
         mock_session_group_summary_inputs: Callable,
     ):
         """Test the execute_summarize_session_group starts a Temporal workflow and returns the expected result"""
-        session_ids, _, _ = self.setup_workflow_test(mock_session_id, mock_session_group_summary_inputs, "execute")
+        session_ids, _, _ = self.setup_workflow_test(
+            mock_session_id, mock_session_group_summary_inputs, "execute", mock_user, mock_team
+        )
         mock_stats = EnrichedSessionGroupSummaryPatternStats(
             occurences=1,
             sessions_affected=1,
