@@ -746,7 +746,35 @@ class TestPreaggregatedTableTransformationIntegration(APIBaseTest, ClickhouseTes
         if not period_bucket:
             period_bucket = f"toStartOfDay(toDateTime('{self.TEST_DATA_DATE.strftime('%Y-%m-%d')}'))"
         sql = f"""
-     INSERT INTO web_stats_daily SELECT
+     INSERT INTO web_stats_daily (
+         period_bucket,
+         team_id,
+         host,
+         device_type,
+         pathname,
+         entry_pathname,
+         end_pathname,
+         browser,
+         os,
+         viewport_width,
+         viewport_height,
+         referring_domain,
+         utm_source,
+         utm_medium,
+         utm_campaign,
+         utm_term,
+         utm_content,
+         country_code,
+         city_name,
+         region_code,
+         region_name,
+         has_gclid,
+         has_gad_source_paid_search,
+         has_fbclid,
+         persons_uniq_state,
+         sessions_uniq_state,
+         pageviews_count_state
+     ) SELECT
          {period_bucket} as period_bucket,
          {self.team.id} as team_id,
          '' as host,
