@@ -18,6 +18,8 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog import constants
+from posthog.models import Team
+from posthog.models.user import User
 from posthog.temporal.ai import WORKFLOWS
 from posthog.temporal.ai.session_summary.state import (
     StateActivitiesEnum,
@@ -83,7 +85,8 @@ class TestFetchSessionDataActivity:
         mocker: MockerFixture,
         mock_session_id: str,
         mock_single_session_summary_inputs: Callable,
-        mock_team: MagicMock,
+        ateam: Team,
+        auser: User,
         mock_raw_metadata: dict[str, Any],
         mock_raw_events_columns: list[str],
         mock_raw_events: list[tuple[Any, ...]],
@@ -91,7 +94,7 @@ class TestFetchSessionDataActivity:
     ):
         """Test that fetch_session_data_activity stores compressed data correctly in Redis."""
         key_base = "fetch-session-data-activity-standalone"
-        input_data = mock_single_session_summary_inputs(mock_session_id, key_base)
+        input_data = mock_single_session_summary_inputs(mock_session_id, ateam.id, auser.id, key_base)
         redis_input_key = generate_state_key(
             key_base=key_base, label=StateActivitiesEnum.SESSION_DB_DATA, state_id=mock_session_id
         )
@@ -99,7 +102,7 @@ class TestFetchSessionDataActivity:
         spy_setex = mocker.spy(redis_test_setup.redis_client, "setex")
         with (
             # Mock DB calls
-            patch("ee.hogai.session_summaries.session.input_data.get_team", return_value=mock_team),
+            patch("ee.hogai.session_summaries.session.input_data.get_team", return_value=ateam),
             patch(
                 "ee.hogai.session_summaries.session.summarize_session.get_session_metadata",
                 return_value=mock_raw_metadata,
@@ -132,15 +135,16 @@ class TestFetchSessionDataActivity:
         self,
         mock_single_session_summary_inputs: Callable,
         mock_session_id: str,
-        mock_team: MagicMock,
+        ateam: Team,
+        auser: User,
         mock_raw_metadata: dict[str, Any],
         mock_raw_events_columns: list[str],
     ):
         """Test that fetch_session_data_activity raises ApplicationError when no events are found (e.g., for fresh real-time replays)."""
-        input_data = mock_single_session_summary_inputs(mock_session_id, "test-no-events-key-base")
+        input_data = mock_single_session_summary_inputs(mock_session_id, ateam.id, auser.id, "test-no-events-key-base")
         with (
             # Mock DB calls - return columns but no events (empty list)
-            patch("ee.hogai.session_summaries.session.input_data.get_team", return_value=mock_team),
+            patch("ee.hogai.session_summaries.session.input_data.get_team", return_value=ateam),
             patch(
                 "ee.hogai.session_summaries.session.summarize_session.get_session_metadata",
                 return_value=mock_raw_metadata,
