@@ -199,6 +199,17 @@ class TestAccessControlPermission(BaseTest):
         # Should have permission to create
         assert self.permission.has_permission(request, view) is True
 
+    def test_has_permission_with_project_secret_api_token_authentication(self):
+        """Test that has_permission returns True when authenticated via project secret API token"""
+        from posthog.auth import ProjectSecretAPIKeyAuthentication
+
+        request = self._create_mock_request()
+        request.successful_authenticator = ProjectSecretAPIKeyAuthentication()
+        view = self._create_real_view(action="list")
+
+        # Should have permission when authenticated via project secret API token
+        assert self.permission.has_permission(request, view) is True
+
 
 class TestProjectSecretAPITokenPermission(BaseTest):
     """Direct unit tests for ProjectSecretAPITokenPermission.has_permission method"""
@@ -395,3 +406,129 @@ class TestProjectSecretAPITokenPermission(BaseTest):
 
         # None is not in the allowed endpoints tuple, so this should return False
         self.assertFalse(result)
+
+
+class TestTeamMemberAccessPermission(BaseTest):
+    """Direct unit tests for TeamMemberAccessPermission.has_permission method"""
+
+    def setUp(self):
+        super().setUp()
+        from posthog.permissions import TeamMemberAccessPermission
+
+        self.permission = TeamMemberAccessPermission()
+
+    def _create_mock_request(self, authenticator_class=None, user=None):
+        """Helper to create a mock request with specified authenticator"""
+        request = Mock()
+
+        # Mock the authenticator
+        mock_authenticator = Mock()
+        if authenticator_class:
+            mock_authenticator.__class__ = authenticator_class
+        request.successful_authenticator = mock_authenticator
+
+        # Set user if provided
+        if user:
+            request.user = user
+
+        return request
+
+    def _create_mock_view(self, team=None, raise_exception=None, user_permissions=None):
+        """Helper to create a mock view with specified team or exception"""
+        view = Mock()
+
+        if raise_exception:
+            # Configure the mock to raise the exception when team is accessed
+            view.team = Mock(side_effect=raise_exception)
+        else:
+            view.team = team
+
+        # Set user_permissions if provided
+        if user_permissions:
+            view.user_permissions = user_permissions
+
+        return view
+
+    def _create_mock_team(self, team_id=1):
+        """Helper to create a mock team with specified ID"""
+        team = Mock()
+        team.id = team_id
+        return team
+
+    def _create_mock_user_permissions(self, effective_membership_level=None):
+        """Helper to create a mock user_permissions with specified effective membership level"""
+        user_permissions = Mock()
+        current_team = Mock()
+        current_team.effective_membership_level = effective_membership_level
+        user_permissions.current_team = current_team
+        return user_permissions
+
+    def test_has_permission_with_project_secret_api_token_authenticator(self):
+        """Should return True when using ProjectSecretAPIKeyAuthentication"""
+        from posthog.auth import ProjectSecretAPIKeyAuthentication
+
+        request = self._create_mock_request(authenticator_class=ProjectSecretAPIKeyAuthentication)
+        view = self._create_mock_view()
+
+        result = self.permission.has_permission(request, view)
+
+        self.assertTrue(result)
+
+    def test_has_permission_with_non_project_secret_authenticator_and_valid_membership(self):
+        """Should return True when not using project secret auth and user has valid membership"""
+        from posthog.auth import PersonalAPIKeyAuthentication
+        from posthog.models.organization import OrganizationMembership
+
+        team = self._create_mock_team()
+        user_permissions = self._create_mock_user_permissions(
+            effective_membership_level=OrganizationMembership.Level.MEMBER
+        )
+
+        request = self._create_mock_request(authenticator_class=PersonalAPIKeyAuthentication)
+        view = self._create_mock_view(team=team, user_permissions=user_permissions)
+
+        result = self.permission.has_permission(request, view)
+
+        self.assertTrue(result)
+
+    def test_has_permission_with_non_project_secret_authenticator_and_no_membership(self):
+        """Should return False when not using project secret auth and user has no membership"""
+        from posthog.auth import PersonalAPIKeyAuthentication
+
+        team = self._create_mock_team()
+        user_permissions = self._create_mock_user_permissions(effective_membership_level=None)
+
+        request = self._create_mock_request(authenticator_class=PersonalAPIKeyAuthentication)
+        view = self._create_mock_view(team=team, user_permissions=user_permissions)
+
+        result = self.permission.has_permission(request, view)
+
+        self.assertFalse(result)
+
+    def test_has_permission_with_team_does_not_exist_exception(self):
+        """Should return True when view.team raises Team.DoesNotExist"""
+        from posthog.auth import PersonalAPIKeyAuthentication
+
+        request = self._create_mock_request(authenticator_class=PersonalAPIKeyAuthentication)
+        view = self._create_mock_view(raise_exception=Team.DoesNotExist("Team not found"))
+
+        result = self.permission.has_permission(request, view)
+
+        self.assertTrue(result)
+
+    def test_has_permission_with_admin_membership(self):
+        """Should return True when user has admin membership level"""
+        from posthog.auth import PersonalAPIKeyAuthentication
+        from posthog.models.organization import OrganizationMembership
+
+        team = self._create_mock_team()
+        user_permissions = self._create_mock_user_permissions(
+            effective_membership_level=OrganizationMembership.Level.ADMIN
+        )
+
+        request = self._create_mock_request(authenticator_class=PersonalAPIKeyAuthentication)
+        view = self._create_mock_view(team=team, user_permissions=user_permissions)
+
+        result = self.permission.has_permission(request, view)
+
+        self.assertTrue(result)
