@@ -8727,39 +8727,6 @@ class HogQLQueryResponse(BaseModel):
     types: Optional[list] = Field(default=None, description="Types of returned columns")
 
 
-class HogQLQueryResponseDefInterface9741497531113081114179741497530119269(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    clickhouse: Optional[str] = Field(default=None, description="Executed ClickHouse query")
-    columns: Optional[list] = Field(default=None, description="Returned columns")
-    error: Optional[str] = Field(
-        default=None,
-        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-    )
-    explain: Optional[list[str]] = Field(default=None, description="Query explanation output")
-    hasMore: Optional[bool] = None
-    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
-    limit: Optional[int] = None
-    metadata: Optional[HogQLMetadataResponse] = Field(default=None, description="Query metadata output")
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    offset: Optional[int] = None
-    query: Optional[str] = Field(default=None, description="Input query string")
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: list[WebTrendsItem]
-    timings: Optional[list[QueryTiming]] = Field(
-        default=None, description="Measured timings for different parts of the query generation process"
-    )
-    types: Optional[list] = Field(default=None, description="Types of returned columns")
-
-
 class InsightActorsQueryBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",

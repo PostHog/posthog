@@ -3579,12 +3579,24 @@ export interface WebTrendsItem {
     metrics: Partial<Record<WebTrendsMetric, number>>
 }
 
-export interface WebTrendsQueryResponse extends HogQLQueryResponse<WebTrendsItem[]> {
+export interface WebTrendsQueryResponse extends AnalyticsQueryResponseBase {
+    results: WebTrendsItem[]
+    /** Input query string */
+    query?: string
+    /** Executed ClickHouse query */
+    clickhouse?: string
+    /** Returned columns */
+    columns?: any[]
+    /** Types of returned columns */
+    types?: any[]
+    /** Query explanation output */
+    explain?: string[]
+    /** Query metadata output */
+    metadata?: HogQLMetadataResponse
     hasMore?: boolean
     limit?: integer
     offset?: integer
     samplingRate?: SamplingRate
-    types?: unknown[]
     usedPreAggregatedTables?: boolean
 }
 

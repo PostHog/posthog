@@ -162,6 +162,7 @@ dependencies = [
     "django-admin-inline-paginator===0.4.0",
     "fastavro>=1.12.0",
     "pydantic-avro>=0.9.0",
+    "playwright>=1.54.0",
 ]
 
 [dependency-groups]
