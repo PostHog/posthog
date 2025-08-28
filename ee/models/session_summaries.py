@@ -75,6 +75,8 @@ class SingleSessionSummaryManager(models.Manager["SingleSessionSummary"]):
         """Store a new session summary"""
         extra_summary_context_dict = asdict(extra_summary_context) if extra_summary_context else None
         run_metadata_dict = asdict(run_metadata) if run_metadata else None
+        # No constraints of adding the summary for the same session.
+        # It should be impossible, but we get the latest version anyways, even if it happens miracously.
         self.create(
             team_id=team_id,
             session_id=session_id,
