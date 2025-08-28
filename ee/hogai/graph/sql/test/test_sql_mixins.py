@@ -191,3 +191,15 @@ class TestSQLMixins(NonAtomicBaseTest):
         # Should not raise any exception for valid complex SQL
         res = await mixin._quality_check_output(complex_output)
         self.assertEqual(res, "SELECT * FROM events LIMIT 10")
+
+    async def test_quality_check_handles_variables(self):
+        """Test quality check success with complex query including joins."""
+        mixin = self._node
+
+        complex_output = SQLSchemaGeneratorOutput(
+            query=AssistantHogQLQuery(query="SELECT event FROM events WHERE {variables.f}")
+        )
+
+        # Should not raise any exception for valid complex SQL
+        res = await mixin._quality_check_output(complex_output)
+        self.assertEqual(res, "SELECT event FROM events WHERE {variables.f}")

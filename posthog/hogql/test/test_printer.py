@@ -2594,6 +2594,17 @@ class TestPrinter(BaseTest):
         result = print_ast(query_ast, loose_context, "hogql")
         self.assertIn("countIf(", result)
 
+    def test_loose_syntax_preserves_placeholders(self):
+        """Test that placeholders are preserved when loose_syntax is enabled."""
+        loose_context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, loose_syntax=True)
+
+        query_ast = parse_select("SELECT {filters} FROM events")
+        loose_result = print_ast(query_ast, loose_context, "hogql")
+        self.assertIn("{filters}", loose_result)
+        query_ast = parse_select("SELECT {variables.f} FROM events")
+        loose_result = print_ast(query_ast, loose_context, "hogql")
+        self.assertIn("{variables.f}", loose_result)
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_s3_tables_global_join_with_in_and_property_type(self):
         credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")

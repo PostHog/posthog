@@ -756,6 +756,11 @@ class Resolver(CloningVisitor):
 
         return node
 
+    def visit_placeholder(self, node: ast.Placeholder):
+        if not self.context.loose_syntax:
+            return super().visit_placeholder(node)
+        return node
+
     def visit_array_access(self, node: ast.ArrayAccess):
         node = super().visit_array_access(node)
 
