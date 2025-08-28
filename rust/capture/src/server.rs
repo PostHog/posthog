@@ -133,7 +133,9 @@ where
         HealthRegistry::new_with_strategy("liveness", config.healthcheck_strategy.clone());
 
     let redis_client = Arc::new(
-        RedisClient::new(config.redis_url.clone()).expect("failed to create redis client"),
+        RedisClient::new(config.redis_url.clone())
+            .await
+            .expect("failed to create redis client"),
     );
 
     let billing_limiter = RedisLimiter::new(
@@ -148,6 +150,17 @@ where
         ServiceName::Capture,
     )
     .expect("failed to create billing limiter");
+
+    // Survey quota limiting - create for all capture modes (won't be used for recordings but required by router)
+    let survey_limiter = RedisLimiter::new(
+        Duration::from_secs(5),
+        redis_client.clone(),
+        QUOTA_LIMITER_CACHE_KEY.to_string(),
+        config.redis_key_prefix.clone(),
+        QuotaResource::Surveys,
+        ServiceName::Capture,
+    )
+    .expect("failed to create survey limiter");
 
     let token_dropper = config
         .drop_events_by_token_distinct_id
@@ -175,6 +188,7 @@ where
         sink,
         redis_client,
         billing_limiter,
+        survey_limiter,
         token_dropper,
         config.export_prometheus,
         config.capture_mode,
@@ -184,7 +198,7 @@ where
         config.historical_rerouting_threshold_days,
         config.historical_tokens_keys,
         config.is_mirror_deploy,
-        config.base64_detect_percent,
+        config.verbose_sample_percent,
     );
 
     // run our app with hyper

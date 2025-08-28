@@ -1,25 +1,24 @@
 import json
 from datetime import UTC, datetime
 from typing import Any, Optional
+
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest
 from unittest import mock
 from unittest.mock import ANY, MagicMock, call, patch
 
 from django.core.cache import cache
 from django.http import HttpResponse
-from django.test import override_settings
-from freezegun import freeze_time
+
 from parameterized import parameterized
 from rest_framework import status, test
 from temporalio.service import RPCError
 
 from posthog.api.test.batch_exports.conftest import start_test_worker
-from posthog.cloud_utils import get_api_host
-from posthog.api.wizard import SETUP_WIZARD_CACHE_PREFIX, SETUP_WIZARD_CACHE_TIMEOUT
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog, EarlyAccessFeature
 from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.dashboard import Dashboard
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
@@ -29,7 +28,7 @@ from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule
-from posthog.test.base import APIBaseTest
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_instance_realm
 
 from ee.models.rbac.access_control import AccessControl
@@ -103,13 +102,13 @@ def team_api_test_factory():
             self.assertEqual(response_data["has_group_types"], False)
             self.assertEqual(response_data["group_types"], [])
 
-            GroupTypeMapping.objects.create(
+            create_group_type_mapping_without_created_at(
                 project=self.project, team=other_team, group_type="person", group_type_index=0
             )
-            GroupTypeMapping.objects.create(
+            create_group_type_mapping_without_created_at(
                 project=self.project, team=other_team, group_type="thing", group_type_index=2
             )
-            GroupTypeMapping.objects.create(
+            create_group_type_mapping_without_created_at(
                 project=self.project, team=other_team, group_type="place", group_type_index=1
             )
 
@@ -128,6 +127,7 @@ def team_api_test_factory():
                         "name_plural": None,
                         "default_columns": None,
                         "detail_dashboard": None,
+                        "created_at": None,
                     },
                     {
                         "group_type": "place",
@@ -136,6 +136,7 @@ def team_api_test_factory():
                         "name_plural": None,
                         "default_columns": None,
                         "detail_dashboard": None,
+                        "created_at": None,
                     },
                     {
                         "group_type": "thing",
@@ -144,6 +145,7 @@ def team_api_test_factory():
                         "name_plural": None,
                         "default_columns": None,
                         "detail_dashboard": None,
+                        "created_at": None,
                     },
                 ],
             )
@@ -210,9 +212,11 @@ def team_api_test_factory():
             response_data = response.json()
             self.assertEqual(
                 response_data.get("detail"),
-                "You must upgrade your PostHog plan to be able to create and manage more environments per project."
-                if self.client_class is not EnvironmentToProjectRewriteClient
-                else "You must upgrade your PostHog plan to be able to create and manage more projects.",
+                (
+                    "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
+                    if self.client_class is not EnvironmentToProjectRewriteClient
+                    else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
+                ),
             )
             self.assertEqual(response_data.get("type"), "authentication_error")
             self.assertEqual(response_data.get("code"), "permission_denied")
@@ -224,9 +228,11 @@ def team_api_test_factory():
             response_data = response.json()
             self.assertEqual(
                 response_data.get("detail"),
-                "You must upgrade your PostHog plan to be able to create and manage more environments per project."
-                if self.client_class is not EnvironmentToProjectRewriteClient
-                else "You must upgrade your PostHog plan to be able to create and manage more projects.",
+                (
+                    "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
+                    if self.client_class is not EnvironmentToProjectRewriteClient
+                    else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
+                ),
             )
             self.assertEqual(response_data.get("type"), "authentication_error")
             self.assertEqual(response_data.get("code"), "permission_denied")
@@ -355,6 +361,7 @@ def team_api_test_factory():
                     "created_at": ANY,
                     "detail": {
                         "changes": None,
+                        "context": None,
                         "name": "Default project",
                         "short_id": None,
                         "trigger": None,
@@ -379,6 +386,7 @@ def team_api_test_factory():
                         "created_at": ANY,
                         "detail": {
                             "changes": None,
+                            "context": None,
                             "name": "Default project",
                             "short_id": None,
                             "trigger": None,
@@ -427,18 +435,23 @@ def team_api_test_factory():
             )
             expected_capture_calls = [
                 call(
-                    self.user.distinct_id,
-                    "membership level changed",
+                    distinct_id=self.user.distinct_id,
+                    event="membership level changed",
                     properties={"new_level": 8, "previous_level": 1, "$set": mock.ANY},
                     groups=mock.ANY,
                 ),
-                call(self.user.distinct_id, "team deleted", properties={}, groups=mock.ANY),
+                call(
+                    distinct_id=self.user.distinct_id,
+                    event="team deleted",
+                    properties={},
+                    groups=mock.ANY,
+                ),
             ]
             if self.client_class is EnvironmentToProjectRewriteClient:
                 expected_capture_calls.append(
                     call(
-                        self.user.distinct_id,
-                        "project deleted",
+                        distinct_id=self.user.distinct_id,
+                        event="project deleted",
                         properties={"project_name": "Default project"},
                         groups=mock.ANY,
                     )
@@ -455,10 +468,7 @@ def team_api_test_factory():
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
 
             from posthog.models.cohort import Cohort, CohortPeople
-            from posthog.models.feature_flag.feature_flag import (
-                FeatureFlag,
-                FeatureFlagHashKeyOverride,
-            )
+            from posthog.models.feature_flag.feature_flag import FeatureFlag, FeatureFlagHashKeyOverride
 
             # from posthog.models.insight_caching_state import InsightCachingState
             from posthog.models.person import Person
@@ -1421,27 +1431,6 @@ def team_api_test_factory():
                     team=self.team,
                 )
 
-        @patch("posthog.api.team.calculate_product_activation.delay", MagicMock())
-        @patch("posthog.models.product_intent.ProductIntent.check_and_update_activation")
-        @patch("posthog.event_usage.report_user_action")
-        @freeze_time("2024-01-05T00:00:00Z")
-        def test_doesnt_send_event_for_already_activated_intent(
-            self,
-            mock_report_user_action: MagicMock,
-            mock_check_and_update_activation: MagicMock,
-        ) -> None:
-            ProductIntent.objects.create(
-                team=self.team, product_type="product_analytics", activated_at=datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
-            )
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}/add_product_intent/",
-                {"product_type": "product_analytics"},
-                headers={"Referer": "https://posthogtest.com/my-url", "X-Posthog-Session-Id": "test_session_id"},
-            )
-            assert response.status_code == status.HTTP_201_CREATED
-            mock_check_and_update_activation.assert_not_called()
-            mock_report_user_action.assert_not_called()
-
         @patch("posthog.api.project.report_user_action")
         @patch("posthog.api.team.report_user_action")
         def test_can_complete_product_onboarding(
@@ -1618,80 +1607,55 @@ def team_api_test_factory():
             assert response.status_code == expected_status, response.json()
             return response
 
-        @override_settings(
-            CACHES={
-                "default": {
-                    "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-                },
-            }
+        @parameterized.expand(
+            [
+                (
+                    "app_urls_mixed_nulls",
+                    "app_urls",
+                    ["https://example.com", None, "https://test.com", None],
+                    ["https://example.com", "https://test.com"],
+                    None,
+                ),
+                ("app_urls_all_nulls", "app_urls", [None, None, None], [], None),
+                (
+                    "app_urls_mixed_valid_and_null",
+                    "app_urls",
+                    ["https://new.com", None, "https://another.com"],
+                    ["https://new.com", "https://another.com"],
+                    ["https://existing.com"],
+                ),
+                (
+                    "recording_domains_mixed_nulls",
+                    "recording_domains",
+                    [None, "https://example.com", None, "https://test.com"],
+                    ["https://example.com", "https://test.com"],
+                    None,
+                ),
+                ("recording_domains_none_field", "recording_domains", None, None, None),
+            ]
         )
-        def test_authenticate_wizard_requires_hash(self):
-            response = self.client.post(f"/api/environments/{self.team.id}/authenticate_wizard", data={}, format="json")
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        def test_filters_null_values(self, name, field_name, input_data, expected_output, setup_data):
+            if setup_data is not None:
+                setattr(self.team, field_name, setup_data)
+                self.team.save()
 
-        @override_settings(
-            CACHES={
-                "default": {
-                    "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-                },
-            }
-        )
-        def test_authenticate_wizard_invalid_hash(self):
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/authenticate_wizard",
-                data={"hash": "nonexistent"},
-                format="json",
-            )
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            response = self.client.patch("/api/environments/@current/", {field_name: input_data})
 
-        @override_settings(
-            CACHES={
-                "default": {
-                    "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-                },
-            }
-        )
-        def test_authenticate_wizard_successful(self):
-            cache_key = f"{SETUP_WIZARD_CACHE_PREFIX}valid_hash"
-            cache.set(cache_key, {}, SETUP_WIZARD_CACHE_TIMEOUT)
+            assert response.status_code == status.HTTP_200_OK
+            response_data = response.json()
 
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/authenticate_wizard",
-                data={"hash": "valid_hash"},
-                format="json",
-            )
-            self.assertEqual(response.status_code, 200, response.content)
-            self.assertEqual(response.json(), {"success": True})
+            if expected_output is None:
+                assert response_data[field_name] is None
+            else:
+                assert response_data[field_name] == expected_output
 
-            updated_data = cache.get(cache_key)
-            self.assertIsNotNone(updated_data)
-            self.assertEqual(updated_data["project_api_key"], self.team.api_token)
-            self.assertEqual(updated_data["host"], get_api_host())
-            self.assertEqual(updated_data["user_distinct_id"], self.user.distinct_id)
+            self.team.refresh_from_db()
+            actual_value = getattr(self.team, field_name)
 
-        @override_settings(
-            CACHES={
-                "default": {
-                    "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-                },
-            }
-        )
-        @patch("posthog.rate_limit.SetupWizardAuthenticationRateThrottle.rate", new="2/day")
-        def test_authenticate_wizard_rate_limited(self):
-            cache_key = f"{SETUP_WIZARD_CACHE_PREFIX}valid_hash"
-            cache.set(cache_key, {}, SETUP_WIZARD_CACHE_TIMEOUT)
-
-            url = f"/api/environments/{self.team.id}/authenticate_wizard"
-            data = {"hash": "valid_hash"}
-
-            response_1 = self.client.post(url, data=data, format="json")
-            self.assertEqual(response_1.status_code, status.HTTP_200_OK)
-
-            response_2 = self.client.post(url, data=data, format="json")
-            self.assertEqual(response_2.status_code, status.HTTP_200_OK)
-
-            response_3 = self.client.post(url, data=data, format="json")
-            self.assertEqual(response_3.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+            if expected_output is None:
+                assert actual_value is None
+            else:
+                assert actual_value == expected_output
 
     return TestTeamAPI
 
@@ -1816,9 +1780,11 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         response_data = response.json()
         self.assertEqual(
             response_data.get("detail"),
-            "You must upgrade your PostHog plan to be able to create and manage more environments per project."
-            if self.client_class is not EnvironmentToProjectRewriteClient
-            else "You must upgrade your PostHog plan to be able to create and manage more projects.",
+            (
+                "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
+                if self.client_class is not EnvironmentToProjectRewriteClient
+                else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
+            ),
         )
         self.assertEqual(response_data.get("type"), "authentication_error")
         self.assertEqual(response_data.get("code"), "permission_denied")

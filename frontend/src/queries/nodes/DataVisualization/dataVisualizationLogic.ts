@@ -1,8 +1,9 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
-import { dayjs } from 'lib/dayjs'
-import { lightenDarkenColor, objectsEqual, RGBToHex, uuid } from 'lib/utils'
 import mergeObject from 'lodash.merge'
+
+import { dayjs } from 'lib/dayjs'
+import { RGBToHex, lightenDarkenColor, objectsEqual, uuid } from 'lib/utils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -22,7 +23,7 @@ import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, DashboardType, ItemMode } from '~/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
-import { getQueryFeatures, QueryFeature } from '../DataTable/queryFeatures'
+import { QueryFeature, getQueryFeatures } from '../DataTable/queryFeatures'
 import type { dataVisualizationLogicType } from './dataVisualizationLogicType'
 import { ColumnScalar, FORMATTING_TEMPLATES } from './types'
 
@@ -242,7 +243,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             themeLogic,
             ['isDarkModeOn'],
             sceneLogic,
-            ['activeScene'],
+            ['activeSceneId'],
         ],
         actions: [
             dataNodeLogic({
@@ -603,12 +604,12 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
         presetChartHeight: [
-            (state, props) => [props.key, state.dashboardId, state.activeScene],
-            (key, dashboardId, activeScene) => {
+            (state, props) => [props.key, state.dashboardId, state.activeSceneId],
+            (key, dashboardId, activeSceneId) => {
                 // Key for SQL editor based visiaulizations
-                const sqlEditorScene = activeScene === Scene.SQLEditor
+                const sqlEditorScene = activeSceneId === Scene.SQLEditor
 
-                if (activeScene === Scene.Insight) {
+                if (activeSceneId === Scene.Insight) {
                     return true
                 }
 
@@ -652,6 +653,14 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                                                 series.settings.formatting.decimalPlaces
                                             )
                                         )
+                                    }
+
+                                    const isNotANumber =
+                                        Number.isNaN(n[column.dataIndex]) ||
+                                        n[column.dataIndex] === undefined ||
+                                        n[column.dataIndex] === null
+                                    if (isNotANumber) {
+                                        return 0
                                     }
 
                                     const isInt = Number.isInteger(n[column.dataIndex])

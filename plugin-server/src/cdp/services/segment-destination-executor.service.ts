@@ -1,20 +1,17 @@
-import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 import { ReadableStream } from 'stream/web'
 
 import { PluginsServerConfig } from '~/types'
 
 import { parseJSON } from '../../utils/json-parse'
-import { logger } from '../../utils/logger'
-import { fetch, FetchOptions, FetchResponse, Response } from '../../utils/request'
+import { FetchOptions, FetchResponse, Response, fetch } from '../../utils/request'
 import { tryCatch } from '../../utils/try-catch'
 import { LegacyPluginLogger } from '../legacy-plugins/types'
 import { SEGMENT_DESTINATIONS_BY_ID } from '../segment/segment-templates'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
-import { CDP_TEST_ID, isSegmentPluginHogFunction } from '../utils'
+import { CDP_TEST_ID, createAddLogFunction, isSegmentPluginHogFunction } from '../utils'
 import { createInvocationResult } from '../utils/invocation-utils'
-import { getNextRetryTime, isFetchResponseRetriable } from './fetch-executor.service'
-import { sanitizeLogMessage } from './hog-executor.service'
+import { getNextRetryTime, isFetchResponseRetriable } from './hog-executor.service'
 
 const pluginExecutionDuration = new Histogram({
     name: 'cdp_segment_execution_duration_ms',
@@ -108,9 +105,8 @@ export class SegmentDestinationExecutorService {
     public async execute(
         invocation: CyclotronJobInvocationHogFunction
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
-        const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation, {
-            queue: 'segment',
-        })
+        const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation)
+        const addLog = createAddLogFunction(result.logs)
 
         // Upsert the tries count on the metadata
         const metadata = (invocation.queueMetadata as { tries: number }) || { tries: 0 }
@@ -119,14 +115,6 @@ export class SegmentDestinationExecutorService {
 
         // Indicates if a retry is possible. Once we have peformed 1 successful non-GET request, we can't retry.
         let retriesPossible = true
-
-        const addLog = (level: 'debug' | 'warn' | 'error' | 'info', ...args: any[]) => {
-            result.logs.push({
-                level,
-                timestamp: DateTime.now(),
-                message: sanitizeLogMessage(args),
-            })
-        }
 
         const segmentDestinationId = isSegmentPluginHogFunction(invocation.hogFunction)
             ? invocation.hogFunction.template_id
@@ -158,11 +146,6 @@ export class SegmentDestinationExecutorService {
             await action.perform(
                 // @ts-expect-error can't figure out unknown extends Data
                 async (endpoint, options) => {
-                    // temporary code
-                    // just for testing why fetch fails are being retried twice in prod but three times locally
-                    // this will break all segment destinations
-                    // https://posthog.slack.com/archives/C06GG249PR6/p1751026775685259
-                    endpoint = 'https://httpstatuses.maor.io/429'
                     if (config.debug_mode) {
                         addLog('debug', 'endpoint', endpoint)
                     }
@@ -268,12 +251,10 @@ export class SegmentDestinationExecutorService {
                             'warn',
                             `HTTP request failed with status ${fetchResponse?.status} (${
                                 fetchResponseText ?? 'unknown'
-                            }). ${retriesPossible ? 'Scheduling retry...' : ''} max retries: ${
-                                this.serverConfig.CDP_FETCH_RETRIES
-                            }`
+                            }). ${retriesPossible ? 'Scheduling retry...' : ''}`
                         )
 
-                        // If we it is retriable and we have retries left, we can trigger a retry, otherwise we just pass through to the function
+                        // If it's retriable and we have retries left, we can trigger a retry, otherwise we just pass through to the function
                         if (retriesPossible || (options?.throwHttpErrors ?? true)) {
                             throw new SegmentFetchError(
                                 `Error executing function on event ${
@@ -322,20 +303,11 @@ export class SegmentDestinationExecutorService {
                 if (retriesPossible) {
                     // We have retries left so we can trigger a retry
                     result.finished = false
-                    result.invocation.queue = 'segment'
                     result.invocation.queuePriority = metadata.tries
                     result.invocation.queueScheduledAt = getNextRetryTime(this.serverConfig, metadata.tries)
                     return result
-                } else {
-                    result.finished = true
                 }
             }
-
-            logger.error('💩', 'Segment destination errored', {
-                error: e.message,
-                segmentDestinationId,
-                invocationId: invocation.id,
-            })
 
             result.error = e
 

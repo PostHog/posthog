@@ -1,42 +1,38 @@
 import traceback
-
-from datetime import datetime, timedelta, UTC
-from typing import cast
+from collections import defaultdict
 from collections.abc import Callable
-from dateutil.relativedelta import relativedelta
+from datetime import UTC, datetime, timedelta
+from typing import cast
 
+from django.db import transaction
+from django.db.models import F, Q
+
+import structlog
 from celery import shared_task
 from celery.canvas import chain
-from django.db import transaction
-from posthog.schema_migrations.upgrade_manager import upgrade_query
-import structlog
-from posthog.clickhouse.query_tagging import tag_queries
+from dateutil.relativedelta import relativedelta
 
+from posthog.schema import AlertCalculationInterval, AlertState, TrendsQuery
+
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.exceptions_capture import capture_exception
 from posthog.models import AlertConfiguration, User
 from posthog.models.alert import AlertCheck
-from posthog.tasks.utils import CeleryQueue
-from posthog.schema import (
-    TrendsQuery,
-    AlertCalculationInterval,
-    AlertState,
-)
-from posthog.utils import get_from_dict_or_attr
-from django.db.models import Q, F
-from collections import defaultdict
+from posthog.ph_client import ph_scoped_capture
+from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.tasks.alerts.trends import check_trends_alert
 from posthog.tasks.alerts.utils import (
+    WRAPPER_NODE_KINDS,
     AlertEvaluationResult,
     calculation_interval_to_order,
     next_check_time,
     send_notifications_for_breaches,
     send_notifications_for_errors,
     skip_because_of_weekend,
-    WRAPPER_NODE_KINDS,
 )
-from posthog.tasks.alerts.trends import check_trends_alert
-from posthog.ph_client import ph_scoped_capture
-
+from posthog.tasks.utils import CeleryQueue
+from posthog.utils import get_from_dict_or_attr
 
 logger = structlog.get_logger(__name__)
 
@@ -92,18 +88,18 @@ def alerts_backlog_task() -> None:
 
     with ph_scoped_capture() as capture_ph_event:
         capture_ph_event(
-            ANIRUDH_DISTINCT_ID,
-            "alert check backlog",
-            additional_properties={
+            distinct_id=ANIRUDH_DISTINCT_ID,
+            event="alert check backlog",
+            properties={
                 "calculation_interval": AlertCalculationInterval.DAILY,
                 "backlog": daily_alerts_breaching_sla,
             },
         )
 
         capture_ph_event(
-            ANIRUDH_DISTINCT_ID,
-            "alert check backlog",
-            additional_properties={
+            distinct_id=ANIRUDH_DISTINCT_ID,
+            event="alert check backlog",
+            properties={
                 "calculation_interval": AlertCalculationInterval.HOURLY,
                 "backlog": hourly_alerts_breaching_sla,
             },
@@ -251,8 +247,8 @@ def check_alert(alert_id: str, capture_ph_event: Callable = lambda *args, **kwar
         user = cast(User, alert.created_by)
 
         capture_ph_event(
-            user.distinct_id,
-            "alert check failed",
+            distinct_id=user.distinct_id,
+            event="alert check failed",
             properties={
                 "alert_id": alert.id,
                 "error": f"AlertCheckError: {err}",
@@ -294,8 +290,8 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration, capture_ph_even
 
     # Event to count alert checks
     capture_ph_event(
-        user.distinct_id,
-        "alert check",
+        distinct_id=user.distinct_id,
+        event="alert check",
         properties={
             "alert_id": alert.id,
             "calculation_interval": alert.calculation_interval,
@@ -317,8 +313,8 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration, capture_ph_even
         error_message = f"Alert id = {alert.id}, failed to evaluate"
 
         capture_ph_event(
-            user.distinct_id,
-            "alert check failed",
+            distinct_id=user.distinct_id,
+            event="alert check failed",
             properties={
                 "alert_id": alert.id,
                 "error": error_message,

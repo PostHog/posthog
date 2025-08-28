@@ -1,7 +1,15 @@
-import 'react-data-grid/lib/styles.css'
 import './DataGrid.scss'
+import 'react-data-grid/lib/styles.css'
+
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { useCallback, useMemo, useState } from 'react'
+import DataGrid, { RenderHeaderCellProps, SortColumn } from 'react-data-grid'
+import { DataGridProps } from 'react-data-grid'
 
 import {
+    IconBolt,
+    IconBrackets,
     IconCode,
     IconCopy,
     IconDownload,
@@ -13,42 +21,38 @@ import {
     IconShare,
 } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonTable, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { IconTableChart } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { useCallback, useMemo, useState } from 'react'
-import DataGrid, { SortColumn, RenderHeaderCellProps } from 'react-data-grid'
-import { DataGridProps } from 'react-data-grid'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadPreviewText } from '~/queries/nodes/DataNode/LoadNext'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
 import { SideBar } from '~/queries/nodes/DataVisualization/Components/SideBar'
 import { Table } from '~/queries/nodes/DataVisualization/Components/Table'
 import { TableDisplay } from '~/queries/nodes/DataVisualization/Components/TableDisplay'
 import { DataTableVisualizationProps } from '~/queries/nodes/DataVisualization/DataVisualization'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
+import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
 import { HogQLQueryResponse } from '~/queries/schema/schema-general'
 import { ChartDisplayType, ExporterFormat } from '~/types'
 
+import TabScroller from './TabScroller'
 import { FixErrorButton } from './components/FixErrorButton'
 import { multitabEditorLogic } from './multitabEditorLogic'
-import { outputPaneLogic, OutputTab } from './outputPaneLogic'
+import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { QueryInfo } from './sidebar/QueryInfo'
 import { QueryVariables } from './sidebar/QueryVariables'
-import TabScroller from './TabScroller'
 
 interface RowDetailsModalProps {
     isOpen: boolean
@@ -150,8 +154,8 @@ function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps
                 value === null
                     ? 'null'
                     : typeof value === 'object' || isStringifiedJson
-                    ? JSON.stringify(value, null, 2)
-                    : String(value),
+                      ? JSON.stringify(value, null, 2)
+                      : String(value),
             value:
                 value === null ? (
                     <span className="text-muted">null</span>
@@ -253,6 +257,7 @@ function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps
 export function OutputPane(): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
+    const { editingView } = useValues(multitabEditorLogic)
 
     const {
         sourceQuery,
@@ -275,7 +280,7 @@ export function OutputPane(): JSX.Element {
     } = useValues(dataNodeLogic)
     const { queryCancelled } = useValues(dataVisualizationLogic)
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+
     const response = (dataNodeResponse ?? localStorageResponse) as HogQLQueryResponse | undefined
 
     const [progressCache, setProgressCache] = useState<Record<string, number>>({})
@@ -320,14 +325,14 @@ export function OutputPane(): JSX.Element {
                         return typeof content === 'string'
                             ? content.length
                             : content === null
-                            ? 0
-                            : content.toString().length
+                              ? 0
+                              : content.toString().length
                     })
                 )
                 const isLongContent = maxContentLength > 100
                 const finalWidth = isLongContent ? 600 : undefined
 
-                const baseColumn = {
+                const baseColumn: DataGridProps<Record<string, any>>['columns'][0] = {
                     key: column,
                     name: (
                         <>
@@ -342,9 +347,9 @@ export function OutputPane(): JSX.Element {
                     width: finalWidth,
                     headerCellClass: 'cursor-pointer',
                     renderHeaderCell: ({ column: col, sortDirection }: RenderHeaderCellProps<any>) => (
-                        <div className="flex items-center justify-between px-3 py-2">
+                        <div className="flex items-center justify-between py-2">
                             <span>{col.name}</span>
-                            <div className="flex flex-col">
+                            <div className="flex flex-col ml-1">
                                 <span
                                     className={`text-[7px] leading-none ${
                                         sortDirection === 'ASC' ? 'text-black-600' : 'text-gray-400'
@@ -379,7 +384,19 @@ export function OutputPane(): JSX.Element {
 
                 return {
                     ...baseColumn,
-                    renderCell: (props: any) => props.row[column],
+                    renderCell: (props: any) => {
+                        const value = props.row[column]
+                        if (typeof value === 'string' && value.startsWith('["__hx_tag",') && value.endsWith(']')) {
+                            try {
+                                const parsedHogQLX = JSON.parse(value)
+                                return renderHogQLX(parsedHogQLX)
+                            } catch (e) {
+                                console.error('Error parsing HogQLX value:', e)
+                                return <span className="text-red">Error parsing value</span>
+                            }
+                        }
+                        return value
+                    },
                 }
             }) ?? []),
         ]
@@ -412,46 +429,53 @@ export function OutputPane(): JSX.Element {
 
     return (
         <div className="OutputPane flex flex-col w-full flex-1 bg-white dark:bg-black">
-            <div className="flex flex-row justify-between align-center w-full h-[50px] overflow-y-auto">
-                <div className="flex h-[50px] gap-2 ml-4">
+            <div className="flex flex-row justify-between align-center w-full min-h-[50px] overflow-y-auto">
+                <div className="flex min-h-[50px] gap-2 ml-4">
                     {[
                         {
                             key: OutputTab.Results,
                             label: 'Results',
+                            icon: <IconTableChart />,
                         },
                         {
                             key: OutputTab.Visualization,
                             label: 'Visualization',
+                            icon: <IconGraph />,
                         },
-                        ...(featureFlags[FEATURE_FLAGS.SQL_EDITOR_TREE_VIEW]
-                            ? [
-                                  {
-                                      key: OutputTab.Variables,
-                                      label: 'Variables',
-                                  },
-                                  {
-                                      key: OutputTab.Materialization,
-                                      label: 'Materialization',
-                                  },
-                              ]
-                            : []),
+                        {
+                            key: OutputTab.Variables,
+                            label: (
+                                <Tooltip title={editingView ? 'Variables are not allowed in views.' : undefined}>
+                                    Variables
+                                </Tooltip>
+                            ),
+                            disabled: editingView,
+                            icon: <IconBrackets />,
+                        },
+                        {
+                            key: OutputTab.Materialization,
+                            label: 'Materialization',
+                            icon: <IconBolt />,
+                        },
                     ].map((tab) => (
                         <div
                             key={tab.key}
                             className={clsx(
-                                'flex-1 bold content-center px-2 pt-[3px] cursor-pointer border-b-[medium]',
+                                'flex-1 flex-row flex items-center bold content-center px-2 pt-[3px] cursor-pointer border-b-[medium]',
                                 {
                                     'font-semibold !border-brand-yellow': tab.key === activeTab,
                                     'border-transparent': tab.key !== activeTab,
+                                    'opacity-50 cursor-not-allowed': tab.disabled,
                                 }
                             )}
-                            onClick={() => setActiveTab(tab.key)}
+                            onClick={() => !tab.disabled && setActiveTab(tab.key)}
                         >
+                            <span className="mr-1">{tab.icon}</span>
                             {tab.label}
                         </div>
                     ))}
                 </div>
-                <div className="flex gap-2 py-2 px-4">
+                <div className="flex gap-2 py-2 px-4 flex-shrink-0">
                     {showLegacyFilters && (
                         <DateRange
                             key="date-range"
@@ -644,7 +668,7 @@ function InternalDataTableVisualization(
     return (
         <div className="DataVisualization h-full hide-scrollbar flex flex-1 gap-2">
             <div className="relative w-full flex flex-col gap-4 flex-1">
-                <div className="flex flex-1 flex-row gap-4 overflow-scroll hide-scrollbar">
+                <div className="flex flex-1 flex-row gap-4 overflow-auto hide-scrollbar">
                     {isChartSettingsPanelOpen && (
                         <div>
                             <SideBar />
@@ -658,26 +682,20 @@ function InternalDataTableVisualization(
 }
 
 const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: any): JSX.Element | null => {
-    const { featureFlags } = useValues(featureFlagLogic)
-
     const error = queryCancelled
         ? 'The query was cancelled'
         : response && 'error' in response && !!response.error
-        ? response.error
-        : responseError
+          ? response.error
+          : responseError
 
     return (
-        <div className={clsx('flex-1 absolute top-0 left-0 right-0 bottom-0 overflow-scroll')}>
+        <div className={clsx('flex-1 absolute top-0 left-0 right-0 bottom-0 overflow-auto')}>
             <InsightErrorState
                 query={sourceQuery}
                 excludeDetail
                 title={error}
                 fixWithAIComponent={
-                    featureFlags[FEATURE_FLAGS.SQL_EDITOR_AI_ERROR_FIXER] ? (
-                        <FixErrorButton contentOverride="Fix error with AI" type="primary" source="query-error" />
-                    ) : (
-                        <></>
-                    )
+                    <FixErrorButton contentOverride="Fix error with AI" type="primary" source="query-error" />
                 }
             />
         </div>
@@ -705,6 +723,7 @@ const Content = ({
     progress,
 }: any): JSX.Element | null => {
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
+    const { editingView } = useValues(multitabEditorLogic)
 
     const sortedRows = useMemo(() => {
         if (!sortColumns.length) {
@@ -743,6 +762,13 @@ const Content = ({
     }
 
     if (activeTab === OutputTab.Variables) {
+        if (editingView) {
+            return (
+                <TabScroller>
+                    <div className="px-6 py-4 border-t text-secondary">Variables are not allowed in views.</div>
+                </TabScroller>
+            )
+        }
         return (
             <TabScroller>
                 <div className="px-6 py-4 border-t max-w-1/2">

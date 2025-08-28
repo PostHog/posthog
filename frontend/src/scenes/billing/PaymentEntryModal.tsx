@@ -1,8 +1,9 @@
-import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
+
+import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { paymentEntryLogic } from './paymentEntryLogic'
 
@@ -34,11 +35,7 @@ export const PaymentForm = (): JSX.Element => {
         if (result.error) {
             setLoading(false)
             setStripeError(result.error.message)
-            posthog.capture('payment entry stripe error', {
-                error_type: result.error.type,
-                error_message: result.error.message,
-                error_code: result.error.code,
-            })
+            posthog.captureException(new Error('payment entry stripe error', { cause: result.error }))
         } else {
             pollAuthorizationStatus(result.paymentIntent.id)
         }

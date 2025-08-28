@@ -1,8 +1,11 @@
-import { LemonCollapse } from '@posthog/lemon-ui'
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { useState } from 'react'
 
-import { OnboardingStepKey } from '../onboardingLogic'
+import { LemonCollapse } from '@posthog/lemon-ui'
+
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+
+import { OnboardingStepKey } from '~/types'
+
 import { OnboardingStep } from '../OnboardingStep'
 
 export function OnboardingErrorTrackingSourceMapsStep({ stepKey }: { stepKey: OnboardingStepKey }): JSX.Element {

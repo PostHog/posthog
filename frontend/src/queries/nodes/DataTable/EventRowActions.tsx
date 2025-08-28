@@ -1,12 +1,13 @@
-import { IconWarning } from '@posthog/icons'
-import { openSaveToModal } from 'lib/components/FileSystem/SaveTo/saveToLogic'
-import ViewRecordingButton, { mightHaveRecording } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
-import { IconLink } from 'lib/lemon-ui/icons'
+import React from 'react'
+
+import { IconAI, IconWarning } from '@posthog/icons'
+
+import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { IconLink } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import React from 'react'
 import { createActionFromEvent } from 'scenes/activity/explore/createActionFromEvent'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -28,18 +29,13 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                     {getCurrentTeamId() && (
                         <LemonButton
                             onClick={() =>
-                                openSaveToModal({
-                                    callback: (folder) => {
-                                        void createActionFromEvent(
-                                            getCurrentTeamId(),
-                                            event,
-                                            0,
-                                            teamLogic.findMounted()?.values.currentTeam?.data_attributes || [],
-                                            folder
-                                        )
-                                    },
-                                    defaultFolder: 'Unfiled/Actions',
-                                })
+                                void createActionFromEvent(
+                                    getCurrentTeamId(),
+                                    event,
+                                    0,
+                                    teamLogic.findMounted()?.values.currentTeam?.data_attributes || [],
+                                    'Unfiled/Actions'
+                                )
                             }
                             fullWidth
                             data-attr="events-table-create-action"
@@ -52,12 +48,8 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                         fullWidth
                         inModal
                         sessionId={event.properties.$session_id}
+                        recordingStatus={event.properties.$recording_status}
                         timestamp={event.timestamp}
-                        disabledReason={
-                            mightHaveRecording(event.properties)
-                                ? undefined
-                                : 'Replay was not active when capturing this event'
-                        }
                         data-attr="events-table-usage"
                     />
                     {event.event === '$exception' && '$exception_issue_id' in event.properties ? (
@@ -71,6 +63,19 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                             )}
                         >
                             Visit issue
+                        </LemonButton>
+                    ) : null}
+                    {event.event === '$ai_trace' && '$ai_trace_id' in event.properties ? (
+                        <LemonButton
+                            fullWidth
+                            sideIcon={<IconAI />}
+                            data-attr="events-table-trace-link"
+                            to={urls.llmAnalyticsTrace(event.properties.$ai_trace_id, {
+                                event: event.id,
+                                timestamp: event.timestamp,
+                            })}
+                        >
+                            View LLM Trace
                         </LemonButton>
                     ) : null}
                     {insightUrl && (

@@ -1,11 +1,12 @@
-from unittest.mock import call, patch, ANY
+from datetime import timedelta
+
+from posthog.test.base import APIBaseTest, QueryMatchingTest
+from unittest.mock import ANY, call, patch
 
 from rest_framework import status
-from datetime import timedelta
 
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
-from posthog.test.base import APIBaseTest, QueryMatchingTest
 
 
 class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
@@ -69,8 +70,8 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.assertFalse(membership_queryset.exists(), False)
 
         mock_capture.assert_called_with(
-            self.user.distinct_id,  # requesting user
-            "organization member removed",
+            distinct_id=self.user.distinct_id,  # requesting user
+            event="organization member removed",
             properties={
                 "removed_member_id": user.distinct_id,
                 "removed_by_id": self.user.distinct_id,
@@ -101,8 +102,9 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response_data["keys"], [])
 
         # Create a personal API key with scoped organizations
-        from posthog.models.personal_api_key import PersonalAPIKey
         from django.utils import timezone
+
+        from posthog.models.personal_api_key import PersonalAPIKey
         from posthog.models.team.team import Team
 
         # Create a key that hasn't been used recently - scoped to organization
@@ -224,8 +226,8 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(membership_queryset.count(), 0)
 
         mock_capture.assert_called_with(
-            self.user.distinct_id,
-            "organization member removed",
+            distinct_id=self.user.distinct_id,
+            event="organization member removed",
             properties={
                 "removed_member_id": self.user.distinct_id,
                 "removed_by_id": self.user.distinct_id,

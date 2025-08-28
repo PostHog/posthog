@@ -1,3 +1,9 @@
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
+import posthog from 'posthog-js'
+import type { ReactNode } from 'react'
+
 import {
     IconDatabase,
     IconFeatures,
@@ -8,17 +14,13 @@ import {
     IconTestTube,
     IconToggle,
 } from '@posthog/icons'
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+
 import api from 'lib/api'
 import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { ProductIntentContext } from 'lib/utils/product-intents'
-import posthog from 'posthog-js'
-import type { ReactNode } from 'react'
 import { availableOnboardingProducts } from 'scenes/onboarding/utils'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
@@ -29,6 +31,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import {
     ActivationTaskStatus,
     EventDefinitionType,
+    OnboardingStepKey,
     PipelineStage,
     ProductKey,
     ReplayTabs,
@@ -50,6 +53,7 @@ export type ActivationTaskDefinition = {
         reason: string
     }[]
     url?: string
+    buttonText?: string
 }
 
 export type ActivationTaskType = Omit<ActivationTaskDefinition, 'dependsOn'> & {
@@ -99,6 +103,8 @@ export const activationLogic = kea<activationLogicType>([
         toggleSectionOpen: (section: ActivationSection) => ({ section }),
         setOpenSections: (teamId: TeamBasicType['id'], sections: ActivationSection[]) => ({ teamId, sections }),
         onTeamLoad: (team: TeamType | TeamPublicType | null) => ({ team }),
+        setExpandedTaskId: (taskId: ActivationTask | null) => ({ taskId }),
+        setTaskContentHeight: (taskId: ActivationTask, height: number) => ({ taskId, height }),
     }),
     reducers(() => ({
         openSections: [
@@ -117,6 +123,21 @@ export const activationLogic = kea<activationLogicType>([
             false,
             {
                 toggleShowHiddenSections: (state) => !state,
+            },
+        ],
+        expandedTaskId: [
+            null as ActivationTask | null,
+            {
+                setExpandedTaskId: (_state, { taskId }) => taskId,
+            },
+        ],
+        taskContentHeights: [
+            {} as Record<ActivationTask, number>,
+            {
+                setTaskContentHeight: (state, { taskId, height }) => ({
+                    ...state,
+                    [taskId]: height,
+                }),
             },
         ],
     })),
@@ -157,7 +178,7 @@ export const activationLogic = kea<activationLogicType>([
         ],
         currentTeamOpenSections: [
             (s) => [s.openSections, s.currentTeam],
-            (openSections, currentTeam) => (currentTeam?.id ? openSections[currentTeam?.id] ?? [] : []),
+            (openSections, currentTeam) => (currentTeam?.id ? (openSections[currentTeam?.id] ?? []) : []),
         ],
         hasCompletedFirstOnboarding: [
             (s) => [s.currentTeam],
@@ -256,7 +277,7 @@ export const activationLogic = kea<activationLogicType>([
             switch (id) {
                 // Quick Start
                 case ActivationTask.IngestFirstEvent:
-                    router.actions.push(urls.onboarding(ProductKey.PRODUCT_ANALYTICS))
+                    router.actions.push(urls.onboarding(ProductKey.PRODUCT_ANALYTICS, OnboardingStepKey.INSTALL))
                     break
                 case ActivationTask.InviteTeamMember:
                     actions.showInviteModal()
@@ -267,7 +288,7 @@ export const activationLogic = kea<activationLogicType>([
                     router.actions.push(urls.insightNew())
                     break
                 case ActivationTask.CreateFirstDashboard:
-                    router.actions.push(urls.dashboards())
+                    router.actions.push(urls.dashboards() + '#newDashboard=modal')
                     break
 
                 // Web Analytics
@@ -433,6 +454,16 @@ export const activationLogic = kea<activationLogicType>([
         if (values.currentTeam) {
             actions.onTeamLoad(values.currentTeam)
         }
+
+        // Auto-expand first available task with content
+        if (!values.expandedTaskId) {
+            const firstAvailableTask = values.activeTasks.find(
+                (task) => !task.completed && !task.skipped && !task.lockedReason
+            )
+            if (firstAvailableTask) {
+                actions.setExpandedTaskId(firstAvailableTask.id)
+            }
+        }
     }),
     permanentlyMount(),
 ])
@@ -535,12 +566,14 @@ export const ACTIVATION_TASKS: ActivationTaskDefinition[] = [
         title: 'Ingest your first event',
         canSkip: false,
         section: ActivationSection.QuickStart,
+        buttonText: 'Install PostHog',
     },
     {
         id: ActivationTask.InviteTeamMember,
         title: 'Invite a team member',
         canSkip: true,
         section: ActivationSection.QuickStart,
+        buttonText: 'Invite teammate',
     },
     {
         id: ActivationTask.SetUpReverseProxy,
@@ -548,6 +581,7 @@ export const ACTIVATION_TASKS: ActivationTaskDefinition[] = [
         canSkip: true,
         section: ActivationSection.QuickStart,
         url: 'https://posthog.com/docs/advanced/proxy',
+        buttonText: 'Set up proxy',
     },
 
     // Product Analytics
@@ -556,12 +590,14 @@ export const ACTIVATION_TASKS: ActivationTaskDefinition[] = [
         title: 'Create your first insight',
         canSkip: false,
         section: ActivationSection.ProductAnalytics,
+        buttonText: 'Create insight',
     },
     {
         id: ActivationTask.CreateFirstDashboard,
         title: 'Create your first dashboard',
         canSkip: false,
         section: ActivationSection.ProductAnalytics,
+        buttonText: 'Create dashboard',
     },
     {
         id: ActivationTask.TrackCustomEvents,
@@ -569,6 +605,7 @@ export const ACTIVATION_TASKS: ActivationTaskDefinition[] = [
         canSkip: true,
         section: ActivationSection.ProductAnalytics,
         url: 'https://posthog.com/tutorials/event-tracking-guide#setting-up-custom-events',
+        buttonText: 'Track events',
     },
 
     // Web Analytics
@@ -577,12 +614,14 @@ export const ACTIVATION_TASKS: ActivationTaskDefinition[] = [
         title: 'Add an authorized domain',
         canSkip: false,
         section: ActivationSection.WebAnalytics,
+        buttonText: 'Add domain',
     },
     {
         id: ActivationTask.SetUpWebVitals,
         title: 'Set up web vitals',
         canSkip: true,
         section: ActivationSection.WebAnalytics,
+        buttonText: 'Set up vitals',
     },
 
     // Sesion Replay
@@ -591,6 +630,7 @@ export const ACTIVATION_TASKS: ActivationTaskDefinition[] = [
         title: 'Set up session recordings',
         canSkip: false,
         section: ActivationSection.SessionReplay,
+        buttonText: 'Enable recordings',
     },
     {
         id: ActivationTask.WatchSessionRecording,
@@ -603,6 +643,7 @@ export const ACTIVATION_TASKS: ActivationTaskDefinition[] = [
                 reason: 'Set up session recordings first',
             },
         ],
+        buttonText: 'Watch recording',
     },
 
     // Feature Flags
@@ -611,6 +652,7 @@ export const ACTIVATION_TASKS: ActivationTaskDefinition[] = [
         section: ActivationSection.FeatureFlags,
         title: 'Create a feature flag',
         canSkip: false,
+        buttonText: 'Create flag',
     },
     {
         id: ActivationTask.UpdateFeatureFlagReleaseConditions,
@@ -623,6 +665,7 @@ export const ACTIVATION_TASKS: ActivationTaskDefinition[] = [
                 reason: 'Create a feature flag first',
             },
         ],
+        buttonText: 'Update conditions',
     },
 
     // Experiments
@@ -631,6 +674,7 @@ export const ACTIVATION_TASKS: ActivationTaskDefinition[] = [
         section: ActivationSection.Experiments,
         title: 'Launch an experiment',
         canSkip: false,
+        buttonText: 'Launch experiment',
     },
 
     // Data Warehouse
@@ -639,6 +683,7 @@ export const ACTIVATION_TASKS: ActivationTaskDefinition[] = [
         title: 'Connect external data source',
         canSkip: false,
         section: ActivationSection.DataWarehouse,
+        buttonText: 'Connect source',
     },
 
     // Surveys
@@ -647,6 +692,7 @@ export const ACTIVATION_TASKS: ActivationTaskDefinition[] = [
         title: 'Launch a survey',
         canSkip: false,
         section: ActivationSection.Surveys,
+        buttonText: 'Launch survey',
     },
     {
         id: ActivationTask.CollectSurveyResponses,
@@ -659,5 +705,6 @@ export const ACTIVATION_TASKS: ActivationTaskDefinition[] = [
                 reason: 'Launch a survey first',
             },
         ],
+        buttonText: 'View responses',
     },
 ]

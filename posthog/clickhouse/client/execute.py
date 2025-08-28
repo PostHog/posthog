@@ -1,30 +1,33 @@
+import types
 import logging
 import threading
 import traceback
-import types
 from collections.abc import Sequence
 from contextlib import contextmanager
 from functools import lru_cache
 from time import perf_counter
 from typing import Any, Optional, Union
 
+from django.conf import settings as app_settings
+
 import sqlparse
 from clickhouse_driver import Client as SyncClient
-from django.conf import settings as app_settings
+from opentelemetry import trace
 from prometheus_client import Counter
 
 from posthog.clickhouse.client.connection import (
+    ClickHouseUser,
     Workload,
     get_client_from_pool,
     get_default_clickhouse_workload_type,
-    ClickHouseUser,
 )
 from posthog.clickhouse.client.escape import substitute_params
-from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, QueryTags, AccessMethod
+from posthog.clickhouse.client.tracing import trace_clickhouse_query_decorator
+from posthog.clickhouse.query_tagging import AccessMethod, Feature, QueryTags, get_query_tag_value, get_query_tags
 from posthog.cloud_utils import is_cloud
-from posthog.errors import wrap_query_error, ch_error_type
-from posthog.exceptions import ClickhouseAtCapacity
-from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, TEST, API_QUERIES_ON_ONLINE_CLUSTER
+from posthog.errors import ch_error_type, wrap_query_error
+from posthog.exceptions import ClickHouseAtCapacity
+from posthog.settings import API_QUERIES_ON_ONLINE_CLUSTER, CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, TEST
 from posthog.temporal.common.clickhouse import update_query_tags_with_temporal_info
 from posthog.utils import generate_short_id, patchable
 
@@ -105,6 +108,7 @@ logger = logging.getLogger(__name__)
 
 
 @patchable
+@trace_clickhouse_query_decorator
 def sync_execute(
     query,
     args=None,
@@ -156,6 +160,8 @@ def sync_execute(
     if workload == Workload.DEFAULT:
         workload = get_default_clickhouse_workload_type()
 
+    trace.get_current_span().set_attribute("clickhouse.final_workload", workload.value)
+
     if team_id is not None:
         tags.team_id = team_id
 
@@ -174,6 +180,8 @@ def sync_execute(
         elif tags.kind == "request" and "api/" in tags_id and "capture" not in tags_id:
             # process requests made to API from the PH app
             ch_user = ClickHouseUser.APP
+        elif tags.feature == Feature.CACHE_WARMUP:
+            ch_user = ClickHouseUser.CACHE_WARMUP
 
     # update tags if inside temporal (should not)
     update_query_tags_with_temporal_info()
@@ -216,7 +224,7 @@ def sync_execute(
                 chargeable=str(tags.chargeable or "0"),
             ).inc()
             err = wrap_query_error(e)
-            if isinstance(err, ClickhouseAtCapacity) and is_personal_api_key and workload == Workload.OFFLINE:
+            if isinstance(err, ClickHouseAtCapacity) and is_personal_api_key and workload == Workload.OFFLINE:
                 workload = Workload.ONLINE
                 tags.clickhouse_exception_type = exception_type
                 tags.workload = str(workload)
@@ -345,8 +353,8 @@ def format_sql(rendered_sql, colorize=True):
     formatted_sql = sqlparse.format(rendered_sql, reindent_aligned=True)
     if colorize:
         try:
-            import pygments.formatters
             import pygments.lexers
+            import pygments.formatters
 
             return pygments.highlight(
                 formatted_sql,

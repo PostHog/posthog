@@ -1,4 +1,5 @@
-import { HogFunctionTemplate } from '../../types' // Assuming this path is correct from your initial file
+// Assuming this path is correct from your initial file
+import { HogFunctionTemplate } from '~/cdp/types'
 
 interface DestinationConfig {
     name: string
@@ -181,18 +182,6 @@ const destinationDefinitions: DestinationConfig[] = [
         name: 'Flurry',
         id: 'coming-soon-flurry',
         icon_url: '/static/coming-soon-destinations/Flurry.svg',
-        category: ['Analytics'],
-    },
-    {
-        name: 'Google Analytics',
-        id: 'coming-soon-google-analytics',
-        icon_url: '/static/coming-soon-destinations/Google_Analytics.svg',
-        category: ['Analytics'],
-    },
-    {
-        name: 'Google Analytics 360',
-        id: 'coming-soon-google-analytics-360',
-        icon_url: '/static/coming-soon-destinations/Google_Analytics_360.svg',
         category: ['Analytics'],
     },
     {
@@ -984,12 +973,6 @@ const destinationDefinitions: DestinationConfig[] = [
 
     // Productivity
     {
-        name: 'ClickUp',
-        id: 'coming-soon-clickup',
-        icon_url: '/static/coming-soon-destinations/ClickUp.svg',
-        category: ['Productivity'],
-    },
-    {
         name: 'Google Sheets',
         id: 'coming-soon-google-sheets',
         icon_url: '/static/coming-soon-destinations/Google_Sheets.svg',
@@ -1044,14 +1027,6 @@ const destinationDefinitions: DestinationConfig[] = [
         category: ['Surveys'],
     },
 
-    // Tag Managers
-    {
-        name: 'Google Tag Manager',
-        id: 'coming-soon-google-tag-manager',
-        icon_url: '/static/coming-soon-destinations/Google_Tag_Manager.svg',
-        category: ['Tag Managers'],
-    },
-
     // User Engagement Platforms
     {
         name: 'Appcues',
@@ -1087,6 +1062,7 @@ export const allComingSoonTemplates: HogFunctionTemplate[] = destinationDefiniti
     free: true,
     status: 'coming_soon' as const,
     type: 'destination' as const,
-    hog: `return event;`,
+    code: `return event;`,
+    code_language: 'javascript',
     inputs_schema: [],
 }))

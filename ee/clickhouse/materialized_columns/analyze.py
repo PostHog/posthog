@@ -4,6 +4,10 @@ from typing import Optional
 
 import structlog
 
+from posthog.clickhouse.client import sync_execute
+from posthog.models.property import PropertyName, TableColumn, TableWithProperties
+from posthog.settings import CLICKHOUSE_CLUSTER
+
 from ee.clickhouse.materialized_columns.columns import (
     MaterializedColumn,
     backfill_materialized_columns,
@@ -16,9 +20,6 @@ from ee.settings import (
     MATERIALIZE_COLUMNS_MAX_AT_ONCE,
     MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME,
 )
-from posthog.clickhouse.client import sync_execute
-from posthog.models.property import PropertyName, TableColumn, TableWithProperties
-from posthog.settings import CLICKHOUSE_CLUSTER
 
 Suggestion = tuple[TableWithProperties, TableColumn, PropertyName]
 
@@ -120,7 +121,7 @@ def materialize_properties_task(
 
     materialized_columns: dict[TableWithProperties, list[MaterializedColumn]] = defaultdict(list)
     for table, table_column, property_name in result[:maximum]:
-        logger.info(f"Materializing column. table={table}, property_name={property_name}")
+        logger.info(f"Materializing column. table={table}, table_column={table_column} property_name={property_name}")
         if not dry_run:
             materialized_columns[table].append(
                 materialize(table, property_name, table_column=table_column, is_nullable=is_nullable)

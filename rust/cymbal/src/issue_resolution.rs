@@ -3,14 +3,15 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use common_kafka::kafka_messages::internal_events::{InternalEvent, InternalEventEvent};
-use common_kafka::kafka_producer::send_iter_to_kafka;
+use common_kafka::kafka_producer::{send_iter_to_kafka, KafkaProduceError};
 
+use rdkafka::types::RDKafkaErrorCode;
 use sqlx::{Acquire, PgConnection};
 use uuid::Uuid;
 
 use crate::assignment_rules::{try_assignment_rules, Assignee, Assignment};
 use crate::teams::TeamManager;
-use crate::types::FingerprintedErrProps;
+use crate::types::{FingerprintedErrProps, OutputErrProps};
 use crate::{
     app_context::AppContext,
     error::UnhandledError,
@@ -117,6 +118,8 @@ impl Issue {
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
+        // Truncate the description to 255 characters, we've seen very large exception values
+        let description = description.chars().take(255).collect();
         let issue = Self {
             id: Uuid::now_v7(),
             team_id,
@@ -182,7 +185,7 @@ impl Issue {
         let assignments = sqlx::query_as!(
             Assignment,
             r#"
-            SELECT id, issue_id, user_id, user_group_id, role_id, created_at FROM posthog_errortrackingissueassignment
+            SELECT id, issue_id, user_id, role_id, created_at FROM posthog_errortrackingissueassignment
             WHERE issue_id = $1
             "#,
             self.id
@@ -269,7 +272,9 @@ pub async fn resolve_issue(
                 event_properties.clone(),
             )
             .await?;
-            send_issue_reopened_alert(&context, &issue, assignment).await?;
+            let output_props: OutputErrProps = event_properties.clone().to_output(issue.id);
+            send_issue_reopened_alert(&context, &issue, assignment, output_props, &event_timestamp)
+                .await?;
         }
         return Ok(issue);
     }
@@ -320,7 +325,9 @@ pub async fn resolve_issue(
                 event_properties.clone(),
             )
             .await?;
-            send_issue_reopened_alert(&context, &issue, assignment).await?;
+            let output_props: OutputErrProps = event_properties.clone().to_output(issue.id);
+            send_issue_reopened_alert(&context, &issue, assignment, output_props, &event_timestamp)
+                .await?;
         }
     } else {
         metrics::counter!(ISSUE_CREATED).increment(1);
@@ -331,7 +338,10 @@ pub async fn resolve_issue(
             event_properties.clone(),
         )
         .await?;
-        send_issue_created_alert(&context, &issue, assignment).await?;
+
+        let output_props = event_properties.clone().to_output(issue.id);
+        send_issue_created_alert(&context, &issue, assignment, output_props, &event_timestamp)
+            .await?;
         txn.commit().await?;
         capture_issue_created(team_id, issue_override.issue_id);
     };
@@ -364,16 +374,36 @@ async fn send_issue_created_alert(
     context: &AppContext,
     issue: &Issue,
     assignment: Option<Assignment>,
+    output_props: OutputErrProps,
+    event_timestamp: &DateTime<Utc>,
 ) -> Result<(), UnhandledError> {
-    send_internal_event(context, "$error_tracking_issue_created", issue, assignment).await
+    send_internal_event(
+        context,
+        "$error_tracking_issue_created",
+        issue,
+        assignment,
+        output_props,
+        event_timestamp,
+    )
+    .await
 }
 
 async fn send_issue_reopened_alert(
     context: &AppContext,
     issue: &Issue,
     assignment: Option<Assignment>,
+    output_props: OutputErrProps,
+    event_timestamp: &DateTime<Utc>,
 ) -> Result<(), UnhandledError> {
-    send_internal_event(context, "$error_tracking_issue_reopened", issue, assignment).await
+    send_internal_event(
+        context,
+        "$error_tracking_issue_reopened",
+        issue,
+        assignment,
+        output_props,
+        event_timestamp,
+    )
+    .await
 }
 
 async fn send_internal_event(
@@ -381,6 +411,8 @@ async fn send_internal_event(
     event: &str,
     issue: &Issue,
     new_assignment: Option<Assignment>,
+    output_props: OutputErrProps,
+    event_timestamp: &DateTime<Utc>,
 ) -> Result<(), UnhandledError> {
     let mut event = InternalEventEvent::new(event, issue.id, Utc::now(), None);
     event
@@ -390,6 +422,9 @@ async fn send_internal_event(
         .insert_prop("description", issue.description.clone())
         .expect("Strings are serializable");
     event.insert_prop("status", issue.status.as_str())?;
+    event.insert_prop("fingerprint", &output_props.fingerprint)?;
+    event.insert_prop("exception_timestamp", event_timestamp)?;
+    event.insert_prop("exception_props", output_props)?;
 
     if let Some(assignment) = new_assignment {
         let assignee = Assignee::try_from(&assignment)?;
@@ -400,20 +435,44 @@ async fn send_internal_event(
             .expect("Strings are serializable");
     }
 
-    send_iter_to_kafka(
+    let iter = [InternalEvent {
+        team_id: issue.team_id,
+        event,
+        person: None,
+    }];
+
+    let res = send_iter_to_kafka(
         &context.immediate_producer,
         &context.config.internal_events_topic,
-        &[InternalEvent {
-            team_id: issue.team_id,
-            event,
-            person: None,
-        }],
+        &iter,
     )
     .await
     .into_iter()
-    .collect::<Result<Vec<_>, _>>()?;
+    .collect::<Result<Vec<_>, _>>();
 
-    Ok(())
+    match res {
+        Ok(_) => Ok(()),
+        Err(KafkaProduceError::KafkaProduceError { error })
+            if matches!(
+                error.rdkafka_error_code(),
+                Some(RDKafkaErrorCode::MessageSizeTooLarge)
+            ) =>
+        {
+            let mut iter = iter;
+            iter[0].event.properties.remove("exception_props");
+            iter[0].event.insert_prop("message_was_too_large", true)?;
+            send_iter_to_kafka(
+                &context.immediate_producer,
+                &context.config.internal_events_topic,
+                &iter,
+            )
+            .await
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()?;
+            Ok(())
+        }
+        Err(e) => Err(e.into()),
+    }
 }
 
 impl From<String> for IssueStatus {

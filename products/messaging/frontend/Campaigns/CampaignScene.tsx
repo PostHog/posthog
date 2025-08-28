@@ -1,30 +1,35 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { router } from 'kea-router'
-import { PageHeader } from 'lib/components/PageHeader'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+
+import { SpinnerOverlay } from '@posthog/lemon-ui'
+
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { campaignLogic } from './campaignLogic'
 import { CampaignMetrics } from './CampaignMetrics'
 import { CampaignOverview } from './CampaignOverview'
-import { campaignSceneLogic, CampaignSceneLogicProps, CampaignTab } from './campaignSceneLogic'
+import { CampaignSceneHeader } from './CampaignSceneHeader'
 import { CampaignWorkflow } from './CampaignWorkflow'
+import { campaignLogic } from './campaignLogic'
+import { CampaignSceneLogicProps, CampaignTab, campaignSceneLogic } from './campaignSceneLogic'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<CampaignSceneLogicProps> = {
     component: CampaignScene,
     logic: campaignSceneLogic,
-    paramsToProps: ({ params: { id, tab } }): CampaignSceneLogicProps => ({ id: id || 'new', tab: tab || 'overview' }),
+    paramsToProps: ({ params: { id, tab } }) => ({ id: id || 'new', tab: tab || 'overview' }),
 }
 
-export function CampaignScene(props: CampaignSceneLogicProps = {}): JSX.Element {
+export function CampaignScene(props: CampaignSceneLogicProps): JSX.Element {
     const { currentTab } = useValues(campaignSceneLogic)
 
     const logic = campaignLogic(props)
-    const { campaignChanged, isCampaignSubmitting } = useValues(logic)
-    const { submitCampaign, discardChanges } = useActions(logic)
+    const { campaignLoading } = useValues(logic)
+
+    if (campaignLoading) {
+        return <SpinnerOverlay sceneLevel />
+    }
 
     const tabs: (LemonTab<CampaignTab> | null)[] = [
         {
@@ -37,14 +42,14 @@ export function CampaignScene(props: CampaignSceneLogicProps = {}): JSX.Element 
             key: 'workflow',
             content: <CampaignWorkflow {...props} />,
         },
-        props.id
+        props.id && props.id !== 'new'
             ? {
                   label: 'Logs',
                   key: 'logs',
                   content: <LogsViewer sourceType="hog_flow" sourceId={props.id} />,
               }
             : null,
-        props.id
+        props.id && props.id !== 'new'
             ? {
                   label: 'Metrics',
                   key: 'metrics',
@@ -55,31 +60,7 @@ export function CampaignScene(props: CampaignSceneLogicProps = {}): JSX.Element 
 
     return (
         <div className="flex flex-col space-y-4">
-            <PageHeader
-                buttons={
-                    <>
-                        {campaignChanged && (
-                            <LemonButton
-                                data-attr="discard-campaign-changes"
-                                type="secondary"
-                                onClick={() => discardChanges()}
-                            >
-                                Discard changes
-                            </LemonButton>
-                        )}
-                        <LemonButton
-                            type="primary"
-                            htmlType="submit"
-                            form="campaign"
-                            onClick={submitCampaign}
-                            loading={isCampaignSubmitting}
-                            disabledReason={campaignChanged ? undefined : 'No changes to save'}
-                        >
-                            {props.id === 'new' ? 'Create' : 'Save'}
-                        </LemonButton>
-                    </>
-                }
-            />
+            <CampaignSceneHeader {...props} />
             <LemonTabs
                 activeKey={currentTab}
                 onChange={(tab) => router.actions.push(urls.messagingCampaign(props.id ?? 'new', tab))}

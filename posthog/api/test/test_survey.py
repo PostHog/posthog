@@ -1,23 +1,11 @@
-import json
 import re
-from datetime import datetime, timedelta, UTC
-from typing import Any
-from unittest.mock import ANY, patch
+import json
 import uuid
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
-from django.core.cache import cache
-from django.test.client import Client
 from freezegun.api import freeze_time
-from nanoid import generate
-from rest_framework import status
-
-from posthog.api.survey import nh3_clean_with_allow_list
-from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
-from posthog.constants import AvailableFeature
-from posthog.models import Action, FeatureFlag, Team, Person
-from posthog.models.cohort.cohort import Cohort
-from posthog.models.surveys.survey import Survey, MAX_ITERATION_COUNT
 from posthog.test.base import (
     APIBaseTest,
     BaseTest,
@@ -28,6 +16,20 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
     snapshot_postgres_queries,
 )
+from unittest.mock import ANY, patch
+
+from django.core.cache import cache
+from django.test.client import Client
+
+from nanoid import generate
+from rest_framework import status
+
+from posthog.api.survey import nh3_clean_with_allow_list
+from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
+from posthog.constants import AvailableFeature
+from posthog.models import Action, FeatureFlag, Person, Team
+from posthog.models.cohort.cohort import Cohort
+from posthog.models.surveys.survey import MAX_ITERATION_COUNT, Survey
 
 
 class TestSurvey(APIBaseTest):
@@ -1134,6 +1136,7 @@ class TestSurvey(APIBaseTest):
                         "ensure_experience_continuity": False,
                         "has_encrypted_payloads": False,
                         "version": ANY,  # Add version field with ANY matcher
+                        "evaluation_runtime": "all",
                     },
                     "linked_flag": None,
                     "linked_flag_id": None,
@@ -2288,32 +2291,6 @@ class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
         assert response_data["questions"][0]["descriptionContentType"] == "html"
         assert response_data["questions"][0]["description"] == "<b>This is a description</b>"
 
-    def test_create_survey_with_html_without_feature_flag(self):
-        # Remove the SURVEYS_TEXT_HTML feature
-        self.organization.available_product_features = []
-        self.organization.save()
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/surveys/",
-            data={
-                "name": "Notebooks beta release survey",
-                "description": "Get feedback on the new notebooks feature",
-                "type": "popover",
-                "questions": [
-                    {
-                        "type": "open",
-                        "question": "What's a survey?",
-                        "description": "<b>This is a description</b>",
-                        "descriptionContentType": "html",
-                    }
-                ],
-            },
-            format="json",
-        )
-        response_data = response.json()
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
-        assert response_data["detail"] == "You need to upgrade to PostHog Enterprise to use HTML in survey questions"
-
     def test_create_survey_with_valid_thank_you_description_content_type_html(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
@@ -2335,8 +2312,7 @@ class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
         assert response_data["appearance"]["thankYouMessageDescriptionContentType"] == "html"
         assert response_data["appearance"]["thankYouMessageDescription"] == "<b>This is a thank you message</b>"
 
-    def test_create_survey_with_html_thank_you_without_feature_flag(self):
-        # Remove the SURVEYS_TEXT_HTML feature
+    def test_create_survey_with_white_label(self):
         self.organization.available_product_features = []
         self.organization.save()
 
@@ -2350,16 +2326,14 @@ class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
                     "thankYouMessageHeader": "Thanks for your feedback!",
                     "thankYouMessageDescription": "<b>This is a thank you message</b>",
                     "thankYouMessageDescriptionContentType": "html",
+                    "whiteLabel": True,
                 },
             },
             format="json",
         )
         response_data = response.json()
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
-        assert (
-            response_data["detail"]
-            == "You need to upgrade to PostHog Enterprise to use HTML in survey thank you message"
-        )
+        assert response_data["detail"] == "You need to upgrade to PostHog Enterprise to use white labelling"
 
 
 class TestSurveyWithActions(APIBaseTest):
@@ -3292,9 +3266,8 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
                 properties=event_data["properties"],
             )
 
-        with patch("posthog.api.survey.SurveyViewSet.is_partial_responses_enabled", return_value=True):
-            response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         data = response.json()
 
@@ -3500,8 +3473,7 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
 
         flush_persons_and_events()
 
-        with patch("posthog.api.survey.SurveyViewSet.is_partial_responses_enabled", return_value=True):
-            response = self.client.get(f"/api/projects/{self.team.id}/surveys/{survey.id}/stats/")
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/{survey.id}/stats/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         data: dict[str, Any] = response.json()
@@ -3527,6 +3499,233 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(rates_reassigned["response_rate"], 100.0)
         # (Unique persons dismissed / Unique persons shown) * 100 = (1 / 3) * 100 = 33.33
         self.assertEqual(rates_reassigned["dismissal_rate"], 33.33)
+
+    def test_create_survey_with_valid_linked_flag_variant(self):
+        """Test creating a survey with a valid linkedFlagVariant"""
+        # Create a multivariate feature flag
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-ab-flag",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "treatment", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Variant Survey",
+                "type": "popover",
+                "linked_flag_id": flag.id,
+                "conditions": {"linkedFlagVariant": "control"},
+                "questions": [{"type": "open", "question": "How is the control version?"}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        survey_data = response.json()
+        self.assertEqual(survey_data["linked_flag"]["id"], flag.id)
+        self.assertEqual(survey_data["conditions"]["linkedFlagVariant"], "control")
+
+    def test_create_survey_with_invalid_linked_flag_variant(self):
+        """Test creating a survey with an invalid linkedFlagVariant"""
+        # Create a multivariate feature flag
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-ab-flag",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "treatment", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Invalid Variant Survey",
+                "type": "popover",
+                "linked_flag_id": flag.id,
+                "conditions": {"linkedFlagVariant": "non_existent_variant"},
+                "questions": [{"type": "open", "question": "Test question"}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        error_data = response.json()
+        self.assertIn("Feature flag variant 'non_existent_variant' does not exist", error_data["detail"])
+        self.assertIn("Available variants: control, treatment", error_data["detail"])
+
+    def test_create_survey_with_linked_flag_variant_any(self):
+        """Test creating a survey with linkedFlagVariant set to 'any'"""
+        # Create a multivariate feature flag
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-multivariate-flag",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "variant_a", "rollout_percentage": 33},
+                        {"key": "variant_b", "rollout_percentage": 33},
+                        {"key": "variant_c", "rollout_percentage": 34},
+                    ]
+                },
+            },
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Any Variant Survey",
+                "type": "popover",
+                "linked_flag_id": flag.id,
+                "conditions": {"linkedFlagVariant": "any"},
+                "questions": [{"type": "open", "question": "How is the feature?"}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        survey_data = response.json()
+        self.assertEqual(survey_data["linked_flag"]["id"], flag.id)
+        self.assertEqual(survey_data["conditions"]["linkedFlagVariant"], "any")
+
+    def test_create_survey_with_linked_flag_variant_no_variants(self):
+        """Test creating a survey with linkedFlagVariant when flag has no variants"""
+        # Create a simple feature flag without variants
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="simple-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "No Variants Survey",
+                "type": "popover",
+                "linked_flag_id": flag.id,
+                "conditions": {"linkedFlagVariant": "some_variant"},
+                "questions": [{"type": "open", "question": "Test question"}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        error_data = response.json()
+        self.assertIn(
+            "Feature flag variant 'some_variant' specified but the linked feature flag has no variants",
+            error_data["detail"],
+        )
+
+    def test_create_survey_with_linked_flag_variant_without_flag_id(self):
+        """Test creating a survey with linkedFlagVariant but no linked_flag_id"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "No Flag ID Survey",
+                "type": "popover",
+                "conditions": {"linkedFlagVariant": "some_variant"},
+                "questions": [{"type": "open", "question": "Test question"}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        error_data = response.json()
+        self.assertEqual(error_data["detail"], "linkedFlagVariant can only be used when a linked_flag_id is specified")
+
+    def test_update_survey_with_valid_linked_flag_variant(self):
+        """Test updating a survey to add a valid linkedFlagVariant"""
+        # Create a multivariate feature flag
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="update-test-flag",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [{"key": "alpha", "rollout_percentage": 50}, {"key": "beta", "rollout_percentage": 50}]
+                },
+            },
+        )
+
+        # Create a survey without variant
+        survey = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Update Test Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "Initial question"}],
+        )
+
+        # Update survey to add feature flag and variant
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"linked_flag_id": flag.id, "conditions": {"linkedFlagVariant": "alpha"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        survey_data = response.json()
+        self.assertEqual(survey_data["linked_flag"]["id"], flag.id)
+        self.assertEqual(survey_data["conditions"]["linkedFlagVariant"], "alpha")
+
+    def test_update_survey_with_invalid_linked_flag_variant(self):
+        """Test updating a survey with an invalid linkedFlagVariant"""
+        # Create a multivariate feature flag
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="update-invalid-test-flag",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "option_1", "rollout_percentage": 50},
+                        {"key": "option_2", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+
+        # Create a survey
+        survey = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Update Invalid Test Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "Initial question"}],
+        )
+
+        # Try to update survey with invalid variant
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"linked_flag_id": flag.id, "conditions": {"linkedFlagVariant": "invalid_option"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        error_data = response.json()
+        self.assertIn("Feature flag variant 'invalid_option' does not exist", error_data["detail"])
+        self.assertIn("Available variants: option_1, option_2", error_data["detail"])
 
 
 @pytest.mark.parametrize(

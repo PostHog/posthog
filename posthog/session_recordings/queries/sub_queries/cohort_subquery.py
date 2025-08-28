@@ -1,21 +1,29 @@
+from posthog.schema import FilterLogicalOperator, PropertyGroupFilterValue, RecordingsQuery
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
+
 from posthog.models import Team
-from posthog.schema import RecordingsQuery, PropertyGroupFilterValue, FilterLogicalOperator
-from posthog.session_recordings.queries.utils import is_cohort_property
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
+from posthog.session_recordings.queries.utils import is_cohort_property
 
 
 class CohortPropertyGroupsSubQuery(SessionRecordingsListingBaseQuery):
     raw_cohort_to_distinct_id = """
     SELECT
-    distinct_id
-FROM raw_person_distinct_ids
-WHERE distinct_id in (SELECT distinct_id FROM raw_person_distinct_ids WHERE 1=1 AND {cohort_predicate})
-GROUP BY distinct_id
-HAVING argMax(is_deleted, version) = 0 AND {cohort_predicate}
-    """
+        distinct_id
+    FROM
+        raw_person_distinct_ids
+    WHERE distinct_id in (
+        SELECT distinct_id
+        FROM raw_person_distinct_ids
+        WHERE 1=1 AND {cohort_predicate}
+        )
+    GROUP BY
+        distinct_id
+    HAVING argMax(is_deleted, version) = 0
+        """
 
     def __init__(self, team: Team, query: RecordingsQuery):
         super().__init__(team, query)

@@ -1,10 +1,21 @@
 import json
+from collections.abc import Callable
 from copy import deepcopy
 from typing import Optional, cast
-from collections.abc import Callable
 
+from django.db import models
 from django.db.models.functions.comparison import Coalesce
 
+from posthog.schema import (
+    AutocompleteCompletionItem,
+    AutocompleteCompletionItemKind,
+    HogLanguage,
+    HogQLAutocomplete,
+    HogQLAutocompleteResponse,
+)
+
+from posthog.hogql import ast
+from posthog.hogql.base import AST, CTE, ConstantType
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import HOGQL_CHARACTERS_TO_BE_WRAPPED, Database, create_hogql_database
 from posthog.hogql.database.models import (
@@ -24,27 +35,20 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES
-from posthog.hogql.parser import parse_select, parse_expr, parse_string_template, parse_program
-from posthog.hogql import ast
-from posthog.hogql.base import AST, CTE, ConstantType
-from posthog.hogql.resolver import resolve_types
+from posthog.hogql.parser import parse_expr, parse_program, parse_select, parse_string_template
+from posthog.hogql.resolver import resolve_types, resolve_types_from_table
+from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
+
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import get_query_runner
-from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.property_definition import PropertyDefinition
 from posthog.models.team.team import Team
-from posthog.schema import (
-    HogQLAutocomplete,
-    HogQLAutocompleteResponse,
-    AutocompleteCompletionItem,
-    AutocompleteCompletionItemKind,
-    HogLanguage,
-)
+
 from common.hogvm.python.stl import STL
 from common.hogvm.python.stl.bytecode import BYTECODE_STL
-from django.db import models
 
 ALL_HOG_FUNCTIONS = sorted(list(STL.keys()) + list(BYTECODE_STL.keys()))
 MATCH_ANY_CHARACTER = "$$_POSTHOG_ANY_$$"
@@ -113,7 +117,9 @@ def constant_type_to_database_field(constant_type: ConstantType, name: str) -> D
     return DatabaseField(name=name)
 
 
-def convert_field_or_table_to_type_string(field_or_table: FieldOrTable) -> str | None:
+def convert_field_or_table_to_type_string(
+    field_or_table: FieldOrTable, parent_table: str, context: HogQLContext
+) -> str | None:
     if isinstance(field_or_table, BooleanDatabaseField):
         return "Boolean"
     if isinstance(field_or_table, IntegerDatabaseField):
@@ -129,7 +135,19 @@ def convert_field_or_table_to_type_string(field_or_table: FieldOrTable) -> str |
     if isinstance(field_or_table, StringJSONDatabaseField):
         return "Object"
     if isinstance(field_or_table, ast.ExpressionField):
-        return "Expression"
+        parent_table_chain = parent_table.replace("`", "").split(".")
+        try:
+            field_expr = resolve_types_from_table(field_or_table.expr, parent_table_chain, context, "hogql")
+            assert field_expr.type is not None
+            constant_type = field_expr.type.resolve_constant_type(context)
+
+            return constant_type.print_type()
+        except Exception as e:
+            tracking_error = Exception("Cant resolve expression field in autocomplete")
+            tracking_error.__cause__ = e
+            capture_exception(tracking_error)
+
+            return "Expression"
     if isinstance(field_or_table, ast.Table | ast.LazyJoin):
         return "Table"
 
@@ -265,7 +283,9 @@ def resolve_table_field_traversers(table: Table, context: HogQLContext) -> Table
     return new_table
 
 
-def append_table_field_to_response(table: Table, suggestions: list[AutocompleteCompletionItem], language: str) -> None:
+def append_table_field_to_response(
+    table: Table, suggestions: list[AutocompleteCompletionItem], language: str, context: HogQLContext
+) -> None:
     keys: list[str] = []
     details: list[str | None] = []
     table_fields = list(table.fields.items())
@@ -275,7 +295,7 @@ def append_table_field_to_response(table: Table, suggestions: list[AutocompleteC
             continue
 
         keys.append(field_name)
-        details.append(convert_field_or_table_to_type_string(field_or_table))
+        details.append(convert_field_or_table_to_type_string(field_or_table, table.to_printed_hogql(), context))
 
     extend_responses(
         keys=keys,
@@ -544,7 +564,10 @@ def get_hogql_autocomplete(
                         if is_last_part:
                             if last_table.fields.get(str(chain_part)) is None:
                                 append_table_field_to_response(
-                                    table=last_table, suggestions=response.suggestions, language=query.language
+                                    table=last_table,
+                                    suggestions=response.suggestions,
+                                    language=query.language,
+                                    context=context,
                                 )
                                 break
 
@@ -598,15 +621,26 @@ def get_hogql_autocomplete(
                                 extend_responses(
                                     keys=[key for key, field in fields],
                                     suggestions=response.suggestions,
-                                    details=[convert_field_or_table_to_type_string(field) for key, field in fields],
+                                    details=[
+                                        convert_field_or_table_to_type_string(
+                                            inner_field, field.to_printed_hogql(), context
+                                        )
+                                        for key, inner_field in fields
+                                    ],
                                 )
                             elif isinstance(field, LazyJoin):
-                                fields = list(field.resolve_table(context).fields.items())
+                                field_table = field.resolve_table(context)
+                                fields = list(field_table.fields.items())
 
                                 extend_responses(
                                     keys=[key for key, field in fields],
                                     suggestions=response.suggestions,
-                                    details=[convert_field_or_table_to_type_string(field) for key, field in fields],
+                                    details=[
+                                        convert_field_or_table_to_type_string(
+                                            inner_field, field_table.to_printed_hogql(), context
+                                        )
+                                        for key, inner_field in fields
+                                    ],
                                 )
                             break
                         else:

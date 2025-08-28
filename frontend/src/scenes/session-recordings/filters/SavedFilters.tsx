@@ -1,7 +1,9 @@
-import { IconCopy, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
+
+import { IconCopy, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
+
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
@@ -18,7 +20,7 @@ export function SavedFilters({
 }: {
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
 }): JSX.Element {
-    const savedFiltersLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists })
+    const savedFiltersLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Home })
     const { savedFilters, paginationSavedFilters, savedFiltersSearch, savedFiltersLoading } =
         useValues(savedFiltersLogic)
     const { deletePlaylist, setSavedFiltersSearch, setAppliedSavedFilter } = useActions(savedFiltersLogic)

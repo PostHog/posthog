@@ -1,23 +1,29 @@
 from typing import Optional
+
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+
+from posthog.schema import (
+    AutocompleteCompletionItemKind,
+    HogLanguage,
+    HogQLAutocomplete,
+    HogQLAutocompleteResponse,
+    HogQLQuery,
+)
+
+from posthog.hogql import ast
 from posthog.hogql.autocomplete import get_hogql_autocomplete
 from posthog.hogql.database.database import Database, create_hogql_database
 from posthog.hogql.database.models import StringDatabaseField
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PERSONS_FIELDS
+
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.property_definition import PropertyDefinition
-from posthog.schema import (
-    HogQLAutocomplete,
-    HogQLAutocompleteResponse,
-    HogLanguage,
-    HogQLQuery,
-    AutocompleteCompletionItemKind,
-)
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from posthog.warehouse.models import ExternalDataSource
 from posthog.warehouse.models.credential import DataWarehouseCredential
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from posthog.warehouse.models.table import DataWarehouseTable
+from posthog.warehouse.types import ExternalDataSourceType
 
 
 class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
@@ -332,6 +338,27 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert suggestion.label == "created_at"
         assert suggestion.insertText == "created_at"
 
+    def test_autocomplete_resolve_expression_type(self):
+        database = create_hogql_database(team=self.team)
+
+        database.events.fields["expr_field"] = ast.ExpressionField(
+            name="expr_field",
+            isolate_scope=True,
+            expr=ast.Call(name="toDateTime", args=[ast.Constant(value="2025-01-01")]),
+        )
+
+        query = "select  from events"
+        results = self._select(query=query, start=7, end=7, database=database)
+
+        suggestions = list(filter(lambda x: x.label == "expr_field", results.suggestions))
+        assert len(suggestions) == 1
+
+        suggestion = suggestions[0]
+        assert suggestion is not None
+        assert suggestion.label == "expr_field"
+        assert suggestion.insertText == "expr_field"
+        assert suggestion.detail == "DateTime"
+
     def test_autocomplete_template_strings(self):
         database = create_hogql_database(team=self.team)
 
@@ -439,7 +466,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
 
     def test_autocomplete_warehouse_table_with_source_dot_notation(self):
         credentials = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
-        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSource.Type.STRIPE)
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.STRIPE)
         DataWarehouseTable.objects.create(
             team=self.team,
             name="some_table",
@@ -456,7 +483,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
     def test_autocomplete_warehouse_table_with_source_and_prefix_dot_notation(self):
         credentials = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
         source = ExternalDataSource.objects.create(
-            team=self.team, source_type=ExternalDataSource.Type.STRIPE, prefix="prefix"
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, prefix="prefix"
         )
         DataWarehouseTable.objects.create(
             team=self.team,

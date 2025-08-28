@@ -15,7 +15,7 @@
 
     &.InsightViz--horizontal {
         flex-flow: row wrap;
-        align-items: start;
+        align-items: flex-start;
 
         .EditorFiltersWrapper {
             width: 100%;
@@ -99,6 +99,12 @@
 .WebAnalyticsDashboard {
     .InsightVizDisplay {
         --insight-viz-min-height: 25rem;
+    }
+}
+
+.RevenueAnalyticsDashboard {
+    .InsightVizDisplay {
+        --insight-viz-min-height: 20rem;
     }
 }
 
@@ -186,10 +192,10 @@
 
 .funnel-significance-highlight {
     display: inline-flex;
-    color: var(--bg-surface-primary);
-    background: var(--accent);
+    color: var(--color-bg-surface-primary);
+    background: var(--color-accent);
 
     .LemonIcon {
-        color: var(--bg-surface-primary);
+        color: var(--color-bg-surface-primary);
     }
 }

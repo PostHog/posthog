@@ -1,25 +1,37 @@
 from typing import TypeVar
+
 from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
-    ExperimentVariantResultFrequentist,
-    ExperimentVariantResultBayesian,
     ExperimentQueryResponse,
+    ExperimentRatioMetric,
     ExperimentStatsBase,
-    ExperimentSignificanceCode,
+    ExperimentStatsBaseValidated,
+    ExperimentStatsValidationFailure,
     ExperimentVariantFunnelsBaseStats,
+    ExperimentVariantResultBayesian,
+    ExperimentVariantResultFrequentist,
     ExperimentVariantTrendsBaseStats,
 )
-from products.experiments.stats.frequentist.method import FrequentistConfig, FrequentistMethod, TestType
-from products.experiments.stats.shared.enums import DifferenceType
-from products.experiments.stats.shared.statistics import (
-    SampleMeanStatistic,
-    ProportionStatistic,
-)
-from products.experiments.stats.bayesian.method import BayesianMethod, BayesianConfig
+
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
 
+from products.experiments.stats.bayesian.method import BayesianConfig, BayesianMethod
+from products.experiments.stats.frequentist.method import FrequentistConfig, FrequentistMethod, TestType
+from products.experiments.stats.shared.enums import DifferenceType
+from products.experiments.stats.shared.statistics import ProportionStatistic, RatioStatistic, SampleMeanStatistic
+
 V = TypeVar("V", ExperimentVariantTrendsBaseStats, ExperimentVariantFunnelsBaseStats, ExperimentStatsBase)
+
+
+def get_experiment_stats_method(experiment) -> str:
+    if experiment.stats_config is None:
+        return "bayesian"
+    else:
+        stats_method = experiment.stats_config.get("method", "bayesian")
+        if stats_method not in ["bayesian", "frequentist"]:
+            return "bayesian"
+        return stats_method
 
 
 def split_baseline_and_test_variants(
@@ -36,175 +48,166 @@ def split_baseline_and_test_variants(
     return control_variant, test_variants
 
 
-def get_legacy_funnels_variant_results(
-    sorted_results: list[tuple[str, int, int, int]],
-) -> list[ExperimentVariantFunnelsBaseStats]:
-    return [
-        ExperimentVariantFunnelsBaseStats(
-            failure_count=result[1] - result[2],
-            key=result[0],
-            success_count=result[2],
-        )
-        for result in sorted_results
-    ]
+def get_new_variant_results(sorted_results: list[tuple]) -> list[ExperimentStatsBase]:
+    # Handle both regular metrics (4 values) and ratio metrics (7 values)
+    variant_results = []
+    for result in sorted_results:
+        if len(result) == 4:
+            # Regular metric
+            variant_results.append(
+                ExperimentStatsBase(
+                    key=result[0],
+                    number_of_samples=result[1],
+                    sum=result[2],
+                    sum_squares=result[3],
+                )
+            )
+        elif len(result) == 7:
+            # Ratio metric
+            variant_results.append(
+                ExperimentStatsBase(
+                    key=result[0],
+                    number_of_samples=result[1],
+                    sum=result[2],
+                    sum_squares=result[3],
+                    denominator_sum=result[4],
+                    denominator_sum_squares=result[5],
+                    numerator_denominator_sum_product=result[6],
+                )
+            )
+        else:
+            raise ValueError(f"Unexpected result format with {len(result)} values")
+    return variant_results
 
 
-def get_legacy_trends_variant_results(
-    sorted_results: list[tuple[str, int, int, int]],
-) -> list[ExperimentVariantTrendsBaseStats]:
-    return [
-        ExperimentVariantTrendsBaseStats(
-            absolute_exposure=result[1],
-            count=result[2],
-            exposure=result[1],
-            key=result[0],
-        )
-        for result in sorted_results
-    ]
+def validate_variant_result(
+    variant_result: ExperimentStatsBase,
+    metric: ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric,
+    is_baseline=False,
+) -> ExperimentStatsBaseValidated:
+    validation_failures = []
 
+    if variant_result.number_of_samples < 50:
+        validation_failures.append(ExperimentStatsValidationFailure.NOT_ENOUGH_EXPOSURES)
 
-def get_new_variant_results(sorted_results: list[tuple[str, int, int, int]]) -> list[ExperimentStatsBase]:
-    return [
-        ExperimentStatsBase(
-            key=result[0],
-            number_of_samples=result[1],
-            sum=result[2],
-            sum_squares=result[3],
-        )
-        for result in sorted_results
-    ]
+    if isinstance(metric, ExperimentFunnelMetric) and variant_result.sum < 5:
+        validation_failures.append(ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA)
 
+    if is_baseline and variant_result.sum == 0:
+        validation_failures.append(ExperimentStatsValidationFailure.BASELINE_MEAN_IS_ZERO)
 
-def convert_new_to_legacy_trends_variant_results(variant: ExperimentStatsBase) -> ExperimentVariantTrendsBaseStats:
-    return ExperimentVariantTrendsBaseStats(
-        key=variant.key,
-        count=variant.sum,
-        exposure=variant.number_of_samples,
-        absolute_exposure=variant.number_of_samples,
+    validated_result = ExperimentStatsBaseValidated(
+        key=variant_result.key,
+        number_of_samples=variant_result.number_of_samples,
+        sum=variant_result.sum,
+        sum_squares=variant_result.sum_squares,
+        validation_failures=validation_failures,
     )
 
+    # Include ratio-specific fields if present
+    if hasattr(variant_result, "denominator_sum") and variant_result.denominator_sum is not None:
+        validated_result.denominator_sum = variant_result.denominator_sum
+        validated_result.denominator_sum_squares = variant_result.denominator_sum_squares
+        validated_result.numerator_denominator_sum_product = variant_result.numerator_denominator_sum_product
 
-def convert_new_to_legacy_funnels_variant_results(variant: ExperimentStatsBase) -> ExperimentVariantFunnelsBaseStats:
-    return ExperimentVariantFunnelsBaseStats(
-        key=variant.key,
-        success_count=variant.sum,
-        failure_count=variant.number_of_samples - variant.sum,
-    )
+    return validated_result
 
 
 def metric_variant_to_statistic(
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric, variant: ExperimentStatsBase
-) -> SampleMeanStatistic | ProportionStatistic:
+    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric, variant: ExperimentStatsBaseValidated
+) -> SampleMeanStatistic | ProportionStatistic | RatioStatistic:
     if isinstance(metric, ExperimentMeanMetric):
         return SampleMeanStatistic(
             n=variant.number_of_samples,
             sum=variant.sum,
             sum_squares=variant.sum_squares,
         )
+    elif isinstance(metric, ExperimentRatioMetric):
+        # For ratio metrics, create statistics for both numerator and denominator
+        # and combine them using RatioStatistic
+        numerator_stat = SampleMeanStatistic(
+            n=variant.number_of_samples,
+            sum=variant.sum,
+            sum_squares=variant.sum_squares,
+        )
+        denominator_stat = SampleMeanStatistic(
+            n=variant.number_of_samples,
+            sum=variant.denominator_sum or 0.0,
+            sum_squares=variant.denominator_sum_squares or 0.0,
+        )
+        return RatioStatistic(
+            n=variant.number_of_samples,
+            m_statistic=numerator_stat,
+            d_statistic=denominator_stat,
+            m_d_sum_of_products=variant.numerator_denominator_sum_product or 0.0,
+        )
     else:
+        # ExperimentFunnelMetric case
         return ProportionStatistic(
             n=variant.number_of_samples,
             sum=int(variant.sum),
         )
 
 
-def get_frequentist_experiment_result_legacy_format(
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric,
+def get_frequentist_experiment_result(
+    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric,
     control_variant: ExperimentStatsBase,
     test_variants: list[ExperimentStatsBase],
 ) -> ExperimentQueryResponse:
-    # For now, we default to 0.05 as the alpha level and a two sided t test.
     config = FrequentistConfig(alpha=0.05, test_type=TestType.TWO_SIDED, difference_type=DifferenceType.RELATIVE)
     method = FrequentistMethod(config)
 
-    # Initialize "legacy" result fields.
-    probabilities = {}
-    confidence_intervals = {}
-    significance_code = ExperimentSignificanceCode.LOW_WIN_PROBABILITY
-    significant = False
+    control_variant_validated = validate_variant_result(control_variant, metric, is_baseline=True)
+    test_variants_validated = [validate_variant_result(test_variant, metric) for test_variant in test_variants]
 
-    control_stat = metric_variant_to_statistic(metric, control_variant)
-    mu_control = control_stat.sum / control_stat.n
-
-    # Run the test for each test variant.
-    for test_variant in test_variants:
-        test_stat = metric_variant_to_statistic(metric, test_variant)
-        result = method.run_test(test_stat, control_stat)
-
-        # For now, we just store the p-values in the probabilties dict.
-        probabilities[test_variant.key] = result.p_value
-        confidence_intervals[test_variant.key] = (
-            mu_control * (1 + result.confidence_interval[0]),
-            mu_control * (1 + result.confidence_interval[1]),
-        )
-
-        # if any of the test variants are significant, we categorize the metric as significant
-        significant = significant or result.is_significant
-        if significant:
-            significance_code = ExperimentSignificanceCode.SIGNIFICANT
-
-    # Convert new variant results to legacy variant results as those are required in the UI still.
-    variants: list[ExperimentVariantTrendsBaseStats] | list[ExperimentVariantFunnelsBaseStats]
-    if isinstance(metric, ExperimentFunnelMetric):
-        variants = [
-            convert_new_to_legacy_funnels_variant_results(control_variant),
-            *[convert_new_to_legacy_funnels_variant_results(variant) for variant in test_variants],
-        ]
-    else:
-        variants = [
-            convert_new_to_legacy_trends_variant_results(control_variant),
-            *[convert_new_to_legacy_trends_variant_results(variant) for variant in test_variants],
-        ]
-
-    return ExperimentQueryResponse(
-        kind="ExperimentQuery",
-        insight=[],
-        metric=metric,
-        variants=variants,
-        probability=probabilities,
-        significant=significant,
-        significance_code=significance_code,
-        stats_version=2,
-        p_value=0.05,
-        credible_intervals=confidence_intervals,
+    control_stat = (
+        metric_variant_to_statistic(metric, control_variant_validated)
+        if not control_variant_validated.validation_failures
+        else None
     )
-
-
-def get_frequentist_experiment_result_new_format(
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric,
-    control_variant: ExperimentStatsBase,
-    test_variants: list[ExperimentStatsBase],
-) -> ExperimentQueryResponse:
-    config = FrequentistConfig(alpha=0.05, test_type=TestType.TWO_SIDED, difference_type=DifferenceType.RELATIVE)
-    method = FrequentistMethod(config)
-
-    control_stat = metric_variant_to_statistic(metric, control_variant)
 
     variants: list[ExperimentVariantResultFrequentist] = []
 
-    for test_variant in test_variants:
-        test_stat = metric_variant_to_statistic(metric, test_variant)
-        result = method.run_test(test_stat, control_stat)
-        variants.append(
-            ExperimentVariantResultFrequentist(
-                key=test_variant.key,
-                p_value=result.p_value,
-                confidence_interval=[result.confidence_interval[0], result.confidence_interval[1]],
-                number_of_samples=test_variant.number_of_samples,
-                sum=test_variant.sum,
-                sum_squares=test_variant.sum_squares,
-                significant=result.is_significant,
-            )
+    for test_variant_validated in test_variants_validated:
+        # Add fields we should always return
+        experiment_variant_result = ExperimentVariantResultFrequentist(
+            key=test_variant_validated.key,
+            number_of_samples=test_variant_validated.number_of_samples,
+            sum=test_variant_validated.sum,
+            sum_squares=test_variant_validated.sum_squares,
+            validation_failures=test_variant_validated.validation_failures,
         )
 
+        # Include ratio-specific fields if present
+        if hasattr(test_variant_validated, "denominator_sum") and test_variant_validated.denominator_sum is not None:
+            experiment_variant_result.denominator_sum = test_variant_validated.denominator_sum
+            experiment_variant_result.denominator_sum_squares = test_variant_validated.denominator_sum_squares
+            experiment_variant_result.numerator_denominator_sum_product = (
+                test_variant_validated.numerator_denominator_sum_product
+            )
+
+        # Check if we can perform statistical analysis
+        if control_stat and not test_variant_validated.validation_failures:
+            test_stat = metric_variant_to_statistic(metric, test_variant_validated)
+            result = method.run_test(test_stat, control_stat)
+
+            confidence_interval = [result.confidence_interval[0], result.confidence_interval[1]]
+
+            # Set statistical analysis fields
+            experiment_variant_result.p_value = result.p_value
+            experiment_variant_result.confidence_interval = confidence_interval
+            experiment_variant_result.significant = result.is_significant
+
+        variants.append(experiment_variant_result)
+
     return ExperimentQueryResponse(
-        baseline=control_variant,
+        baseline=control_variant_validated,
         variant_results=variants,
     )
 
 
-def get_bayesian_experiment_result_new_format(
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric,
+def get_bayesian_experiment_result(
+    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric,
     control_variant: ExperimentStatsBase,
     test_variants: list[ExperimentStatsBase],
 ) -> ExperimentQueryResponse:
@@ -221,30 +224,51 @@ def get_bayesian_experiment_result_new_format(
     )
     method = BayesianMethod(config)
 
-    control_stat = metric_variant_to_statistic(metric, control_variant)
+    control_variant_validated = validate_variant_result(control_variant, metric, is_baseline=True)
+    test_variants_validated = [validate_variant_result(test_variant, metric) for test_variant in test_variants]
+
+    control_stat = (
+        metric_variant_to_statistic(metric, control_variant_validated)
+        if not control_variant_validated.validation_failures
+        else None
+    )
 
     variants: list[ExperimentVariantResultBayesian] = []
 
-    for test_variant in test_variants:
-        test_stat = metric_variant_to_statistic(metric, test_variant)
-        result = method.run_test(test_stat, control_stat)
-
-        # Convert credible interval to percentage
-        credible_interval = [result.credible_interval[0], result.credible_interval[1]]
-
-        variants.append(
-            ExperimentVariantResultBayesian(
-                key=test_variant.key,
-                chance_to_win=result.chance_to_win,
-                credible_interval=credible_interval,
-                number_of_samples=test_variant.number_of_samples,
-                sum=test_variant.sum,
-                sum_squares=test_variant.sum_squares,
-                significant=result.is_decisive,  # Use is_decisive for significance
-            )
+    for test_variant_validated in test_variants_validated:
+        # Add fields we should always return
+        experiment_variant_result = ExperimentVariantResultBayesian(
+            key=test_variant_validated.key,
+            number_of_samples=test_variant_validated.number_of_samples,
+            sum=test_variant_validated.sum,
+            sum_squares=test_variant_validated.sum_squares,
+            validation_failures=test_variant_validated.validation_failures,
         )
 
+        # Include ratio-specific fields if present
+        if hasattr(test_variant_validated, "denominator_sum") and test_variant_validated.denominator_sum is not None:
+            experiment_variant_result.denominator_sum = test_variant_validated.denominator_sum
+            experiment_variant_result.denominator_sum_squares = test_variant_validated.denominator_sum_squares
+            experiment_variant_result.numerator_denominator_sum_product = (
+                test_variant_validated.numerator_denominator_sum_product
+            )
+
+        # Check if we can perform statistical analysis
+        if control_stat and not test_variant_validated.validation_failures:
+            test_stat = metric_variant_to_statistic(metric, test_variant_validated)
+            result = method.run_test(test_stat, control_stat)
+
+            # Convert credible interval to percentage
+            credible_interval = [result.credible_interval[0], result.credible_interval[1]]
+
+            # Set statistical analysis fields
+            experiment_variant_result.chance_to_win = result.chance_to_win
+            experiment_variant_result.credible_interval = credible_interval
+            experiment_variant_result.significant = result.is_decisive  # Use is_decisive for significance
+
+        variants.append(experiment_variant_result)
+
     return ExperimentQueryResponse(
-        baseline=control_variant,
+        baseline=control_variant_validated,
         variant_results=variants,
     )

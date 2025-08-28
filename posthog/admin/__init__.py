@@ -1,62 +1,62 @@
 from django.contrib import admin
 
 from posthog.admin.admins import (
-    OrganizationAdmin,
-    OrganizationDomainAdmin,
-    UserAdmin,
-    TeamAdmin,
+    AsyncDeletionAdmin,
+    BatchImportAdmin,
+    CohortAdmin,
     DashboardAdmin,
     DashboardTemplateAdmin,
     DataColorThemeAdmin,
-    InsightAdmin,
+    DataWarehouseTableAdmin,
+    EventIngestionRestrictionConfigAdmin,
     ExperimentAdmin,
     ExperimentSavedMetricAdmin,
     FeatureFlagAdmin,
-    AsyncDeletionAdmin,
-    InstanceSettingAdmin,
-    PluginConfigAdmin,
-    PluginAdmin,
-    TextAdmin,
-    CohortAdmin,
-    PersonAdmin,
-    PersonDistinctIdAdmin,
-    SurveyAdmin,
-    DataWarehouseTableAdmin,
-    ProjectAdmin,
-    HogFunctionAdmin,
     GroupTypeMappingAdmin,
-    EventIngestionRestrictionConfigAdmin,
+    HogFunctionAdmin,
+    InsightAdmin,
+    InstanceSettingAdmin,
     LinkAdmin,
-    BatchImportAdmin,
+    OrganizationAdmin,
+    OrganizationDomainAdmin,
+    PersonalAPIKeyAdmin,
+    PersonDistinctIdAdmin,
+    PluginAdmin,
+    PluginConfigAdmin,
+    ProjectAdmin,
+    SurveyAdmin,
+    TeamAdmin,
+    TextAdmin,
+    UserAdmin,
 )
 from posthog.models import (
-    Organization,
-    OrganizationDomain,
-    User,
-    Team,
+    AsyncDeletion,
+    BatchImport,
+    Cohort,
     Dashboard,
     DashboardTemplate,
-    Insight,
+    DataColorTheme,
+    DataWarehouseTable,
+    EventIngestionRestrictionConfig,
     Experiment,
     ExperimentSavedMetric,
-    DataColorTheme,
     FeatureFlag,
-    AsyncDeletion,
-    InstanceSetting,
-    PluginConfig,
-    Plugin,
-    Text,
-    Project,
-    Cohort,
-    Person,
-    PersonDistinctId,
-    Survey,
-    DataWarehouseTable,
-    HogFunction,
     GroupTypeMapping,
-    EventIngestionRestrictionConfig,
+    HogFunction,
+    Insight,
+    InstanceSetting,
     Link,
-    BatchImport,
+    Organization,
+    OrganizationDomain,
+    PersonalAPIKey,
+    PersonDistinctId,
+    Plugin,
+    PluginConfig,
+    Project,
+    Survey,
+    Team,
+    Text,
+    User,
 )
 
 admin.site.register(Organization, OrganizationAdmin)
@@ -82,7 +82,6 @@ admin.site.register(Plugin, PluginAdmin)
 admin.site.register(Text, TextAdmin)
 
 admin.site.register(Cohort, CohortAdmin)
-admin.site.register(Person, PersonAdmin)
 admin.site.register(PersonDistinctId, PersonDistinctIdAdmin)
 
 admin.site.register(Survey, SurveyAdmin)
@@ -92,3 +91,5 @@ admin.site.register(HogFunction, HogFunctionAdmin)
 admin.site.register(EventIngestionRestrictionConfig, EventIngestionRestrictionConfigAdmin)
 admin.site.register(Link, LinkAdmin)
 admin.site.register(BatchImport, BatchImportAdmin)
+
+admin.site.register(PersonalAPIKey, PersonalAPIKeyAdmin)

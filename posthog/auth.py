@@ -1,31 +1,35 @@
-import functools
 import re
+import functools
 from datetime import timedelta
 from typing import Any, Optional, Union
 from urllib.parse import urlsplit
 
-import jwt
 from django.apps import apps
+from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.http import HttpRequest, JsonResponse
 from django.utils import timezone
+
+import jwt
+from prometheus_client import Counter
 from rest_framework import authentication
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
+from zxcvbn import zxcvbn
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models.oauth import OAuthAccessToken
-from posthog.models.personal_api_key import (
-    PersonalAPIKey,
-    hash_key_value,
-    PERSONAL_API_KEY_MODES_TO_TRY,
-)
+from posthog.models.personal_api_key import PERSONAL_API_KEY_MODES_TO_TRY, PersonalAPIKey, hash_key_value
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
-from django.contrib.auth.models import AnonymousUser
-from zxcvbn import zxcvbn
+
+PERSONAL_API_KEY_QUERY_PARAM_COUNTER = Counter(
+    "api_auth_personal_api_key_query_param",
+    "Requests where the personal api key is specified in a query parameter",
+    labelnames=["user_uuid"],
+)
 
 
 class ZxcvbnValidator:
@@ -94,9 +98,6 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             return data["personal_api_key"], "body"
         if "personal_api_key" in request.GET:
             return request.GET["personal_api_key"], "query string"
-        if extra_data and "personal_api_key" in extra_data:
-            # compatibility with /capture endpoint
-            return extra_data["personal_api_key"], "query string data"
         return None
 
     @classmethod
@@ -142,6 +143,9 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             key_to_update.secure_value = hash_key_value(personal_api_key)
             key_to_update.save(update_fields=["secure_value"])
 
+        if source == "query string":
+            PERSONAL_API_KEY_QUERY_PARAM_COUNTER.labels(personal_api_key_object.user.uuid).inc()
+
         return personal_api_key_object
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
@@ -165,6 +169,8 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             user_id=personal_api_key_object.user.pk,
             team_id=personal_api_key_object.user.current_team_id,
             access_method="personal_api_key",
+            api_key_mask=personal_api_key_object.mask_value,
+            api_key_label=personal_api_key_object.label,
         )
 
         self.personal_api_key = personal_api_key_object
@@ -187,7 +193,6 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
     Only the first key candidate found in the request is tried, and the order is:
     1. Request Authorization header of type Bearer.
     2. Request body.
-    3. Request query string.
     """
 
     keyword = "Bearer"
@@ -211,9 +216,6 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
 
         if data and "secret_api_key" in data:
             return data["secret_api_key"]
-
-        if "secret_api_key" in request.GET:
-            return request.GET["secret_api_key"]
 
         return None
 

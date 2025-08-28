@@ -1,10 +1,7 @@
-// eslint-disable-next-line simple-import-sort/imports
 import { mockProducerObserver } from '../../../tests/helpers/mocks/producer.mock'
 
-import { HogWatcherState } from '../services/hog-watcher.service'
-import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
-import { Hub, Team } from '../../types'
-import { closeHub, createHub } from '../../utils/db/hub'
+import { HogFlow } from '~/schema/hogflow'
+
 import {
     createOrganization,
     createTeam,
@@ -13,20 +10,23 @@ import {
     resetTestDatabase,
     updateOrganizationAvailableFeatures,
 } from '../../../tests/helpers/sql'
+import { Hub, Team } from '../../types'
+import { closeHub, createHub } from '../../utils/db/hub'
+import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import {
-    createHogExecutionGlobals,
     insertHogFunction as _insertHogFunction,
-    createKafkaMessage,
+    createHogExecutionGlobals,
     createIncomingEvent,
     createInternalEvent,
+    createKafkaMessage,
 } from '../_tests/fixtures'
+import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'
+import { CyclotronJobQueue } from '../services/job-queue/job-queue'
+import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
+import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { CdpEventsConsumer, counterMissingAddon } from './cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp-internal-event.consumer'
-import { CyclotronJobQueue } from '../services/job-queue/job-queue'
-import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'
-import { HogFlow } from '~/schema/hogflow'
-import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 
 jest.setTimeout(1000)
 
@@ -187,6 +187,53 @@ describe.each([
                 expect(mockQueueInvocations).toHaveBeenCalledWith(invocations)
             })
 
+            it('should log correct metrics', async () => {
+                const { invocations } = await processor.processBatch([globals])
+
+                expect(invocations).toHaveLength(2)
+                expect(invocations).toMatchObject([
+                    matchInvocation(fnFetchNoFilters, globals),
+                    matchInvocation(fnPrinterPageviewFilters, globals),
+                ])
+
+                expect(mockQueueInvocations).toHaveBeenCalledWith(invocations)
+
+                expect(
+                    mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+                ).toMatchObject(
+                    hogType !== 'destination'
+                        ? []
+                        : [
+                              {
+                                  key: expect.any(String),
+                                  topic: 'clickhouse_app_metrics2_test',
+                                  value: {
+                                      app_source: 'hog_function',
+                                      app_source_id: fnFetchNoFilters.id,
+                                      count: 1,
+                                      metric_kind: 'billing',
+                                      metric_name: 'billable_invocation',
+                                      team_id: 2,
+                                      timestamp: expect.any(String),
+                                  },
+                              },
+                              {
+                                  key: expect.any(String),
+                                  topic: 'clickhouse_app_metrics2_test',
+                                  value: {
+                                      app_source: 'hog_function',
+                                      app_source_id: fnPrinterPageviewFilters.id,
+                                      count: 1,
+                                      metric_kind: 'billing',
+                                      metric_name: 'billable_invocation',
+                                      team_id: 2,
+                                      timestamp: expect.any(String),
+                                  },
+                              },
+                          ]
+                )
+            })
+
             it("should filter out functions that don't match the filter", async () => {
                 globals.event.properties.$current_url = 'https://nomatch.com'
 
@@ -215,15 +262,29 @@ describe.each([
                             timestamp: expect.any(String),
                         },
                     },
+                    ...(hogType !== 'destination'
+                        ? []
+                        : [
+                              {
+                                  key: expect.any(String),
+                                  topic: 'clickhouse_app_metrics2_test',
+                                  value: {
+                                      app_source: 'hog_function',
+                                      app_source_id: fnFetchNoFilters.id,
+                                      count: 1,
+                                      metric_kind: 'billing',
+                                      metric_name: 'billable_invocation',
+                                      team_id: 2,
+                                      timestamp: expect.any(String),
+                                  },
+                              },
+                          ]),
                 ])
             })
 
-            it.each([
-                [HogWatcherState.disabledForPeriod, 'disabled_temporarily'],
-                [HogWatcherState.disabledIndefinitely, 'disabled_permanently'],
-            ])('should filter out functions that are disabled', async (state, metric_name) => {
-                await processor.hogWatcher.forceStateChange(fnFetchNoFilters, state)
-                await processor.hogWatcher.forceStateChange(fnPrinterPageviewFilters, state)
+            it('should filter out functions that are disabled', async () => {
+                await processor.hogWatcher.forceStateChange(fnFetchNoFilters, HogWatcherState.disabled)
+                await processor.hogWatcher.forceStateChange(fnPrinterPageviewFilters, HogWatcherState.disabled)
 
                 const { invocations } = await processor.processBatch([globals])
 
@@ -238,7 +299,7 @@ describe.each([
                             app_source_id: fnFetchNoFilters.id,
                             count: 1,
                             metric_kind: 'failure',
-                            metric_name: metric_name,
+                            metric_name: 'disabled_permanently',
                             team_id: 2,
                         },
                     },
@@ -249,7 +310,7 @@ describe.each([
                             app_source_id: fnPrinterPageviewFilters.id,
                             count: 1,
                             metric_kind: 'failure',
-                            metric_name: metric_name,
+                            metric_name: 'disabled_permanently',
                             team_id: 2,
                         },
                     },
@@ -473,8 +534,7 @@ describe('hog flow processing', () => {
                 queuePriority: 1,
                 state: {
                     event: globals.event,
-                    personId: 'uuid',
-                    variables: {},
+                    actionStepCount: 0,
                 },
                 teamId: 2,
             })

@@ -1,8 +1,9 @@
 import { BindLogic, useValues } from 'kea'
 import { useState } from 'react'
+
 import { InsightLoadingState } from 'scenes/insights/EmptyStates'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 
@@ -15,12 +16,15 @@ import {
 import { QueryContext } from '~/queries/types'
 import { GraphDataset, GraphType } from '~/types'
 
+import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
+
 let uniqueNode = 0
 export function RevenueAnalyticsGrowthRateNode(props: {
     query: RevenueAnalyticsGrowthRateQuery
     cachedResults?: AnyResponseType
     context: QueryContext
 }): JSX.Element | null {
+    const { dateFilter } = useValues(revenueAnalyticsLogic)
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
     const [key] = useState(() => `RevenueAnalyticsGrowthRate.${uniqueNode++}`)
     const logic = dataNodeLogic({
@@ -80,6 +84,7 @@ export function RevenueAnalyticsGrowthRateNode(props: {
                             type={GraphType.Line}
                             datasets={datasets}
                             labels={labels}
+                            isInProgress={!dateFilter.dateTo}
                             trendsFilter={{ aggregationAxisFormat: 'percentage' }}
                             labelGroupType="none"
                         />

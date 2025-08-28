@@ -1,4 +1,5 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+
 import api, { ApiMethodOptions, CountedPaginatedResponse } from 'lib/api'
 import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
@@ -77,7 +78,7 @@ export type FormatPropertyValueForDisplayFunction = (
     propertyName?: BreakdownKeyType,
     valueToFormat?: PropertyFilterValue,
     type?: PropertyDefinitionType,
-    groupTypeIndex?: GroupTypeIndex
+    groupTypeIndex?: GroupTypeIndex | null
 ) => string | string[] | null
 
 /** Update cached property definition metadata */
@@ -143,8 +144,17 @@ const constructValuesEndpoint = (
     newInput: string | undefined,
     properties?: { key: string; values: string | string[] }[]
 ): string => {
-    const basePath =
-        type === PropertyDefinitionType.Session ? `api/environments/${teamId}/${type}s/values` : `api/${type}/values`
+    let basePath: string
+
+    if (type === PropertyDefinitionType.Session) {
+        basePath = `api/environments/${teamId}/${type}s/values`
+    } else if (type === PropertyDefinitionType.FlagValue) {
+        // FlagValue is project-scoped, so use the project-scoped endpoint
+        basePath = `api/projects/${teamId}/${type}/values`
+    } else {
+        basePath = `api/${type}/values`
+    }
+
     const path = endpoint ? endpoint : basePath + `?key=${encodeURIComponent(propertyKey)}`
 
     let eventParams = ''
@@ -391,7 +401,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                 methodOptions
             )
             breakpoint()
-            actions.setOptions(propertyKey, propValues, true)
+            actions.setOptions(propertyKey, propValues, type !== PropertyDefinitionType.FlagValue)
             cache.abortController = null
 
             await captureTimeToSeeData(teamLogic.values.currentTeamId, {

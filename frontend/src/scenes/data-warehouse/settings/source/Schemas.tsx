@@ -1,3 +1,7 @@
+import { BindLogic, useActions, useValues } from 'kea'
+import { router } from 'kea-router'
+import { useEffect, useState } from 'react'
+
 import { IconInfo } from '@posthog/icons'
 import {
     LemonButton,
@@ -13,23 +17,21 @@ import {
     Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { ProductIntentContext } from 'lib/utils/product-intents'
-import { useEffect, useState } from 'react'
-import { defaultQuery, syncAnchorIntervalToHumanReadable, SyncTypeLabelMap } from 'scenes/data-warehouse/utils'
+import { SyncTypeLabelMap, defaultQuery, syncAnchorIntervalToHumanReadable } from 'scenes/data-warehouse/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { ExternalDataSourceType } from '~/queries/schema/schema-general'
 import {
     DataWarehouseSyncInterval,
     ExternalDataJobStatus,
     ExternalDataSchemaStatus,
     ExternalDataSourceSchema,
-    ExternalDataSourceType,
     ProductKey,
 } from '~/types'
 
@@ -44,11 +46,11 @@ interface SchemasProps {
 
 const REVENUE_ENABLED_SOURCES: ExternalDataSourceType[] = ['Stripe']
 export const Schemas = ({ id }: SchemasProps): JSX.Element => {
-    const { source, sourceLoading } = useValues(dataWarehouseSourceSettingsLogic({ id }))
+    const { source, sourceLoading } = useValues(dataWarehouseSourceSettingsLogic({ id, availableSources: {} }))
     const { addProductIntentForCrossSell } = useActions(teamLogic)
 
     return (
-        <BindLogic logic={dataWarehouseSourceSettingsLogic} props={{ id }}>
+        <BindLogic logic={dataWarehouseSourceSettingsLogic} props={{ id, availableSources: {} }}>
             <SchemaTable schemas={source?.schemas ?? []} isLoading={sourceLoading} />
             {source?.source_type && REVENUE_ENABLED_SOURCES.includes(source.source_type) && (
                 <div className="flex justify-end">
@@ -104,7 +106,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
         if (initialLoad && !isLoading) {
             setInitialLoad(false)
         }
-    }, [isLoading])
+    }, [isLoading, initialLoad])
 
     return (
         <>
@@ -332,7 +334,14 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                 return null
                             }
                             const tagContent = (
-                                <LemonTag type={StatusTagSetting[schema.status] || 'default'}>{schema.status}</LemonTag>
+                                <LemonTag type={StatusTagSetting[schema.status] || 'default'}>
+                                    {schema.status}
+                                    {schema.latest_error && schema.status === 'Failed' && (
+                                        <span className="ml-0.5 inline-flex items-center justify-center w-3 h-3 bg-danger/90 text-white rounded-full text-[10px] font-medium tracking-tight shadow-md backdrop-blur-sm border border-danger/20">
+                                            ?
+                                        </span>
+                                    )}
+                                </LemonTag>
                             )
                             return schema.latest_error && schema.status === 'Failed' ? (
                                 <Tooltip title={schema.latest_error}>{tagContent}</Tooltip>
@@ -456,7 +465,7 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
             resetSchemaIncrementalFields()
             loadSchemaIncrementalFields(currentSyncMethodModalSchema.id)
         }
-    }, [currentSyncMethodModalSchema?.id])
+    }, [currentSyncMethodModalSchema?.id, resetSchemaIncrementalFields, loadSchemaIncrementalFields])
 
     const schemaLoading = schemaIncrementalFieldsLoading || !schemaIncrementalFields
     const showForm = !schemaLoading && schemaIncrementalFields

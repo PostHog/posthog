@@ -2,11 +2,11 @@ from django.db import models
 
 from posthog.helpers.encrypted_fields import EncryptedTextField
 from posthog.models.team import Team
-from posthog.models.utils import CreatedMetaFields, UUIDModel, sane_repr
-from posthog.warehouse.util import database_sync_to_async
+from posthog.models.utils import CreatedMetaFields, UUIDTModel, sane_repr
+from posthog.sync import database_sync_to_async
 
 
-class DataWarehouseCredential(CreatedMetaFields, UUIDModel):
+class DataWarehouseCredential(CreatedMetaFields, UUIDTModel):
     access_key = EncryptedTextField(max_length=500)
     access_secret = EncryptedTextField(max_length=500)
     team = models.ForeignKey(Team, on_delete=models.CASCADE)

@@ -1,18 +1,21 @@
-from dataclasses import dataclass
-from datetime import datetime, UTC
 import re
 import time
-from typing import Any, Optional
 from collections.abc import Callable
-from clickhouse_driver import Client
-import dagster
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import Any, Optional
+
 from django.conf import settings
+
+import dagster
 import pydantic
-from dags.common import JobOwners
+from clickhouse_driver import Client
+from dagster_aws.s3 import S3Resource
+
 from posthog.clickhouse.client.connection import NodeRole, Workload
 from posthog.clickhouse.cluster import ClickhouseCluster
 
-from dagster_aws.s3 import S3Resource
+from dags.common import JobOwners
 
 NO_SHARD_PATH = "noshard"
 
@@ -27,7 +30,6 @@ SHARDED_TABLES = [
     "sharded_session_replay_events",
     "sharded_session_replay_events_v2_test",
     "sharded_sessions",
-    "sharded_events",
 ]
 
 NON_SHARDED_TABLES = [
@@ -417,15 +419,15 @@ def prepare_run_config(config: BackupConfig) -> dagster.RunConfig:
 
 
 def run_backup_request(table: str, incremental: bool) -> dagster.RunRequest:
-    timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    timestamp = datetime.now(UTC)
     config = BackupConfig(
         database=settings.CLICKHOUSE_DATABASE,
-        date=timestamp,
+        date=timestamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
         table=table,
         incremental=incremental,
     )
     return dagster.RunRequest(
-        run_key=f"{timestamp}-{table}",
+        run_key=f"{timestamp.strftime('%Y%m%d')}-{table}",
         run_config=prepare_run_config(config),
         tags={
             "backup_type": "incremental" if incremental else "full",

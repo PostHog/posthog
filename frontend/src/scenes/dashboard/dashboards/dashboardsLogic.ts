@@ -1,8 +1,12 @@
 import Fuse from 'fuse.js'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
+
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { objectClean } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
 
@@ -12,7 +16,9 @@ import { DashboardBasicType } from '~/types'
 import type { dashboardsLogicType } from './dashboardsLogicType'
 
 export enum DashboardsTab {
-    Dashboards = 'dashboards',
+    All = 'all',
+    Yours = 'yours',
+    Pinned = 'pinned',
     Templates = 'templates',
 }
 
@@ -36,6 +42,7 @@ export type DashboardFuse = Fuse<DashboardBasicType> // This is exported for kea
 
 export const dashboardsLogic = kea<dashboardsLogicType>([
     path(['scenes', 'dashboard', 'dashboardsLogic']),
+    tabAwareScene(),
     connect(() => ({ values: [userLogic, ['user'], featureFlagLogic, ['featureFlags']] })),
     actions({
         setCurrentTab: (tab: DashboardsTab) => ({ tab }),
@@ -55,7 +62,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             },
         ],
         currentTab: [
-            DashboardsTab.Dashboards as DashboardsTab,
+            DashboardsTab.All as DashboardsTab,
             {
                 setCurrentTab: (_, { tab }) => tab,
             },
@@ -83,23 +90,23 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             },
         ],
         dashboards: [
-            (s) => [dashboardsModel.selectors.nameSortedDashboards, s.filters, s.fuse],
-            (dashboards, filters, fuse) => {
+            (s) => [dashboardsModel.selectors.nameSortedDashboards, s.filters, s.fuse, s.currentTab, s.user],
+            (dashboards, filters, fuse, currentTab, user) => {
                 let haystack = dashboards
                 if (filters.search) {
                     haystack = fuse.search(filters.search).map((result) => result.item)
                 }
-
-                if (filters.pinned) {
+                if (currentTab === DashboardsTab.Pinned) {
                     haystack = haystack.filter((d) => d.pinned)
                 }
                 if (filters.shared) {
                     haystack = haystack.filter((d) => d.is_shared)
                 }
-                if (filters.createdBy !== 'All users') {
+                if (currentTab === DashboardsTab.Yours) {
+                    haystack = haystack.filter((d) => d.created_by?.uuid === user?.uuid)
+                } else if (filters.createdBy !== 'All users') {
                     haystack = haystack.filter((d) => d.created_by?.uuid === filters.createdBy)
                 }
-
                 return haystack
             },
         ],
@@ -114,9 +121,9 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             },
         ],
     }),
-    actionToUrl(({ values }) => ({
+    tabAwareActionToUrl(({ values }) => ({
         setCurrentTab: () => {
-            const tab = values.currentTab === DashboardsTab.Dashboards ? undefined : values.currentTab
+            const tab = values.currentTab === DashboardsTab.All ? undefined : values.currentTab
             if (router.values.searchParams['tab'] === tab) {
                 return
             }
@@ -124,9 +131,9 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             router.actions.push(router.values.location.pathname, { ...router.values.searchParams, tab })
         },
     })),
-    urlToAction(({ actions }) => ({
+    tabAwareUrlToAction(({ actions }) => ({
         '/dashboard': (_, searchParams) => {
-            const tab = searchParams['tab'] || DashboardsTab.Dashboards
+            const tab = searchParams['tab'] || DashboardsTab.All
             actions.setCurrentTab(tab)
         },
     })),

@@ -1,8 +1,9 @@
-import { LemonDivider, LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonDivider, LemonTabs } from '@posthog/lemon-ui'
+
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { apiHostOrigin } from 'lib/utils/apiHost'
@@ -10,9 +11,9 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import SetupWizardBanner from './components/SetupWizardBanner'
-import { JSInstallSnippet } from './js-web'
-import { nextJsInstructionsLogic, type NextJSRouter } from './nextJsInstructionsLogic'
 import { SDK_DEFAULTS_DATE } from './constants'
+import { JSInstallSnippet } from './js-web'
+import { type NextJSRouter, nextJsInstructionsLogic } from './nextJsInstructionsLogic'
 
 function NextEnvVarsSnippet(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -147,7 +148,7 @@ export function SDKInstallNextJSInstructions({ hideWizard }: { hideWizard?: bool
     const { nextJsRouter } = useValues(nextJsInstructionsLogic)
     const { setNextJsRouter } = useActions(nextJsInstructionsLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
-    const showSetupWizard = useFeatureFlag('AI_SETUP_WIZARD') && !hideWizard && isCloudOrDev
+    const showSetupWizard = !hideWizard && isCloudOrDev
 
     return (
         <>

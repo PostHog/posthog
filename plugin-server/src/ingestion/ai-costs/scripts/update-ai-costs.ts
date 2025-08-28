@@ -12,20 +12,10 @@ interface ModelRow {
     }
 }
 
-const supportedProviderList = [
-    'openai',
-    'anthropic',
-    'google',
-    'deepseek',
-    'perplexity',
-    'cohere',
-    'mistralai',
-    'meta-llama',
-]
-
 const PATH_TO_PROVIDERS = path.join(__dirname, '../providers')
 
 const main = async () => {
+    // eslint-disable-next-line no-restricted-globals
     const res = await fetch('https://openrouter.ai/api/v1/models', {})
     if (!res.ok) {
         throw new Error(`Failed to fetch models: ${res.status} ${res.statusText}`)
@@ -53,9 +43,7 @@ const main = async () => {
             continue
         }
         const [provider, ...modelParts] = model.id.split('/')
-        if (!supportedProviderList.includes(provider)) {
-            continue
-        }
+
         if (!providerModels.has(provider)) {
             providerModels.set(provider, [])
         }

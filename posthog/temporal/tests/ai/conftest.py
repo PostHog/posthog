@@ -1,13 +1,27 @@
-from collections.abc import Callable, Generator
-from ee.session_recordings.session_summary.summarize_session import SingleSessionSummaryLlmInputs
-from ee.session_recordings.session_summary.tests.conftest import *
-from posthog.temporal.ai.session_summary.shared import SingleSessionSummaryInputs
-from unittest.mock import MagicMock
-import pytest
+from collections.abc import AsyncGenerator, Callable
 from typing import Any
-from posthog.redis import get_client
+
+import pytest
+from unittest.mock import MagicMock
+
+import pytest_asyncio
+from redis import (
+    Redis,
+    asyncio as aioredis,
+)
+
+from posthog.redis import TEST_clear_clients, get_async_client, get_client
 from posthog.temporal.ai.session_summary.summarize_session_group import SessionGroupSummaryInputs
-from posthog.temporal.ai.session_summary.shared import SESSION_SUMMARIES_DB_DATA_REDIS_TTL
+from posthog.temporal.ai.session_summary.types.group import SessionGroupSummaryOfSummariesInputs
+from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
+
+from ee.hogai.session_summaries.constants import (
+    SESSION_SUMMARIES_DB_DATA_REDIS_TTL,
+    SESSION_SUMMARIES_STREAMING_MODEL,
+    SESSION_SUMMARIES_SYNC_MODEL,
+)
+from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
+from ee.hogai.session_summaries.tests.conftest import *
 
 
 @pytest.fixture
@@ -17,15 +31,13 @@ def mock_single_session_summary_inputs(
 ) -> Callable:
     """Factory to produce inputs for single-session-summary related workflows/activities"""
 
-    def _create_inputs(
-        session_id: str, redis_input_key: str = "test_input_key", redis_output_key: str = "test_output_key"
-    ) -> SingleSessionSummaryInputs:
+    def _create_inputs(session_id: str, redis_key_base: str = "test_key_base") -> SingleSessionSummaryInputs:
         return SingleSessionSummaryInputs(
             session_id=session_id,
             user_id=mock_user.id,
             team_id=mock_team.id,
-            redis_input_key=redis_input_key,
-            redis_output_key=redis_output_key,
+            redis_key_base=redis_key_base,
+            model_to_use=SESSION_SUMMARIES_STREAMING_MODEL,
         )
 
     return _create_inputs
@@ -55,6 +67,7 @@ def mock_single_session_summary_llm_inputs(
             window_mapping_reversed=mock_window_mapping_reversed,
             session_start_time_str="2025-03-31T18:40:32.302000Z",
             session_duration=5323,
+            model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
         )
 
     return _create_inputs
@@ -67,23 +80,123 @@ def mock_session_group_summary_inputs(
 ) -> Callable:
     """Factory to produce inputs for session-group-summary related workflows/activities"""
 
-    def _create_inputs(
-        session_ids: list[str], redis_input_key_base: str = "test_input_base"
-    ) -> SessionGroupSummaryInputs:
+    def _create_inputs(session_ids: list[str], redis_key_base: str = "test_input_base") -> SessionGroupSummaryInputs:
         return SessionGroupSummaryInputs(
             session_ids=session_ids,
             user_id=mock_user.id,
             team_id=mock_team.id,
-            redis_input_key_base=redis_input_key_base,
+            redis_key_base=redis_key_base,
+            min_timestamp_str="2025-03-30T00:00:00.000000+00:00",
+            max_timestamp_str="2025-04-01T23:59:59.999999+00:00",
+            model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
         )
 
     return _create_inputs
 
 
-class RedisTestContext:
+@pytest.fixture
+def mock_session_group_summary_of_summaries_inputs(
+    mock_user: MagicMock,
+) -> Callable:
+    """Factory to produce inputs for session-group-summary-of-summaries related activities"""
+
+    def _create_inputs(
+        single_session_summaries_inputs: list[SingleSessionSummaryInputs],
+        redis_key_base: str = "test_input_base",
+    ) -> SessionGroupSummaryOfSummariesInputs:
+        return SessionGroupSummaryOfSummariesInputs(
+            single_session_summaries_inputs=single_session_summaries_inputs,
+            user_id=mock_user.id,
+            redis_key_base=redis_key_base,
+            model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
+        )
+
+    return _create_inputs
+
+
+@pytest.fixture
+def mock_patterns_extraction_yaml_response() -> str:
+    """Mock YAML response for pattern extraction"""
+    return """patterns:
+  - pattern_id: 1
+    pattern_name: "Mock Pattern"
+    pattern_description: "A test pattern"
+    severity: "critical"
+    indicators: ["test indicator"]
+  - pattern_id: 2
+    pattern_name: "Another Pattern"
+    pattern_description: "Another test pattern"
+    severity: "high"
+    indicators: ["another indicator"]
+  - pattern_id: 3
+    pattern_name: "One more pattern"
+    pattern_description: "One more pattern test pattern"
+    severity: "medium"
+    indicators: ["one more indicator"]
+"""
+
+
+@pytest.fixture
+def mock_patterns_assignment_yaml_response() -> str:
+    """Mock YAML response for pattern assignment"""
+    # All patterns need events assigned to meet the FAILED_PATTERNS_ASSIGNMENT_MIN_RATIO threshold
+    return """patterns:
+  - pattern_id: 1
+    event_ids: ["abcd1234", "defg4567"]
+  - pattern_id: 2
+    event_ids: ["ghij7890", "mnop3456"]
+  - pattern_id: 3
+    event_ids: ["stuv9012"]
+"""
+
+
+class RedisTestContextBase:
+    """Base class for Redis test contexts with shared functionality."""
+
     def __init__(self):
-        self.redis_client = get_client()
+        # Clear cache to ensure we get the right client type
+        TEST_clear_clients()
         self.keys_to_cleanup = []
+
+    def _get_keys_for_cleanup(self, input_key: str, output_key: str | None = None) -> list[str]:
+        """Get list of keys to track for cleanup."""
+        return [input_key] if not output_key else [input_key, output_key]
+
+    def _clear_clients(self):
+        """Clear client cache so subsequent tests get fresh clients."""
+        TEST_clear_clients()
+
+
+class AsyncRedisTestContext(RedisTestContextBase):
+    """Async Redis test context for tests using async Redis operations."""
+
+    def __init__(self):
+        super().__init__()
+        self.redis_client: aioredis.Redis = get_async_client()
+
+    async def setup_input_data(self, input_data: bytes, input_key: str, output_key: str | None = None):
+        """Set up Redis input data and track keys for cleanup."""
+        await self.redis_client.setex(
+            input_key,
+            SESSION_SUMMARIES_DB_DATA_REDIS_TTL,
+            input_data,
+        )
+        keys = self._get_keys_for_cleanup(input_key, output_key)
+        self.keys_to_cleanup.extend(keys)
+
+    async def cleanup(self):
+        """Clean up all tracked Redis keys and clear client cache."""
+        for key in self.keys_to_cleanup:
+            await self.redis_client.delete(key)
+        self._clear_clients()
+
+
+class SyncRedisTestContext(RedisTestContextBase):
+    """Sync Redis test context for tests using sync Redis operations."""
+
+    def __init__(self):
+        super().__init__()
+        self.redis_client: Redis = get_client()
 
     def setup_input_data(self, input_data: bytes, input_key: str, output_key: str | None = None):
         """Set up Redis input data and track keys for cleanup."""
@@ -92,19 +205,30 @@ class RedisTestContext:
             SESSION_SUMMARIES_DB_DATA_REDIS_TTL,
             input_data,
         )
-        keys = [input_key] if not output_key else [input_key, output_key]
+        keys = self._get_keys_for_cleanup(input_key, output_key)
         self.keys_to_cleanup.extend(keys)
 
     def cleanup(self):
-        """Clean up all tracked Redis keys."""
+        """Clean up all tracked Redis keys and clear client cache."""
         for key in self.keys_to_cleanup:
             self.redis_client.delete(key)
+        self._clear_clients()
+
+
+@pytest_asyncio.fixture
+async def redis_test_setup() -> AsyncGenerator[AsyncRedisTestContext, None]:
+    """Async context manager for Redis test setup and cleanup."""
+    context = AsyncRedisTestContext()
+    try:
+        yield context
+    finally:
+        await context.cleanup()
 
 
 @pytest.fixture
-def redis_test_setup() -> Generator[RedisTestContext, None, None]:
-    """Context manager for Redis test setup and cleanup."""
-    context = RedisTestContext()
+def sync_redis_test_setup():
+    """Sync context manager for Redis test setup and cleanup."""
+    context = SyncRedisTestContext()
     try:
         yield context
     finally:

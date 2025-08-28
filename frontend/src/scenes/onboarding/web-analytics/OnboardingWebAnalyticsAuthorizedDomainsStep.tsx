@@ -1,8 +1,10 @@
 import { useValues } from 'kea'
-import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
-import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 
-import { OnboardingStepKey } from '../onboardingLogic'
+import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
+import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+
+import { OnboardingStepKey } from '~/types'
+
 import { OnboardingStep } from '../OnboardingStep'
 
 export function OnboardingWebAnalyticsAuthorizedDomainsStep({

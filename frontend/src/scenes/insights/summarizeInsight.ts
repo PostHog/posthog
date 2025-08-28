@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
 import { RETENTION_FIRST_TIME } from 'lib/constants'
 import { alphabet, capitalizeFirstLetter } from 'lib/utils'
@@ -8,7 +9,7 @@ import {
     humanizePathsEventTypes,
 } from 'scenes/insights/utils'
 import { retentionOptions } from 'scenes/retention/constants'
-import { apiValueToMathType, MathCategory, MathDefinition, mathsLogic } from 'scenes/trends/mathsLogic'
+import { MathCategory, MathDefinition, apiValueToMathType, mathsLogic } from 'scenes/trends/mathsLogic'
 import { mathsLogicType } from 'scenes/trends/mathsLogicType'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -42,7 +43,7 @@ import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import { BreakdownKeyType, BreakdownType, EntityFilter, FilterType, FunnelVizType, StepOrderValue } from '~/types'
 
-function summarizeSinglularBreakdown(
+function summarizeSingularBreakdown(
     breakdown: BreakdownKeyType | undefined,
     breakdownType: BreakdownType | MultipleBreakdownType | null | undefined,
     groupTypeIndex: number | null | undefined,
@@ -58,8 +59,8 @@ function summarizeSinglularBreakdown(
         breakdownType &&
         breakdownType in PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE
             ? getCoreFilterDefinition(breakdown, PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[breakdownType])
-                  ?.label || breakdown
-            : breakdown
+                  ?.label || extractExpressionComment(breakdown)
+            : extractExpressionComment(breakdown as string)
     return `${noun}'s ${propertyLabel}`
 }
 
@@ -72,7 +73,7 @@ function summarizeMultipleBreakdown(
     if (breakdowns && breakdowns.length > 0) {
         return (breakdowns as Breakdown[])
             .map((breakdown) =>
-                summarizeSinglularBreakdown(breakdown.property, breakdown.type, breakdown.group_type_index, context)
+                summarizeSingularBreakdown(breakdown.property, breakdown.type, breakdown.group_type_index, context)
             )
             .filter((label): label is string => !!label)
             .join(', ')
@@ -93,15 +94,15 @@ function summarizeBreakdown(filters: Partial<FilterType> | BreakdownFilter, cont
                     (cohortId === 'all'
                         ? 'all users'
                         : cohortId in context.cohortsById
-                        ? context.cohortsById[cohortId]?.name
-                        : `ID ${cohortId}`)
+                          ? context.cohortsById[cohortId]?.name
+                          : `ID ${cohortId}`)
             )
             .join(', ')}`
     }
 
     return (
         summarizeMultipleBreakdown(filters, context) ||
-        summarizeSinglularBreakdown(breakdown, breakdown_type, breakdown_group_type_index, context)
+        summarizeSingularBreakdown(breakdown, breakdown_type, breakdown_group_type_index, context)
     )
 }
 
@@ -122,16 +123,16 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
                         mathDefinition
                             ? mathDefinition.shortName
                             : s.math === 'unique_group'
-                            ? 'unique groups'
-                            : mathType
+                              ? 'unique groups'
+                              : mathType
                     }`
                 } else {
                     series = `${getDisplayNameFromEntityNode(s)} ${
                         mathDefinition
                             ? mathDefinition.shortName
                             : s.math === 'unique_group'
-                            ? 'unique groups'
-                            : mathType
+                              ? 'unique groups'
+                              : mathType
                     }`
                 }
                 if (query.trendsFilter?.formula) {
@@ -158,8 +159,8 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
             query.funnelsFilter?.funnelOrderType === StepOrderValue.STRICT
                 ? '⇉'
                 : query.funnelsFilter?.funnelOrderType === StepOrderValue.UNORDERED
-                ? '&'
-                : '→'
+                  ? '&'
+                  : '→'
         summary = `${query.series.map((s) => getDisplayNameFromEntityNode(s)).join(` ${linkSymbol} `)} ${
             context.aggregationLabel(query.aggregation_group_type_index, true).singular
         } conversion`
@@ -218,7 +219,7 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
             context.aggregationLabel(query.aggregation_group_type_index, true).singular
         )} lifecycle based on ${getDisplayNameFromEntityNode(query.series[0])}`
     } else if (isCalendarHeatmapQuery(query)) {
-        return `Calendar Heatmap of ${getDisplayNameFromEntityNode(query.series[0])}`
+        return `Calendar heatmap of ${getDisplayNameFromEntityNode(query.series[0])}`
     }
     return ''
 }
@@ -269,8 +270,8 @@ export function summarizeInsight(query: Node | undefined | null, context: Summar
     return isInsightVizNode(query)
         ? summarizeInsightQuery(query.source, context)
         : !!query && !isInsightVizNode(query)
-        ? summarizeQuery(query)
-        : ''
+          ? summarizeQuery(query)
+          : ''
 }
 
 export function useSummarizeInsight(): (query: Node | undefined | null) => string {

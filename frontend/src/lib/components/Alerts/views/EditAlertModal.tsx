@@ -1,3 +1,7 @@
+import { useActions, useValues } from 'kea'
+import { Form, Group } from 'kea-forms'
+import { useCallback } from 'react'
+
 import { IconInfo } from '@posthog/icons'
 import {
     LemonBanner,
@@ -9,21 +13,17 @@ import {
     SpinnerOverlay,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { Form, Group } from 'kea-forms'
+
 import { AlertStateIndicator } from 'lib/components/Alerts/views/ManageAlertsModal'
 import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
 import { TZLabel } from 'lib/components/TZLabel'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { IconChevronLeft } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { IconChevronLeft } from 'lib/lemon-ui/icons'
 import { alphabet, formatDate } from 'lib/utils'
-import { useCallback } from 'react'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
 import {
@@ -34,9 +34,9 @@ import {
 } from '~/queries/schema/schema-general'
 import { InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 
+import { SnoozeButton } from '../SnoozeButton'
 import { alertFormLogic, canCheckOngoingInterval } from '../alertFormLogic'
 import { alertLogic } from '../alertLogic'
-import { SnoozeButton } from '../SnoozeButton'
 import { AlertType } from '../types'
 import { AlertDestinationSelector } from './AlertDestinationSelector'
 
@@ -146,8 +146,6 @@ export function EditAlertModal({
         formulaNodes,
         interval: trendInterval,
     } = useValues(trendsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const insightAlertsCDPFlag = featureFlags[FEATURE_FLAGS.INSIGHT_ALERTS_CDP]
 
     const creatingNewAlert = alertForm.id === undefined
     // can only check ongoing interval for absolute value/increase alerts with upper threshold
@@ -407,17 +405,17 @@ export function EditAlertModal({
                                 </div>
 
                                 <h4 className="mt-4">CDP Destinations</h4>
-                                {insightAlertsCDPFlag && (
-                                    <div className="mt-2">
-                                        {alertId ? (
-                                            <div className="flex flex-col">
-                                                <AlertDestinationSelector alertId={alertId} />
-                                            </div>
-                                        ) : (
-                                            <div className="text-muted-alt">Save alert first to add destinations</div>
-                                        )}
-                                    </div>
-                                )}
+                                <div className="mt-2">
+                                    {alertId ? (
+                                        <div className="flex flex-col">
+                                            <AlertDestinationSelector alertId={alertId} />
+                                        </div>
+                                    ) : (
+                                        <div className="text-muted-alt">
+                                            Save alert first to add destinations (e.g. Slack, Webhooks)
+                                        </div>
+                                    )}
+                                </div>
                             </div>
 
                             <div className="deprecated-space-y-2">

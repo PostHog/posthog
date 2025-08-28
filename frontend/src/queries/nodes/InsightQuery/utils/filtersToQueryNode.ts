@@ -1,5 +1,6 @@
-import { objectCleanWithEmpty } from 'lib/utils'
 import posthog from 'posthog-js'
+
+import { objectCleanWithEmpty } from 'lib/utils'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import {
@@ -47,6 +48,7 @@ import {
     isRetentionQuery,
     isStickinessQuery,
     isTrendsQuery,
+    setLatestVersionsOnQuery,
 } from '~/queries/utils'
 import {
     ActionFilter,
@@ -61,11 +63,11 @@ import {
     GroupMathType,
     HogQLMathType,
     InsightType,
-    isDataWarehouseFilter,
     PathsFilterType,
     RetentionEntity,
     RetentionFilterType,
     TrendsFilterType,
+    isDataWarehouseFilter,
 } from '~/types'
 
 import { cleanEntityProperties, cleanGlobalProperties } from './cleanProperties'
@@ -162,23 +164,29 @@ export const legacyEntityToNode = (
     }
 
     if (entity.type === 'actions') {
-        return objectCleanWithEmpty({
-            kind: NodeKind.ActionsNode,
-            id: entity.id,
-            ...shared,
-        }) as any
+        return setLatestVersionsOnQuery(
+            objectCleanWithEmpty({
+                kind: NodeKind.ActionsNode,
+                id: entity.id,
+                ...shared,
+            })
+        ) as any
     } else if (entity.type === 'data_warehouse') {
-        return objectCleanWithEmpty({
-            kind: NodeKind.DataWarehouseNode,
-            id: entity.id,
-            ...shared,
-        }) as any
+        return setLatestVersionsOnQuery(
+            objectCleanWithEmpty({
+                kind: NodeKind.DataWarehouseNode,
+                id: entity.id,
+                ...shared,
+            })
+        ) as any
     }
-    return objectCleanWithEmpty({
-        kind: NodeKind.EventsNode,
-        event: entity.id,
-        ...shared,
-    }) as any
+    return setLatestVersionsOnQuery(
+        objectCleanWithEmpty({
+            kind: NodeKind.EventsNode,
+            event: entity.id,
+            ...shared,
+        })
+    ) as any
 }
 
 export const exlusionEntityToNode = (
@@ -284,7 +292,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
         throw new Error('filtersToQueryNode expects "insight"')
     }
 
-    const query: InsightsQueryBase<AnalyticsQueryResponseBase<unknown>> = {
+    const query: InsightsQueryBase<AnalyticsQueryResponseBase> = {
         kind: insightTypeToNodeKind[filters.insight],
         properties: cleanGlobalProperties(filters.properties),
         filterTestAccounts: filters.filter_test_accounts,

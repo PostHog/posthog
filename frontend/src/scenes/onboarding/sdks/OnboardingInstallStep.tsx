@@ -1,26 +1,29 @@
+import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
+
 import { IconArrowLeft, IconArrowRight, IconChatHelp, IconCopy } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonInput, LemonModal, LemonTabs, SpinnerOverlay } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { useEffect, useState } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { InviteMembersButton } from '~/layout/navigation/TopBar/AccountPopover'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { type SDK, SDKInstructionsMap, SDKTag, SidePanelTab } from '~/types'
+import { InviteMembersButton } from '~/layout/navigation/TopBar/AccountPopover'
+import { OnboardingStepKey, ProductKey, type SDK, SDKInstructionsMap, SDKTag, SidePanelTab } from '~/types'
 
-import { OnboardingStepKey } from '../onboardingLogic'
-import { onboardingLogic } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
-import { useInstallationComplete } from './hooks/useInstallationComplete'
+import { onboardingLogic } from '../onboardingLogic'
 import { RealtimeCheckIndicator } from './RealtimeCheckIndicator'
-import { sdksLogic } from './sdksLogic'
 import { SDKSnippet } from './SDKSnippet'
+import { useInstallationComplete } from './hooks/useInstallationComplete'
+import { sdksLogic } from './sdksLogic'
+
 export type SDKsProps = {
     sdkInstructionMap: SDKInstructionsMap
+    productKey: ProductKey
     stepKey?: OnboardingStepKey
     listeningForName?: string
     teamPropertyToVerify?: string
@@ -66,6 +69,7 @@ export function SDKInstructionsModal({
     onClose,
     sdk,
     sdkInstructionMap,
+    productKey,
     verifyingProperty = 'ingested_event',
     verifyingName = 'event',
 }: {
@@ -73,6 +77,7 @@ export function SDKInstructionsModal({
     onClose: () => void
     sdk?: SDK
     sdkInstructionMap: SDKInstructionsMap
+    productKey: ProductKey
     verifyingProperty?: string
     verifyingName?: string
 }): JSX.Element {
@@ -94,7 +99,7 @@ export function SDKInstructionsModal({
                         </LemonButton>
                     </header>
                     <div className="flex-grow overflow-y-auto px-4 py-2">
-                        <SDKSnippet sdk={sdk} sdkInstructions={sdkInstructions} />
+                        <SDKSnippet sdk={sdk} sdkInstructions={sdkInstructions} productKey={productKey} />
                     </div>
                     <footer className="sticky bottom-0 w-full bg-bg-light dark:bg-bg-depth rounded-b-sm p-2 flex justify-between items-center gap-2 px-4">
                         <RealtimeCheckIndicator
@@ -110,6 +115,7 @@ export function SDKInstructionsModal({
 }
 export function OnboardingInstallStep({
     sdkInstructionMap,
+    productKey,
     stepKey = OnboardingStepKey.INSTALL,
     listeningForName = 'event',
     teamPropertyToVerify = 'ingested_event',
@@ -229,6 +235,7 @@ export function OnboardingInstallStep({
                     onClose={() => setInstructionsModalOpen(false)}
                     sdk={selectedSDK}
                     sdkInstructionMap={sdkInstructionMap}
+                    productKey={productKey}
                     verifyingProperty={teamPropertyToVerify}
                     verifyingName={listeningForName}
                 />

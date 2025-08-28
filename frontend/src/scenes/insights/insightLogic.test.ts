@@ -1,10 +1,11 @@
+import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic, partial, truth } from 'kea-test-utils'
+
 import api from 'lib/api'
-import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { maxContextLogic } from 'scenes/max/maxContextLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -243,6 +244,7 @@ describe('insightLogic', () => {
         initKeaTests(true, { ...MOCK_DEFAULT_TEAM, test_account_filters_default_checked: true })
         teamLogic.mount()
         sceneLogic.mount()
+        sceneLogic.actions.setTabs([{ id: '1', title: '...', pathname: '/', search: '', hash: '', active: true }])
         await expectLogic(teamLogic)
             .toFinishAllListeners()
             .toMatchValues({ currentTeam: partial({ test_account_filters_default_checked: true }) })
@@ -426,10 +428,13 @@ describe('insightLogic', () => {
         it('does not load from the savedInsightLogic when in a dashboard context', async () => {
             // 1. open saved insights
             router.actions.push(urls.savedInsights(), {}, {})
-            savedInsightsLogic.mount()
+            savedInsightsLogic({ tabId: '1' }).mount()
 
             // 2. the insights are loaded
-            await expectLogic(savedInsightsLogic).toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
+            await expectLogic(savedInsightsLogic({ tabId: '1' })).toDispatchActions([
+                'loadInsights',
+                'loadInsightsSuccess',
+            ])
 
             // 3. mount the insight
             logic = insightLogic({ dashboardItemId: Insight42, dashboardId: 33 })
@@ -506,7 +511,7 @@ describe('insightLogic', () => {
     })
 
     test('saveInsight and updateInsight update the saved insights list', async () => {
-        savedInsightsLogic.mount()
+        savedInsightsLogic({ tabId: '1' }).mount()
 
         const insightProps: InsightLogicProps = {
             dashboardItemId: Insight42,
@@ -523,10 +528,10 @@ describe('insightLogic', () => {
         insightDataLogic(insightProps).mount()
 
         logic.actions.saveInsight()
-        await expectLogic(logic).toDispatchActions([savedInsightsLogic.actionTypes.addInsight])
+        await expectLogic(logic).toDispatchActions([savedInsightsLogic({ tabId: '1' }).actionTypes.addInsight])
 
         logic.actions.updateInsight({ name: 'my new name' })
-        await expectLogic(logic).toDispatchActions([savedInsightsLogic.actionTypes.updateInsight])
+        await expectLogic(logic).toDispatchActions([savedInsightsLogic({ tabId: '1' }).actionTypes.updateInsight])
     })
 
     test('saveInsight updates dashboards', async () => {
@@ -534,7 +539,7 @@ describe('insightLogic', () => {
         dashLogic.mount()
         await expectLogic(dashLogic).toDispatchActions(['loadDashboard'])
 
-        savedInsightsLogic.mount()
+        savedInsightsLogic({ tabId: '1' }).mount()
 
         const insightProps: InsightLogicProps = {
             dashboardItemId: Insight43,
@@ -550,7 +555,7 @@ describe('insightLogic', () => {
     })
 
     test('updateInsight updates dashboards', async () => {
-        savedInsightsLogic.mount()
+        savedInsightsLogic({ tabId: '1' }).mount()
         logic = insightLogic({
             dashboardItemId: Insight43,
             cachedInsight: {
@@ -564,7 +569,7 @@ describe('insightLogic', () => {
     })
 
     test('save as new insight', async () => {
-        savedInsightsLogic.mount()
+        savedInsightsLogic({ tabId: '1' }).mount()
 
         const insightProps: InsightLogicProps = {
             dashboardItemId: Insight42,
@@ -582,7 +587,7 @@ describe('insightLogic', () => {
             logic.actions.saveAsConfirmation('New Insight (copy)')
         })
             .toDispatchActions(['setInsight'])
-            .toDispatchActions(savedInsightsLogic, ['loadInsights'])
+            .toDispatchActions(savedInsightsLogic({ tabId: '1' }), ['loadInsights'])
             .toMatchValues({
                 savedInsight: partial({ query: partial({ source: partial({ kind: NodeKind.FunnelsQuery }) }) }),
                 insight: partial({
@@ -597,7 +602,7 @@ describe('insightLogic', () => {
         await expectLogic(router)
             .toDispatchActions(['push', 'locationChanged'])
             .toMatchValues({
-                location: partial({ pathname: '/insights/12/edit' }),
+                location: partial({ pathname: '/project/997/insights/12/edit' }),
             })
     })
 
@@ -759,101 +764,6 @@ describe('insightLogic', () => {
                     }),
                 ],
             ])
-        })
-    })
-
-    describe('maxContext integration', () => {
-        beforeEach(async () => {
-            const insightProps: InsightLogicProps = { dashboardItemId: 'new' }
-            logic = insightLogic(insightProps)
-            logic.mount()
-
-            insightDataLogic(insightProps).mount()
-        })
-
-        it('calls setMaxContext when insight changes via subscription', async () => {
-            const testInsight = {
-                id: 42,
-                short_id: Insight42,
-                name: 'Test Insight',
-                query: { kind: NodeKind.DataTableNode },
-            }
-
-            await expectLogic(logic, () => {
-                logic.actions.setInsight(testInsight, { overrideQuery: true })
-            })
-                .toDispatchActions(['setInsight', 'setMaxContext'])
-                .toFinishAllListeners()
-        })
-
-        it('calls maxContextLogic.addOrUpdateActiveInsight with correct parameters when setMaxContext is triggered', async () => {
-            const testInsight = {
-                id: 42,
-                short_id: Insight42,
-                name: 'Test Insight',
-                query: { kind: NodeKind.DataTableNode },
-            }
-
-            // Set up the insight first
-            logic.actions.setInsight(testInsight, { overrideQuery: true })
-
-            // Mock the maxContextLogic actions
-            const mockAddOrUpdateActiveInsight = jest.fn()
-            jest.spyOn(maxContextLogic, 'findMounted').mockReturnValue({
-                actions: {
-                    addOrUpdateActiveInsight: mockAddOrUpdateActiveInsight,
-                },
-            } as any)
-
-            await expectLogic(logic, () => {
-                logic.actions.setMaxContext()
-            })
-                .toDispatchActions(['setMaxContext'])
-                .toFinishAllListeners()
-
-            // Verify that addOrUpdateActiveInsight was called with the correct parameters
-            expect(mockAddOrUpdateActiveInsight).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    id: 42,
-                    short_id: Insight42,
-                    name: 'Test Insight',
-                    query: { kind: NodeKind.DataTableNode },
-                }),
-                false
-            )
-        })
-
-        it('does not call maxContextLogic.addOrUpdateActiveInsight when insight has no query', async () => {
-            const testInsight = {
-                id: 42,
-                short_id: Insight42,
-                name: 'Test Insight',
-                query: null,
-            }
-
-            // Set up the insight first
-            logic.actions.setInsight(testInsight, { overrideQuery: true })
-
-            // Mock the maxContextLogic actions
-            const mockAddOrUpdateActiveInsight = jest.fn()
-            jest.spyOn(maxContextLogic, 'findMounted').mockReturnValue({
-                actions: {
-                    addOrUpdateActiveInsight: mockAddOrUpdateActiveInsight,
-                },
-            } as any)
-
-            await expectLogic(logic, () => {
-                logic.actions.setMaxContext()
-            })
-                .toDispatchActions(['setMaxContext'])
-                .toFinishAllListeners()
-
-            // Verify that addOrUpdateActiveInsight was NOT called because there's no query
-            expect(mockAddOrUpdateActiveInsight).not.toHaveBeenCalled()
-        })
-
-        afterEach(() => {
-            jest.restoreAllMocks()
         })
     })
 })

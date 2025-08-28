@@ -1,35 +1,37 @@
-from dataclasses import dataclass
-import hashlib
 import hmac
+import json
 import time
-import jwt
-from datetime import timedelta, datetime
+import hashlib
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Any, Literal, Optional
 from urllib.parse import urlencode
 
+from django.conf import settings
 from django.db import models
-from prometheus_client import Counter
+
+import jwt
 import requests
-from requests import Response
+import structlog
+from google.auth.transport.requests import Request as GoogleRequest
+from google.oauth2 import service_account
+from prometheus_client import Counter
+from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
-from rest_framework import status
-from posthog.exceptions_capture import capture_exception
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
-from google.oauth2 import service_account
-from google.auth.transport.requests import Request as GoogleRequest
+from slack_sdk.web.async_client import AsyncWebClient
 
-from django.conf import settings
 from posthog.cache_utils import cache_for
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.user import User
-from products.messaging.backend.providers.mailjet import MailjetProvider
-import structlog
-
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
-from posthog.warehouse.util import database_sync_to_async
+from posthog.sync import database_sync_to_async
+
+from products.messaging.backend.providers import MailjetProvider, TwilioProvider
 
 logger = structlog.get_logger(__name__)
 
@@ -61,12 +63,16 @@ class Integration(models.Model):
         GOOGLE_PUBSUB = "google-pubsub"
         GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
         GOOGLE_ADS = "google-ads"
+        GOOGLE_SHEETS = "google-sheets"
         SNAPCHAT = "snapchat"
         LINKEDIN_ADS = "linkedin-ads"
         INTERCOM = "intercom"
         EMAIL = "email"
         LINEAR = "linear"
         GITHUB = "github"
+        META_ADS = "meta-ads"
+        TWILIO = "twilio"
+        CLICKUP = "clickup"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -103,6 +109,8 @@ class Integration(models.Model):
             return self.integration_id or "unknown ID"
         if self.kind == "github":
             return dot_get(self.config, "account.name", self.integration_id)
+        if self.kind == "email":
+            return self.config.get("email", self.integration_id)
 
         return f"ID: {self.integration_id}"
 
@@ -141,10 +149,13 @@ class OauthIntegration:
         "salesforce",
         "hubspot",
         "google-ads",
+        "google-sheets",
         "snapchat",
         "linkedin-ads",
+        "meta-ads",
         "intercom",
         "linear",
+        "clickup",
     ]
     integration: Integration
 
@@ -240,6 +251,23 @@ class OauthIntegration:
                 id_path="sub",
                 name_path="email",
             )
+        elif kind == "google-sheets":
+            if not settings.SOCIAL_AUTH_GOOGLE_OAUTH2_KEY or not settings.SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET:
+                raise NotImplementedError("Google Sheets app not configured")
+
+            return OauthConfig(
+                authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
+                # forces the consent screen, otherwise we won't receive a refresh token
+                additional_authorize_params={"access_type": "offline", "prompt": "consent"},
+                token_info_url="https://openidconnect.googleapis.com/v1/userinfo",
+                token_info_config_fields=["sub", "email"],
+                token_url="https://oauth2.googleapis.com/token",
+                client_id=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_KEY,
+                client_secret=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET,
+                scope="https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email",
+                id_path="sub",
+                name_path="email",
+            )
         elif kind == "snapchat":
             if not settings.SNAPCHAT_APP_CLIENT_ID or not settings.SNAPCHAT_APP_CLIENT_SECRET:
                 raise NotImplementedError("Snapchat app not configured")
@@ -294,13 +322,47 @@ class OauthIntegration:
                 additional_authorize_params={"actor": "application"},
                 token_url="https://api.linear.app/oauth/token",
                 token_info_url="https://api.linear.app/graphql",
-                token_info_graphql_query="{ viewer { organization { id name } } }",
-                token_info_config_fields=["data.viewer.organization.id", "data.viewer.organization.name"],
+                token_info_graphql_query="{ viewer { organization { id name urlKey } } }",
+                token_info_config_fields=[
+                    "data.viewer.organization.id",
+                    "data.viewer.organization.name",
+                    "data.viewer.organization.urlKey",
+                ],
                 client_id=settings.LINEAR_APP_CLIENT_ID,
                 client_secret=settings.LINEAR_APP_CLIENT_SECRET,
                 scope="read issues:create",
                 id_path="data.viewer.organization.id",
                 name_path="data.viewer.organization.name",
+            )
+        elif kind == "meta-ads":
+            if not settings.META_ADS_APP_CLIENT_ID or not settings.META_ADS_APP_CLIENT_SECRET:
+                raise NotImplementedError("Meta Ads app not configured")
+
+            return OauthConfig(
+                authorize_url=f"https://www.facebook.com/{MetaAdsIntegration.api_version}/dialog/oauth",
+                token_url=f"https://graph.facebook.com/{MetaAdsIntegration.api_version}/oauth/access_token",
+                token_info_url=f"https://graph.facebook.com/{MetaAdsIntegration.api_version}/me",
+                token_info_config_fields=["id", "name", "email"],
+                client_id=settings.META_ADS_APP_CLIENT_ID,
+                client_secret=settings.META_ADS_APP_CLIENT_SECRET,
+                scope="ads_read ads_management business_management read_insights",
+                id_path="id",
+                name_path="name",
+            )
+        elif kind == "clickup":
+            if not settings.CLICKUP_APP_CLIENT_ID or not settings.CLICKUP_APP_CLIENT_SECRET:
+                raise NotImplementedError("ClickUp app not configured")
+
+            return OauthConfig(
+                authorize_url="https://app.clickup.com/api",
+                token_url="https://api.clickup.com/api/v2/oauth/token",
+                token_info_url="https://api.clickup.com/api/v2/user",
+                token_info_config_fields=["user.id", "user.email"],
+                client_id=settings.CLICKUP_APP_CLIENT_ID,
+                client_secret=settings.CLICKUP_APP_CLIENT_SECRET,
+                scope="",
+                id_path="user.id",
+                name_path="user.email",
             )
 
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
@@ -403,6 +465,11 @@ class OauthIntegration:
             "id_token": config.pop("id_token", None),
         }
 
+        # Handle case where Salesforce doesn't provide expires_in in initial response
+        if not config.get("expires_in") and kind == "salesforce":
+            # Default to 1 hour for Salesforce if not provided (conservative)
+            config["expires_in"] = 3600
+
         config["refreshed_at"] = int(time.time())
 
         integration, created = Integration.objects.update_or_create(
@@ -428,7 +495,15 @@ class OauthIntegration:
         refresh_token = self.integration.sensitive_config.get("refresh_token")
         expires_in = self.integration.config.get("expires_in")
         refreshed_at = self.integration.config.get("refreshed_at")
-        if not refresh_token or not expires_in or not refreshed_at:
+
+        if not refresh_token:
+            return False
+
+        if not expires_in and self.integration.kind == "salesforce":
+            # Salesforce tokens typically last 2-4 hours, we'll assume 1 hour (3600 seconds) to be conservative
+            expires_in = 3600
+
+        if not expires_in or not refreshed_at:
             return False
 
         # To be really safe we refresh if its half way through the expiry
@@ -462,7 +537,14 @@ class OauthIntegration:
         else:
             logger.info(f"Refreshed access token for {self}")
             self.integration.sensitive_config["access_token"] = config["access_token"]
-            self.integration.config["expires_in"] = config.get("expires_in")
+
+            # Handle case where Salesforce doesn't provide expires_in in refresh response
+            expires_in = config.get("expires_in")
+            if not expires_in and self.integration.kind == "salesforce":
+                # Default to 1 hour for Salesforce if not provided (conservative)
+                expires_in = 3600
+
+            self.integration.config["expires_in"] = expires_in
             self.integration.config["refreshed_at"] = int(time.time())
             reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
             oauth_refresh_counter.labels(self.integration.kind, "success").inc()
@@ -485,6 +567,10 @@ class SlackIntegration:
     @property
     def client(self) -> WebClient:
         return WebClient(self.integration.sensitive_config["access_token"])
+
+    @property
+    def async_client(self) -> AsyncWebClient:
+        return AsyncWebClient(self.integration.sensitive_config["access_token"])
 
     def list_channels(self, should_include_private_channels: bool, authed_user: str) -> list[dict]:
         # NOTE: Annoyingly the Slack API has no search so we have to load all channels...
@@ -772,8 +858,15 @@ class GoogleCloudIntegration:
         """
         Refresh the access token for the integration if necessary
         """
+        if self.integration.kind == "google-pubsub":
+            scope = "https://www.googleapis.com/auth/pubsub"
+        elif self.integration.kind == "google-cloud-storage":
+            scope = "https://www.googleapis.com/auth/devstorage.read_write"
+        else:
+            raise NotImplementedError(f"Google Cloud integration kind {self.integration.kind} not implemented")
+
         credentials = service_account.Credentials.from_service_account_info(
-            self.integration.sensitive_config, scopes=["https://www.googleapis.com/auth/pubsub"]
+            self.integration.sensitive_config, scopes=[scope]
         )
 
         try:
@@ -832,6 +925,77 @@ class LinkedInAdsIntegration:
         return response.json()
 
 
+class ClickUpIntegration:
+    integration: Integration
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "clickup":
+            raise Exception("ClickUpIntegration init called with Integration with wrong 'kind'")
+
+        self.integration = integration
+
+    def list_clickup_spaces(self, workspace_id):
+        response = requests.request(
+            "GET",
+            f"https://api.clickup.com/api/v2/team/{workspace_id}/space",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+            },
+        )
+
+        if response.status_code != 200:
+            capture_exception(Exception(f"ClickUpIntegration: Failed to list spaces: {response.text}"))
+            raise Exception(f"There was an internal error")
+
+        return response.json()
+
+    def list_clickup_folderless_lists(self, space_id):
+        response = requests.request(
+            "GET",
+            f"https://api.clickup.com/api/v2/space/{space_id}/list",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+            },
+        )
+
+        if response.status_code != 200:
+            capture_exception(Exception(f"ClickUpIntegration: Failed to list lists: {response.text}"))
+            raise Exception(f"There was an internal error")
+
+        return response.json()
+
+    def list_clickup_folders(self, space_id):
+        response = requests.request(
+            "GET",
+            f"https://api.clickup.com/api/v2/space/{space_id}/folder",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+            },
+        )
+
+        if response.status_code != 200:
+            capture_exception(Exception(f"ClickUpIntegration: Failed to list folders: {response.text}"))
+            raise Exception(f"There was an internal error")
+
+        return response.json()
+
+    def list_clickup_workspaces(self) -> dict:
+        response = requests.request(
+            "GET",
+            "https://api.clickup.com/api/v2/team",
+            headers={"Authorization": f"Bearer {self.integration.sensitive_config['access_token']}"},
+        )
+
+        if response.status_code != 200:
+            capture_exception(Exception(f"ClickUpIntegration: Failed to list workspaces: {response.text}"))
+            raise Exception(f"There was an internal error")
+
+        return response.json()
+
+
 class EmailIntegration:
     integration: Integration
 
@@ -845,17 +1009,25 @@ class EmailIntegration:
         return MailjetProvider()
 
     @classmethod
-    def integration_from_domain(cls, domain: str, team_id: int, created_by: Optional[User] = None) -> Integration:
+    def create_native_integration(cls, config: dict, team_id: int, created_by: Optional[User] = None) -> Integration:
+        email_address: str = config["email"]
+        name: str = config["name"]
+        domain: str = email_address.split("@")[1]
+
         mailjet = MailjetProvider()
+
+        # TODO: Look for integration belonging to the team with the same domain
         mailjet.create_email_domain(domain, team_id=team_id)
 
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,
             kind="email",
-            integration_id=domain,
+            integration_id=email_address,
             defaults={
                 "config": {
+                    "email": email_address,
                     "domain": domain,
+                    "name": name,
                     "mailjet_verified": False,
                     "aws_ses_verified": False,
                 },
@@ -900,12 +1072,15 @@ class EmailIntegration:
         verification_result = self.mailjet_provider.verify_email_domain(domain, team_id=self.integration.team_id)
 
         if verification_result.get("status") == "success":
-            updated_config = {"mailjet_verified": True}
-
-            # Merge the new config with existing config
-            updated_config = {**self.integration.config, **updated_config}
-            self.integration.config = updated_config
-            self.integration.save()
+            # We can validate all other integrations with the same domain
+            other_integrations = Integration.objects.filter(
+                team_id=self.integration.team_id,
+                kind="email",
+                config__domain=domain,
+            )
+            for integration in other_integrations:
+                integration.config["mailjet_verified"] = True
+                integration.save()
 
         return verification_result
 
@@ -919,33 +1094,75 @@ class LinearIntegration:
 
         self.integration = integration
 
-    def list_teams(self) -> list[dict]:
-        query = f"{{ teams {{ nodes {{ id name }} }} }}"
+    def url_key(self) -> str:
+        return dot_get(self.integration.config, "data.viewer.organization.urlKey")
 
+    def list_teams(self) -> list[dict]:
+        body = self.query(f"{{ teams {{ nodes {{ id name }} }} }}")
+        teams = dot_get(body, "data.teams.nodes")
+        return teams
+
+    def create_issue(self, team_id: str, posthog_issue_id: str, config: dict[str, str]):
+        title: str = json.dumps(config.pop("title"))
+        description: str = json.dumps(config.pop("description"))
+        linear_team_id = config.pop("team_id")
+
+        issue_create_query = f'mutation IssueCreate {{ issueCreate(input: {{ title: {title}, description: {description}, teamId: "{linear_team_id}" }}) {{ success issue {{ identifier }} }} }}'
+        body = self.query(issue_create_query)
+        linear_issue_id = dot_get(body, "data.issueCreate.issue.identifier")
+
+        attachment_url = f"{settings.SITE_URL}/project/{team_id}/error_tracking/{posthog_issue_id}"
+        link_attachment_query = f'mutation AttachmentCreate {{ attachmentCreate(input: {{ issueId: "{linear_issue_id}", title: "PostHog issue", url: "{attachment_url}" }}) {{ success }} }}'
+        self.query(link_attachment_query)
+
+        return {"id": linear_issue_id}
+
+    def query(self, query):
         response = requests.post(
             "https://api.linear.app/graphql",
             headers={"Authorization": f"Bearer {self.integration.sensitive_config['access_token']}"},
             json={"query": query},
         )
-
-        teams = dot_get(response.json(), "data.teams.nodes")
-        return teams
+        return response.json()
 
 
 class GitHubIntegration:
     integration: Integration
 
     @classmethod
-    def client_request(cls, endpoint: str, method: str = "GET") -> Response:
-        jwt_token = jwt.encode(
-            {
-                "iat": int(time.time()),
-                "exp": int(time.time()) + 600,  # 10 minutes
-                "iss": settings.GITHUB_APP_CLIENT_ID,
-            },
-            settings.GITHUB_APP_PRIVATE_KEY,
-            algorithm="RS256",
-        )
+    def client_request(cls, endpoint: str, method: str = "GET") -> requests.Response:
+        github_app_client_id = settings.GITHUB_APP_CLIENT_ID
+        github_app_private_key = settings.GITHUB_APP_PRIVATE_KEY
+
+        if not github_app_client_id:
+            raise ValidationError("GITHUB_APP_CLIENT_ID is not configured")
+
+        if not github_app_private_key:
+            raise ValidationError("GITHUB_APP_PRIVATE_KEY is not configured")
+
+        # Handle common newline encoding issues in environment variables
+        # Replace literal \n with actual newlines
+        github_app_private_key = github_app_private_key.replace("\\n", "\n")
+
+        # Check if the private key has the proper PEM format
+        if not github_app_private_key.strip().startswith("-----BEGIN"):
+            raise ValidationError("GITHUB_APP_PRIVATE_KEY is not in proper PEM format. It should start with -----BEGIN")
+
+        try:
+            jwt_token = jwt.encode(
+                {
+                    "iat": int(time.time()) - 300,  # 5 minutes in the past
+                    "exp": int(time.time()) + 300,  # 5 minutes in the future
+                    "iss": github_app_client_id,
+                },
+                github_app_private_key,
+                algorithm="RS256",
+            )
+        except Exception:
+            logger.error("Failed to encode JWT token", exc_info=True)
+            raise ValidationError(
+                "Failed to create GitHub App JWT token. Please check your GITHUB_APP_PRIVATE_KEY format."
+            )
 
         return requests.request(
             method,
@@ -1030,3 +1247,393 @@ class GitHubIntegration:
             reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
             oauth_refresh_counter.labels(self.integration.kind, "success").inc()
         self.integration.save()
+
+    def organization(self) -> str:
+        return dot_get(self.integration.config, "account.name")
+
+    def list_repositories(self, page: int = 1) -> list[str]:
+        access_token = self.integration.sensitive_config["access_token"]
+
+        response = requests.get(
+            f"https://api.github.com/installation/repositories?page={page}&per_page=100",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+
+        repositories = response.json()["repositories"]
+        return [repo["name"] for repo in repositories]
+
+    def create_issue(self, config: dict[str, str]):
+        title: str = config.pop("title")
+        body: str = config.pop("body")
+        repository: str = config.pop("repository")
+
+        org = self.organization()
+        access_token = self.integration.sensitive_config["access_token"]
+
+        response = requests.post(
+            f"https://api.github.com/repos/{org}/{repository}/issues",
+            json={"title": title, "body": body},
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+
+        issue = response.json()
+
+        return {"number": issue["number"], "repository": repository}
+
+    def get_default_branch(self, repository: str) -> str:
+        """Get the default branch for a repository."""
+        org = self.organization()
+        access_token = self.integration.sensitive_config["access_token"]
+
+        response = requests.get(
+            f"https://api.github.com/repos/{org}/{repository}",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+
+        if response.status_code == 200:
+            repo_data = response.json()
+            return repo_data.get("default_branch", "main")
+        else:
+            return "main"
+
+    def create_branch(self, repository: str, branch_name: str, base_branch: Optional[str] = None) -> dict[str, Any]:
+        """Create a new branch from a base branch."""
+        org = self.organization()
+        access_token = self.integration.sensitive_config["access_token"]
+
+        # Get the SHA of the base branch (default to repository's default branch)
+        if not base_branch:
+            base_branch = self.get_default_branch(repository)
+
+        # Get the SHA of the base branch
+        ref_response = requests.get(
+            f"https://api.github.com/repos/{org}/{repository}/git/ref/heads/{base_branch}",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+
+        if ref_response.status_code != 200:
+            return {
+                "success": False,
+                "error": f"Failed to get base branch {base_branch}: {ref_response.text}",
+            }
+
+        base_sha = ref_response.json()["object"]["sha"]
+
+        # Create the new branch
+        response = requests.post(
+            f"https://api.github.com/repos/{org}/{repository}/git/refs",
+            json={
+                "ref": f"refs/heads/{branch_name}",
+                "sha": base_sha,
+            },
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+
+        if response.status_code == 201:
+            branch_data = response.json()
+            return {
+                "success": True,
+                "branch_name": branch_name,
+                "sha": branch_data["object"]["sha"],
+                "ref": branch_data["ref"],
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"Failed to create branch: {response.text}",
+                "status_code": response.status_code,
+            }
+
+    def update_file(
+        self, repository: str, file_path: str, content: str, commit_message: str, branch: str, sha: Optional[str] = None
+    ) -> dict[str, Any]:
+        """Create or update a file in the repository."""
+        org = self.organization()
+        access_token = self.integration.sensitive_config["access_token"]
+
+        # If no SHA provided, try to get existing file's SHA
+        if not sha:
+            get_response = requests.get(
+                f"https://api.github.com/repos/{org}/{repository}/contents/{file_path}",
+                params={"ref": branch},
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "Authorization": f"Bearer {access_token}",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+            )
+            if get_response.status_code == 200:
+                sha = get_response.json()["sha"]
+
+        import base64
+
+        encoded_content = base64.b64encode(content.encode("utf-8")).decode("utf-8")
+
+        data = {
+            "message": commit_message,
+            "content": encoded_content,
+            "branch": branch,
+        }
+
+        if sha:
+            data["sha"] = sha
+
+        response = requests.put(
+            f"https://api.github.com/repos/{org}/{repository}/contents/{file_path}",
+            json=data,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+
+        if response.status_code in [200, 201]:
+            commit_data = response.json()
+            return {
+                "success": True,
+                "commit_sha": commit_data["commit"]["sha"],
+                "file_sha": commit_data["content"]["sha"],
+                "html_url": commit_data["commit"]["html_url"],
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"Failed to update file: {response.text}",
+                "status_code": response.status_code,
+            }
+
+    def create_pull_request(
+        self, repository: str, title: str, body: str, head_branch: str, base_branch: Optional[str] = None
+    ) -> dict[str, Any]:
+        """Create a pull request."""
+        org = self.organization()
+        access_token = self.integration.sensitive_config["access_token"]
+
+        if not base_branch:
+            base_branch = self.get_default_branch(repository)
+
+        response = requests.post(
+            f"https://api.github.com/repos/{org}/{repository}/pulls",
+            json={
+                "title": title,
+                "body": body,
+                "head": head_branch,
+                "base": base_branch,
+            },
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+
+        if response.status_code == 201:
+            pr_data = response.json()
+            return {
+                "success": True,
+                "pr_number": pr_data["number"],
+                "pr_url": pr_data["html_url"],
+                "pr_id": pr_data["id"],
+                "state": pr_data["state"],
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"Failed to create pull request: {response.text}",
+                "status_code": response.status_code,
+            }
+
+    def get_branch_info(self, repository: str, branch_name: str) -> dict[str, Any]:
+        """Get information about a specific branch."""
+        org = self.organization()
+        access_token = self.integration.sensitive_config["access_token"]
+
+        response = requests.get(
+            f"https://api.github.com/repos/{org}/{repository}/branches/{branch_name}",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+
+        if response.status_code == 200:
+            branch_data = response.json()
+            return {
+                "success": True,
+                "exists": True,
+                "branch_name": branch_data["name"],
+                "commit_sha": branch_data["commit"]["sha"],
+                "protected": branch_data.get("protected", False),
+            }
+        elif response.status_code == 404:
+            return {
+                "success": True,
+                "exists": False,
+                "branch_name": branch_name,
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"Failed to get branch info: {response.text}",
+                "status_code": response.status_code,
+            }
+
+    def list_pull_requests(self, repository: str, state: str = "open") -> dict[str, Any]:
+        """List pull requests for a repository."""
+        org = self.organization()
+        access_token = self.integration.sensitive_config["access_token"]
+
+        params: dict[str, str | int] = {"state": state, "per_page": 100}
+        response = requests.get(
+            f"https://api.github.com/repos/{org}/{repository}/pulls",
+            params=params,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+
+        if response.status_code == 200:
+            prs = response.json()
+            return {
+                "success": True,
+                "pull_requests": [
+                    {
+                        "number": pr["number"],
+                        "title": pr["title"],
+                        "url": pr["html_url"],
+                        "state": pr["state"],
+                        "head_branch": pr["head"]["ref"],
+                        "base_branch": pr["base"]["ref"],
+                        "created_at": pr["created_at"],
+                        "updated_at": pr["updated_at"],
+                    }
+                    for pr in prs
+                ],
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"Failed to list pull requests: {response.text}",
+                "status_code": response.status_code,
+            }
+
+
+class MetaAdsIntegration:
+    integration: Integration
+    api_version: str = "v23.0"
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "meta-ads":
+            raise Exception("MetaAdsIntegration init called with Integration with wrong 'kind'")
+        self.integration = integration
+
+    def refresh_access_token(self):
+        oauth_config = OauthIntegration.oauth_config_for_kind(self.integration.kind)
+
+        # check if refresh is necessary (less than 7 days)
+        if self.integration.config.get("expires_in") and self.integration.config.get("refreshed_at"):
+            if (
+                time.time()
+                > self.integration.config.get("refreshed_at") + self.integration.config.get("expires_in") - 604800
+            ):
+                return
+
+        res = requests.post(
+            oauth_config.token_url,
+            data={
+                "client_id": oauth_config.client_id,
+                "client_secret": oauth_config.client_secret,
+                "fb_exchange_token": self.integration.sensitive_config["access_token"],
+                "grant_type": "fb_exchange_token",
+                "set_token_expires_in_60_days": True,
+            },
+        )
+
+        config: dict = res.json()
+
+        if res.status_code != 200 or not config.get("access_token"):
+            logger.warning(f"Failed to refresh token for {self}", response=res.text)
+            self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
+            oauth_refresh_counter.labels(self.integration.kind, "failed").inc()
+        else:
+            logger.info(f"Refreshed access token for {self}")
+            self.integration.sensitive_config["access_token"] = config["access_token"]
+            self.integration.errors = ""
+            self.integration.config["expires_in"] = config.get("expires_in")
+            self.integration.config["refreshed_at"] = int(time.time())
+            # not used in CDP yet
+            # reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
+            oauth_refresh_counter.labels(self.integration.kind, "success").inc()
+        self.integration.save()
+
+
+class TwilioIntegration:
+    integration: Integration
+    twilio_provider: TwilioProvider
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "twilio":
+            raise Exception("TwilioIntegration init called with Integration with wrong 'kind'")
+        self.integration = integration
+        self.twilio_provider = TwilioProvider(
+            account_sid=self.integration.config["account_sid"],
+            auth_token=self.integration.sensitive_config["auth_token"],
+        )
+
+    def list_twilio_phone_numbers(self) -> list[dict]:
+        twilio_phone_numbers = self.twilio_provider.get_phone_numbers()
+
+        if not twilio_phone_numbers:
+            raise Exception(f"There was an internal error")
+
+        return twilio_phone_numbers
+
+    def integration_from_keys(self) -> Integration:
+        account_info = self.twilio_provider.get_account_info()
+
+        if not account_info.get("sid"):
+            raise ValidationError({"account_info": "Failed to get account info"})
+
+        integration, created = Integration.objects.update_or_create(
+            team_id=self.integration.team_id,
+            kind="twilio",
+            integration_id=account_info["sid"],
+            defaults={
+                "config": {
+                    "account_sid": account_info["sid"],
+                },
+                "sensitive_config": {
+                    "auth_token": self.integration.sensitive_config["auth_token"],
+                },
+                "created_by": self.integration.created_by,
+            },
+        )
+        if integration.errors:
+            integration.errors = ""
+            integration.save()
+
+        return integration

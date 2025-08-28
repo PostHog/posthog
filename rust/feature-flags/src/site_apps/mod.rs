@@ -1,9 +1,9 @@
 use crate::api::errors::FlagError;
 use chrono::{DateTime, Utc};
-use common_database::Client as DatabaseClient;
+use common_database::PostgresReader;
 use md5;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebJsSource {
@@ -46,7 +46,7 @@ struct SiteAppRow {
 /// # Returns
 /// Vector of WebJsUrl for enabled site apps
 pub async fn get_decide_site_apps(
-    db: Arc<dyn DatabaseClient + Send + Sync>,
+    db: PostgresReader,
     team_id: i32,
 ) -> Result<Vec<WebJsUrl>, FlagError> {
     let mut conn = db.get_connection().await?;
@@ -80,7 +80,7 @@ pub async fn get_decide_site_apps(
                 r.plugin_source_updated_at, r.plugin_updated_at, r.config_updated_at
             );
             let digest = md5::compute(hash_input.as_bytes());
-            let hash = format!("{:x}", digest);
+            let hash = format!("{digest:x}");
             let url = format!("/site_app/{}/{}/{}/", r.id, r.web_token, hash);
             WebJsUrl::new(r.id, url, "site_app".to_string())
         })
@@ -89,11 +89,13 @@ pub async fn get_decide_site_apps(
 
 #[cfg(test)]
 mod tests {
+    use common_database::PostgresWriter;
+
     use super::*;
     use crate::utils::test_utils::{insert_new_team_in_pg, setup_pg_reader_client};
 
     async fn insert_plugin_in_pg(
-        client: Arc<dyn DatabaseClient + Send + Sync>,
+        client: PostgresWriter,
         organization_id: &str,
         name: &str,
     ) -> Result<i32, sqlx::Error> {
@@ -119,7 +121,7 @@ mod tests {
     }
 
     async fn insert_plugin_source_file_in_pg(
-        client: Arc<dyn DatabaseClient + Send + Sync>,
+        client: PostgresWriter,
         plugin_id: i32,
         filename: &str,
         status: &str,
@@ -141,7 +143,7 @@ mod tests {
     }
 
     async fn insert_posthog_pluginconfig_in_pg(
-        client: Arc<dyn DatabaseClient + Send + Sync>,
+        client: PostgresWriter,
         plugin_id: i32,
         team_id: i32,
         enabled: bool,
@@ -419,7 +421,7 @@ mod tests {
         let site_app = &result[0];
 
         // URL should be in format: /site_app/{config_id}/{web_token}/{hash}/
-        let expected_prefix = format!("/site_app/{}/specific_token/", config_id);
+        let expected_prefix = format!("/site_app/{config_id}/specific_token/");
         assert!(site_app.url.starts_with(&expected_prefix));
         assert!(site_app.url.ends_with('/'));
 

@@ -1,11 +1,11 @@
-import ClickHouse from '@posthog/clickhouse'
-import * as fs from 'fs'
 import { Kafka, SASLOptions } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { hostname } from 'os'
-import * as path from 'path'
 import { types as pgTypes } from 'pg'
 import { ConnectionOptions } from 'tls'
+
+import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 
 import { getPluginServerCapabilities } from '../../capabilities'
 import { EncryptedFields } from '../../cdp/encryption-utils'
@@ -18,11 +18,16 @@ import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { AppMetrics } from '../../worker/ingestion/app-metrics'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
+import { ClickhouseGroupRepository } from '../../worker/ingestion/groups/repositories/clickhouse-group-repository'
+import { PostgresDualWriteGroupRepository } from '../../worker/ingestion/groups/repositories/postgres-dualwrite-group-repository'
+import { PostgresGroupRepository } from '../../worker/ingestion/groups/repositories/postgres-group-repository'
 import { RustyHook } from '../../worker/rusty-hook'
+import { ActionManagerCDP } from '../action-manager-cdp'
 import { isTestEnv } from '../env-utils'
 import { GeoIPService } from '../geoip'
 import { logger } from '../logger'
 import { getObjectStorage } from '../object_storage'
+import { PubSub } from '../pubsub'
 import { TeamManager } from '../team-manager'
 import { UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
@@ -73,26 +78,6 @@ export async function createHub(
     }
     const instanceId = new UUIDT()
 
-    logger.info('🤔', `Connecting to ClickHouse...`)
-    const clickhouse = new ClickHouse({
-        // We prefer to run queries on the offline cluster.
-        host: serverConfig.CLICKHOUSE_OFFLINE_CLUSTER_HOST ?? serverConfig.CLICKHOUSE_HOST,
-        port: serverConfig.CLICKHOUSE_SECURE ? 8443 : 8123,
-        protocol: serverConfig.CLICKHOUSE_SECURE ? 'https:' : 'http:',
-        user: serverConfig.CLICKHOUSE_USER,
-        password: serverConfig.CLICKHOUSE_PASSWORD || undefined,
-        dataObjects: true,
-        queryOptions: {
-            database: serverConfig.CLICKHOUSE_DATABASE,
-            output_format_json_quote_64bit_integers: false,
-        },
-        ca: serverConfig.CLICKHOUSE_CA
-            ? fs.readFileSync(path.join(serverConfig.BASE_DIR, serverConfig.CLICKHOUSE_CA)).toString()
-            : undefined,
-        rejectUnauthorized: serverConfig.CLICKHOUSE_CA ? false : undefined,
-    })
-    logger.info('👍', `ClickHouse ready`)
-
     logger.info('🤔', `Connecting to Kafka...`)
 
     const kafka = createKafkaClient(serverConfig)
@@ -100,12 +85,24 @@ export async function createHub(
     logger.info('👍', `Kafka ready`)
 
     const postgres = new PostgresRouter(serverConfig)
+
+    // Instantiate a second router for the Persons database migration
+    const postgresPersonMigration = new PostgresRouter({
+        ...serverConfig,
+        PERSONS_DATABASE_URL: serverConfig.PERSONS_MIGRATION_DATABASE_URL || serverConfig.PERSONS_DATABASE_URL,
+        PERSONS_READONLY_DATABASE_URL:
+            serverConfig.PERSONS_MIGRATION_READONLY_DATABASE_URL || serverConfig.PERSONS_READONLY_DATABASE_URL,
+    })
     // TODO: assert tables are reachable (async calls that cannot be in a constructor)
     logger.info('👍', `Postgres Router ready`)
 
-    logger.info('🤔', `Connecting to Redis...`)
+    logger.info('🤔', `Connecting to ingestion Redis...`)
     const redisPool = createRedisPool(serverConfig, 'ingestion')
-    logger.info('👍', `Redis ready`)
+    logger.info('👍', `Ingestion Redis ready`)
+
+    logger.info('🤔', `Connecting to cookieless Redis...`)
+    const cookielessRedisPool = createRedisPool(serverConfig, 'cookieless')
+    logger.info('👍', `Cookieless Redis ready`)
 
     logger.info('🤔', `Connecting to object storage...`)
 
@@ -118,22 +115,35 @@ export async function createHub(
 
     const db = new DB(
         postgres,
+        postgresPersonMigration,
         redisPool,
+        cookielessRedisPool,
         kafkaProducer,
-        clickhouse,
         serverConfig.PLUGINS_DEFAULT_LOG_LEVEL,
         serverConfig.PERSON_INFO_CACHE_TTL
     )
     const teamManager = new TeamManager(postgres)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const rootAccessManager = new RootAccessManager(db)
+    const pubSub = new PubSub(serverConfig)
+    await pubSub.start()
     const rustyHook = new RustyHook(serverConfig)
-
-    const actionManager = new ActionManager(postgres, serverConfig)
+    const actionManager = new ActionManager(postgres, pubSub)
+    const actionManagerCDP = new ActionManagerCDP(postgres)
     const actionMatcher = new ActionMatcher(postgres, actionManager)
     const groupTypeManager = new GroupTypeManager(postgres, teamManager)
-
-    const cookielessManager = new CookielessManager(serverConfig, redisPool, teamManager)
+    const groupRepository = serverConfig.GROUPS_DUAL_WRITE_ENABLED
+        ? new PostgresDualWriteGroupRepository(postgres, postgresPersonMigration, {
+              comparisonEnabled: serverConfig.GROUPS_DUAL_WRITE_COMPARISON_ENABLED,
+          })
+        : new PostgresGroupRepository(postgres)
+    const clickhouseGroupRepository = new ClickhouseGroupRepository(kafkaProducer)
+    const cookielessManager = new CookielessManager(serverConfig, cookielessRedisPool, teamManager)
+    const geoipService = new GeoIPService(serverConfig)
+    await geoipService.get()
+    const encryptedFields = new EncryptedFields(serverConfig)
+    const integrationManager = new IntegrationManagerService(pubSub, postgres, encryptedFields)
+    const quotaLimiting = new QuotaLimiting(serverConfig, teamManager)
 
     const hub: Hub = {
         ...serverConfig,
@@ -141,8 +151,9 @@ export async function createHub(
         capabilities,
         db,
         postgres,
+        postgresPersonMigration,
         redisPool,
-        clickhouse,
+        cookielessRedisPool,
         kafka,
         kafkaProducer,
         objectStorage: objectStorage,
@@ -160,25 +171,25 @@ export async function createHub(
         rootAccessManager,
         rustyHook,
         actionMatcher,
+        groupRepository,
+        clickhouseGroupRepository,
         actionManager,
-        geoipService: new GeoIPService(serverConfig),
+        actionManagerCDP,
+        geoipService,
         pluginConfigsToSkipElementsParsing: buildIntegerMatcher(process.env.SKIP_ELEMENTS_PARSING_PLUGINS, true),
         eventsToDropByToken: createEventsToDropByToken(process.env.DROP_EVENTS_BY_TOKEN_DISTINCT_ID),
-        eventsToSkipPersonsProcessingByToken: createEventsToDropByToken(
-            process.env.SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID
-        ),
         appMetrics: new AppMetrics(
             kafkaProducer,
             serverConfig.APP_METRICS_FLUSH_FREQUENCY_MS,
             serverConfig.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
         ),
-        encryptedFields: new EncryptedFields(serverConfig),
+        encryptedFields,
         celery: new Celery(serverConfig),
         cookielessManager,
+        pubSub,
+        integrationManager,
+        quotaLimiting,
     }
-
-    // NOTE: For whatever reason loading at this point is really fast versus lazy loading it when needed
-    await hub.geoipService.get()
 
     return hub
 }
@@ -189,8 +200,15 @@ export const closeHub = async (hub: Hub): Promise<void> => {
         await hub.appMetrics?.flush()
     }
     logger.info('💤', 'Closing kafka, redis, postgres...')
-    await Promise.allSettled([hub.kafkaProducer.disconnect(), hub.redisPool.drain(), hub.postgres?.end()])
+    await hub.pubSub.stop()
+    await Promise.allSettled([
+        hub.kafkaProducer.disconnect(),
+        hub.redisPool.drain(),
+        hub.postgres?.end(),
+        hub.postgresPersonMigration?.end(),
+    ])
     await hub.redisPool.clear()
+    await hub.cookielessRedisPool.clear()
     logger.info('💤', 'Closing cookieless manager...')
     hub.cookielessManager.shutdown()
 

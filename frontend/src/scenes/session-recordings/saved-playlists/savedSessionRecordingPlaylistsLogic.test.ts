@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
 import {
     DEFAULT_PLAYLIST_FILTERS,
     PLAYLISTS_PER_PAGE,
@@ -145,7 +146,7 @@ describe('savedSessionRecordingPlaylistsLogic', () => {
         })
 
         it('reads filters from the URL', async () => {
-            router.actions.push(urls.replay(ReplayTabs.Playlists), {
+            router.actions.push(urls.replay(ReplayTabs.Home), {
                 order: 'last_modified_at',
                 search: 'blah',
                 createdBy: 1,

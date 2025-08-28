@@ -1,7 +1,9 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { BuiltLogic, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { beforeUnload } from 'kea-router'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
@@ -66,8 +68,6 @@ const waitForDataLogic = async (playerKey: string): Promise<BuiltLogic<sessionRe
         })
 
         if (dataLogic !== null) {
-            // eslint-disable-next-line no-console
-            console.log('found after retries', retries)
             return dataLogic
         }
 

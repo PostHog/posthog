@@ -1,4 +1,8 @@
+import { Placement } from '@floating-ui/react'
+import { Ref, forwardRef, useEffect, useState } from 'react'
+
 import { IconX } from '@posthog/icons'
+
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import {
     DataWarehousePopoverField,
@@ -7,9 +11,8 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
-import { forwardRef, Ref, useEffect, useState } from 'react'
 import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
-import { MaxContextOption } from 'scenes/max/maxTypes'
+import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
 
@@ -25,6 +28,7 @@ export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = 
     eventNames?: string[]
     placeholder?: React.ReactNode
     placeholderClass?: string
+    placement?: Placement
     /** Width of the popover. */
     width?: number
     schemaColumns?: DatabaseSchemaField[]
@@ -34,7 +38,7 @@ export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = 
     metadataSource?: AnyDataNode
     showNumericalPropsOnly?: boolean
     dataWarehousePopoverFields?: DataWarehousePopoverField[]
-    maxContextOptions?: MaxContextOption[]
+    maxContextOptions?: MaxContextTaxonomicFilterOption[]
 }
 
 /** Like TaxonomicPopover, but convenient when you know you will only use string values */
@@ -50,7 +54,7 @@ export function TaxonomicStringPopover(props: TaxonomicPopoverProps<string>): JS
 }
 
 export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
-    ValueType extends TaxonomicFilterValue = TaxonomicFilterValue
+    ValueType extends TaxonomicFilterValue = TaxonomicFilterValue,
 >(
     {
         groupType,
@@ -70,6 +74,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
         dataWarehousePopoverFields,
         maxContextOptions,
         width,
+        placement,
         ...buttonPropsRest
     }: TaxonomicPopoverProps<ValueType>,
     ref: Ref<HTMLButtonElement>
@@ -94,7 +99,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
         if (!buttonPropsFinal.loading) {
             setLocalValue(value || ('' as ValueType))
         }
-    }, [value])
+    }, [value]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <LemonDropdown
@@ -124,6 +129,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
             onClickOutside={() => {
                 setVisible(false)
             }}
+            placement={placement}
         >
             {isClearButtonShown ? (
                 <LemonButton

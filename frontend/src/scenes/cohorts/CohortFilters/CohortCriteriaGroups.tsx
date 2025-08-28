@@ -1,17 +1,19 @@
 import './CohortCriteriaGroups.scss'
 
-import { IconCopy, IconPlusSmall, IconTrash } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
 import { Field as KeaField } from 'kea-forms/lib/components'
+
+import { IconCopy, IconPlusSmall, IconTrash } from '@posthog/icons'
+
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { alphabet } from 'lib/utils'
-import { cohortEditLogic, CohortLogicProps } from 'scenes/cohorts/cohortEditLogic'
 import { CohortCriteriaRowBuilder } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
+import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { criteriaToBehavioralFilterType, isCohortCriteriaGroup } from 'scenes/cohorts/cohortUtils'
 
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
@@ -25,7 +27,7 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
         <>
             {cohort.filters.properties.values.map((group, groupIndex) =>
                 isCohortCriteriaGroup(group) ? (
-                    <Group key={groupIndex} name={['filters', 'properties', 'values', groupIndex]}>
+                    <Group key={group.sort_key ?? groupIndex} name={['filters', 'properties', 'values', groupIndex]}>
                         {groupIndex !== 0 && (
                             <div className="CohortCriteriaGroups__matching-group__logical-divider">
                                 {cohort.filters.properties.type}

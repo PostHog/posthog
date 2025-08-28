@@ -1,6 +1,7 @@
 import * as PopoverPrimitiveBase from '@radix-ui/react-popover'
-import { cn } from 'lib/utils/css-classes'
 import * as React from 'react'
+
+import { cn } from 'lib/utils/css-classes'
 
 function PopoverPrimitive({ ...props }: React.ComponentProps<typeof PopoverPrimitiveBase.Root>): JSX.Element {
     return <PopoverPrimitiveBase.Root data-slot="popover" {...props} />
@@ -17,16 +18,18 @@ function PopoverPrimitiveContent({
     ...props
 }: React.ComponentProps<typeof PopoverPrimitiveBase.Content>): JSX.Element {
     return (
-        <PopoverPrimitiveBase.Content
-            data-slot="popover-content"
-            align={align}
-            sideOffset={sideOffset}
-            className={cn(
-                'primitive-menu-content data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 outline-hidden',
-                className
-            )}
-            {...props}
-        />
+        <PopoverPrimitiveBase.Portal>
+            <PopoverPrimitiveBase.Content
+                data-slot="popover-content"
+                align={align}
+                sideOffset={sideOffset}
+                className={cn(
+                    'primitive-menu-content data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 outline-hidden',
+                    className
+                )}
+                {...props}
+            />
+        </PopoverPrimitiveBase.Portal>
     )
 }
 

@@ -2,8 +2,6 @@ from uuid import uuid4
 
 from langchain_core.runnables import RunnableConfig
 
-from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
-from posthog.exceptions_capture import capture_exception
 from posthog.schema import (
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
@@ -15,8 +13,11 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
+from posthog.exceptions_capture import capture_exception
+
+from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
+
 from ..base import AssistantNode
-from .query_executor import AssistantQueryExecutor
 from .prompts import (
     FALLBACK_EXAMPLE_PROMPT,
     FUNNEL_STEPS_EXAMPLE_PROMPT,
@@ -28,6 +29,7 @@ from .prompts import (
     SQL_QUERY_PROMPT,
     TRENDS_EXAMPLE_PROMPT,
 )
+from .query_executor import AssistantQueryExecutor
 
 
 class QueryExecutorNode(AssistantNode):
@@ -35,6 +37,8 @@ class QueryExecutorNode(AssistantNode):
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         viz_message = state.messages[-1]
+        if isinstance(viz_message, FailureMessage):
+            return PartialAssistantState()  # Exit early - something failed earlier
         if not isinstance(viz_message, VisualizationMessage):
             raise ValueError(f"Expected a visualization message, found {type(viz_message)}")
         if viz_message.answer is None:
@@ -51,7 +55,7 @@ class QueryExecutorNode(AssistantNode):
         except Exception as err:
             if isinstance(err, NotImplementedError):
                 raise
-            capture_exception(err)
+            capture_exception(err, additional_properties=self._get_debug_props(config))
             return PartialAssistantState(messages=[FailureMessage(content=str(err), id=str(uuid4()))])
 
         query_result = QUERY_RESULTS_PROMPT.format(
@@ -70,10 +74,10 @@ class QueryExecutorNode(AssistantNode):
             messages=[
                 AssistantToolCallMessage(content=formatted_query_result, id=str(uuid4()), tool_call_id=tool_call_id)
             ],
-            # Resetting values to empty strings because Nones are not supported by LangGraph.
-            root_tool_call_id="",
-            root_tool_insight_plan="",
-            root_tool_insight_type="",
+            root_tool_call_id=None,
+            root_tool_insight_plan=None,
+            root_tool_insight_type=None,
+            rag_context=None,
         )
 
     def _get_example_prompt(self, viz_message: VisualizationMessage) -> str:

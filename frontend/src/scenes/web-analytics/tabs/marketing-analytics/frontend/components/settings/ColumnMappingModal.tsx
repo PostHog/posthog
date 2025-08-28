@@ -1,9 +1,12 @@
+import { useActions, useValues } from 'kea'
+
 import { IconCheck, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonSelect, LemonSelectSection } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { OPTIONS_FOR_IMPORTANT_CURRENCIES, OPTIONS_FOR_OTHER_CURRENCIES } from 'lib/components/BaseCurrency/utils'
 
-import { MARKETING_ANALYTICS_SCHEMA } from '../../../utils'
+import { MARKETING_ANALYTICS_SCHEMA, MarketingAnalyticsColumnsSchemaNames } from '~/queries/schema/schema-general'
+
 import { ExternalTable } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 
@@ -23,10 +26,10 @@ export function ColumnMappingModal({ table, isOpen, onClose }: ColumnMappingModa
     const { updateSourceMapping } = useActions(marketingAnalyticsSettingsLogic)
     const { sources_map } = useValues(marketingAnalyticsSettingsLogic)
 
-    const requiredFields = Object.keys(MARKETING_ANALYTICS_SCHEMA).filter(
+    const requiredFields = Object.values(MarketingAnalyticsColumnsSchemaNames).filter(
         (field) => MARKETING_ANALYTICS_SCHEMA[field].required
     )
-    const optionalFields = Object.keys(MARKETING_ANALYTICS_SCHEMA).filter(
+    const optionalFields = Object.values(MarketingAnalyticsColumnsSchemaNames).filter(
         (field) => !MARKETING_ANALYTICS_SCHEMA[field].required
     )
 
@@ -44,13 +47,13 @@ export function ColumnMappingModal({ table, isOpen, onClose }: ColumnMappingModa
         return schemaField.type.includes(columnType)
     }
 
-    const renderColumnMappingDropdown = (fieldName: keyof typeof MARKETING_ANALYTICS_SCHEMA): JSX.Element => {
+    const renderColumnMappingDropdown = (fieldName: MarketingAnalyticsColumnsSchemaNames): JSX.Element => {
         const currentValue = currentSourceMap[fieldName] ?? null
         const expectedTypes = MARKETING_ANALYTICS_SCHEMA[fieldName]
         const compatibleColumns = table.columns?.filter((col) => isColumnTypeCompatible(col.type, expectedTypes)) || []
 
         let columnOptions: LemonSelectSection<string | null>[]
-        if (fieldName === 'currency') {
+        if (fieldName === MarketingAnalyticsColumnsSchemaNames.Currency) {
             columnOptions = [
                 { options: [{ label: 'None', value: null }] },
                 { options: OPTIONS_FOR_IMPORTANT_CURRENCIES, title: 'Most Popular' },
@@ -77,7 +80,7 @@ export function ColumnMappingModal({ table, isOpen, onClose }: ColumnMappingModa
                 fullWidth
                 renderButtonContent={(activeLeaf) => {
                     // For non-currency fields, show just the column name without type when selected
-                    if (fieldName !== 'currency' && activeLeaf?.value) {
+                    if (fieldName !== MarketingAnalyticsColumnsSchemaNames.Currency && activeLeaf?.value) {
                         return activeLeaf.value
                     }
                     // For currency or when no selection, use default behavior
@@ -87,7 +90,7 @@ export function ColumnMappingModal({ table, isOpen, onClose }: ColumnMappingModa
         )
     }
 
-    const getFieldStatus = (fieldName: string): FieldStatus => {
+    const getFieldStatus = (fieldName: MarketingAnalyticsColumnsSchemaNames): FieldStatus => {
         const mapping = currentSourceMap[fieldName]
         if (!mapping || mapping.trim() === '') {
             return FieldStatus.Empty
@@ -113,7 +116,7 @@ export function ColumnMappingModal({ table, isOpen, onClose }: ColumnMappingModa
 
     const clearAllMappings = (): void => {
         Object.keys(currentSourceMap).forEach((fieldName) => {
-            updateSourceMapping(table.source_map_id, fieldName, null)
+            updateSourceMapping(table.source_map_id, fieldName as MarketingAnalyticsColumnsSchemaNames, null)
         })
     }
 

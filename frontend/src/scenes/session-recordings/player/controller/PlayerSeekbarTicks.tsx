@@ -1,16 +1,21 @@
 import clsx from 'clsx'
+import React, { MutableRefObject, memo } from 'react'
+
+import { IconComment } from '@posthog/icons'
+
+import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { autoCaptureEventToDescription } from 'lib/utils'
-import React, { memo, MutableRefObject } from 'react'
 import {
     InspectorListItem,
     InspectorListItemComment,
     InspectorListItemEvent,
     InspectorListItemNotebookComment,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
+import { isSingleEmoji } from 'scenes/session-recordings/utils'
 
 import { UserActivity } from './UserActivity'
 
@@ -19,7 +24,25 @@ function isEventItem(x: InspectorListItem): x is InspectorListItemEvent {
 }
 
 function isNotebookComment(x: InspectorListItem): x is InspectorListItemNotebookComment {
-    return x.type === 'comment' && x.source === 'notebook'
+    if (x.type !== 'comment') {
+        return false
+    }
+    return 'source' in x && x.source === 'notebook'
+}
+
+function isComment(x: InspectorListItem): x is InspectorListItemComment {
+    if (x.type !== 'comment') {
+        return false
+    }
+    return 'source' in x && x.source === 'comment'
+}
+
+function isAnyComment(x: InspectorListItem): x is InspectorListItemComment | InspectorListItemNotebookComment {
+    return x.type === 'comment'
+}
+
+function isEmojiComment(x: InspectorListItem): x is InspectorListItemComment {
+    return isComment(x) && !!x.data.item_context?.is_emoji && !!x.data.content && isSingleEmoji(x.data.content)
 }
 
 function PlayerSeekbarTick({
@@ -28,7 +51,7 @@ function PlayerSeekbarTick({
     zIndex,
     onClick,
 }: {
-    item: InspectorListItemComment | InspectorListItemEvent
+    item: InspectorListItemComment | InspectorListItemNotebookComment | InspectorListItemEvent
     endTimeMs: number
     zIndex: number
     onClick: (e: React.MouseEvent) => void
@@ -78,22 +101,21 @@ function PlayerSeekbarTick({
                         item.data.comment
                     ) : (
                         <div className="flex flex-col px-4 py-2 gap-y-2">
-                            <div>{item.data.content}</div>
-                            <ProfilePicture
-                                user={
-                                    item.data.creation_type === 'GIT'
-                                        ? { first_name: 'GitHub automation' }
-                                        : item.data.created_by
-                                }
-                                showName
-                                size="md"
-                                type={item.data.creation_type === 'GIT' ? 'bot' : 'person'}
-                            />{' '}
+                            <TextContent text={item.data.content ?? ''} data-attr="PlayerSeekbarTicks--text-content" />
+                            <ProfilePicture user={item.data.created_by} showName size="md" type="person" />{' '}
                         </div>
                     )
                 }
             >
-                <div className="PlayerSeekbarTick__line" />
+                {isEmojiComment(item) ? (
+                    <div className="PlayerSeekbarTick__emoji">{item.data.content}</div>
+                ) : isAnyComment(item) ? (
+                    <div className="PlayerSeekbarTick__comment">
+                        <IconComment />
+                    </div>
+                ) : (
+                    <div className="PlayerSeekbarTick__line" />
+                )}
             </Tooltip>
         </div>
     )
@@ -106,7 +128,7 @@ export const PlayerSeekbarTicks = memo(
         seekToTime,
         hoverRef,
     }: {
-        seekbarItems: (InspectorListItemEvent | InspectorListItemComment)[]
+        seekbarItems: (InspectorListItemEvent | InspectorListItemComment | InspectorListItemNotebookComment)[]
         endTimeMs: number
         seekToTime: (timeInMilliseconds: number) => void
         hoverRef: MutableRefObject<HTMLDivElement | null>

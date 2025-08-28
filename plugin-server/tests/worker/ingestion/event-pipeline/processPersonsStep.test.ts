@@ -1,5 +1,8 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
+
+import { PluginEvent } from '@posthog/plugin-scaffold'
+
+import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
 
 import { Hub, Team } from '../../../../src/types'
 import { closeHub, createHub } from '../../../../src/utils/db/hub'
@@ -7,7 +10,7 @@ import { UUIDT } from '../../../../src/utils/utils'
 import { normalizeEventStep } from '../../../../src/worker/ingestion/event-pipeline/normalizeEventStep'
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
-import { MeasuringPersonsStoreForBatch } from '../../../../src/worker/ingestion/persons/measuring-person-store'
+import { PostgresPersonRepository } from '../../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 import { EventsProcessor } from '../../../../src/worker/ingestion/process-event'
 import { createOrganization, createTeam, fetchPostgresPersons, getTeam, resetTestDatabase } from '../../../helpers/sql'
 
@@ -62,7 +65,10 @@ describe('processPersonsStep()', () => {
             team,
             timestamp,
             processPerson,
-            new MeasuringPersonsStoreForBatch(runner.hub.db)
+            new BatchWritingPersonsStoreForBatch(
+                new PostgresPersonRepository(runner.hub.db.postgres),
+                runner.hub.kafkaProducer
+            )
         )
 
         expect(resEvent).toEqual(pluginEvent)
@@ -101,7 +107,10 @@ describe('processPersonsStep()', () => {
             team,
             timestamp,
             processPerson,
-            new MeasuringPersonsStoreForBatch(runner.hub.db)
+            new BatchWritingPersonsStoreForBatch(
+                new PostgresPersonRepository(runner.hub.db.postgres),
+                runner.hub.kafkaProducer
+            )
         )
 
         expect(resEvent).toEqual({

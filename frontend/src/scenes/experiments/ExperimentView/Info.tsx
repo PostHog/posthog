@@ -1,13 +1,16 @@
-import { IconGear, IconPencil, IconRefresh, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonModal, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
+
+import { IconGear, IconPencil, IconRefresh, IconWarning } from '@posthog/icons'
+import { LemonButton, LemonModal, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
+
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import { useEffect, useState } from 'react'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import { ExperimentStatsMethod, ProgressStatus } from '~/types'
@@ -16,9 +19,50 @@ import { CONCLUSION_DISPLAY_CONFIG } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatus } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
-import { StatusTag } from './components'
 import { ExperimentDates } from './ExperimentDates'
 import { StatsMethodModal } from './StatsMethodModal'
+import { StatusTag } from './components'
+
+export const ExperimentLastRefresh = ({
+    isRefreshing,
+    lastRefresh,
+    onClick,
+}: {
+    isRefreshing: boolean
+    lastRefresh: string
+    onClick: () => void
+}): JSX.Element => {
+    usePeriodicRerender(15000) // Re-render every 15 seconds for up-to-date last refresh time
+
+    return (
+        <div className="block">
+            <div className="text-xs font-semibold uppercase tracking-wide">Last refreshed</div>
+            <div className="inline-flex deprecated-space-x-2">
+                <span
+                    className={`${
+                        lastRefresh
+                            ? dayjs().diff(dayjs(lastRefresh), 'hours') > 12
+                                ? 'text-danger'
+                                : dayjs().diff(dayjs(lastRefresh), 'hours') > 6
+                                  ? 'text-warning'
+                                  : ''
+                            : ''
+                    }`}
+                >
+                    {isRefreshing ? 'Loading…' : lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}
+                </span>
+                <LemonButton
+                    type="secondary"
+                    size="xsmall"
+                    onClick={onClick}
+                    data-attr="refresh-experiment"
+                    icon={<IconRefresh />}
+                    tooltip="Refresh experiment results"
+                />
+            </div>
+        </div>
+    )
+}
 
 export function Info(): JSX.Element {
     const {
@@ -59,32 +103,33 @@ export function Info(): JSX.Element {
         primaryMetricsResults?.[0]?.last_refresh ||
         secondaryMetricsResults?.[0]?.last_refresh
 
+    const status = getExperimentStatus(experiment)
+
     return (
         <div>
             <div className="flex flex-wrap justify-between gap-4">
                 <div className="inline-flex deprecated-space-x-8">
                     <div className="block" data-attr="experiment-status">
                         <div className="text-xs font-semibold uppercase tracking-wide">Status</div>
-                        <StatusTag experiment={experiment} />
+                        <StatusTag status={status} />
                     </div>
                     {experiment.feature_flag && (
                         <div className="block">
                             <div className="text-xs font-semibold uppercase tracking-wide">
                                 <span>Feature flag</span>
                             </div>
-                            {getExperimentStatus(experiment) === ProgressStatus.Running &&
-                                !experiment.feature_flag.active && (
-                                    <Tooltip
-                                        placement="bottom"
-                                        title="Your experiment is running, but the linked flag is disabled. No data is being collected."
-                                    >
-                                        <IconWarning
-                                            style={{ transform: 'translateY(2px)' }}
-                                            className="mr-1 text-danger"
-                                            fontSize="18px"
-                                        />
-                                    </Tooltip>
-                                )}
+                            {status === ProgressStatus.Running && !experiment.feature_flag.active && (
+                                <Tooltip
+                                    placement="bottom"
+                                    title="Your experiment is running, but the linked flag is disabled. No data is being collected."
+                                >
+                                    <IconWarning
+                                        style={{ transform: 'translateY(2px)' }}
+                                        className="mr-1 text-danger"
+                                        fontSize="18px"
+                                    />
+                                </Tooltip>
+                            )}
                             <CopyToClipboardInline
                                 iconStyle={{ color: 'var(--lemon-button-icon-opacity)' }}
                                 className="font-normal text-sm"
@@ -130,38 +175,11 @@ export function Info(): JSX.Element {
                 <div className="flex flex-col">
                     <div className="inline-flex deprecated-space-x-8">
                         {experiment.start_date && (
-                            <div className="block">
-                                <div className="text-xs font-semibold uppercase tracking-wide">Last refreshed</div>
-                                <div className="inline-flex deprecated-space-x-2">
-                                    <span
-                                        className={`${
-                                            lastRefresh
-                                                ? dayjs().diff(dayjs(lastRefresh), 'hours') > 12
-                                                    ? 'text-danger'
-                                                    : dayjs().diff(dayjs(lastRefresh), 'hours') > 6
-                                                    ? 'text-warning'
-                                                    : ''
-                                                : ''
-                                        }`}
-                                    >
-                                        {primaryMetricsResultsLoading || secondaryMetricsResultsLoading
-                                            ? 'Loading…'
-                                            : lastRefresh
-                                            ? dayjs(lastRefresh).fromNow()
-                                            : 'a while ago'}
-                                    </span>
-                                    <LemonButton
-                                        type="secondary"
-                                        size="xsmall"
-                                        onClick={() => {
-                                            refreshExperimentResults(true)
-                                        }}
-                                        data-attr="refresh-experiment"
-                                        icon={<IconRefresh />}
-                                        tooltip="Refresh experiment results"
-                                    />
-                                </div>
-                            </div>
+                            <ExperimentLastRefresh
+                                isRefreshing={primaryMetricsResultsLoading || secondaryMetricsResultsLoading}
+                                lastRefresh={lastRefresh}
+                                onClick={() => refreshExperimentResults(true)}
+                            />
                         )}
                         <ExperimentDates />
                         <div className="block">
@@ -214,7 +232,7 @@ export function Info(): JSX.Element {
                                 className="w-full"
                                 value={tempDescription}
                                 onChange={(value) => setTempDescription(value)}
-                                placeholder="Add your hypothesis for this test (optional)"
+                                placeholder="Add your hypothesis for this test"
                                 minRows={6}
                                 maxLength={400}
                             />

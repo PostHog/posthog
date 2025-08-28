@@ -1,23 +1,22 @@
-import { LemonTagType } from '@posthog/lemon-ui'
-import { PaginationManual } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+
+import { LemonTagType, PaginationManual } from '@posthog/lemon-ui'
+
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual, toParams } from 'lib/utils'
-import { billingLogic } from 'scenes/billing/billingLogic'
-import { featureFlagsLogic, type FeatureFlagsResult } from 'scenes/feature-flags/featureFlagsLogic'
+import { type FeatureFlagsResult, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { BillingType, Experiment, ExperimentsTabs, ProgressStatus } from '~/types'
+import { Experiment, ExperimentsTabs, ProgressStatus } from '~/types'
 
 import type { experimentsLogicType } from './experimentsLogicType'
-import { isLegacyExperiment, shouldUseNewQueryRunnerForNewObjects } from './utils'
 
 export const EXPERIMENTS_PER_PAGE = 100
 
@@ -39,6 +38,7 @@ const DEFAULT_FILTERS: ExperimentsFilters = {
     status: 'all',
     created_by_id: undefined,
     page: 1,
+    order: undefined,
 }
 
 export function getExperimentStatus(experiment: Experiment): ProgressStatus {
@@ -75,8 +75,6 @@ export const experimentsLogic = kea<experimentsLogicType>([
             ['featureFlags'],
             router,
             ['location'],
-            billingLogic,
-            ['billing'],
         ],
     })),
     actions({
@@ -104,15 +102,11 @@ export const experimentsLogic = kea<experimentsLogicType>([
     }),
     listeners(({ actions }) => ({
         setExperimentsFilters: async (_, breakpoint) => {
+            /**
+             * this debounces the search input. Yeah, I know.
+             */
             await breakpoint(300)
             actions.loadExperiments()
-        },
-        setExperimentsTab: ({ tabKey }) => {
-            if (tabKey === ExperimentsTabs.SharedMetrics) {
-                // Saved Metrics is a fake tab that we use to redirect to the shared metrics page
-                actions.setExperimentsTab(ExperimentsTabs.All)
-                router.actions.push('/experiments/shared-metrics')
-            }
         },
     })),
     loaders(({ values }) => ({
@@ -135,6 +129,22 @@ export const experimentsLogic = kea<experimentsLogicType>([
                         ...values.experiments,
                         results: values.experiments.results.filter((experiment) => experiment.id !== id),
                         count: values.experiments.count - 1,
+                    }
+                },
+                duplicateExperiment: async (payload: { id: number; featureFlagKey?: string }) => {
+                    const data = payload.featureFlagKey ? { feature_flag_key: payload.featureFlagKey } : {}
+                    const duplicatedExperiment = await api.create(
+                        `api/projects/${values.currentProjectId}/experiments/${payload.id}/duplicate`,
+                        data
+                    )
+                    lemonToast.success('Experiment duplicated successfully')
+                    // Navigate to the newly created experiment
+                    router.actions.push(urls.experiment(duplicatedExperiment.id))
+
+                    return {
+                        ...values.experiments,
+                        results: [duplicatedExperiment, ...values.experiments.results],
+                        count: values.experiments.count + 1,
                     }
                 },
                 addToExperiments: (experiment: Experiment) => {
@@ -168,7 +178,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
         shouldShowEmptyState: [
             (s) => [s.experimentsLoading, s.experiments, s.filters],
             (experimentsLoading, experiments, filters): boolean => {
-                return !experimentsLoading && experiments.results.length <= 0 && objectsEqual(filters, DEFAULT_FILTERS)
+                return !experimentsLoading && experiments.results.length === 0 && objectsEqual(filters, DEFAULT_FILTERS)
             },
         ],
         pagination: [
@@ -196,29 +206,6 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 ])
             },
         ],
-        showLegacyBadge: [
-            (s) => [featureFlagsLogic.selectors.featureFlags, s.experiments, s.billing],
-            (featureFlags: FeatureFlagsSet, experiments: ExperimentsResult, billing: BillingType): boolean => {
-                /**
-                 * If the new query runner is enabled, we want to always show the legacy badge,
-                 * even if all existing experiments are legacy experiments.
-                 *
-                 * Not ideal to use feature flags at this level, but this is how things are and
-                 * it'll take a while to change.
-                 */
-                if (shouldUseNewQueryRunnerForNewObjects(featureFlags, billing)) {
-                    return true
-                }
-
-                /**
-                 * If the new query runner is not enabled, we'll set this boolean selector
-                 * so the components can show the legacy badge only if there are experiments
-                 * that use the NEW query runner.
-                 * This covers the case when the feature was disabled after creating new experiments.
-                 */
-                return experiments.results.some((experiment) => !isLegacyExperiment(experiment))
-            },
-        ],
     })),
     events(({ actions }) => ({
         afterMount: () => {
@@ -233,7 +220,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                   Record<string, any>,
                   {
                       replace: boolean
-                  }
+                  },
               ]
             | void => {
             const searchParams: Record<string, string | number> = {

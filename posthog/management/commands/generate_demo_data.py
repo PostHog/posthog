@@ -1,19 +1,25 @@
-import datetime as dt
+# ruff: noqa: T201 allow print statements
+
 import logging
 import secrets
+import datetime as dt
 from time import monotonic
 from typing import Optional
 
 from django.core import exceptions
 from django.core.management.base import BaseCommand
 
-from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
+from dagster_graphql import DagsterGraphQLClient
+
 from posthog.demo.matrix import Matrix, MatrixManager
 from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.demo.products.spikegpt import SpikeGPTMatrix
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import Team
+from posthog.settings import DAGSTER_UI_HOST, DAGSTER_UI_PORT
 from posthog.taxonomy.taxonomy import PERSON_PROPERTIES_ADAPTED_FROM_EVENT
+
+from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
 
 logging.getLogger("kafka").setLevel(logging.ERROR)  # Hide kafka-python's logspam
 
@@ -102,9 +108,9 @@ class Command(BaseCommand):
             days_past=options["days_past"],
             days_future=options["days_future"],
             n_clusters=options["n_clusters"],
-            group_type_index_offset=GroupTypeMapping.objects.filter(project_id=existing_team.project_id).count()
-            if existing_team
-            else 0,
+            group_type_index_offset=(
+                GroupTypeMapping.objects.filter(project_id=existing_team.project_id).count() if existing_team else 0
+            ),
         )
         print("Running simulation...")
         matrix.simulate()
@@ -124,34 +130,44 @@ class Command(BaseCommand):
                         matrix_manager.reset_master()
                     else:
                         team = Team.objects.get(pk=existing_team_id)
-                        existing_user = team.organization.members.first()
-                        matrix_manager.run_on_team(team, existing_user)
+                        user = team.organization.members.first()
+                        matrix_manager.run_on_team(team, user)
                 else:
-                    matrix_manager.ensure_account_and_save(
+                    organization, team, user = matrix_manager.ensure_account_and_save(
                         email,
                         "Employee 427",
                         "Hedgebox Inc.",
                         is_staff=bool(options.get("staff")),
                         password=password,
-                        disallow_collision=True,
+                        email_collision_handling="disambiguate",
                     )
+                    # Optionally generate demo issues for issue tracker if extension is available
+                    gen_issues = getattr(self, "generate_demo_issues", None)
+                    team_for_issues = getattr(matrix_manager, "team", None)
+                    if callable(gen_issues) and team_for_issues is not None:
+                        gen_issues(team_for_issues)
             except exceptions.ValidationError as e:
                 print(f"Error: {e}")
             else:
                 print(
                     "\nMaster project reset!\n"
                     if existing_team_id == 0
-                    else f"\nDemo data ready for project {team.name}!\n"
-                    if existing_team_id is not None
-                    else f"\nDemo data ready for {email}!\n\n"
-                    "Pre-fill the login form with this link:\n"
-                    f"http://localhost:8000/login?email={email}\n"
-                    f"The password is:\n{password}\n\n"
-                    "If running demo mode (DEMO=1), log in instantly with this link:\n"
-                    f"http://localhost:8000/signup?email={email}\n"
+                    else (
+                        f"\nDemo data ready for project {team.name}!\n"
+                        if existing_team_id is not None
+                        else f"\nDemo data ready for {user.email}!\n\n"
+                        "Pre-fill the login form with this link:\n"
+                        f"http://localhost:8000/login?email={user.email}\n"
+                        f"The password is:\n{password}\n\n"
+                        "If running demo mode (DEMO=1), log in instantly with this link:\n"
+                        f"http://localhost:8000/signup?email={user.email}\n"
+                    )
                 )
             print("Materializing common columns...")
-            self.materialize_common_columns()
+            self.materialize_common_columns(options["days_past"])
+
+            print("Running dagster materializations...")
+            self.initialize_dagster_materialization(options["days_past"])
         else:
             print("Dry run - not saving results.")
 
@@ -203,23 +219,39 @@ class Command(BaseCommand):
         )
         print("\n".join(summary_lines))
 
-    def materialize_common_columns(self) -> None:
+    def materialize_common_columns(self, backfill_days: int) -> None:
         event_properties = {
             *PERSON_PROPERTIES_ADAPTED_FROM_EVENT,
             "$prev_pageview_pathname",
             "$prev_pageview_max_content_percentage",
             "$prev_pageview_max_scroll_percentage",
             "$screen_name",
+            "$lib",
+            "$lib_version",
             "$geoip_country_code",
             "$geoip_subdivision_1_code",
             "$geoip_subdivision_1_name",
             "$geoip_city_name",
             "$browser_language",
             "$timezone_offset",
+            "$host",
+            "$exception_issue_id",
+            "$exception_types",
+            "$exception_values",
+            "$exception_sources",
+            "$exception_functions",
+            "$exception_fingerprint",
         }
 
         person_properties = {
             *PERSON_PROPERTIES_ADAPTED_FROM_EVENT,
+            "email",
+            "Email",
+            "name",
+            "Name",
+            "username",
+            "Username",
+            "UserName",
         }
         for prop in person_properties.copy():
             if prop.startswith("$initial_"):
@@ -235,7 +267,7 @@ class Command(BaseCommand):
                 )
                 for prop in sorted(event_properties)
             ],
-            backfill_period_days=365,
+            backfill_period_days=backfill_days,
         )
         materialize_properties_task(
             properties_to_materialize=[
@@ -246,7 +278,7 @@ class Command(BaseCommand):
                 )
                 for prop in sorted(person_properties)
             ],
-            backfill_period_days=365,
+            backfill_period_days=backfill_days,
         )
         materialize_properties_task(
             properties_to_materialize=[
@@ -257,5 +289,86 @@ class Command(BaseCommand):
                 )
                 for prop in sorted(person_properties)
             ],
-            backfill_period_days=365,
+            backfill_period_days=backfill_days,
         )
+
+    def initialize_dagster_materialization(self, backfill_days: int):
+        # Use GraphQL to connect to dagster development server.
+        # I tried some other approaches, i.e. CLI and python client, but these were both extremely slow and spun
+        # up a new instance of the Dagster code server for each request, which is not what we want. This API returns
+        # immediately and is non-blocking.
+        client = DagsterGraphQLClient(DAGSTER_UI_HOST, port_number=DAGSTER_UI_PORT)
+
+        # Launch the hourly job (non-partitioned)
+        client.submit_job_execution(
+            job_name="web_pre_aggregate_current_day_hourly_job",
+            repository_location_name="dags.locations.web_analytics",
+            repository_name="__repository__",
+        )
+
+        # Submit partitioned runs for daily jobs.
+        # DagsterGraphQLClient doesn't provide a nice way to do this, so we have to use the raw GraphQL mutation.
+        end_date = dt.datetime.now()
+        partition_list = [
+            (end_date - dt.timedelta(days=backfill_days - i)).strftime("%Y-%m-%d") for i in range(backfill_days + 1)
+        ]
+
+        daily_asset_names = ["web_analytics_stats_table_daily", "web_analytics_bounces_daily"]
+        result = client._execute(
+            self.backfill_mutation_gql(),
+            {
+                "backfillParams": {
+                    "tags": [{"key": "generate_demo_data", "value": "true"}],
+                    "assetSelection": [{"path": [asset_name]} for asset_name in daily_asset_names],
+                    "partitionNames": partition_list,
+                    "fromFailure": False,
+                }
+            },
+        )
+
+        backfill_result = result["launchPartitionBackfill"]
+        if backfill_result["__typename"] != "LaunchBackfillSuccess":
+            raise Exception(backfill_result)
+
+    def backfill_mutation_gql(self):
+        # this comes straight out of the network tab, sadly not supported by the client SDK
+        return """
+            mutation LaunchPartitionBackfill($backfillParams: LaunchBackfillParams!) {
+                launchPartitionBackfill(backfillParams: $backfillParams) {
+                    ... on LaunchBackfillSuccess {
+                        backfillId
+                        __typename
+                    }
+                    ... on PartitionSetNotFoundError {
+                        message
+                        __typename
+                    }
+                    ... on PartitionKeysNotFoundError {
+                        message
+                        __typename
+                    }
+                    ...PythonErrorFragment
+                    __typename
+                }
+            }
+
+            fragment PythonErrorFragment on PythonError {
+                message
+                stack
+                errorChain {
+                    ...PythonErrorChain
+                    __typename
+                }
+                __typename
+            }
+
+            fragment PythonErrorChain on ErrorChainLink {
+                isExplicitLink
+                error {
+                    message
+                    stack
+                    __typename
+                }
+                __typename
+            }
+    """

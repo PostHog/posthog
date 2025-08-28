@@ -1,11 +1,14 @@
 import * as d3 from 'd3'
 import * as Sankey from 'd3-sankey'
-import { D3Selector } from 'lib/hooks/useD3'
 import { Dispatch, RefObject, SetStateAction } from 'react'
 
 import { POSTHOG_DROPOFF, POSTHOG_OTHER } from './constants'
 import { PathNodeData, PathTargetLink } from './pathUtils'
-import { PathNodeType, Paths } from './types'
+import { D3Selector } from 'lib/hooks/useD3'
+
+
+import { PathNodeData, PathTargetLink, } from './pathUtils'
+import { Paths } from './types'
 
 /*
  * Canvas

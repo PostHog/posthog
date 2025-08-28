@@ -1,5 +1,6 @@
 import posthog from 'posthog-js'
 
+import { RevenueAnalyticsMRRQueryResultItem } from '~/queries/schema/schema-general'
 import { LifecycleToggle } from '~/types'
 
 import { LemonTagType } from './lemon-ui/LemonTag'
@@ -94,13 +95,21 @@ export function getTrendLikeSeriesColor(index: number, isPrevious: boolean): str
  *
  * Hexadecimal is necessary as Chart.js doesn't work with CSS vars.
  */
-export function getBarColorFromStatus(status: LifecycleToggle, hover?: boolean): string {
+export function getBarColorFromStatus(
+    status: LifecycleToggle | `revenue-analytics-${keyof RevenueAnalyticsMRRQueryResultItem}`,
+    hover?: boolean
+): string {
     switch (status) {
         case 'new':
         case 'returning':
         case 'resurrecting':
         case 'dormant':
-            return getColorVar(`lifecycle-${status}${hover ? '-hover' : ''}`)
+            return getColorVar(`color-lifecycle-${status}${hover ? '-hover' : ''}`)
+        case 'revenue-analytics-new':
+        case 'revenue-analytics-expansion':
+        case 'revenue-analytics-contraction':
+        case 'revenue-analytics-churn':
+            return getColorVar(`color-${status}${hover ? '-hover' : ''}`)
         default:
             throw new Error(`Unknown lifecycle status: ${status}`)
     }
@@ -114,9 +123,9 @@ export function getGraphColors(): Record<string, string | null> {
         crosshair: getColorVar('color-graph-crosshair'),
 
         // TODO: these are not used anywhere, but setting them to the correct values
-        tooltipBackground: getColorVar('bg-surface-tooltip'),
-        tooltipTitle: getColorVar('text-primary'),
-        tooltipBody: getColorVar('bg-surface-tooltip'),
+        tooltipBackground: getColorVar('color-bg-surface-tooltip'),
+        tooltipTitle: getColorVar('color-text-primary'),
+        tooltipBody: getColorVar('color-bg-surface-tooltip'),
     }
 }
 

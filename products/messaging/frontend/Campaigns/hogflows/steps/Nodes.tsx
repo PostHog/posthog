@@ -1,32 +1,34 @@
-import { IconPlus } from '@posthog/icons'
-import { Handle, Node, useUpdateNodeInternals } from '@xyflow/react'
+import { Handle, useUpdateNodeInternals } from '@xyflow/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
+import { IconPlus } from '@posthog/icons'
+
+import { NODE_HEIGHT, NODE_WIDTH } from '../constants'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import type { HogFlowAction } from '../types'
-import { StepView } from './components/StepView'
 import { getHogFlowStep } from './HogFlowSteps'
-import { HogFlowStepNodeProps, StepViewNodeHandle } from './types'
+import { StepView } from './components/StepView'
+import { HogFlowStepNodeProps } from './types'
 
 export type ReactFlowNodeType = HogFlowAction['type'] | 'dropzone'
-
-export const DROPZONE_NODE_WIDTH = 100
-export const DROPZONE_NODE_HEIGHT = 34
 
 export const REACT_FLOW_NODE_TYPES: Record<ReactFlowNodeType, React.ComponentType<HogFlowStepNodeProps>> = {
     dropzone: DropzoneNode,
     // Everything else is a HogFlowActionNode
     trigger: HogFlowActionNode,
-    message: HogFlowActionNode,
+    function: HogFlowActionNode,
+    function_email: HogFlowActionNode,
+    function_sms: HogFlowActionNode,
+    function_webhook: HogFlowActionNode,
+    function_slack: HogFlowActionNode,
     conditional_branch: HogFlowActionNode,
     delay: HogFlowActionNode,
     wait_until_condition: HogFlowActionNode,
     exit: HogFlowActionNode,
     random_cohort_branch: HogFlowActionNode,
     wait_until_time_window: HogFlowActionNode,
-    function: HogFlowActionNode,
 }
 
 function DropzoneNode({ id }: HogFlowStepNodeProps): JSX.Element {
@@ -47,8 +49,8 @@ function DropzoneNode({ id }: HogFlowStepNodeProps): JSX.Element {
             )}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                width: DROPZONE_NODE_WIDTH,
-                height: DROPZONE_NODE_HEIGHT,
+                width: NODE_WIDTH,
+                height: NODE_HEIGHT,
             }}
         >
             <div className="flex flex-col justify-center items-center w-4 h-4 rounded-full border bg-surface-primary">
@@ -71,34 +73,13 @@ function HogFlowActionNode(props: HogFlowStepNodeProps): JSX.Element | null {
 
     const node = nodesById[props.id]
 
-    const getHandleStyle = (handle: StepViewNodeHandle, node: Node): React.CSSProperties | undefined => {
-        if (handle.type === 'source') {
-            const sourceHandles = node.handles?.filter((h: any) => h.type === 'source') || []
-            const sourceHandleIndex = sourceHandles.findIndex((h: any) => h.id === handle.id)
-            const numSourceHandles = sourceHandles.length
-            return {
-                // Spread out outgoing ports evenly along bottom of nodes
-                left: `${((sourceHandleIndex + 1) / (numSourceHandles + 1)) * 100}%`,
-            }
-        }
-        return undefined
-    }
-
     return (
-        <>
+        <div className="transition-all hover:translate-y-[-2px]">
             {node?.handles?.map((handle) => (
                 // isConnectable={false} prevents edges from being manually added
-                <Handle
-                    key={handle.id}
-                    className="opacity-0"
-                    {...handle}
-                    isConnectable={false}
-                    style={getHandleStyle(handle, node)}
-                />
+                <Handle key={handle.id} className="opacity-0" {...handle} isConnectable={false} />
             ))}
-            {Step?.renderNode(props) || (
-                <StepView action={props.data} name={`Error: ${props.data.type} not implemented`} />
-            )}
-        </>
+            {Step?.renderNode(props) || <StepView action={props.data} />}
+        </div>
     )
 }

@@ -3,11 +3,11 @@ use std::{future::ready, sync::Arc};
 use crate::billing_limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
 use axum::{
     http::Method,
-    routing::{get, post},
+    routing::{any, get},
     Router,
 };
 use common_cookieless::CookielessManager;
-use common_database::Client as DatabaseClient;
+use common_database::{Client as DatabaseClient, PostgresReader, PostgresWriter};
 use common_geoip::GeoIpClient;
 use common_metrics::{setup_metrics_recorder, track_metrics};
 use common_redis::Client as RedisClient;
@@ -29,8 +29,8 @@ use crate::{
 pub struct State {
     pub redis_reader: Arc<dyn RedisClient + Send + Sync>,
     pub redis_writer: Arc<dyn RedisClient + Send + Sync>,
-    pub reader: Arc<dyn DatabaseClient + Send + Sync>,
-    pub writer: Arc<dyn DatabaseClient + Send + Sync>,
+    pub reader: PostgresReader,
+    pub writer: PostgresWriter,
     pub cohort_cache_manager: Arc<CohortCacheManager>,
     pub geoip: Arc<GeoIpClient>,
     pub team_ids_to_track: TeamIdCollection,
@@ -76,7 +76,7 @@ where
     // Very permissive CORS policy, as old SDK versions
     // and reverse proxies might send funky headers.
     let cors = CorsLayer::new()
-        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+        .allow_methods([Method::GET, Method::POST, Method::OPTIONS, Method::HEAD])
         .allow_headers(AllowHeaders::mirror_request())
         .allow_credentials(true)
         .allow_origin(AllowOrigin::mirror_request());
@@ -89,8 +89,10 @@ where
 
     // flags endpoint
     let flags_router = Router::new()
-        .route("/flags", post(endpoint::flags).get(endpoint::flags))
-        .route("/flags/", post(endpoint::flags).get(endpoint::flags))
+        .route("/flags", any(endpoint::flags))
+        .route("/flags/", any(endpoint::flags))
+        .route("/decide", any(endpoint::flags))
+        .route("/decide/", any(endpoint::flags))
         .layer(ConcurrencyLimitLayer::new(config.max_concurrency));
 
     let router = Router::new()

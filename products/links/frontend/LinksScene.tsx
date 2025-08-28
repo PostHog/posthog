@@ -1,13 +1,15 @@
-import { IconPlus } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumn, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+
+import { IconPlus } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonTable, LemonTableColumn, Link } from '@posthog/lemon-ui'
+
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -119,6 +121,16 @@ export function LinksScene(): JSX.Element {
                     </LemonButton>
                 }
             />
+
+            <LemonBanner type="error" className="mb-2">
+                <h2>Links are extremely WIP</h2>
+                <p>
+                    Links were started on the Tulum 2025 hackathon, and are not currently in use. The UI and Django
+                    backend are fully functional, but there's no backend to actually track/redirect clicks. This should
+                    be implemented in the future, probably part of our NodeJS infrastructure - we've initially built it
+                    in Rust.
+                </p>
+            </LemonBanner>
 
             <ProductIntroduction
                 isEmpty={shouldShowEmptyState}

@@ -1,6 +1,11 @@
+import { useActions, useValues } from 'kea'
+import { Form, Group } from 'kea-forms'
+import { useState } from 'react'
+
 import { IconPlusSmall, IconToggle, IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
+    LemonCheckbox,
     LemonDivider,
     LemonInput,
     LemonModal,
@@ -9,19 +14,17 @@ import {
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { Form, Group } from 'kea-forms'
+
 import { ExperimentVariantNumber } from 'lib/components/SeriesGlyph'
 import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
-import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { useState } from 'react'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { urls } from 'scenes/urls'
 
@@ -167,11 +170,11 @@ const ExperimentFormFields = (): JSX.Element => {
                     </div>
                 )}
                 {groupsAccessStatus === GroupsAccessStatus.AlreadyUsing && (
-                    <div>
-                        <h3 className="mt-10">Participant type</h3>
-                        <div className="text-xs text-secondary">
-                            The type on which to aggregate metrics. You can change this at any time during the
-                            experiment.
+                    <div className="mt-10">
+                        <h3>Participant type</h3>
+                        <div className="text-xs text-secondary  max-w-150">
+                            Determines on what level you want to aggregate metrics. You can change this later, but flag
+                            values for users will change so you need to reset the experiment for accurate results.
                         </div>
                         <LemonDivider />
                         <LemonRadio
@@ -314,6 +317,33 @@ const ExperimentFormFields = (): JSX.Element => {
                                     )}
                                 </div>
                             </div>
+                        </div>
+                        <div className="mt-10 pb-6 max-w-150">
+                            <LemonField name="parameters.ensure_experience_continuity">
+                                {({ value, onChange }) => (
+                                    <div className="border rounded p-4">
+                                        <LemonCheckbox
+                                            id="continuity-checkbox"
+                                            label="Persist flag across authentication steps"
+                                            onChange={() => onChange(!value)}
+                                            fullWidth
+                                            checked={value}
+                                        />
+                                        <div className="text-secondary text-sm pl-7">
+                                            If your feature flag is evaluated for anonymous users, use this option to
+                                            ensure the flag value remains consistent after the user logs in. Depending
+                                            on your setup, this option may not always be appropriate. Note that this
+                                            feature requires creating profiles for anonymous users.{' '}
+                                            <Link
+                                                to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
+                                                target="_blank"
+                                            >
+                                                Learn more
+                                            </Link>
+                                        </div>
+                                    </div>
+                                )}
+                            </LemonField>
                         </div>
                     </>
                 )}

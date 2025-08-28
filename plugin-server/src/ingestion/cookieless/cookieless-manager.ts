@@ -1,5 +1,3 @@
-import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
-import * as siphashDouble from '@posthog/siphash/lib/siphash-double'
 import { randomBytes } from 'crypto'
 import { Pool as GenericPool } from 'generic-pool'
 import Redis from 'ioredis'
@@ -10,14 +8,17 @@ import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 import { getDomain } from 'tldts'
 
+import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
+import * as siphashDouble from '@posthog/siphash/lib/siphash-double'
+
+import { instrumentFn } from '~/common/tracing/tracing-utils'
+
 import { cookielessRedisErrorCounter, eventDroppedCounter } from '../../main/ingestion-queues/metrics'
-import { runInstrumentedFunction } from '../../main/utils'
 import { CookielessServerHashMode, IncomingEventWithTeam, PipelineEvent, PluginsServerConfig, Team } from '../../types'
 import { ConcurrencyController } from '../../utils/concurrencyController'
 import { RedisOperationError } from '../../utils/db/error'
-import { now } from '../../utils/now'
 import { TeamManager } from '../../utils/team-manager'
-import { bufferToUint32ArrayLE, uint32ArrayLEToBuffer, UUID7 } from '../../utils/utils'
+import { UUID7, bufferToUint32ArrayLE, uint32ArrayLEToBuffer } from '../../utils/utils'
 import { toStartOfDayInTimezone, toYearMonthDayInTimezone } from '../../worker/ingestion/timestamps'
 import { RedisHelpers } from './redis-helpers'
 
@@ -92,7 +93,11 @@ export class CookielessManager {
     private readonly mutex = new ConcurrencyController(1)
     private cleanupInterval: NodeJS.Timeout | null = null
 
-    constructor(config: PluginsServerConfig, redis: GenericPool<Redis.Redis>, private teamManager: TeamManager) {
+    constructor(
+        config: PluginsServerConfig,
+        redis: GenericPool<Redis.Redis>,
+        private teamManager: TeamManager
+    ) {
         this.config = {
             disabled: config.COOKIELESS_DISABLED,
             forceStatelessMode: config.COOKIELESS_FORCE_STATELESS_MODE,
@@ -266,10 +271,7 @@ export class CookielessManager {
             return this.dropAllCookielessEvents(events, 'cookieless_globally_disabled')
         }
         try {
-            return await runInstrumentedFunction({
-                func: () => this.doBatchInner(events),
-                statsKey: 'cookieless-batch',
-            })
+            return await instrumentFn(`cookieless-batch`, () => this.doBatchInner(events))
         } catch (e) {
             if (e instanceof RedisOperationError) {
                 cookielessRedisErrorCounter.labels({
@@ -362,8 +364,8 @@ export class CookielessManager {
                         drop_cause: !userAgent
                             ? 'cookieless_missing_ua'
                             : !ip
-                            ? 'cookieless_missing_ip'
-                            : 'cookieless_missing_host',
+                              ? 'cookieless_missing_ip'
+                              : 'cookieless_missing_host',
                     })
                     .inc()
                 continue
@@ -671,7 +673,7 @@ export function isCalendarDateValid(yyyymmdd: string): boolean {
     const utcDate = new Date(`${yyyymmdd}T00:00:00Z`)
 
     // Current time in UTC
-    const nowUTC = new Date(now())
+    const nowUTC = new Date(Date.now())
 
     // Define the range of the calendar day in UTC
     const startOfDayMinus12 = new Date(utcDate)

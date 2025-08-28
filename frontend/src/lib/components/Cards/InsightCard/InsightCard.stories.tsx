@@ -39,7 +39,6 @@ const meta: Meta = {
     component: InsightCardComponent,
     parameters: {
         mockDate: '2023-07-01',
-        featureFlags: ['hogql'],
     },
     argTypes: {
         insightName: {

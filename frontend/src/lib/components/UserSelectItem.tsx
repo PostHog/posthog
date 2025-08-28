@@ -1,5 +1,6 @@
 import { LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { fullName } from 'lib/utils'
 
 import { UserBasicType, UserType } from '~/types'
 
@@ -12,7 +13,7 @@ export function UserSelectItem({ user }: UserSelectItemProps): JSX.Element {
         <span className="flex gap-2 items-center">
             <ProfilePicture user={user} size="sm" />
             <span>
-                {user.first_name} <b>{`<${user.email}>`}</b>
+                {fullName(user)} <b>{`<${user.email}>`}</b>
             </span>
         </span>
     )
@@ -24,7 +25,7 @@ export function usersLemonSelectOptions(
 ): LemonInputSelectOption[] {
     return users.map((user) => ({
         key: user[key],
-        label: `${user.first_name} ${user.email}`,
+        label: `${fullName(user)} ${user.email}`,
         labelComponent: <UserSelectItem user={user} />,
     }))
 }

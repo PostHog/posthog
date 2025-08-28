@@ -1,6 +1,8 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { combineUrl, router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
-import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { urls } from 'scenes/urls'
@@ -27,6 +29,7 @@ describe('insightSceneLogic', () => {
                     200,
                     { id: 12, short_id: Insight12, ...(req.body as any) },
                 ],
+                '/api/environments/:team_id/query/upgrade/': { query: {} },
             },
         })
         initKeaTests()
@@ -62,11 +65,7 @@ describe('insightSceneLogic', () => {
                 } as InsightVizNode,
             })
         )
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect((logic.values.insightLogicRef?.logic.values.insight.query as InsightVizNode).source?.kind).toEqual(
-            'PathsQuery'
-        )
+        await expectLogic(logic).toDispatchActions(['upgradeQuery']).toFinishAllListeners()
     })
 
     it('persists edit mode in the url', async () => {

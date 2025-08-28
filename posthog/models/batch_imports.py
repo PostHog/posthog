@@ -1,12 +1,12 @@
+from enum import Enum
+from typing import Self
+
 from django.db import models
 
-from posthog.models.utils import UUIDModel
-from posthog.models.team import Team
-
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
-
-from typing import Self
-from enum import Enum
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.team import Team
+from posthog.models.utils import UUIDTModel
 
 
 class DateRangeExportSource(str, Enum):
@@ -23,7 +23,7 @@ class ContentType(str, Enum):
         return {"type": self.value}
 
 
-class BatchImport(UUIDModel):
+class BatchImport(ModelActivityMixin, UUIDTModel):
     class Status(models.TextChoices):
         COMPLETED = "completed", "Completed"
         FAILED = "failed", "Failed"
@@ -45,6 +45,9 @@ class BatchImport(UUIDModel):
     state = models.JSONField(null=True, blank=True)
     import_config = models.JSONField()
     secrets = EncryptedJSONStringField()
+    # Exponential backoff state (used by rust worker). Mirrors columns used by the worker.
+    backoff_attempt = models.IntegerField(default=0)
+    backoff_until = models.DateTimeField(null=True, blank=True)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -118,12 +121,16 @@ class BatchImportConfigBuilder:
         export_source: DateRangeExportSource,
         access_key_key: str = "api_key",
         secret_key_key: str = "secret_key",
+        is_eu_region: bool = False,
     ) -> Self:
         # there is a bunch of annoying business logic around how each endpoint behaves (what requests an endpoint expects, what it responds with, etc.)
         # jam a bunch of that messy configuration here to keep it off the batch-import-worker and out of the client
         match export_source:
             case DateRangeExportSource.AMPLITUDE:
-                base_url = "https://amplitude.com/api/2/export"
+                if is_eu_region:
+                    base_url = "https://analytics.eu.amplitude.com/api/2/export"
+                else:
+                    base_url = "https://amplitude.com/api/2/export"
                 auth_config = {
                     "type": "basic_auth",
                     "username_secret": access_key_key,
@@ -137,10 +144,13 @@ class BatchImportConfigBuilder:
                     "date_format": "%Y%m%dT%H",
                     # The smallest duration we can request from amplitude is 1 hour at a time
                     "interval_duration": 3600,
-                    "timeout_seconds": 60,
+                    "timeout_seconds": 180,
                 }
             case DateRangeExportSource.MIXPANEL:
-                base_url = "https://data.mixpanel.com/api/2.0/export"
+                if is_eu_region:
+                    base_url = "https://data-eu.mixpanel.com/api/2.0/export"
+                else:
+                    base_url = "https://data.mixpanel.com/api/2.0/export"
                 auth_config = {
                     "type": "mixpanel_auth",
                     "secret_key_secret": secret_key_key,

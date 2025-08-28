@@ -1,5 +1,7 @@
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { DebugCHQueries } from 'lib/components/CommandPalette/DebugCHQueries'
 import { isEmptyObject, isObject } from 'lib/utils'
@@ -8,20 +10,22 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { ReloadInsight } from 'scenes/saved-insights/ReloadInsight'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { Query } from '~/queries/Query/Query'
 import { Node } from '~/queries/schema/schema-general'
 import { containsHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { InsightShortId, ItemMode } from '~/types'
 
+import { InsightsNav } from './InsightNav/InsightsNav'
 import { insightCommandLogic } from './insightCommandLogic'
 import { insightDataLogic } from './insightDataLogic'
 import { insightLogic } from './insightLogic'
-import { InsightsNav } from './InsightNav/InsightsNav'
+
 export interface InsightSceneProps {
     insightId: InsightShortId | 'new'
 }
 
-export function Insight({ insightId }: InsightSceneProps): JSX.Element {
+export function Insight({ insightId }: InsightSceneProps): JSX.Element | null {
     // insightSceneLogic
     const { insightMode, insight, filtersOverride, variablesOverride, freshQuery } = useValues(insightSceneLogic)
 
@@ -62,9 +66,13 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
         (isObject(variablesOverride) && !isEmptyObject(variablesOverride))
     const overrideType = isObject(filtersOverride) ? 'filters' : 'variables'
 
+    if (!insight?.query) {
+        return null
+    }
+
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
-            <div className="Insight">
+            <SceneContent className="Insight">
                 <InsightPageHeader insightLogicProps={insightProps} />
 
                 {dashboardOverridesExist && (
@@ -102,7 +110,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
                     filtersOverride={filtersOverride}
                     variablesOverride={variablesOverride}
                 />
-            </div>
+            </SceneContent>
         </BindLogic>
     )
 }

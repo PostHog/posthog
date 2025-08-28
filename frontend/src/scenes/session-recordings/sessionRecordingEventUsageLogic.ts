@@ -1,7 +1,8 @@
 import { actions, connect, kea, listeners, path } from 'kea'
+import posthog from 'posthog-js'
+
 import { isLogEntryPropertyFilter, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/utils'
-import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { MiniFilterKey } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import { InspectorListItemType } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
@@ -92,31 +93,37 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
             posthog.capture('recording list filter added', { filter_type: filterType })
         },
         reportRecordingsListFetched: ({ loadTime, filters, defaultDurationFilter }) => {
-            const filterValues = filtersFromUniversalFilterGroups(filters)
+            try {
+                const filterValues = filtersFromUniversalFilterGroups(filters)
 
-            const eventFilters = filterValues.filter(isEventFilter)
-            const actionFilters = filterValues.filter(isActionFilter)
-            const propertyFilters = filterValues.filter(isValidPropertyFilter)
-            const consoleLogFilters = propertyFilters.filter(isLogEntryPropertyFilter)
+                const eventFilters = filterValues.filter(isEventFilter)
+                const actionFilters = filterValues.filter(isActionFilter)
+                const propertyFilters = filterValues.filter(isValidPropertyFilter)
+                const consoleLogFilters = propertyFilters.filter(isLogEntryPropertyFilter)
 
-            const filterBreakdown =
-                filters && defaultDurationFilter
-                    ? {
-                          hasEventsFilters: !!eventFilters.length,
-                          hasActionsFilters: !!actionFilters.length,
-                          hasPropertiesFilters: !!propertyFilters.length,
-                          hasCohortFilter: propertyFilters.some((p) => p.type === PropertyFilterType.Cohort),
-                          hasPersonFilter: propertyFilters.some((p) => p.type === PropertyFilterType.Person),
-                          hasDurationFilters: (filters.duration[0].value || -1) > defaultDurationFilter.value,
-                          hasConsoleLogsFilters: !!consoleLogFilters.length,
-                      }
-                    : {}
-            posthog.capture('recording list fetched', {
-                load_time: loadTime,
-                listing_version: '3',
-                filters,
-                ...filterBreakdown,
-            })
+                const filterBreakdown =
+                    filters && defaultDurationFilter
+                        ? {
+                              hasEventsFilters: !!eventFilters.length,
+                              hasActionsFilters: !!actionFilters.length,
+                              hasPropertiesFilters: !!propertyFilters.length,
+                              hasCohortFilter: propertyFilters.some((p) => p.type === PropertyFilterType.Cohort),
+                              hasPersonFilter: propertyFilters.some((p) => p.type === PropertyFilterType.Person),
+                              hasDurationFilters:
+                                  ((filters.duration.length > 0 && filters.duration[0].value) || -1) >
+                                  defaultDurationFilter.value,
+                              hasConsoleLogsFilters: !!consoleLogFilters.length,
+                          }
+                        : {}
+                posthog.capture('recording list fetched', {
+                    load_time: loadTime,
+                    listing_version: '3',
+                    filters,
+                    ...filterBreakdown,
+                })
+            } catch (e) {
+                posthog.captureException(e, { filters })
+            }
         },
         reportRecordingsListPropertiesFetched: ({ loadTime }) => {
             posthog.capture('recording list properties fetched', { load_time: loadTime })

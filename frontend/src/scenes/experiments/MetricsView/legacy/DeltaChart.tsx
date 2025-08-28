@@ -1,32 +1,29 @@
+import { useActions, useValues } from 'kea'
+import { createContext, useContext, useState } from 'react'
+
 import { IconGraph } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { FEATURE_FLAGS } from 'lib/constants'
-import { createContext, useContext, useState } from 'react'
+import { modalsLogic } from 'scenes/experiments/modalsLogic'
 
 import { Experiment, ExperimentIdType, FunnelExperimentVariant, InsightType, TrendExperimentVariant } from '~/types'
 
-import { modalsLogic } from 'scenes/experiments/modalsLogic'
-import {
-    EXPERIMENT_MAX_PRIMARY_METRICS,
-    EXPERIMENT_MAX_SECONDARY_METRICS,
-    EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS,
-    EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS,
-} from '../../constants'
+import { VariantTag } from '../../ExperimentView/components'
+import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS } from '../../constants'
+import { experimentLogic } from '../../experimentLogic'
 import {
     calculateDelta,
     conversionRateForVariant,
     countDataForVariant,
     credibleIntervalForVariant,
     exposureCountDataForVariant,
-} from '../../experimentCalculations'
-import { experimentLogic } from '../../experimentLogic'
-import { VariantTag } from '../../ExperimentView/components'
+} from '../../legacyExperimentCalculations'
 import { ChartEmptyState } from '../shared/ChartEmptyState'
 import { ChartLoadingState } from '../shared/ChartLoadingState'
-import { useChartColors } from '../shared/colors'
 import { GridLines } from '../shared/GridLines'
 import { MetricHeader } from '../shared/MetricHeader'
+import { useChartColors } from '../shared/colors'
 import { ChartModal } from './ChartModal'
 import { MetricsChartLayout } from './MetricsChartLayout'
 import { SignificanceHighlight } from './SignificanceHighlight'
@@ -329,7 +326,7 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
                         height="16"
                         rx="3"
                         ry="3"
-                        fill="var(--bg-light)"
+                        fill="var(--color-bg-light)"
                     />
                     {/* Add grey background rectangle for the text */}
                     <rect
@@ -404,7 +401,7 @@ function ChartControls(): JSX.Element {
             </div>
             {(isSecondary || (!isSecondary && primaryMetricsLengthWithSharedMetrics > 1)) && (
                 <div
-                    className="absolute bottom-2 left-2 flex justify-center bg-[var(--bg-table)] z-[101]"
+                    className="absolute bottom-2 left-2 flex justify-center bg-[var(--color-bg-table)] z-[101]"
                     // Chart is z-index 100, so we need to be above it
                 >
                     <LemonButton
@@ -518,7 +515,6 @@ export function DeltaChart({
         featureFlags,
         primaryMetricsLengthWithSharedMetrics,
         hasMinimumExposureForResults,
-        secondaryMetricsLengthWithSharedMetrics,
     } = useValues(experimentLogic)
 
     const { duplicateMetric, updateExperimentMetrics } = useActions(experimentLogic)
@@ -556,11 +552,6 @@ export function DeltaChart({
             metric={metric}
             metricType={metricType}
             isPrimaryMetric={!isSecondary}
-            canDuplicateMetric={
-                isSecondary
-                    ? secondaryMetricsLengthWithSharedMetrics < EXPERIMENT_MAX_SECONDARY_METRICS
-                    : primaryMetricsLengthWithSharedMetrics < EXPERIMENT_MAX_PRIMARY_METRICS
-            }
             onDuplicateMetricClick={() => {
                 duplicateMetric({ metricIndex, isSecondary })
                 updateExperimentMetrics()

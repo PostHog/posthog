@@ -1,9 +1,11 @@
-import { IconCheck, IconX } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { CodeEditor, CodeEditorProps } from 'lib/monaco/CodeEditor'
 import { useEffect, useRef, useState } from 'react'
 import AutoSizer from 'react-virtualized/dist/es/AutoSizer'
+
+import { IconCheck, IconX } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
+import { CodeEditor, CodeEditorProps } from 'lib/monaco/CodeEditor'
 
 export interface CodeEditorResizableProps extends Omit<CodeEditorProps, 'height'> {
     height?: number
@@ -89,7 +91,7 @@ export function CodeEditorResizeable({
 
             {/* Using a standard resize css means we need overflow-hidden which hides parts of the editor unnecessarily */}
             <div
-                className="overflow-hidden absolute right-0 bottom-0 z-10 w-5 h-5 resize-y cursor-s-resize"
+                className="overflow-hidden absolute right-0 bottom-0 z-20 w-5 h-5 resize-y cursor-s-resize"
                 onMouseDown={(e) => {
                     const startY = e.clientY
                     const startHeight = ref.current?.clientHeight ?? 0

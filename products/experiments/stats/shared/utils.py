@@ -7,12 +7,7 @@ by both frequentist and Bayesian methods.
 
 import numpy as np
 
-from .statistics import (
-    SampleMeanStatistic,
-    ProportionStatistic,
-    AnyStatistic,
-    StatisticError,
-)
+from .statistics import AnyStatistic, ProportionStatistic, RatioStatistic, SampleMeanStatistic, StatisticError
 
 
 def get_mean(statistic: AnyStatistic) -> float:
@@ -21,6 +16,8 @@ def get_mean(statistic: AnyStatistic) -> float:
         return statistic.mean
     elif isinstance(statistic, ProportionStatistic):
         return statistic.proportion
+    elif isinstance(statistic, RatioStatistic):
+        return statistic.ratio
     else:
         raise StatisticError(f"Unknown statistic type: {type(statistic)}")
 

@@ -1,90 +1,47 @@
-import { IconTrash } from '@posthog/icons'
+import { useValues } from 'kea'
+
 import { LemonButton } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+
 import api from 'lib/api'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { getIntegrationNameFromKind } from 'lib/integrations/utils'
+import { urls } from 'scenes/urls'
+
+import { IntegrationKind } from '~/types'
 
 export function ErrorTrackingIntegrations(): JSX.Element {
-    const { linearIntegrations, githubIntegrations } = useValues(integrationsLogic)
-    const { deleteIntegration } = useActions(integrationsLogic)
+    return (
+        <div className="flex flex-col gap-y-6">
+            <Integration kind="github" />
+            <Integration kind="linear" />
+        </div>
+    )
+}
 
-    const onDeleteClick = (id: number): void => {
-        LemonDialog.open({
-            title: 'Do you want to disconnect from Linear?',
-            description:
-                'This cannot be undone. PostHog resources configured to use this Linear workspace will remain but will stop working.',
-            primaryButton: {
-                children: 'Yes, disconnect',
-                status: 'danger',
-                onClick: () => deleteIntegration(id),
-            },
-            secondaryButton: {
-                children: 'No thanks',
-            },
-        })
-    }
+const Integration = ({ kind }: { kind: IntegrationKind }): JSX.Element => {
+    const { getIntegrationsByKind } = useValues(integrationsLogic)
+
+    const name = getIntegrationNameFromKind(kind)
+    const integrations = getIntegrationsByKind([kind])
+
+    const authorizationUrl = api.integrations.authorizeUrl({
+        next: urls.errorTrackingConfiguration({ tab: 'error-tracking-integrations' }),
+        kind,
+    })
 
     return (
-        <div className="flex flex-col gap-y-2">
-            {linearIntegrations?.map((integration) => (
-                <IntegrationView
-                    key={integration.id}
-                    integration={integration}
-                    suffix={
-                        <LemonButton
-                            type="secondary"
-                            status="danger"
-                            onClick={() => onDeleteClick(integration.id)}
-                            icon={<IconTrash />}
-                        >
-                            Disconnect
-                        </LemonButton>
-                    }
-                />
-            ))}
-            {githubIntegrations?.map((integration) => (
-                <IntegrationView
-                    key={integration.id}
-                    integration={integration}
-                    suffix={
-                        <LemonButton
-                            type="secondary"
-                            status="danger"
-                            onClick={() => onDeleteClick(integration.id)}
-                            icon={<IconTrash />}
-                        >
-                            Disconnect
-                        </LemonButton>
-                    }
-                />
-            ))}
-
-            <div className="flex">
-                <LemonButton
-                    type="secondary"
-                    to={api.integrations.authorizeUrl({
-                        kind: 'linear',
-                        next: router.values.currentLocation.pathname,
-                    })}
-                    disableClientSideRouting
-                >
-                    Connect <>{linearIntegrations?.length > 0 ? 'another' : 'a'}</> Linear workspace
-                </LemonButton>
-            </div>
-            <div className="flex">
-                <LemonButton
-                    type="secondary"
-                    to={api.integrations.authorizeUrl({
-                        kind: 'github',
-                        next: router.values.currentLocation.pathname,
-                    })}
-                    disableClientSideRouting
-                >
-                    Connect <>{githubIntegrations?.length > 0 ? 'another' : 'a'}</> GitHub organization
-                </LemonButton>
+        <div className="flex flex-col">
+            <h3>{name}</h3>
+            <div className="flex flex-col gap-y-2">
+                {integrations?.map((integration) => (
+                    <IntegrationView key={integration.id} integration={integration} />
+                ))}
+                <div className="flex">
+                    <LemonButton type="secondary" disableClientSideRouting to={authorizationUrl}>
+                        Connect workspace
+                    </LemonButton>
+                </div>
             </div>
         </div>
     )

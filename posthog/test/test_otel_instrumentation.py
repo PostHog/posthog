@@ -1,11 +1,11 @@
 # posthog/test/test_otel_instrumentation.py
-from unittest import mock
-import logging
 import os
+import logging
 
-
-from posthog.otel_instrumentation import initialize_otel, _otel_django_request_hook, _otel_django_response_hook
 from posthog.test.base import BaseTest
+from unittest import mock
+
+from posthog.otel_instrumentation import _otel_django_request_hook, _otel_django_response_hook, initialize_otel
 
 
 class TestOtelInstrumentation(BaseTest):
@@ -127,9 +127,7 @@ class TestOtelInstrumentation(BaseTest):
         # Assert PsycopgInstrumentor call
         mock_psycopg_instrumentor_cls.assert_called_once_with()
         mock_psycopg_instrumentor_instance.instrument.assert_called_once_with(
-            tracer_provider=mock_provider_instance,
-            enable_commenter=True,
-            commenter_options={"opentelemetry_values": True},
+            tracer_provider=mock_provider_instance, enable_commenter=False
         )
 
         # Assert KafkaInstrumentor call

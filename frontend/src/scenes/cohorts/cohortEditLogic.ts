@@ -2,17 +2,19 @@ import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path,
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router } from 'kea-router'
+import posthog from 'posthog-js'
+import { v4 as uuidv4 } from 'uuid'
+
 import api from 'lib/api'
-import { openSaveToModal } from 'lib/components/FileSystem/SaveTo/saveToLogic'
 import { ENTITY_MATCH_TYPE } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { generateUUID } from 'lib/utils/generateUUID'
 import { NEW_COHORT, NEW_CRITERIA, NEW_CRITERIA_GROUP } from 'scenes/cohorts/CohortFilters/constants'
 import {
     applyAllCriteriaGroup,
     applyAllNestedCriteria,
     cleanCriteria,
+    createCohortDataNodeLogicKey,
     createCohortFormData,
     isCohortCriteriaGroup,
     validateGroup,
@@ -22,6 +24,7 @@ import { urls } from 'scenes/urls'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel, processCohort } from '~/models/cohortsModel'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataTableNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode } from '~/queries/utils'
 import {
@@ -101,7 +104,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                                 ...criteriaList.slice(0, criteriaIndex),
                                 {
                                     ...criteriaList[criteriaIndex],
-                                    sort_key: generateUUID(),
+                                    sort_key: uuidv4(),
                                 },
                                 ...criteriaList.slice(criteriaIndex),
                             ],
@@ -110,7 +113,10 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     }
                     return applyAllCriteriaGroup(state, (groupList) => [
                         ...groupList.slice(0, groupIndex),
-                        groupList[groupIndex],
+                        {
+                            ...groupList[groupIndex],
+                            sort_key: uuidv4(),
+                        },
                         ...groupList.slice(groupIndex),
                     ])
                 },
@@ -118,11 +124,14 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     if (groupIndex !== undefined) {
                         return applyAllNestedCriteria(
                             state,
-                            (criteriaList) => [...criteriaList, { ...NEW_CRITERIA, sort_key: generateUUID() }],
+                            (criteriaList) => [...criteriaList, { ...NEW_CRITERIA, sort_key: uuidv4() }],
                             groupIndex
                         )
                     }
-                    return applyAllCriteriaGroup(state, (groupList) => [...groupList, NEW_CRITERIA_GROUP])
+                    return applyAllCriteriaGroup(state, (groupList) => [
+                        ...groupList,
+                        { ...NEW_CRITERIA_GROUP, sort_key: uuidv4() },
+                    ])
                 },
                 removeFilter: (state, { groupIndex, criteriaIndex }) => {
                     if (criteriaIndex !== undefined) {
@@ -148,8 +157,8 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                                 isCohortCriteriaGroup(oldCriteria)
                                     ? oldCriteria
                                     : criteriaI === criteriaIndex
-                                    ? cleanCriteria({ ...oldCriteria, ...newCriteria })
-                                    : oldCriteria
+                                      ? cleanCriteria({ ...oldCriteria, ...newCriteria })
+                                      : oldCriteria
                             ),
                         groupIndex
                     ),
@@ -202,10 +211,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 if (cohort.id !== 'new') {
                     actions.saveCohort(cohort)
                 } else {
-                    openSaveToModal({
-                        defaultFolder: 'Untitled/Cohorts',
-                        callback: (folder) => actions.saveCohort({ ...cohort, _create_in_folder: folder }),
-                    })
+                    actions.saveCohort({ ...cohort, _create_in_folder: 'Unfiled/Cohorts' })
                 }
             },
         },
@@ -232,8 +238,8 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     }
                 },
                 saveCohort: async ({ cohortParams }, breakpoint) => {
-                    let cohort = { ...cohortParams }
                     const existingCohort = values.cohort
+                    let cohort = { ...existingCohort, ...cohortParams }
                     const cohortFormData = createCohortFormData(cohort)
 
                     try {
@@ -251,6 +257,43 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         }
                     } catch (error: any) {
                         breakpoint()
+
+                        // Only capture exception if we don't have proper error details
+                        // This indicates an unexpected failure (network, timeout, etc.)
+                        if (!error.detail) {
+                            console.error('Cohort creation failed unexpectedly:', error, {
+                                cohort_name: cohort.name,
+                                operation_type: cohort.id === 'new' ? 'create' : 'update',
+                                is_static: cohort.is_static,
+                            })
+                            posthog.captureException(error, {
+                                cohort_operation: 'Cohort creation failed unexpectedly',
+                                // Cohort context (most valuable)
+                                cohort_name: cohort.name,
+                                is_static: cohort.is_static,
+                                operation_type: cohort.id === 'new' ? 'create' : 'update',
+                                has_csv: !!cohortFormData.get?.('csv'),
+                                file_size: (() => {
+                                    const csvFile = cohortFormData.get?.('csv')
+                                    return csvFile instanceof File ? csvFile.size : undefined
+                                })(),
+
+                                // Error context
+                                error_status: error.status,
+                                error_status_text: error.statusText,
+                                error_message: error.message,
+                                error_name: error.name,
+                                error_type: typeof error,
+
+                                // Browser context
+                                user_agent: navigator.userAgent.substring(0, 100),
+                                is_online: navigator.onLine,
+
+                                // Request context
+                                timestamp: new Date().toISOString(),
+                            })
+                        }
+
                         lemonToast.error(error.detail || 'Failed to save cohort')
                         return values.cohort
                     }
@@ -265,6 +308,12 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         toastId: `cohort-saved-${key}`,
                     })
                     actions.checkIfFinishedCalculating(cohort)
+                    if (cohort.id !== 'new') {
+                        const mountedDataNodeLogic = dataNodeLogic.findMounted({
+                            key: createCohortDataNodeLogicKey(cohort.id),
+                        })
+                        mountedDataNodeLogic?.actions.loadData('force_blocking')
+                    }
                     return processCohort(cohort)
                 },
                 onCriteriaChange: ({ newGroup, id }) => {
@@ -335,7 +384,6 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         checkIfFinishedCalculating: async ({ cohort }, breakpoint) => {
             if (cohort.is_calculating) {
                 actions.setPollTimeout(
-                    // eslint-disable-next-line @typescript-eslint/no-misused-promises
                     window.setTimeout(async () => {
                         const newCohort = await api.cohorts.get(cohort.id)
                         breakpoint()

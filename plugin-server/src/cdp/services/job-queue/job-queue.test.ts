@@ -7,7 +7,7 @@ import { HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../../_tests/examples
 import { HOG_EXAMPLES } from '../../_tests/examples'
 import { createHogExecutionGlobals, createHogFunction } from '../../_tests/fixtures'
 import { createInvocation } from '../../utils/invocation-utils'
-import { CyclotronJobQueue, getProducerMapping } from './job-queue'
+import { CyclotronJobQueue, JOB_SCHEDULED_AT_FUTURE_THRESHOLD_MS, getProducerMapping } from './job-queue'
 
 describe('CyclotronJobQueue', () => {
     let config: PluginsServerConfig
@@ -63,21 +63,21 @@ describe('CyclotronJobQueue', () => {
         }
 
         it('should start only kafka producer if only kafka is mapped', async () => {
-            const queue = buildQueue('*:kafka,fetch:kafka')
+            const queue = buildQueue('*:kafka,hogflow:kafka')
             await queue.startAsProducer()
             expect(queue['jobQueuePostgres'].startAsProducer).not.toHaveBeenCalled()
             expect(queue['jobQueueKafka'].startAsProducer).toHaveBeenCalled()
         })
 
         it('should start only postgres producer if only postgres is mapped', async () => {
-            const queue = buildQueue('*:postgres,fetch:postgres')
+            const queue = buildQueue('*:postgres,hogflow:postgres')
             await queue.startAsProducer()
             expect(queue['jobQueuePostgres'].startAsProducer).toHaveBeenCalled()
             expect(queue['jobQueueKafka'].startAsProducer).not.toHaveBeenCalled()
         })
 
         it('should start both producers if both are mapped', async () => {
-            const queue = buildQueue('*:postgres,fetch:kafka')
+            const queue = buildQueue('*:postgres,hogflow:kafka')
             await queue.startAsProducer()
             expect(queue['jobQueuePostgres'].startAsProducer).toHaveBeenCalled()
             expect(queue['jobQueueKafka'].startAsProducer).toHaveBeenCalled()
@@ -115,7 +115,9 @@ describe('CyclotronJobQueue', () => {
                             },
                             exampleHogFunction
                         ),
-                        queueScheduledAt: DateTime.now().plus({ seconds: 1 }),
+                        queueScheduledAt: DateTime.now().plus({
+                            milliseconds: JOB_SCHEDULED_AT_FUTURE_THRESHOLD_MS + 1000,
+                        }),
                     },
                 ]
                 await queue.queueInvocations(invocations)
@@ -137,6 +139,35 @@ describe('CyclotronJobQueue', () => {
                 }
             }
         )
+
+        it('should not route scheduled jobs to postgres if they are not scheduled far enough in the future', async () => {
+            config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_FORCE_SCHEDULED_TO_POSTGRES = true
+
+            const queue = buildQueue('*:kafka')
+            await queue.startAsProducer()
+            const invocations = [
+                {
+                    ...createInvocation(
+                        {
+                            ...createHogExecutionGlobals(),
+                            inputs: {},
+                        },
+                        exampleHogFunction
+                    ),
+                    queueScheduledAt: DateTime.now().plus({
+                        milliseconds: JOB_SCHEDULED_AT_FUTURE_THRESHOLD_MS - 1000,
+                    }),
+                },
+            ]
+            await queue.queueInvocations(invocations)
+
+            // With enforced routing and the main queue being kafka then both producers should be started
+            expect(queue['jobQueuePostgres'].startAsProducer).toHaveBeenCalled()
+            expect(queue['jobQueueKafka'].startAsProducer).toHaveBeenCalled()
+
+            expect(queue['jobQueuePostgres'].queueInvocations).toHaveBeenCalledWith([])
+            expect(queue['jobQueueKafka'].queueInvocations).toHaveBeenCalledWith(invocations)
+        })
     })
 })
 
@@ -149,11 +180,11 @@ describe('getProducerMapping', () => {
             },
         ],
         [
-            '*:kafka:0.5,hog:kafka:1,fetch:postgres:0.1',
+            '*:kafka:0.5,hog:kafka:1,hogflow:postgres:0.1',
             {
                 '*': { target: 'kafka', percentage: 0.5 },
                 hog: { target: 'kafka', percentage: 1 },
-                fetch: { target: 'postgres', percentage: 0.1 },
+                hogflow: { target: 'postgres', percentage: 0.1 },
             },
         ],
     ])('should return the correct mapping for %s', (mapping, expected) => {
@@ -164,12 +195,12 @@ describe('getProducerMapping', () => {
         ['*:kafkatypo', 'Invalid mapping: *:kafkatypo - target kafkatypo must be one of postgres, kafka'],
         ['hog:kafkatypo', 'Invalid mapping: hog:kafkatypo - target kafkatypo must be one of postgres, kafka'],
         [
-            'hog:kafka,fetch:postgres,*:kafkatypo',
+            'hog:kafka,hogflow:postgres,*:kafkatypo',
             'Invalid mapping: *:kafkatypo - target kafkatypo must be one of postgres, kafka',
         ],
         [
             'wrong_queue:kafka',
-            'Invalid mapping: wrong_queue:kafka - queue wrong_queue must be one of *, hog, fetch, plugin',
+            'Invalid mapping: wrong_queue:kafka - queue wrong_queue must be one of *, hog, hog_overflow, hogflow',
         ],
         ['hog:kafka:1.1', 'Invalid mapping: hog:kafka:1.1 - percentage 1.1 must be 0 < x <= 1'],
         ['hog:kafka', 'No mapping for the default queue for example: *:postgres'],

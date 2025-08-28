@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { isHogAST, isHogCallable, isHogClosure, isHogDate, isHogDateTime, isHogError, newHogError } from '../objects'
 import { AsyncSTLFunction, HogDate, HogDateTime, HogInterval, STLFunction } from '../types'
 import { getNestedValue, like } from '../utils'
-import { md5Hex, sha256Hex, sha256HmacChainHex } from './crypto'
+import { md5, sha256, sha256HmacChain } from './crypto'
 import {
     formatDateTime,
     fromUnixTimestamp,
@@ -1051,25 +1051,46 @@ export const STL: Record<string, STLFunction> = {
         maxArgs: 0,
     },
     sha256Hex: {
-        fn: ([str], _, options) => sha256Hex(str, options),
+        fn: ([str], _, options) => sha256(str, 'hex', options),
         description: 'Computes SHA-256 hash of a string',
-        example: 'sha256Hex($1)',
+        example: 'sha256($1)',
         minArgs: 1,
         maxArgs: 1,
+    },
+    sha256: {
+        fn: ([str, encoding], _, options) => sha256(str, encoding, options),
+        description: 'Computes SHA-256 hash of a string',
+        example: 'sha256($1, $2)',
+        minArgs: 1,
+        maxArgs: 2,
     },
     md5Hex: {
-        fn: ([str], _, options) => md5Hex(str, options),
+        fn: ([str], _, options) => md5(str, 'hex', options),
         description: 'Computes MD5 hash of a string',
-        example: 'md5Hex($1)',
+        example: 'md5($1)',
         minArgs: 1,
         maxArgs: 1,
     },
+    md5: {
+        fn: ([str, encoding], _, options) => md5(str, encoding, options),
+        description: 'Computes MD5 hash of a string',
+        example: 'md5($1, $2)',
+        minArgs: 1,
+        maxArgs: 2,
+    },
     sha256HmacChainHex: {
-        fn: ([data], _, options) => sha256HmacChainHex(data, options),
+        fn: ([data], _, options) => sha256HmacChain(data, 'hex', options),
         description: 'Computes SHA-256 HMAC chain hash',
         example: 'sha256HmacChainHex($1)',
         minArgs: 1,
         maxArgs: 1,
+    },
+    sha256HmacChain: {
+        fn: ([data, encoding], _, options) => sha256HmacChain(data, encoding, options),
+        description: 'Computes SHA-256 HMAC chain hash',
+        example: 'sha256HmacChainHex($1, $2)',
+        minArgs: 1,
+        maxArgs: 2,
     },
     isIPAddressInRange: {
         fn: ([address, prefix]) => isIPAddressInRange(address, prefix),

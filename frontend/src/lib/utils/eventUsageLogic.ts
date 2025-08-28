@@ -1,14 +1,15 @@
 import { actions, connect, kea, listeners, path } from 'kea'
+import posthog from 'posthog-js'
+
 import { BarStatus, ResultType } from 'lib/components/CommandBar/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import type { Dayjs } from 'lib/dayjs'
 import { now } from 'lib/dayjs'
 import { TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { objectClean } from 'lib/utils'
-import posthog from 'posthog-js'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { NewSurvey, SurveyTemplateType } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
 
@@ -66,6 +67,7 @@ export enum DashboardEventSource {
     DashboardHeaderSaveDashboard = 'dashboard_header_save_dashboard',
     DashboardHeaderDiscardChanges = 'dashboard_header_discard_changes',
     DashboardHeaderExitFullscreen = 'dashboard_header_exit_fullscreen',
+    DashboardHeaderOverridesBanner = 'dashboard_header_overrides_banner',
     Hotkey = 'hotkey',
     InputEnter = 'input_enter',
     Toast = 'toast',
@@ -73,6 +75,7 @@ export enum DashboardEventSource {
     AddDescription = 'add_dashboard_description',
     MainNavigation = 'main_nav',
     DashboardsList = 'dashboards_list',
+    SceneCommonButtons = 'scene_common_buttons',
 }
 
 export enum InsightEventSource {
@@ -289,9 +292,16 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             lastRefreshed,
         }),
         reportDashboardModeToggled: (mode: DashboardMode, source: DashboardEventSource | null) => ({ mode, source }),
-        reportDashboardRefreshed: (dashboardId: number, lastRefreshed?: string | Dayjs | null) => ({
+        reportDashboardRefreshed: (
+            dashboardId: number,
+            lastRefreshed?: string | Dayjs | null,
+            action?: string,
+            forceRefresh?: boolean
+        ) => ({
             dashboardId,
             lastRefreshed,
+            action,
+            forceRefresh,
         }),
         reportDashboardDateRangeChanged: (dateFrom?: string | Dayjs | null, dateTo?: string | Dayjs | null) => ({
             dateFrom,
@@ -397,6 +407,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickEdit: (type: TaxonomicFilterGroupType) => ({ type }),
+        // Group view Shortcuts
+        reportGroupViewSaved: (groupTypeIndex: number, shortcutName: string) => ({
+            groupTypeIndex,
+            shortcutName,
+        }),
         reportDataManagementDefinitionSaveSucceeded: (type: TaxonomicFilterGroupType, loadTime: number) => ({
             type,
             loadTime,
@@ -680,11 +695,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportDashboardModeToggled: async ({ mode, source }) => {
             posthog.capture('dashboard mode toggled', { mode, source })
         },
-        reportDashboardRefreshed: async ({ dashboardId, lastRefreshed }) => {
+        reportDashboardRefreshed: async ({ dashboardId, lastRefreshed, action, forceRefresh }) => {
             posthog.capture(`dashboard refreshed`, {
                 dashboard_id: dashboardId,
                 last_refreshed: lastRefreshed?.toString(),
                 refreshAge: lastRefreshed ? now().diff(lastRefreshed, 'seconds') : undefined,
+                action: action,
+                force_refresh: forceRefresh,
             })
         },
         reportDashboardDateRangeChanged: async ({ dateFrom, dateTo }) => {
@@ -1095,6 +1112,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('role custom added to a resource', {
                 resource_type: resourceType,
                 roles_length: rolesLength,
+            })
+        },
+        reportGroupViewSaved: ({ groupTypeIndex, shortcutName }) => {
+            posthog.capture('group view saved', {
+                group_type_index: groupTypeIndex,
+                shortcut_name: shortcutName,
             })
         },
         reportFlagsCodeExampleInteraction: ({ optionType }) => {

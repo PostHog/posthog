@@ -7,19 +7,14 @@ from posthog.models.person.missing_person import MissingPerson
 from posthog.models.person.person import READ_DB_FOR_PERSONS, Person
 from posthog.models.signals import mutable_receiver
 from posthog.models.team.team import Team
-from posthog.models.utils import UUIDModel
-from posthog.session_recordings.models.metadata import (
-    RecordingMatchingEvents,
-    RecordingMetadata,
-)
-from posthog.session_recordings.models.session_recording_event import (
-    SessionRecordingViewed,
-)
-from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+from posthog.models.utils import UUIDTModel
+from posthog.session_recordings.models.metadata import RecordingMatchingEvents, RecordingMetadata
+from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents, ttl_days
 from posthog.tasks.tasks import ee_persist_single_recording
 
 
-class SessionRecording(UUIDModel):
+class SessionRecording(UUIDTModel):
     class Meta:
         unique_together = ("team", "session_id")
 
@@ -64,6 +59,7 @@ class SessionRecording(UUIDModel):
     matching_events: Optional[RecordingMatchingEvents] = None
     ongoing: Optional[bool] = None
     activity_score: Optional[float] = None
+    ttl_days: Optional[int] = None
 
     # Metadata can be loaded from Clickhouse or S3
     _metadata: Optional[RecordingMetadata] = None
@@ -87,6 +83,7 @@ class SessionRecording(UUIDModel):
                 return False
 
             self._metadata = metadata
+            self.ttl_days = ttl_days(self.team)
 
             # Some fields of the metadata are persisted fully in the model
             self.distinct_id = metadata["distinct_id"]
@@ -164,7 +161,10 @@ class SessionRecording(UUIDModel):
     @staticmethod
     def get_or_build(session_id: str, team: Team) -> "SessionRecording":
         try:
-            return SessionRecording.objects.get(session_id=session_id, team=team)
+            # we have to select the team now instead of lazy loading
+            # because this recording object is sometimes used in an async context
+            # and lazy loading in the async context causes an error
+            return SessionRecording.objects.select_related("team").get(session_id=session_id, team=team)
         except SessionRecording.DoesNotExist:
             return SessionRecording(session_id=session_id, team=team)
 

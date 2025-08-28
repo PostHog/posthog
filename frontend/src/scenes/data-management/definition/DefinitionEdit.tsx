@@ -1,32 +1,34 @@
-import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+
+import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+
 import { PropertyStatusControl } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { definitionEditLogic } from 'scenes/data-management/definition/definitionEditLogic'
-import { definitionLogic, DefinitionLogicProps } from 'scenes/data-management/definition/definitionLogic'
+import { DefinitionLogicProps, definitionLogic } from 'scenes/data-management/definition/definitionLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
 import { getFilterLabel, isCoreFilter } from '~/taxonomy/helpers'
+import { AvailableFeature } from '~/types'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<DefinitionLogicProps> = {
     component: DefinitionEdit,
     logic: definitionLogic,
-    paramsToProps: ({ params: { id } }): DefinitionLogicProps => ({
-        id,
-    }),
+    paramsToProps: ({ params: { id } }) => ({ id }),
 }
 
-export function DefinitionEdit(props: DefinitionLogicProps = {}): JSX.Element {
+export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
     const logic = definitionEditLogic(props)
     const { definitionLoading, definitionMissing, hasTaxonomyFeatures, isProperty } = useValues(definitionLogic(props))
     const { editDefinition } = useValues(logic)
@@ -86,51 +88,57 @@ export function DefinitionEdit(props: DefinitionLogicProps = {}): JSX.Element {
                             <LemonTag className="font-mono">{editDefinition.name}</LemonTag>
                         </div>
                     </div>
-                    {hasTaxonomyFeatures && 'tags' in editDefinition && (
-                        <div className="ph-ignore-input">
-                            <LemonField name="tags" label="Tags" data-attr="definition-tags">
-                                {({ value, onChange }) => (
-                                    <ObjectTags
-                                        className="definition-tags"
-                                        saving={definitionLoading || tagsLoading}
-                                        tags={value || []}
-                                        onChange={(tags) => onChange(tags)}
-                                        style={{ marginBottom: 4 }}
-                                        tagsAvailable={tags}
-                                    />
-                                )}
-                            </LemonField>
-                        </div>
-                    )}
-                    {hasTaxonomyFeatures && (
-                        <div className="ph-ignore-input">
-                            <LemonField name="description" label="Description" data-attr="definition-description">
-                                <LemonTextArea value={editDefinition.description} />
-                            </LemonField>
-                        </div>
-                    )}
-                    {(allowVerification || showHiddenOption) && (
-                        <div className="ph-ignore-input">
-                            <LemonField name="verified" label="Status" data-attr="definition-status">
-                                {({ value: verified, onChange }) => (
-                                    <LemonField name="hidden">
-                                        {({ value: hidden, onChange: onHiddenChange }) => (
-                                            <PropertyStatusControl
-                                                isProperty={isProperty}
-                                                verified={!!verified}
-                                                hidden={!!hidden}
-                                                showHiddenOption={showHiddenOption}
-                                                allowVerification={allowVerification}
-                                                onChange={({ verified: newVerified, hidden: newHidden }) => {
-                                                    onChange(newVerified)
-                                                    onHiddenChange(newHidden)
-                                                }}
+                    {hasTaxonomyFeatures ? (
+                        <>
+                            {'tags' in editDefinition && (
+                                <div className="ph-ignore-input">
+                                    <LemonField name="tags" label="Tags" data-attr="definition-tags">
+                                        {({ value, onChange }) => (
+                                            <ObjectTags
+                                                className="definition-tags"
+                                                saving={definitionLoading || tagsLoading}
+                                                tags={value || []}
+                                                onChange={(tags) => onChange(tags)}
+                                                style={{ marginBottom: 4 }}
+                                                tagsAvailable={tags}
                                             />
                                         )}
                                     </LemonField>
-                                )}
-                            </LemonField>
-                        </div>
+                                </div>
+                            )}
+
+                            <div className="ph-ignore-input">
+                                <LemonField name="description" label="Description" data-attr="definition-description">
+                                    <LemonTextArea value={editDefinition.description} />
+                                </LemonField>
+                            </div>
+
+                            {(allowVerification || showHiddenOption) && (
+                                <div className="ph-ignore-input">
+                                    <LemonField name="verified" label="Status" data-attr="definition-status">
+                                        {({ value: verified, onChange }) => (
+                                            <LemonField name="hidden">
+                                                {({ value: hidden, onChange: onHiddenChange }) => (
+                                                    <PropertyStatusControl
+                                                        isProperty={isProperty}
+                                                        verified={!!verified}
+                                                        hidden={!!hidden}
+                                                        showHiddenOption={showHiddenOption}
+                                                        allowVerification={allowVerification}
+                                                        onChange={({ verified: newVerified, hidden: newHidden }) => {
+                                                            onChange(newVerified)
+                                                            onHiddenChange(newHidden)
+                                                        }}
+                                                    />
+                                                )}
+                                            </LemonField>
+                                        )}
+                                    </LemonField>
+                                </div>
+                            )}
+                        </>
+                    ) : (
+                        <PayGateMini feature={AvailableFeature.INGESTION_TAXONOMY} />
                     )}
 
                     {isProperty && (

@@ -1,6 +1,11 @@
 import { forSnapshot } from '~/tests/helpers/snapshots'
 
-import { getFirstTeam, resetTestDatabase, updateOrganizationAvailableFeatures } from '../../tests/helpers/sql'
+import {
+    createTeam,
+    getFirstTeam,
+    resetTestDatabase,
+    updateOrganizationAvailableFeatures,
+} from '../../tests/helpers/sql'
 import { defaultConfig } from '../config/config'
 import { Hub, Team } from '../types'
 import { closeHub, createHub } from './db/hub'
@@ -48,6 +53,7 @@ describe('TeamManager()', () => {
                     "data_pipelines",
                   ],
                   "cookieless_server_hash_mode": 2,
+                  "drop_events_older_than_seconds": null,
                   "heatmaps_opt_in": null,
                   "id": 2,
                   "ingested_event": true,
@@ -131,6 +137,69 @@ describe('TeamManager()', () => {
             expect(existingTeam2?.id).toEqual(teamId)
             expect(nonExistingTeam2).toBeNull()
             expect(fetchTeamsSpy).toHaveBeenCalledTimes(1)
+        })
+
+        it('correctly fetches drop_events_older_than setting', async () => {
+            // Get the organization ID from the first team
+            const firstTeam = await teamManager.getTeam(teamId)
+            const organizationId = firstTeam!.organization_id
+
+            // Create a new team with drop_events_older_than set
+            const newTeamId = await createTeam(postgres, organizationId, undefined, {
+                drop_events_older_than: 86400, // 24 hours in seconds
+            })
+
+            // Fetch the new team
+            const newTeam = await teamManager.getTeam(newTeamId)
+            expect(newTeam).not.toBeNull()
+            expect(newTeam!.drop_events_older_than_seconds).toBe(86400)
+
+            // Verify the setting is also accessible via token
+            const newTeamByToken = await teamManager.getTeamByToken(newTeam!.api_token)
+            expect(newTeamByToken).not.toBeNull()
+            expect(newTeamByToken!.drop_events_older_than_seconds).toBe(86400)
+        })
+
+        it('correctly fetches drop_events_older_than setting when set to 0', async () => {
+            // Get the organization ID from the first team
+            const firstTeam = await teamManager.getTeam(teamId)
+            const organizationId = firstTeam!.organization_id
+
+            // Create a new team with drop_events_older_than set to 0
+            const newTeamId = await createTeam(postgres, organizationId, undefined, {
+                drop_events_older_than: 0, // 0 seconds
+            })
+
+            // Fetch the new team
+            const newTeam = await teamManager.getTeam(newTeamId)
+            expect(newTeam).not.toBeNull()
+            expect(newTeam!.drop_events_older_than_seconds).toBe(0)
+
+            // Verify the setting is also accessible via token
+            const newTeamByToken = await teamManager.getTeamByToken(newTeam!.api_token)
+            expect(newTeamByToken).not.toBeNull()
+            expect(newTeamByToken!.drop_events_older_than_seconds).toBe(0)
+        })
+
+        it('correctly fetches drop_events_older_than setting when set to null', async () => {
+            // Get the organization ID from the first team
+            const firstTeam = await teamManager.getTeam(teamId)
+            const organizationId = firstTeam!.organization_id
+
+            // Create a new team with drop_events_older_than set to null
+            const newTeamId = await createTeam(postgres, organizationId, undefined, {
+                drop_events_older_than: null,
+            })
+
+            // Fetch the new team
+            const newTeam = await teamManager.getTeam(newTeamId)
+            expect(newTeam).not.toBeNull()
+            expect(newTeam!.drop_events_older_than_seconds).toBeNull()
+
+            // Verify the setting is also accessible via token
+            const newTeamByToken = await teamManager.getTeamByToken(newTeam!.api_token)
+            expect(newTeamByToken).not.toBeNull()
+            expect(newTeamByToken!.drop_events_older_than_seconds).toBeNull()
         })
     })
 

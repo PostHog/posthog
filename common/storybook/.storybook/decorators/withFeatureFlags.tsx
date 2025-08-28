@@ -1,5 +1,6 @@
-import { setFeatureFlags } from '~/mocks/browser'
 import type { Decorator } from '@storybook/react'
+
+import { setFeatureFlags } from '~/mocks/browser'
 
 declare module '@storybook/types' {
     interface Parameters {
@@ -26,7 +27,7 @@ const PERSISTED_FEATURE_FLAGS = [
  *   title: 'My story',
  *   component: MyComponent,
  *   parameters: {
- *     featureFlags: ['hogql'], // add flags here
+ *     featureFlags: [FEATURE_FLAGS.HOGQL], // add flags here
  *   },
  * } as ComponentMeta<typeof MyComponent>
  * ```

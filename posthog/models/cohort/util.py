@@ -2,23 +2,24 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any, Optional, Union, cast
 
-import structlog
-from dateutil import parser
 from django.conf import settings
 from django.utils import timezone
+
+import structlog
+from dateutil import parser
 from rest_framework.exceptions import ValidationError
 
-from posthog.hogql.resolver_utils import extract_select_queries
-from posthog.queries.util import PersonPropertiesMode
-from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.query_tagging import tag_queries
-from posthog.clickhouse.client import sync_execute
-from posthog.constants import PropertyOperatorType
 from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext, HogQLGlobalSettings
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.printer import print_ast
+from posthog.hogql.resolver_utils import extract_select_queries
+
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
+from posthog.clickhouse.query_tagging import Feature, tag_queries, tags_context
+from posthog.constants import PropertyOperatorType
 from posthog.models import Action, Filter, Team
 from posthog.models.action.util import format_action_filter
 from posthog.models.cohort.cohort import Cohort, CohortOrEmpty
@@ -31,12 +32,10 @@ from posthog.models.cohort.sql import (
     GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID,
     RECALCULATE_COHORT_BY_ID,
 )
-from posthog.models.person.sql import (
-    INSERT_PERSON_STATIC_COHORT,
-    PERSON_STATIC_COHORT_TABLE,
-)
+from posthog.models.person.sql import INSERT_PERSON_STATIC_COHORT, PERSON_STATIC_COHORT_TABLE
 from posthog.models.property import Property, PropertyGroup
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
+from posthog.queries.util import PersonPropertiesMode
 
 # temporary marker to denote when cohortpeople table started being populated
 TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
@@ -105,7 +104,10 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
     hogql_context.enable_select_queries = True
     hogql_context.limit_top_select = False
     create_default_modifiers_for_team(team, hogql_context.modifiers)
-    return print_ast(query, context=hogql_context, dialect="clickhouse")
+
+    # Apply HogQL global settings to ensure consistency with regular queries
+    settings = HogQLGlobalSettings()
+    return print_ast(query, context=hogql_context, dialect="clickhouse", settings=settings)
 
 
 def format_static_cohort_query(cohort: Cohort, index: int, prepend: str) -> tuple[str, dict[str, Any]]:
@@ -270,6 +272,7 @@ def format_cohort_subquery(
 
 
 def insert_static_cohort(person_uuids: list[Optional[uuid.UUID]], cohort_id: int, *, team_id: int):
+    tag_queries(cohort_id=cohort_id, team_id=team_id, name="insert_static_cohort", feature=Feature.COHORT)
     persons = [
         {
             "id": str(uuid.uuid4()),
@@ -284,6 +287,7 @@ def insert_static_cohort(person_uuids: list[Optional[uuid.UUID]], cohort_id: int
 
 
 def get_static_cohort_size(*, cohort_id: int, team_id: int) -> Optional[int]:
+    tag_queries(cohort_id=cohort_id, team_id=team_id, name="get_static_cohort_size", feature=Feature.COHORT)
     count_result = sync_execute(
         GET_STATIC_COHORT_SIZE_SQL,
         {
@@ -303,11 +307,15 @@ def recalculate_cohortpeople(
 ) -> Optional[int]:
     """
     Recalculate cohort people for all environments of the project.
-    NOTE: Currently this only returns the count for the team where the cohort was created. Instead it should return for all teams.
+    NOTE: Currently, this only returns the count for the team where the cohort was created. Instead, it should return for all teams.
     """
     relevant_teams = Team.objects.order_by("id").filter(project_id=cohort.team.project_id)
     count_by_team_id: dict[int, int] = {}
+    tag_queries(cohort_id=cohort.id)
+    if initiating_user_id:
+        tag_queries(user_id=initiating_user_id)
     for team in relevant_teams:
+        tag_queries(team_id=team.id)
         _recalculate_cohortpeople_for_team_hogql(cohort, pending_version, team, initiating_user_id=initiating_user_id)
         count = get_cohort_size(cohort, override_version=pending_version, team_id=team.id)
         count_by_team_id[team.id] = count or 0
@@ -318,10 +326,7 @@ def recalculate_cohortpeople(
 def _recalculate_cohortpeople_for_team_hogql(
     cohort: Cohort, pending_version: int, team: Team, *, initiating_user_id: Optional[int]
 ) -> int:
-    tag_queries(team_id=team.id)
-    if initiating_user_id:
-        tag_queries(user_id=initiating_user_id)
-
+    tag_queries(name="recalculate_cohortpeople_for_team_hogql")
     cohort_params: dict[str, Any]
     # No need to do anything here, as we're only testing hogql
     if cohort.is_static:
@@ -344,7 +349,7 @@ def _recalculate_cohortpeople_for_team_hogql(
 
     recalculate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
 
-    tag_queries(kind="cohort_calculation", query_type="CohortsQueryHogQL")
+    tag_queries(kind="cohort_calculation", query_type="CohortsQueryHogQL", feature=Feature.COHORT)
     hogql_global_settings = HogQLGlobalSettings()
 
     return sync_execute(
@@ -366,10 +371,12 @@ def _recalculate_cohortpeople_for_team_hogql(
             "max_bytes_ratio_before_external_sort": 0.5,
         },
         workload=Workload.OFFLINE,
+        ch_user=ClickHouseUser.COHORTS,
     )
 
 
 def get_cohort_size(cohort: Cohort, override_version: Optional[int] = None, *, team_id: int) -> Optional[int]:
+    tag_queries(name="get_cohort_size", feature=Feature.COHORT)
     count_result = sync_execute(
         GET_COHORT_SIZE_SQL,
         {
@@ -378,6 +385,7 @@ def get_cohort_size(cohort: Cohort, override_version: Optional[int] = None, *, t
             "team_id": team_id,
         },
         workload=Workload.OFFLINE,
+        ch_user=ClickHouseUser.COHORTS,
     )
 
     if count_result and len(count_result) and len(count_result[0]):
@@ -455,18 +463,21 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team, is_negated=F
 
 
 def _get_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
+    tag_queries(name="get_cohort_ids_by_person_uuid", feature=Feature.COHORT)
     res = sync_execute(GET_COHORTS_BY_PERSON_UUID, {"person_id": uuid, "team_id": team_id})
     return [row[0] for row in res]
 
 
 def _get_static_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
+    tag_queries(name="get_static_cohort_ids_by_person_uuid", feature=Feature.COHORT)
     res = sync_execute(GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID, {"person_id": uuid, "team_id": team_id})
     return [row[0] for row in res]
 
 
 def get_all_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
-    cohort_ids = _get_cohort_ids_by_person_uuid(uuid, team_id)
-    static_cohort_ids = _get_static_cohort_ids_by_person_uuid(uuid, team_id)
+    with tags_context(team_id=team_id):
+        cohort_ids = _get_cohort_ids_by_person_uuid(uuid, team_id)
+        static_cohort_ids = _get_static_cohort_ids_by_person_uuid(uuid, team_id)
     return [*cohort_ids, *static_cohort_ids]
 
 

@@ -1,6 +1,8 @@
 import { kea, path, props, selectors, useValues } from 'kea'
+
 import { NotFound } from 'lib/components/NotFound'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
 import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -55,8 +57,12 @@ export function DataPipelinesNewScene(): JSX.Element {
     const { logicProps } = useValues(dataPipelinesNewSceneLogic)
     const { kind } = logicProps
 
-    const { hogFunctionTemplatesDataWarehouseSources, hogFunctionTemplatesBatchExports } =
-        useValues(nonHogFunctionTemplatesLogic)
+    const { availableSources } = useValues(availableSourcesDataLogic)
+    const { hogFunctionTemplatesDataWarehouseSources, hogFunctionTemplatesBatchExports } = useValues(
+        nonHogFunctionTemplatesLogic({
+            availableSources: availableSources ?? {},
+        })
+    )
 
     if (kind === 'transformation') {
         return <HogFunctionTemplateList type="transformation" />

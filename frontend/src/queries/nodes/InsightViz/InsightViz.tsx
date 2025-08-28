@@ -1,9 +1,11 @@
 import './InsightViz.scss'
 
 import clsx from 'clsx'
-import { BindLogic, useValues } from 'kea'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { BindLogic, BuiltLogic, LogicWrapper, useValues } from 'kea'
 import { useState } from 'react'
+
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -15,7 +17,7 @@ import { QueryContext } from '~/queries/types'
 import { isFunnelsQuery, isPathsV2Query, isRetentionQuery } from '~/queries/utils'
 import { InsightLogicProps, ItemMode } from '~/types'
 
-import { dataNodeLogic, DataNodeLogicProps } from '../DataNode/dataNodeLogic'
+import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { EditorFilters } from './EditorFilters'
 import { InsightVizDisplay } from './InsightVizDisplay'
 import { getCachedResults } from './utils'
@@ -33,12 +35,14 @@ type InsightVizProps = {
     uniqueKey?: string | number
     query: InsightVizNode
     setQuery: (node: InsightVizNode) => void
-    context?: QueryContext
+    context?: QueryContext<InsightVizNode>
     readOnly?: boolean
     embedded?: boolean
     inSharedMode?: boolean
     filtersOverride?: DashboardFilter | null
     variablesOverride?: Record<string, HogQLVariable> | null
+    /** Attach ourselves to another logic, such as the scene logic */
+    attachTo?: BuiltLogic | LogicWrapper
 }
 
 let uniqueNode = 0
@@ -53,6 +57,7 @@ export function InsightViz({
     inSharedMode,
     filtersOverride,
     variablesOverride,
+    attachTo,
 }: InsightVizProps): JSX.Element {
     const [key] = useState(() => `InsightViz.${uniqueKey || uniqueNode++}`)
     const insightProps =
@@ -113,6 +118,10 @@ export function InsightViz({
             inSharedMode={inSharedMode}
         />
     )
+
+    useAttachedLogic(dataNodeLogic(dataNodeLogicProps), attachTo)
+    useAttachedLogic(insightLogic(insightProps as InsightLogicProps) as BuiltLogic, attachTo)
+    useAttachedLogic(insightVizDataLogic(insightProps as InsightLogicProps), attachTo)
 
     return (
         <ErrorBoundary exceptionProps={{ feature: 'InsightViz' }}>

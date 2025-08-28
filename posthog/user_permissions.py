@@ -3,15 +3,7 @@ from typing import Any, Optional, cast
 from uuid import UUID
 
 from posthog.constants import AvailableFeature
-from posthog.models import (
-    Dashboard,
-    DashboardTile,
-    Insight,
-    Organization,
-    OrganizationMembership,
-    Team,
-    User,
-)
+from posthog.models import Dashboard, DashboardTile, Insight, Organization, OrganizationMembership, Team, User
 
 
 class UserPermissions:
@@ -189,7 +181,7 @@ class UserTeamPermissions:
         # Check if the team is private
         team_is_private = AccessControl.objects.filter(
             team_id=self.team.id,
-            resource="team",
+            resource="project",
             resource_id=str(self.team.id),
             organization_member=None,
             role=None,
@@ -209,7 +201,7 @@ class UserTeamPermissions:
         # Check for direct member access through AccessControl entries
         user_has_access = AccessControl.objects.filter(
             team_id=self.team.id,
-            resource="team",
+            resource="project",
             resource_id=str(self.team.id),
             organization_member=organization_membership.id,
             access_level__in=["member", "admin"],
@@ -227,7 +219,7 @@ class UserTeamPermissions:
 
         role_has_access = AccessControl.objects.filter(
             team_id=self.team.id,
-            resource="team",
+            resource="project",
             resource_id=str(self.team.id),
             role__in=user_roles,
             access_level__in=["member", "admin"],

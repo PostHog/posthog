@@ -1,6 +1,18 @@
-import { Counter, exponentialBuckets, Histogram, Summary } from 'prom-client'
+import { Counter, Histogram, Summary, exponentialBuckets } from 'prom-client'
 
 import { InternalPerson } from '~/types'
+
+export const personPropertiesSizeViolationCounter = new Counter({
+    name: 'person_properties_size_violations_total',
+    help: 'Number of person properties size violations',
+    labelNames: ['violation_type'],
+})
+
+export const oversizedPersonPropertiesTrimmedCounter = new Counter({
+    name: 'oversized_person_properties_trimmed',
+    help: 'Number of oversized person properties trimmed',
+    labelNames: ['result'],
+})
 
 export const personMethodCallsPerBatchHistogram = new Histogram({
     name: 'person_method_calls_per_batch',
@@ -53,6 +65,12 @@ export const personPropertyKeyUpdateCounter = new Counter({
     labelNames: ['key'],
 })
 
+export const personMergeFailureCounter = new Counter({
+    name: 'person_merge_failure_total',
+    help: 'Number of person merges that failed',
+    labelNames: ['call'], // $identify, $create_alias, $merge_dangerously
+})
+
 export const personCacheSizeHistogram = new Histogram({
     name: 'person_cache_size',
     help: 'Size of the person cache',
@@ -88,7 +106,7 @@ export const personFlushBatchSizeHistogram = new Histogram({
 export const personWriteMethodAttemptCounter = new Counter({
     name: 'person_write_method_attempt_total',
     help: 'Number of attempts for each write method',
-    labelNames: ['db_write_mode', 'method', 'outcome'], // method: no_assert, assert_version, with_transaction, outcome: success, retry, fallback
+    labelNames: ['db_write_mode', 'method', 'outcome'], // method: no_assert, assert_version; outcome: success, retry, fallback
 })
 
 export const personFallbackOperationsCounter = new Counter({
@@ -107,6 +125,24 @@ export const personShadowModeReturnIntermediateOutcomeCounter = new Counter({
     name: 'person_shadow_mode_return_intermediate_outcome_total',
     help: 'Person shadow mode intermediate comparison results for updatePersonForUpdate and updatePersonForMerge methods',
     labelNames: ['method', 'outcome'],
+})
+
+export const twoPhaseCommitFailuresCounter = new Counter({
+    name: 'person_dualwrite_2pc_failures_total',
+    help: 'Two-phase commit failures for dual-write person repository',
+    labelNames: ['tag', 'phase'], // phase: fn_failed, prepare_left_failed, prepare_right_failed, commit_left_failed, commit_right_failed, rollback_left_failed, rollback_right_failed, run_failed
+})
+
+export const dualWriteComparisonCounter = new Counter({
+    name: 'person_dualwrite_comparison_total',
+    help: 'Comparison results between primary and secondary databases in dual-write mode',
+    labelNames: ['operation', 'comparison_type', 'result'], // operation: createPerson, updatePerson, etc., comparison_type: success_match, data_mismatch, error_mismatch, result: match, mismatch
+})
+
+export const dualWriteDataMismatchCounter = new Counter({
+    name: 'person_dualwrite_data_mismatch_total',
+    help: 'Detailed data mismatches between primary and secondary databases',
+    labelNames: ['operation', 'field'], // field: properties, version, is_identified, etc.
 })
 
 export function getVersionBucketLabel(version: number): string {

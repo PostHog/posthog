@@ -1,15 +1,19 @@
 import './PathsV2.scss'
 
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import { useEffect, useRef, useState } from 'react'
+
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { lightenDarkenColor } from 'lib/utils'
-import { useEffect, useRef, useState } from 'react'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
+import { shouldQueryBeAsync } from '~/queries/utils'
+
 import { PathV2NodeLabel } from './PathV2NodeLabel'
-import { pathsV2DataLogic } from './pathsV2DataLogic'
 import type { PathNodeData } from './pathUtils'
+import { pathsV2DataLogic } from './pathsV2DataLogic'
 import { renderPathsV2 } from './renderPathsV2'
 
 function DebugPathTable(): JSX.Element {
@@ -63,6 +67,7 @@ export function PathsV2(): JSX.Element {
     const { insightQuery, paths, insightDataLoading, insightDataError, theme } = useValues(
         pathsV2DataLogic(insightProps)
     )
+    const { loadData } = useActions(insightDataLogic(insightProps))
 
     useEffect(() => {
         setNodes([])
@@ -83,7 +88,15 @@ export function PathsV2(): JSX.Element {
     }, [paths, insightDataLoading, canvasWidth, canvasHeight, theme])
 
     if (insightDataError) {
-        return <InsightErrorState query={insightQuery} excludeDetail />
+        return (
+            <InsightErrorState
+                query={insightQuery}
+                excludeDetail
+                onRetry={() => {
+                    loadData(shouldQueryBeAsync(insightQuery) ? 'force_async' : 'force_blocking')
+                }}
+            />
+        )
     }
 
     return (

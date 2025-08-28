@@ -1,3 +1,6 @@
+import { useValues } from 'kea'
+import { router } from 'kea-router'
+
 import { IconArrowLeft, IconCopy, IconPencil } from '@posthog/icons'
 import {
     LemonBanner,
@@ -8,11 +11,10 @@ import {
     LemonTag,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
-import { router } from 'kea-router'
+
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -24,13 +26,14 @@ import { AvailableFeature } from '~/types'
 import { isLegacySharedMetric } from '../utils'
 import { SharedMetric } from './sharedMetricLogic'
 import { sharedMetricsLogic } from './sharedMetricsLogic'
+
 export const scene: SceneExport = {
     component: SharedMetrics,
     logic: sharedMetricsLogic,
 }
 
 export function SharedMetrics(): JSX.Element {
-    const { sharedMetrics, sharedMetricsLoading, showLegacyBadge } = useValues(sharedMetricsLogic)
+    const { sharedMetrics, sharedMetricsLoading } = useValues(sharedMetricsLogic)
 
     const { hasAvailableFeature } = useValues(userLogic)
 
@@ -45,7 +48,7 @@ export function SharedMetrics(): JSX.Element {
                         title={
                             <>
                                 {stringWithWBR(sharedMetric.name, 17)}
-                                {showLegacyBadge && isLegacySharedMetric(sharedMetric) && (
+                                {isLegacySharedMetric(sharedMetric) && (
                                     <Tooltip
                                         title="This metric uses the legacy engine, so some features and improvements may be missing."
                                         docLink="https://posthog.com/docs/experiments/new-experimentation-engine"

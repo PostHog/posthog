@@ -1,30 +1,8 @@
+from datetime import UTC, datetime
 from typing import Optional
-from unittest.mock import MagicMock, patch
-from datetime import datetime, UTC
+from zoneinfo import ZoneInfo
 
 from freezegun import freeze_time
-
-from posthog.clickhouse.client.execute import sync_execute
-from posthog.hogql.constants import LimitContext
-from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
-from posthog.hogql_queries.web_analytics.web_overview_pre_aggregated import WebOverviewPreAggregatedQueryBuilder
-from posthog.models import Action, Element, Cohort
-from posthog.models.utils import uuid7
-from posthog.schema import (
-    CompareFilter,
-    CurrencyCode,
-    WebOverviewQuery,
-    DateRange,
-    SessionTableVersion,
-    HogQLQueryModifiers,
-    CustomEventConversionGoal,
-    ActionConversionGoal,
-    BounceRatePageViewMode,
-    WebOverviewQueryResponse,
-    RevenueCurrencyPropertyConfig,
-    RevenueAnalyticsEventItem,
-)
-from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -32,8 +10,34 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import MagicMock, patch
+
+from posthog.schema import (
+    ActionConversionGoal,
+    BounceRatePageViewMode,
+    CompareFilter,
+    CurrencyCode,
+    CustomEventConversionGoal,
+    DateRange,
+    HogQLQueryModifiers,
+    RevenueAnalyticsEventItem,
+    RevenueCurrencyPropertyConfig,
+    SessionPropertyFilter,
+    SessionTableVersion,
+    WebOverviewQuery,
+    WebOverviewQueryResponse,
+)
+
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import print_ast
+
+from posthog.clickhouse.client.execute import sync_execute
+from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
+from posthog.hogql_queries.web_analytics.web_overview_pre_aggregated import WebOverviewPreAggregatedQueryBuilder
+from posthog.models import Action, Cohort, Element
+from posthog.models.utils import uuid7
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 
 @snapshot_clickhouse_queries
@@ -303,7 +307,6 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(None, duration_s.changeFromPreviousPct)
 
         bounce = results[4]
-        self.assertEqual("bounce rate", bounce.key)
         self.assertAlmostEqual(100 * 2 / 3, bounce.value)
         self.assertEqual(None, bounce.previous)
         self.assertEqual(None, bounce.changeFromPreviousPct)
@@ -350,7 +353,6 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(-100, duration_s.changeFromPreviousPct)
 
         bounce = results[4]
-        self.assertEqual("bounce rate", bounce.key)
         self.assertAlmostEqual(100, bounce.value)
         self.assertEqual(0, bounce.previous)
         self.assertEqual(None, bounce.changeFromPreviousPct)
@@ -1016,6 +1018,28 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
     @freeze_time("2023-12-15T12:00:00Z")
+    def test_can_use_preaggregated_tables_with_channel_type_filter(self):
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
+            properties=[SessionPropertyFilter(key="$channel_type", value="Direct", operator="exact", type="session")],
+        )
+        runner = WebOverviewQueryRunner(team=self.team, query=query)
+        pre_agg_builder = runner.preaggregated_query_builder
+        assert pre_agg_builder.can_use_preaggregated_tables()
+
+    @freeze_time("2023-12-15T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_web_overview_with_channel_type_filter_execution(self):
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
+            properties=[SessionPropertyFilter(key="$channel_type", value="Direct", operator="exact", type="session")],
+            modifiers=HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True),
+        )
+        runner = WebOverviewQueryRunner(team=self.team, query=query)
+
+        assert runner.preaggregated_query_builder.can_use_preaggregated_tables()
+
+    @freeze_time("2023-12-15T12:00:00Z")
     def test_preaggregated_queries_use_utc_filtering(self):
         # Set team timezone to something other than UTC
         self.team.timezone = "America/New_York"  # UTC-5 (or UTC-4 during DST)
@@ -1073,3 +1097,73 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert "web_bounces_combined.period_bucket, toDateTime64(" in sql_utc
         assert "toTimeZone(web_bounces_combined.period_bucket, " not in sql_utc
+
+    def test_convertToProjectTimezone_affects_date_range_calculation(self):
+        # Set team to PST timezone
+        self.team.timezone = "America/Los_Angeles"  # UTC-8
+        self.team.save()
+
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
+            properties=[],
+        )
+
+        # Test with convertToProjectTimezone=True (should use team timezone for date range)
+        modifiers_with_tz = HogQLQueryModifiers(convertToProjectTimezone=True)
+        runner_with_tz = WebOverviewQueryRunner(team=self.team, query=query, modifiers=modifiers_with_tz)
+
+        # Test with convertToProjectTimezone=False (should use UTC for date range)
+        modifiers_utc = HogQLQueryModifiers(convertToProjectTimezone=False)
+        runner_utc = WebOverviewQueryRunner(team=self.team, query=query, modifiers=modifiers_utc)
+
+        # Check that date ranges use different timezones
+        assert runner_with_tz.query_date_range._timezone_info == ZoneInfo("America/Los_Angeles")
+        assert runner_utc.query_date_range._timezone_info == ZoneInfo("UTC")
+
+        # Verify the actual datetime calculations differ by the timezone offset
+        date_with_tz = runner_with_tz.query_date_range.date_from()
+        date_utc = runner_utc.query_date_range.date_from()
+
+        # November 1, 2023 was PDT (UTC-7), so "2023-11-01" parsed in PDT becomes 07:00 UTC
+        # date_utc (UTC 00:00) - date_with_tz (PDT 00:00 = UTC 07:00) = -7 hours
+        assert (date_utc - date_with_tz).total_seconds() == -7 * 3600
+
+        # The key verification: both dates represent the same calendar date but different UTC times
+        # This ensures that convertToProjectTimezone=False properly forces UTC date range calculation
+        assert date_with_tz.tzinfo.key == "America/Los_Angeles"  # Team timezone used
+        assert date_utc.tzinfo.key == "UTC"  # UTC timezone used
+
+        # Both represent "2023-11-01" in their respective timezones but different absolute times
+        assert date_with_tz.date() == date_utc.date()  # Same calendar date
+        assert date_with_tz != date_utc  # Different absolute times
+
+    @snapshot_clickhouse_queries
+    def test_convertToProjectTimezone_date_range_sql_snapshot(self):
+        self.team.timezone = "America/Los_Angeles"
+        self.team.save()
+
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
+            properties=[],
+        )
+
+        # Test with convertToProjectTimezone=True (should use team timezone for date range)
+        modifiers_with_tz = HogQLQueryModifiers(convertToProjectTimezone=True)
+        runner_with_tz = WebOverviewQueryRunner(team=self.team, query=query, modifiers=modifiers_with_tz)
+
+        # Test with convertToProjectTimezone=False (should use UTC for date range)
+        modifiers_utc = HogQLQueryModifiers(convertToProjectTimezone=False)
+        runner_utc = WebOverviewQueryRunner(team=self.team, query=query, modifiers=modifiers_utc)
+
+        # Generate SQL to capture in snapshots - the date boundaries should be different
+        runner_with_tz.calculate()
+        runner_utc.calculate()
+
+        # Verify timezone info is used correctly in date range calculation
+        tz_date_range = runner_with_tz.query_date_range
+        utc_date_range = runner_utc.query_date_range
+
+        # Team timezone should be used when convertToProjectTimezone=True
+        assert tz_date_range.date_from().tzinfo.key == "America/Los_Angeles"
+        # UTC should be used when convertToProjectTimezone=False
+        assert utc_date_range.date_from().tzinfo.key == "UTC"

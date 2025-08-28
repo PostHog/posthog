@@ -2,21 +2,23 @@ import time
 from typing import Optional
 from uuid import UUID
 
-import posthoganalytics
-import requests
-from celery import shared_task
 from django.conf import settings
 from django.db import connection
 from django.utils import timezone
+
+import requests
+import posthoganalytics
+from celery import shared_task
 from prometheus_client import Gauge
 from redis import Redis
 from structlog import get_logger
+
+from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
-from posthog.hogql.constants import LimitContext
 from posthog.metrics import pushed_metrics_registry
 from posthog.ph_client import get_regional_ph_client
 from posthog.redis import get_client
@@ -656,9 +658,7 @@ def calculate_decide_usage() -> None:
 def find_flags_with_enriched_analytics() -> None:
     from datetime import datetime, timedelta
 
-    from posthog.models.feature_flag.flag_analytics import (
-        find_flags_with_enriched_analytics,
-    )
+    from posthog.models.feature_flag.flag_analytics import find_flags_with_enriched_analytics
 
     end = datetime.now()
     begin = end - timedelta(hours=12)
@@ -692,9 +692,7 @@ def check_async_migration_health() -> None:
 
 @shared_task(ignore_result=True)
 def verify_persons_data_in_sync() -> None:
-    from posthog.tasks.verify_persons_data_in_sync import (
-        verify_persons_data_in_sync as verify,
-    )
+    from posthog.tasks.verify_persons_data_in_sync import verify_persons_data_in_sync as verify
 
     if not is_cloud():
         return
@@ -737,24 +735,11 @@ def recompute_materialized_columns_enabled() -> bool:
 def clickhouse_materialize_columns() -> None:
     if recompute_materialized_columns_enabled():
         try:
-            from ee.clickhouse.materialized_columns.analyze import (
-                materialize_properties_task,
-            )
+            from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
         except ImportError:
             pass
         else:
             materialize_properties_task()
-
-
-@shared_task(ignore_result=True)
-def clickhouse_mark_all_materialized() -> None:
-    if recompute_materialized_columns_enabled():
-        try:
-            from ee.tasks.materialized_columns import mark_all_materialized
-        except ImportError:
-            pass
-        else:
-            mark_all_materialized()
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.USAGE_REPORTS.value)
@@ -767,9 +752,7 @@ def send_org_usage_reports() -> None:
 @shared_task(ignore_result=True)
 def schedule_all_subscriptions() -> None:
     try:
-        from ee.tasks.subscriptions import (
-            schedule_all_subscriptions as _schedule_all_subscriptions,
-        )
+        from ee.tasks.subscriptions import schedule_all_subscriptions as _schedule_all_subscriptions
     except ImportError:
         pass
     else:
@@ -848,3 +831,105 @@ def environments_rollback_migration(organization_id: int, environment_mappings: 
     from posthog.tasks.environments_rollback import environments_rollback_migration
 
     environments_rollback_migration(organization_id, environment_mappings, user_id)
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
+def background_delete_model_task(
+    model_name: str, team_id: int, batch_size: int = 10000, records_to_delete: int | None = None
+) -> None:
+    """
+    Background task to delete records from a model in batches.
+
+    Args:
+        model_name: Django model name in format 'app_label.model_name'
+        team_id: Team ID to filter records for deletion
+        batch_size: Number of records to delete per batch
+        records_to_delete: Maximum number of records to delete (None means delete all)
+    """
+    import logging
+
+    from django.apps import apps
+
+    import structlog
+
+    logger = structlog.get_logger(__name__)
+    logger.setLevel(logging.INFO)
+
+    try:
+        # Parse model name
+        app_label, model_label = model_name.split(".")
+        model = apps.get_model(app_label, model_label)
+
+        # Determine team field name
+        team_field = "team_id" if hasattr(model, "team_id") else "team"
+
+        # Get total count for logging - use raw SQL for better performance
+        with connection.cursor() as cursor:
+            cursor.execute(f"SELECT COUNT(*) FROM {model._meta.db_table} WHERE {team_field} = %s", [team_id])
+            total_count = cursor.fetchone()[0]
+        logger.info(f"Starting background deletion for {model_name}, team_id={team_id}, total={total_count}")
+
+        # Determine how many records to actually delete
+        if records_to_delete is not None:
+            records_to_delete = min(records_to_delete, total_count)
+            logger.info(f"Will delete up to {records_to_delete} records due to records_to_delete limit")
+        else:
+            records_to_delete = total_count
+
+        # At this point, records_to_delete is guaranteed to be an int
+        records_to_delete_int: int = records_to_delete  # type: ignore
+
+        deleted_count = 0
+        batch_num = 0
+
+        while deleted_count < records_to_delete_int:
+            # Calculate how many more records we can delete
+            remaining_to_delete = records_to_delete_int - deleted_count
+            current_batch_size = min(batch_size, remaining_to_delete)
+
+            # Use raw SQL for both SELECT and DELETE to avoid Django ORM overhead
+            with connection.cursor() as cursor:
+                # Get batch of IDs to delete - no offset needed since we're deleting as we go
+                cursor.execute(
+                    f"""
+                    SELECT id FROM {model._meta.db_table}
+                    WHERE {team_field} = %s
+                    LIMIT %s
+                    """,
+                    [team_id, current_batch_size],
+                )
+                batch_ids = [row[0] for row in cursor.fetchall()]
+
+            if not batch_ids:
+                logger.info(f"No more records to delete for {model_name}, team_id={team_id}")
+                break
+
+            # Delete the batch using raw SQL for better performance
+            with connection.cursor() as cursor:
+                # Use IN clause with parameterized query
+                placeholders = ",".join(["%s"] * len(batch_ids))
+                cursor.execute(f"DELETE FROM {model._meta.db_table} WHERE id IN ({placeholders})", batch_ids)
+                deleted_in_batch = cursor.rowcount
+
+            deleted_count += deleted_in_batch
+            batch_num += 1
+
+            logger.info(
+                f"Deleted batch {batch_num} for {model_name}, "
+                f"team_id={team_id}, batch_size={deleted_in_batch}, "
+                f"total_deleted={deleted_count}/{records_to_delete_int}"
+            )
+
+            # If we got fewer records than requested, we're done
+            if len(batch_ids) < current_batch_size:
+                break
+
+            time.sleep(0.2)  # Sleep to avoid overwhelming the database
+
+        logger.info(
+            f"Completed background deletion for {model_name}, " f"team_id={team_id}, total_deleted={deleted_count}"
+        )
+
+    except Exception as e:
+        logger.error(f"Error in background deletion for {model_name}, team_id={team_id}: {str(e)}", exc_info=True)
+        raise

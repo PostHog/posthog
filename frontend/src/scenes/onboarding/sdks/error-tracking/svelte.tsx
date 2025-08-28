@@ -1,5 +1,7 @@
-import { Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+
+import { Link } from '@posthog/lemon-ui'
+
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -20,7 +22,7 @@ export function SvelteInstructions(): JSX.Element {
                 to capture exceptions in the client and server-side.
             </p>
             <h2>Client-side</h2>
-            <SDKInstallSvelteJSInstructions />
+            <SDKInstallSvelteJSInstructions hideWizard />
             <p>You will need to capture exceptions in the handleError callback in your client-side hooks file.</p>
             <CodeSnippet language={Language.JavaScript}>{clientSideHooks}</CodeSnippet>
             <JSManualCapture />

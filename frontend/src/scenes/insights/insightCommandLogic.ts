@@ -1,5 +1,7 @@
-import { IconTrending } from '@posthog/icons'
 import { connect, events, kea, key, path, props } from 'kea'
+
+import { IconTrending } from '@posthog/icons'
+
 import { Command, commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
 import { dateMapping } from 'lib/utils'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'

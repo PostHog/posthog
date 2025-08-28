@@ -1,5 +1,8 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
+
 import { LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import type { panelLayoutLogicType } from './panelLayoutLogicType'
@@ -14,7 +17,7 @@ export type PanelLayoutNavIdentifier =
     | 'Database'
 export type PanelLayoutTreeRef = React.RefObject<LemonTreeRef> | null
 export type PanelLayoutMainContentRef = React.RefObject<HTMLElement> | null
-export const PANEL_LAYOUT_DEFAULT_WIDTH: number = 320
+export const PANEL_LAYOUT_DEFAULT_WIDTH: number = 245
 export const PANEL_LAYOUT_MIN_WIDTH: number = 160
 
 export const panelLayoutLogic = kea<panelLayoutLogicType>([
@@ -118,7 +121,7 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         ],
         panelWidth: [
             PANEL_LAYOUT_DEFAULT_WIDTH,
-            { persist: true },
+            { persist: true, prefix: '2', separator: '.' },
             {
                 setPanelWidth: (_, { width }) => width,
             },
@@ -143,7 +146,7 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
             if (!isResizing && values.panelWidth <= PANEL_LAYOUT_MIN_WIDTH - 1) {
                 actions.showLayoutPanel(false)
                 actions.clearActivePanelIdentifier()
-                actions.setPanelWidth(PANEL_LAYOUT_MIN_WIDTH)
+                actions.setPanelWidth(PANEL_LAYOUT_DEFAULT_WIDTH)
             }
         },
         resetPanelLayout: ({ keyboardAction = false }) => {
@@ -166,6 +169,22 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         isLayoutNavCollapsed: [
             (s) => [s.isLayoutNavCollapsedDesktop, s.mobileLayout],
             (isLayoutNavCollapsedDesktop, mobileLayout): boolean => !mobileLayout && isLayoutNavCollapsedDesktop,
+        ],
+        activePanelIdentifierFromUrl: [
+            () => [router.selectors.location],
+            (location): PanelLayoutNavIdentifier | '' => {
+                const cleanPath = removeProjectIdIfPresent(location.pathname)
+
+                if (cleanPath.startsWith('/data-management/')) {
+                    return 'DataManagement'
+                }
+
+                if (cleanPath === '/persons' || cleanPath === '/cohorts' || cleanPath.startsWith('/groups/')) {
+                    return 'People'
+                }
+
+                return ''
+            },
         ],
     }),
 ])

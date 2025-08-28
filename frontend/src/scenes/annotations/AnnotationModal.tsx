@@ -1,3 +1,6 @@
+import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
+
 import {
     LemonButton,
     LemonCalendarSelectInput,
@@ -5,11 +8,9 @@ import {
     LemonModalProps,
     LemonSelect,
     LemonSelectOptions,
-    LemonTextArea,
+    LemonTextAreaMarkdown,
     Link,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { shortTimeZone } from 'lib/utils'
@@ -94,13 +95,6 @@ export function AnnotationModal({
             value: AnnotationScope.Organization,
             label: annotationScopeToName[AnnotationScope.Organization],
         },
-        {
-            value: AnnotationScope.Recording,
-            label: annotationScopeToName[AnnotationScope.Recording],
-            disabledReason: annotationModal.recordingId
-                ? undefined
-                : 'To select this scope, open this annotation on the target recording',
-        },
     ]
 
     return (
@@ -110,7 +104,7 @@ export function AnnotationModal({
             isOpen={isModalOpen}
             onClose={closeModal}
             title={existingModalAnnotation ? 'Edit annotation' : 'New annotation'}
-            description="Use annotations to add context to insights and dashboards."
+            description="Use annotations to comment on insights, dashboards"
             footer={
                 <div className="flex-1 flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -140,7 +134,7 @@ export function AnnotationModal({
                             loading={isAnnotationModalSubmitting}
                             data-attr="create-annotation-submit"
                         >
-                            {existingModalAnnotation ? 'Edit' : 'Create'}
+                            Save
                         </LemonButton>
                     </div>
                 </div>
@@ -175,7 +169,7 @@ export function AnnotationModal({
                     </LemonField>
                 </div>
                 <LemonField name="content" label="Content">
-                    <LemonTextArea
+                    <LemonTextAreaMarkdown
                         placeholder="What's this annotation about?"
                         onPressCmdEnter={submitAnnotationModal}
                         data-attr="create-annotation-input"

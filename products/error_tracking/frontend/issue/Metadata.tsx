@@ -1,14 +1,15 @@
-import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { dayjs } from 'lib/dayjs'
-import { IconChevronRight } from 'lib/lemon-ui/icons'
-import { humanFriendlyLargeNumber } from 'lib/utils'
+import { useValues } from 'kea'
 import { useState } from 'react'
 import { match } from 'ts-pattern'
 
+import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+
+import { dayjs } from 'lib/dayjs'
+import { IconChevronRight } from 'lib/lemon-ui/icons'
+import { humanFriendlyLargeNumber } from 'lib/utils'
+
 import { ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
 
-import { EventsTable } from '../components/EventsTable/EventsTable'
 import { SparklineChart, SparklineDatum, SparklineEvent } from '../components/SparklineChart/SparklineChart'
 import { TimeBoundary } from '../components/TimeBoundary'
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
@@ -28,10 +29,8 @@ type SelectedDataType =
       }
     | null
 
-export const Metadata = (): JSX.Element => {
-    const { aggregations, issueId, selectedEvent, firstSeenEvent, summaryLoading, issueLoading, firstSeen, lastSeen } =
-        useValues(errorTrackingIssueSceneLogic)
-    const { selectEvent } = useActions(errorTrackingIssueSceneLogic)
+export const Metadata = ({ children }: { children: React.ReactNode }): JSX.Element => {
+    const { aggregations, summaryLoading, issueLoading, firstSeen, lastSeen } = useValues(errorTrackingIssueSceneLogic)
     const [hoveredDatum, setHoveredDatum] = useState<SelectedDataType>(null)
     const sparklineData = useSparklineDataIssueScene()
     const sparklineEvents = useSparklineEvents()
@@ -107,13 +106,7 @@ export const Metadata = (): JSX.Element => {
                     className="h-full pt-0"
                 />
             </div>
-            <EventsTable
-                issueId={issueId}
-                selectedEvent={selectedEvent}
-                onEventSelect={(selectedEvent) =>
-                    selectedEvent ? selectEvent(selectedEvent) : selectEvent(firstSeenEvent)
-                }
-            />
+            {children}
         </LemonCard>
     )
 }
@@ -171,7 +164,9 @@ function renderMetric(name: string, value: number | undefined, loading: boolean,
 }
 
 function renderDate(date: Date): JSX.Element {
-    return <div className="text-xs text-muted whitespace-nowrap">{dayjs(date).format('D MMM YYYY HH:mm (UTC)')}</div>
+    return (
+        <div className="text-xs text-muted whitespace-nowrap">{dayjs(date).utc().format('D MMM YYYY HH:mm (UTC)')}</div>
+    )
 }
 
 function renderDataPoint(d: SparklineDatum): JSX.Element {

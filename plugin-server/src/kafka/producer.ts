@@ -3,10 +3,10 @@ import {
     HighLevelProducer,
     LibrdKafkaError,
     MessageHeader,
-    MessageKey as RdKafkaMessageKey,
     MessageValue,
     NumberNullUndefined,
     ProducerGlobalConfig,
+    MessageKey as RdKafkaMessageKey,
 } from 'node-rdkafka'
 import { hostname } from 'os'
 import { Counter, Summary } from 'prom-client'
@@ -14,7 +14,7 @@ import { Counter, Summary } from 'prom-client'
 import { PluginsServerConfig } from '../types'
 import { DependencyUnavailableError, MessageSizeTooLarge } from '../utils/db/error'
 import { logger } from '../utils/logger'
-import { getKafkaConfigFromEnv, KafkaConfigTarget } from './config'
+import { KafkaConfigTarget, getKafkaConfigFromEnv } from './config'
 
 // TODO: Rewrite this description
 /** This class is a wrapper around the rdkafka producer, and does very little.
@@ -58,6 +58,10 @@ export class KafkaProducerWrapper {
             'queue.buffering.max.messages': 100_000,
             'compression.codec': 'snappy',
             'enable.idempotence': true,
+            'metadata.max.age.ms': 30000, // Refresh metadata every 30s
+            'retry.backoff.ms': 500, // Backoff between retry attempts
+            'socket.timeout.ms': 30000, // Timeout for socket operations
+            'max.in.flight.requests.per.connection': 5, // Required for idempotence ordering
             ...getKafkaConfigFromEnv(mode),
             dr_cb: true,
         }

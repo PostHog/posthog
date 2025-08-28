@@ -5,7 +5,6 @@
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />
     <envs>
-      <env name="PYTHONUNBUFFERED" value="1" />
       <env name="BILLING_SERVICE_URL" value="https://billing.dev.posthog.dev" />
       <env name="CAPTURE_TIME_TO_SEE_DATA" value="0" />
       <env name="CLICKHOUSE_SECURE" value="False" />
@@ -16,6 +15,7 @@
       <env name="KEA_VERBOSE_LOGGING" value="false" />
       <env name="PRINT_SQL" value="1" />
       <env name="PYDEVD_USE_CYTHON" value="NO" />
+      <env name="PYTHONUNBUFFERED" value="1" />
       <env name="SESSION_RECORDING_KAFKA_COMPRESSION" value="gzip-in-capture" />
       <env name="SESSION_RECORDING_KAFKA_HOSTS" value="localhost" />
       <env name="SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES" value="20971520" />

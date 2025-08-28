@@ -1,6 +1,7 @@
 import equal from 'fast-deep-equal'
 import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { getSingularType } from 'lib/components/DefinitionPopover/utils'
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -167,7 +168,11 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
 
                     return item
                 },
-                setLocalDefinition: (state, { item }) => ({ ...state, ...item } as Partial<TaxonomicDefinitionTypes>),
+                setLocalDefinition: (state, { item }) =>
+                    ({
+                        ...state,
+                        ...item,
+                    }) as Partial<TaxonomicDefinitionTypes>,
             },
         ],
     }),
@@ -228,6 +233,7 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                     TaxonomicFilterGroupType.Metadata,
                     TaxonomicFilterGroupType.DataWarehousePersonProperties,
                     TaxonomicFilterGroupType.RevenueAnalyticsProperties,
+                    TaxonomicFilterGroupType.ErrorTrackingProperties,
                 ].includes(type) || type.startsWith(TaxonomicFilterGroupType.GroupsPrefix),
         ],
         isVirtual: [
@@ -239,11 +245,7 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
         hasSentAs: [
             (s) => [s.type, s.isProperty, s.isEvent, s.isVirtual],
             (type, isProperty, isEvent, isVirtual) =>
-                isEvent ||
-                (isProperty &&
-                    !isVirtual &&
-                    type !== TaxonomicFilterGroupType.SessionProperties &&
-                    type !== TaxonomicFilterGroupType.RevenueAnalyticsProperties),
+                isEvent || (isProperty && !isVirtual && type !== TaxonomicFilterGroupType.SessionProperties),
         ],
         isCohort: [(s) => [s.type], (type) => type === TaxonomicFilterGroupType.Cohorts],
         isDataWarehouse: [(s) => [s.type], (type) => type === TaxonomicFilterGroupType.DataWarehouse],

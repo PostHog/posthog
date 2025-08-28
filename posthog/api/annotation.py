@@ -1,16 +1,31 @@
+import dataclasses
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional
 
 from django.db.models import Q, QuerySet
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-from rest_framework import filters, serializers, viewsets, pagination
+
+from rest_framework import filters, pagination, serializers, viewsets
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.models import Annotation
+from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
+from posthog.models.signals import model_activity_signal
+
+
+@dataclasses.dataclass(frozen=True)
+class AnnotationContext(ActivityContextBase):
+    scope: str
+    dashboard_id: Optional[int] = None
+    dashboard_name: Optional[str] = None
+    dashboard_item_id: Optional[int] = None
+    dashboard_item_short_id: Optional[str] = None
+    dashboard_item_name: Optional[str] = None
+    recording_id: Optional[str] = None
 
 
 class AnnotationSerializer(serializers.ModelSerializer):
@@ -34,7 +49,6 @@ class AnnotationSerializer(serializers.ModelSerializer):
             "updated_at",
             "deleted",
             "scope",
-            "recording_id",
         ]
         read_only_fields = [
             "id",
@@ -50,6 +64,14 @@ class AnnotationSerializer(serializers.ModelSerializer):
     def update(self, instance: Annotation, validated_data: dict[str, Any]) -> Annotation:
         instance.team_id = self.context["team_id"]
         return super().update(instance, validated_data)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        scope = attrs.get("scope", None)
+
+        if scope == Annotation.Scope.RECORDING.value:
+            raise serializers.ValidationError("Recording scope is deprecated")
+
+        return attrs
 
     def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> Annotation:
         request = self.context["request"]
@@ -121,6 +143,13 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
         if date_from_parsed and date_to_parsed and date_from_parsed > date_to_parsed:
             raise serializers.ValidationError("Invalid date range: date_from must be before date_to")
 
+        # Add is_emoji filtering
+        is_emoji = self.request.query_params.get("is_emoji")
+        if is_emoji is not None:
+            # Convert string to boolean (true, 1, yes -> True; false, 0, no -> False)
+            is_emoji_bool = is_emoji.lower() in ("true", "1", "yes")
+            queryset = queryset.filter(is_emoji=is_emoji_bool)
+
         return queryset
 
     def _filter_queryset_by_parents_lookups(self, queryset):
@@ -135,3 +164,33 @@ def annotation_created(sender, instance, created, raw, using, **kwargs):
     if instance.created_by:
         event_name: str = "annotation created" if created else "annotation updated"
         report_user_action(instance.created_by, event_name, instance.get_analytics_metadata())
+
+
+@receiver(model_activity_signal, sender=Annotation)
+def handle_annotation_change(
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+):
+    context = AnnotationContext(
+        scope=after_update.scope,
+        dashboard_id=after_update.dashboard_id,
+        dashboard_name=after_update.dashboard_name,
+        dashboard_item_id=after_update.dashboard_item_id,
+        dashboard_item_short_id=after_update.insight_short_id,
+        dashboard_item_name=after_update.insight_name,
+        recording_id=after_update.recording_id,
+    )
+
+    log_activity(
+        organization_id=after_update.organization_id or after_update.team.organization_id,
+        team_id=after_update.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=after_update.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update),
+            name=after_update.content,
+            context=context,
+        ),
+    )

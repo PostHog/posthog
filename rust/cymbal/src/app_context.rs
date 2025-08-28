@@ -96,6 +96,7 @@ impl AppContext {
             .endpoint_url(&config.object_storage_endpoint)
             .credentials_provider(aws_credentials)
             .behavior_version(BehaviorVersion::latest())
+            .force_path_style(config.object_storage_force_path_style)
             .build();
         let s3_client = aws_sdk_s3::Client::from_conf(aws_conf);
         let s3_client = S3Client::new(s3_client);
@@ -140,7 +141,7 @@ impl AppContext {
 
         let geoip_client = GeoIpClient::new(config.maxmind_db_path.clone())?;
 
-        let redis_client = RedisClient::new(config.redis_url.clone())?;
+        let redis_client = RedisClient::new(config.redis_url.clone()).await?;
         let redis_client = Arc::new(redis_client);
 
         // TODO - we expect here rather returning an UnhandledError because the limiter returns an Anyhow::Result,

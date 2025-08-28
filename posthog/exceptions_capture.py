@@ -1,6 +1,24 @@
+def celery_properties() -> dict:
+    try:
+        from celery import current_task
+
+        task = current_task
+        if task and task.request and task.request.id is not None:
+            return {
+                "celery_task_name": task.name,
+                "celery_task_retries": task.request.retries,
+            }
+    except Exception:
+        pass
+    return {}
+
+
 def capture_exception(error=None, additional_properties=None):
-    from posthoganalytics import api_key, capture_exception as posthog_capture_exception
     import structlog
+    from posthoganalytics import (
+        api_key,
+        capture_exception as posthog_capture_exception,
+    )
 
     logger = structlog.get_logger(__name__)
 
@@ -11,17 +29,13 @@ def capture_exception(error=None, additional_properties=None):
     if additional_properties:
         properties.update(additional_properties)
 
+    properties.update(celery_properties())
+
     if api_key:
-        result = posthog_capture_exception(error, properties=properties)
+        uuid = posthog_capture_exception(error, properties=properties)
 
         # Only log if captured
-        if result is not None:
-            _, msg = result
-
-            log_kwargs = {}
-            if isinstance(msg, dict):
-                log_kwargs["event_id"] = msg.get("uuid")
-
-            logger.exception(error, **log_kwargs)
+        if uuid is not None:
+            logger.exception(error, event_id=uuid)
     else:
         logger.exception(error)

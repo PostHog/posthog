@@ -1,13 +1,14 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import FuseClass from 'fuse.js'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
-import posthog from 'posthog-js'
 import { pipelineAccessLogic } from 'scenes/pipeline/pipelineAccessLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -92,16 +93,14 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
             },
         ],
     })),
-    loaders(({ props, values }) => ({
+    loaders(({ props }) => ({
         rawTemplates: [
             [] as HogFunctionTemplateType[],
             {
                 loadHogFunctionTemplates: async () => {
-                    const dbTemplates = !!values.featureFlags[FEATURE_FLAGS.GET_HOG_TEMPLATES_FROM_DB]
                     return (
                         await api.hogFunctions.listTemplates({
                             types: [props.type, ...(props.additionalTypes || [])],
-                            db_templates: dbTemplates,
                         })
                     ).results
                 },
@@ -153,16 +152,12 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
         ],
 
         filteredTemplates: [
-            (s) => [s.filters, s.templates, s.templatesFuse, s.user, s.featureFlags],
-            (filters, templates, templatesFuse, user, featureFlags): HogFunctionTemplateType[] => {
+            (s) => [s.filters, s.templates, s.templatesFuse, s.user],
+            (filters, templates, templatesFuse, user): HogFunctionTemplateType[] => {
                 const { search } = filters
 
-                const flagComingSoon = !!featureFlags[FEATURE_FLAGS.SHOW_COMING_SOON_DESTINATIONS]
-
                 return (search ? templatesFuse.search(search).map((x) => x.item) : templates).filter(
-                    (x) =>
-                        shouldShowHogFunctionTemplate(x, user) &&
-                        (x.status === 'coming_soon' ? search && flagComingSoon : true)
+                    (x) => shouldShowHogFunctionTemplate(x, user) && (x.status === 'coming_soon' ? search : true)
                 )
             },
         ],
@@ -241,7 +236,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
             Record<string, any>,
             {
                 replace: boolean
-            }
+            },
         ] => [
             router.values.location.pathname,
 

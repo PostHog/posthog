@@ -2,6 +2,7 @@ import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 import { QueryResult } from 'pg'
 import { Counter } from 'prom-client'
 
+import { instrumentFn } from '~/common/tracing/tracing-utils'
 import type { ActionMatcher } from '~/worker/ingestion/action-matcher'
 import type { GroupTypeManager } from '~/worker/ingestion/group-type-manager'
 
@@ -15,7 +16,6 @@ import { TeamManager } from '../../../utils/team-manager'
 import { pipelineStepErrorCounter, pipelineStepMsSummary } from '../../../worker/ingestion/event-pipeline/metrics'
 import { processWebhooksStep } from '../../../worker/ingestion/event-pipeline/runAsyncHandlersStep'
 import { HookCommander } from '../../../worker/ingestion/hooks'
-import { runInstrumentedFunction } from '../../utils'
 import { eventDroppedCounter, latestOffsetTimestampGauge } from '../metrics'
 import { ingestEventBatchingBatchCountSummary, ingestEventBatchingInputLengthSummary } from './metrics'
 
@@ -207,15 +207,15 @@ export async function eachMessageWebhooksHandlers(
         postgres
     )
 
-    await runInstrumentedFunction({
-        func: () => runWebhooks(actionMatcher, hookCannon, event),
-        statsKey: `kafka_queue.process_async_handlers_webhooks`,
-        timeoutMessage: 'After 30 seconds still running runWebhooksHandlersEventPipeline',
-        timeoutContext: () => ({
-            event: JSON.stringify(event),
-        }),
-        teamId: event.teamId,
-    })
+    await instrumentFn(
+        {
+            key: `kafka_queue.process_async_handlers_webhooks`,
+            getLoggingContext: () => ({
+                event: JSON.stringify(event),
+            }),
+        },
+        () => runWebhooks(actionMatcher, hookCannon, event)
+    )
 }
 
 async function runWebhooks(actionMatcher: ActionMatcher, hookCannon: HookCommander, event: PostIngestionEvent) {

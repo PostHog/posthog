@@ -1,13 +1,13 @@
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { router } from 'kea-router'
+
 import { getRelativeNextPath } from 'lib/utils'
 import { ProductIntentContext } from 'lib/utils/product-intents'
-import { OnboardingStepKey } from 'scenes/onboarding/onboardingLogic'
 import { onboardingLogic } from 'scenes/onboarding/onboardingLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '~/types'
+import { OnboardingStepKey, ProductKey } from '~/types'
 
 import type { productsLogicType } from './productsLogicType'
 
@@ -61,8 +61,8 @@ export const productsLogic = kea<productsLogicType>([
                 values.firstProductOnboarding === ProductKey.DATA_WAREHOUSE
                     ? OnboardingStepKey.LINK_DATA
                     : isFromWizard && !requiresFurtherSetup.includes(values.firstProductOnboarding)
-                    ? secondStepKey
-                    : OnboardingStepKey.INSTALL
+                      ? secondStepKey
+                      : OnboardingStepKey.INSTALL
 
             router.actions.push(urls.onboarding(values.firstProductOnboarding, stepKey))
             values.selectedProducts.forEach((productKey) => {

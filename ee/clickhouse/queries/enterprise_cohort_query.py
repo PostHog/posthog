@@ -1,5 +1,7 @@
 from typing import Any, cast
 
+from posthog.schema import PersonsOnEventsMode
+
 from posthog.constants import PropertyOperatorType
 from posthog.models.cohort.util import get_count_operator
 from posthog.models.filters.mixins.utils import cached_property
@@ -12,7 +14,6 @@ from posthog.queries.foss_cohort_query import (
     validate_seq_date_more_recent_than_date,
 )
 from posthog.queries.util import PersonPropertiesMode
-from posthog.schema import PersonsOnEventsMode
 
 
 def check_negation_clause(prop: PropertyGroup) -> tuple[bool, bool]:
@@ -149,7 +150,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
         self._fields.append(full_condition)
 
         return (
-            f"{'NOT' if prop.negation else ''} {column_name}",
+            f"{'NOT' if prop.negation else ''} coalesce({column_name}, false)",
             {
                 f"{date_param}": date_value,
                 f"{seq_date_param}": seq_date_value,
@@ -188,7 +189,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
         self._fields.append(full_condition)
 
         return (
-            f"{'NOT' if prop.negation else ''} {column_name}",
+            f"{'NOT' if prop.negation else ''} coalesce({column_name}, false)",
             {
                 f"{date_param}": date_value,
                 f"{seq_date_param}": seq_date_value,
@@ -213,7 +214,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
         self._fields.append(field)
 
         return (
-            f"{'NOT' if prop.negation else ''} {column_name}",
+            f"{'NOT' if prop.negation else ''} coalesce({column_name}, false)",
             {f"{date_param}": date_value, **entity_params},
         )
 
@@ -266,7 +267,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
         self._fields.append(field)
 
         return (
-            f"{'NOT' if prop.negation else ''} {column_name}",
+            f"{'NOT' if prop.negation else ''} coalesce({column_name}, false)",
             {**entity_params, **params},
         )
 

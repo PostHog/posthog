@@ -1,17 +1,20 @@
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
+
+from django.utils import timezone
 
 from azure.ai.inference import EmbeddingsClient
 from azure.ai.inference.models import EmbeddingItem, EmbeddingsResult, EmbeddingsUsage
 from azure.core.credentials import AzureKeyCredential
-from django.utils import timezone
 
-from ee.hogai.graph.rag.nodes import InsightRagContextNode
-from ee.hogai.utils.types import AssistantState
+from posthog.schema import MaxActionContext, MaxUIContext, TeamTaxonomyQuery
+
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Action
 from posthog.models.ai.utils import PgEmbeddingRow, bulk_create_pg_embeddings
-from posthog.schema import MaxActionContext, MaxContextShape, TeamTaxonomyQuery
-from posthog.test.base import BaseTest, ClickhouseTestMixin
+
+from ee.hogai.graph.rag.nodes import InsightRagContextNode
+from ee.hogai.utils.types import AssistantState
 
 
 @patch(
@@ -89,7 +92,7 @@ class TestInsightRagContextNode(ClickhouseTestMixin, BaseTest):
         )
 
         # Mock UI context with actions
-        mock_ui_context = MaxContextShape(
+        mock_ui_context = MaxUIContext(
             actions=[MaxActionContext(id=context_action.id, name="Context Action", description="From UI Context")]
         )
         mock_get_ui_context.return_value = mock_ui_context
@@ -117,7 +120,7 @@ class TestInsightRagContextNode(ClickhouseTestMixin, BaseTest):
             description="Only from context",
         )
 
-        mock_ui_context = MaxContextShape(
+        mock_ui_context = MaxUIContext(
             actions=[
                 MaxActionContext(id=context_action.id, name="Context Only Action", description="Only from context")
             ]

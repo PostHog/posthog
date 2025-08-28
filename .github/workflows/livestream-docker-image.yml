@@ -22,7 +22,7 @@ jobs:
 
         steps:
             - name: Check out livestream code
-              uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+              uses: actions/checkout@v4
               with:
                   sparse-checkout: 'livestream/'
                   sparse-checkout-cone-mode: false
@@ -47,7 +47,7 @@ jobs:
             - name: Build and push Docker image
               id: push
               if: github.ref == 'refs/heads/master'
-              uses: depot/build-push-action@636daae76684e38c301daa0c5eca1c095b24e780 # v1
+              uses: depot/build-push-action@2583627a84956d07561420dcc1d0eb1f2af3fac0 # v1
               with:
                   context: ./livestream/
                   file: livestream/Dockerfile

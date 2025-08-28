@@ -1,9 +1,12 @@
+import { useActions, useValues } from 'kea'
+
 import { IconRevert, IconTarget, IconX } from '@posthog/icons'
 import { LemonDialog, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
-import { useActions } from 'kea'
-import { useValues } from 'kea'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -14,10 +17,41 @@ import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dat
 import { DataModelingJob, DataWarehouseSyncInterval, LineageNode, OrNever } from '~/types'
 
 import { multitabEditorLogic } from '../multitabEditorLogic'
+import { UpstreamGraph } from './graph/UpstreamGraph'
 import { infoTabLogic } from './infoTabLogic'
 
 interface QueryInfoProps {
     codeEditorKey: string
+}
+
+function getMaterializationStatusMessage(
+    rowsMaterialized: number,
+    progressPercentage: number,
+    rowsExpected: number
+): string {
+    const percentComplete = Math.round(Math.min(100, (rowsMaterialized / rowsExpected) * 100))
+    switch (true) {
+        case rowsMaterialized === 0:
+            return `Spinning up spikes — starting materialization job... ${percentComplete}% complete.`
+        case progressPercentage < 10:
+            return `Digging into SQL... executing your query now... ${percentComplete}% complete.`
+        case progressPercentage < 25:
+            return `First ${humanFriendlyNumber(rowsMaterialized)} rows tucked away... ${percentComplete}% complete.`
+        case progressPercentage < 50:
+            return `${humanFriendlyNumber(rowsMaterialized)} rows shipped to storage... ${percentComplete}% complete.`
+        case progressPercentage < 90:
+            return `Still going — ${humanFriendlyNumber(
+                rowsMaterialized
+            )} rows written... ${percentComplete}% complete.`
+        case progressPercentage === 100:
+            return `Wrapping up — ${humanFriendlyNumber(
+                rowsMaterialized
+            )} rows processed... ${percentComplete}% complete.`
+        default:
+            return `Almost there — ${humanFriendlyNumber(
+                rowsMaterialized
+            )} rows processed... ${percentComplete}% complete.`
+    }
 }
 
 const OPTIONS = [
@@ -59,10 +93,30 @@ const OPTIONS = [
     },
 ]
 
+function getMaterializationDisabledReasons(
+    currentJobStatus: string | null,
+    startingMaterialization: boolean
+): {
+    sync: string | false
+    cancel: string | false
+    revert: string | false
+} {
+    return {
+        sync:
+            currentJobStatus === 'Running'
+                ? 'Materialization is already running'
+                : startingMaterialization
+                  ? 'Materialization is starting'
+                  : false,
+        cancel: currentJobStatus !== 'Running' ? 'Materialization is not running' : false,
+        revert: currentJobStatus === 'Running' ? 'Cannot revert while materialization is running' : false,
+    }
+}
+
 export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
     const { sourceTableItems } = useValues(infoTabLogic({ codeEditorKey: codeEditorKey }))
-    const { editingView, upstream } = useValues(multitabEditorLogic)
-    const { runDataWarehouseSavedQuery, saveAsView } = useActions(multitabEditorLogic)
+    const { editingView, upstream, upstreamViewMode } = useValues(multitabEditorLogic)
+    const { runDataWarehouseSavedQuery, saveAsView, setUpstreamViewMode } = useActions(multitabEditorLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const isLineageDependencyViewEnabled = featureFlags[FEATURE_FLAGS.LINEAGE_DEPENDENCY_VIEW]
@@ -73,16 +127,21 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
         initialDataWarehouseSavedQueryLoading,
         dataModelingJobs,
         hasMoreJobsToLoad,
+        startingMaterialization,
     } = useValues(dataWarehouseViewsLogic)
     const {
         updateDataWarehouseSavedQuery,
         loadOlderDataModelingJobs,
         cancelDataWarehouseSavedQuery,
         revertMaterialization,
+        setStartingMaterialization,
     } = useActions(dataWarehouseViewsLogic)
 
     // note: editingView is stale, but dataWarehouseSavedQueryMapById gets updated
     const savedQuery = editingView ? dataWarehouseSavedQueryMapById[editingView.id] : null
+
+    const currentJobStatus = dataModelingJobs?.results?.[0]?.status || null
+    const { sync, cancel, revert } = getMaterializationDisabledReasons(currentJobStatus, startingMaterialization)
 
     if (initialDataWarehouseSavedQueryLoading) {
         return (
@@ -118,29 +177,31 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                 <div className="flex gap-4 mt-2">
                                     <LemonButton
                                         className="whitespace-nowrap"
-                                        loading={savedQuery?.status === 'Running'}
-                                        disabledReason={
-                                            savedQuery?.status === 'Running' && 'Materialization is already running'
-                                        }
-                                        onClick={() => editingView && runDataWarehouseSavedQuery(editingView.id)}
+                                        loading={startingMaterialization || currentJobStatus === 'Running'}
+                                        disabledReason={sync}
+                                        onClick={() => {
+                                            if (editingView) {
+                                                setStartingMaterialization(true)
+                                                runDataWarehouseSavedQuery(editingView.id)
+                                            }
+                                        }}
                                         type="secondary"
                                         sideAction={{
                                             icon: <IconX fontSize={16} />,
                                             tooltip: 'Cancel materialization',
                                             onClick: () => editingView && cancelDataWarehouseSavedQuery(editingView.id),
-                                            disabledReason:
-                                                savedQuery?.status !== 'Running' && 'Materialization is not running',
+                                            disabledReason: cancel,
                                         }}
                                     >
-                                        {savedQuery?.status === 'Running' ? 'Running...' : 'Sync now'}
+                                        {startingMaterialization
+                                            ? 'Starting...'
+                                            : currentJobStatus === 'Running'
+                                              ? 'Running...'
+                                              : 'Sync now'}
                                     </LemonButton>
                                     <LemonSelect
                                         className="h-9"
-                                        disabledReason={
-                                            savedQuery?.status === 'Running'
-                                                ? 'Materialization is already running'
-                                                : false
-                                        }
+                                        disabledReason={sync}
                                         value={
                                             editingView
                                                 ? dataWarehouseSavedQueryMapById[editingView.id]?.sync_frequency ||
@@ -165,10 +226,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                             type="secondary"
                                             size="small"
                                             tooltip="Revert materialized view to view"
-                                            disabledReason={
-                                                savedQuery?.status === 'Running' &&
-                                                'Cannot revert while materialization is running'
-                                            }
+                                            disabledReason={revert}
                                             icon={<IconRevert />}
                                             onClick={() => {
                                                 LemonDialog.open({
@@ -246,7 +304,8 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                 {
                                     title: 'Status',
                                     dataIndex: 'status',
-                                    render: (_, { status, error }: DataModelingJob) => {
+                                    render: (_, job: DataModelingJob) => {
+                                        const { status, error, rows_materialized, rows_expected } = job
                                         const statusToType: Record<string, LemonTagType> = {
                                             Completed: 'success',
                                             Failed: 'danger',
@@ -254,7 +313,31 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                         }
                                         const type = statusToType[status] || 'warning'
 
-                                        return error ? (
+                                        const progressPercentage =
+                                            rows_expected && rows_expected > 0
+                                                ? Math.min(100, (rows_materialized / rows_expected) * 100)
+                                                : 0
+
+                                        // Only show progress if there is > 0 progress and we have expected rows
+                                        // many small result sets will never show progress as they are written in only 1 batch
+                                        if (status === 'Running' && progressPercentage > 0 && rows_expected !== null) {
+                                            return (
+                                                <Tooltip
+                                                    placement="right"
+                                                    title={getMaterializationStatusMessage(
+                                                        rows_materialized,
+                                                        progressPercentage,
+                                                        rows_expected
+                                                    )}
+                                                >
+                                                    <div className="w-[68px]">
+                                                        <LemonProgress percent={progressPercentage} />
+                                                    </div>
+                                                </Tooltip>
+                                            )
+                                        }
+
+                                        return error && status !== 'Completed' ? (
                                             <Tooltip title={error}>
                                                 <LemonTag type={type}>{status}</LemonTag>
                                             </Tooltip>
@@ -314,35 +397,6 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                         />
                     </>
                 )}
-                <div>
-                    <h3>Columns</h3>
-                    <p className="text-xs">Columns that are available in the materialized view.</p>
-                </div>
-                <LemonTable
-                    size="small"
-                    columns={[
-                        {
-                            key: 'name',
-                            title: 'Name',
-                            render: (_, column) => column.name,
-                        },
-                        {
-                            key: 'type',
-                            title: 'Type',
-                            render: (_, column) => column.type,
-                        },
-                        {
-                            key: 'schema_valid',
-                            title: 'Schema Valid',
-                            render: (_, column) => (
-                                <LemonTag type={column.schema_valid ? 'success' : 'danger'}>
-                                    {column.schema_valid ? 'Yes' : 'No'}
-                                </LemonTag>
-                            ),
-                        },
-                    ]}
-                    dataSource={savedQuery?.columns || []}
-                />
                 {!isLineageDependencyViewEnabled && (
                     <>
                         <div>
@@ -410,89 +464,117 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                     </>
                 )}
 
-                {upstream && isLineageDependencyViewEnabled && (
+                {upstream && editingView && upstream.nodes.length > 0 && isLineageDependencyViewEnabled && (
                     <>
                         <div>
-                            <h3>Upstream Dependencies</h3>
-                            <p className="text-xs">Tables and views that this query depends on.</p>
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h3 className="mb-1">Tables we use</h3>
+                                    <p className="text-xs mb-0">Tables and views that this query relies on.</p>
+                                </div>
+                                <LemonSegmentedButton
+                                    value={upstreamViewMode}
+                                    onChange={(mode) => setUpstreamViewMode(mode)}
+                                    options={[
+                                        {
+                                            value: 'graph',
+                                            label: 'Graph',
+                                        },
+                                        {
+                                            value: 'table',
+                                            label: 'Table',
+                                        },
+                                    ]}
+                                    size="small"
+                                />
+                            </div>
                         </div>
-                        <LemonTable
-                            size="small"
-                            columns={[
-                                {
-                                    key: 'name',
-                                    title: 'Name',
-                                    render: (_, { name }) => (
-                                        <div className="flex items-center gap-1">
-                                            {name === editingView?.name && (
-                                                <Tooltip placement="right" title="This is the currently viewed query">
-                                                    <IconTarget className="text-warning" />
-                                                </Tooltip>
-                                            )}
-                                            {name}
-                                        </div>
-                                    ),
-                                },
-                                {
-                                    key: 'type',
-                                    title: 'Type',
-                                    render: (_, { type, last_run_at }) => {
-                                        if (type === 'view') {
-                                            return last_run_at ? 'Mat. View' : 'View'
-                                        }
-                                        return 'Table'
-                                    },
-                                },
-                                {
-                                    key: 'upstream',
-                                    title: 'Direct Upstream',
-                                    render: (_, node) => {
-                                        const upstreamNodes = upstream.edges
-                                            .filter((edge) => edge.target === node.id)
-                                            .map((edge) => upstream.nodes.find((n) => n.id === edge.source))
-                                            .filter((n): n is LineageNode => n !== undefined)
-
-                                        if (upstreamNodes.length === 0) {
-                                            return <span className="text-secondary">None</span>
-                                        }
-
-                                        return (
-                                            <div className="flex flex-wrap gap-1">
-                                                {upstreamNodes.map((upstreamNode) => (
-                                                    <LemonTag key={upstreamNode.id} type="primary">
-                                                        {upstreamNode.name}
-                                                    </LemonTag>
-                                                ))}
+                        {upstreamViewMode === 'table' ? (
+                            <LemonTable
+                                size="small"
+                                columns={[
+                                    {
+                                        key: 'name',
+                                        title: 'Name',
+                                        render: (_, { name }) => (
+                                            <div className="flex items-center gap-1">
+                                                {name === editingView?.name && (
+                                                    <Tooltip
+                                                        placement="right"
+                                                        title="This is the currently viewed query"
+                                                    >
+                                                        <IconTarget className="text-warning" />
+                                                    </Tooltip>
+                                                )}
+                                                {name}
                                             </div>
-                                        )
+                                        ),
                                     },
-                                },
-                                {
-                                    key: 'last_run_at',
-                                    title: 'Last Run At',
-                                    render: (_, { last_run_at, sync_frequency }) => {
-                                        if (!last_run_at) {
-                                            return 'On demand'
-                                        }
-                                        const numericSyncFrequency = Number(sync_frequency)
-                                        const frequencyMap: Record<string, string> = {
-                                            300: '5 mins',
-                                            1800: '30 mins',
-                                            3600: '1 hour',
-                                            21600: '6 hours',
-                                            43200: '12 hours',
-                                            86400: '24 hours',
-                                            604800: '1 week',
-                                        }
+                                    {
+                                        key: 'type',
+                                        title: 'Type',
+                                        render: (_, { type, last_run_at }) => {
+                                            if (type === 'view') {
+                                                return last_run_at ? 'Mat. View' : 'View'
+                                            }
+                                            return 'Table'
+                                        },
+                                    },
+                                    {
+                                        key: 'upstream',
+                                        title: 'Direct Upstream',
+                                        render: (_, node) => {
+                                            const upstreamNodes = upstream.edges
+                                                .filter((edge) => edge.target === node.id)
+                                                .map((edge) => upstream.nodes.find((n) => n.id === edge.source))
+                                                .filter((n): n is LineageNode => n !== undefined)
 
-                                        return `${humanFriendlyDetailedTime(last_run_at)} every ${
-                                            frequencyMap[numericSyncFrequency]
-                                        }`
+                                            if (upstreamNodes.length === 0) {
+                                                return <span className="text-secondary">None</span>
+                                            }
+
+                                            return (
+                                                <div className="flex flex-wrap gap-1">
+                                                    {upstreamNodes.map((upstreamNode) => (
+                                                        <LemonTag key={upstreamNode.id} type="primary">
+                                                            {upstreamNode.name}
+                                                        </LemonTag>
+                                                    ))}
+                                                </div>
+                                            )
+                                        },
                                     },
-                                },
-                            ]}
-                            dataSource={upstream.nodes}
-                        />
+                                    {
+                                        key: 'last_run_at',
+                                        title: 'Last Run At',
+                                        render: (_, { last_run_at, sync_frequency }) => {
+                                            if (!last_run_at) {
+                                                return 'On demand'
+                                            }
+                                            const numericSyncFrequency = Number(sync_frequency)
+                                            const frequencyMap: Record<string, string> = {
+                                                300: '5 mins',
+                                                1800: '30 mins',
+                                                3600: '1 hour',
+                                                21600: '6 hours',
+                                                43200: '12 hours',
+                                                86400: '24 hours',
+                                                604800: '1 week',
+                                            }
+
+                                            return `${humanFriendlyDetailedTime(last_run_at)} ${
+                                                frequencyMap[numericSyncFrequency]
+                                                    ? `every ${frequencyMap[numericSyncFrequency]}`
+                                                    : ''
+                                            }`
+                                        },
+                                    },
+                                ]}
+                                dataSource={upstream.nodes}
+                            />
+                        ) : (
+                            <UpstreamGraph codeEditorKey={codeEditorKey} />
+                        )}
                     </>
                 )}
             </div>

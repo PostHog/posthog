@@ -1,10 +1,12 @@
-import { IconPerson } from '@posthog/icons'
-import { ProfilePicture } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { fullName, UnexpectedNeverError } from 'lib/utils'
-import { cn } from 'lib/utils/css-classes'
 import React, { useMemo } from 'react'
 import { match } from 'ts-pattern'
+
+import { IconPerson } from '@posthog/icons'
+import { ProfilePicture } from '@posthog/lemon-ui'
+
+import { UnexpectedNeverError, fullName } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
@@ -49,15 +51,6 @@ function getIconClassname(size: 'xsmall' | 'small' | 'medium' | 'large' = 'mediu
 
 export const AssigneeIconDisplay = ({ assignee, size }: AssigneeIconDisplayProps): JSX.Element => {
     return match(assignee)
-        .with({ type: 'group' }, ({ group }) => (
-            // The ideal way would be to use a Lettermark component here
-            // but there is no way to make it consistent with ProfilePicture at the moment
-            // TODO: Make sure the size prop are the same between ProfilePicture and Lettermark
-            <ProfilePicture
-                user={{ first_name: group.name, last_name: undefined, email: undefined }}
-                className={getIconClassname(size)}
-            />
-        ))
         .with({ type: 'role' }, ({ role }) => (
             // The ideal way would be to use a Lettermark component here
             // but there is no way to make it consistent with ProfilePicture at the moment
@@ -99,7 +92,6 @@ export const AssigneeLabelDisplay = ({
             })}
         >
             {match(assignee)
-                .with({ type: 'group' }, ({ group }) => group.name)
                 .with({ type: 'role' }, ({ role }) => role.name)
                 .with({ type: 'user' }, ({ user }) => fullName(user))
                 .otherwise(() => placeholder || 'Unassigned')}

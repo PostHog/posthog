@@ -1,3 +1,9 @@
+import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
+import React from 'react'
+
 import {
     IconAI,
     IconChat,
@@ -22,17 +28,13 @@ import {
     IconToggle,
     IconWarning,
 } from '@posthog/icons'
-import { lemonToast, Spinner } from '@posthog/lemon-ui'
-import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
-import { subscriptions } from 'kea-subscriptions'
+import { Spinner, lemonToast } from '@posthog/lemon-ui'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
-import posthog from 'posthog-js'
-import React from 'react'
 import { editorSceneLogic } from 'scenes/data-warehouse/editor/editorSceneLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -68,8 +70,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             ['sceneConfig'],
             navigationLogic,
             ['mobileLayout'],
-            savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists }),
-            ['playlists', 'playlistsLoading'],
+            savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Home }),
+            ['savedFilters', 'savedFiltersLoading'],
         ],
         actions: [navigationLogic, ['closeAccountPopover'], sceneLogic, ['setScene']],
     })),
@@ -162,7 +164,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             },
             {
                 showSidebar: (state, { newNavbarItemId }) => newNavbarItemId || state,
-                setScene: (state, { scene }) => scene || state,
+                setScene: (state, { sceneId }) => sceneId || state,
             },
         ],
         isSearchShown: [
@@ -337,8 +339,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 return sceneConfig?.layout === 'plain' && !sceneConfig.allowUnauthenticated
                     ? 'minimal'
                     : sceneConfig?.layout !== 'plain'
-                    ? 'full'
-                    : 'none'
+                      ? 'full'
+                      : 'none'
             },
         ],
         isNavShown: [
@@ -354,10 +356,10 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 featureFlagLogic.selectors.featureFlags,
                 dashboardsModel.selectors.dashboardsLoading,
                 dashboardsModel.selectors.pinnedDashboards,
-                s.playlists,
-                s.playlistsLoading,
+                s.savedFilters,
+                s.savedFiltersLoading,
             ],
-            (featureFlags, dashboardsLoading, pinnedDashboards, playlists, playlistsLoading): NavbarItem[][] => {
+            (featureFlags, dashboardsLoading, pinnedDashboards, savedFilters, savedFiltersLoading): NavbarItem[][] => {
                 return [
                     [
                         {
@@ -415,14 +417,14 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             tooltipDocLink: 'https://posthog.com/docs/data',
                         },
                         {
-                            identifier: Scene.PersonsManagement,
+                            identifier: Scene.Persons,
                             label: 'People and groups',
                             icon: <IconPeople />,
                             to: urls.persons(),
                             tooltipDocLink: 'https://posthog.com/docs/data/persons',
                         },
                         {
-                            identifier: Scene.Activity,
+                            identifier: Scene.ExploreEvents,
                             label: 'Activity',
                             icon: <IconLive />,
                             to: urls.activity(),
@@ -477,18 +479,18 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                     overlay: (
                                         <LemonMenuOverlay
                                             items={
-                                                playlists.count > 0
+                                                savedFilters.count > 0
                                                     ? [
                                                           {
-                                                              title: 'Saved playlists',
-                                                              items: playlists.results.map((playlist) => ({
+                                                              title: 'Saved filters',
+                                                              items: savedFilters.results.map((savedFilter) => ({
                                                                   label:
-                                                                      playlist.name ||
-                                                                      playlist.derived_name ||
+                                                                      savedFilter.name ||
+                                                                      savedFilter.derived_name ||
                                                                       'Unnamed',
-                                                                  to: urls.replayPlaylist(playlist.short_id),
+                                                                  to: urls.replayPlaylist(savedFilter.short_id),
                                                               })),
-                                                              footer: playlistsLoading && (
+                                                              footer: savedFiltersLoading && (
                                                                   <div className="px-2 py-1 text-tertiary">
                                                                       <Spinner /> Loading…
                                                                   </div>
@@ -501,8 +503,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                                               to: urls.replay(ReplayTabs.Home),
                                                           },
                                                           {
-                                                              label: 'Playlists',
-                                                              to: urls.replay(ReplayTabs.Playlists),
+                                                              label: 'Saved filters',
+                                                              to: urls.replay(ReplayTabs.Home),
                                                           },
                                                       ]
                                             }
@@ -549,16 +551,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   to: urls.userInterviews(),
                               }
                             : null,
-                        featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY]
-                            ? {
-                                  identifier: 'LLMObservability',
-                                  label: 'LLM observability',
-                                  icon: <IconAI />,
-                                  to: urls.llmObservabilityDashboard(),
-                                  tag: 'beta' as const,
-                                  tooltipDocLink: 'https://posthog.com/docs/ai-engineering/dashboard',
-                              }
-                            : null,
+                        {
+                            identifier: 'LLMAnalytics',
+                            label: 'LLM analytics',
+                            icon: <IconAI />,
+                            to: urls.llmAnalyticsDashboard(),
+                            tooltipDocLink: 'https://posthog.com/docs/llm-analytics/dashboard',
+                        },
                         featureFlags[FEATURE_FLAGS.LOGS]
                             ? {
                                   identifier: 'Logs',

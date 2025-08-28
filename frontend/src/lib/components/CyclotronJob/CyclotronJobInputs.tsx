@@ -1,6 +1,10 @@
-import { closestCenter, DndContext } from '@dnd-kit/core'
-import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { DndContext, closestCenter } from '@dnd-kit/core'
+import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { useEffect, useMemo, useRef, useState } from 'react'
+
 import { IconGear, IconLock, IconPlus, IconTrash, IconX } from '@posthog/icons'
 import {
     LemonButton,
@@ -15,35 +19,45 @@ import {
     LemonTextArea,
     Tooltip,
 } from '@posthog/lemon-ui'
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { capitalizeFirstLetter, objectsEqual } from 'lib/utils'
 import { uuid } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { CyclotronJobInputSchemaType, CyclotronJobInputType, CyclotronJobInvocationGlobalsWithInputs } from '~/types'
 
 import { EmailTemplater } from '../../../scenes/hog-functions/email-templater/EmailTemplater'
-import { cyclotronJobInputLogic, formatJsonValue } from './cyclotronJobInputLogic'
 import { CyclotronJobTemplateSuggestionsButton } from './CyclotronJobTemplateSuggestions'
+import { cyclotronJobInputLogic, formatJsonValue } from './cyclotronJobInputLogic'
 import { CyclotronJobInputIntegration } from './integrations/CyclotronJobInputIntegration'
 import { CyclotronJobInputIntegrationField } from './integrations/CyclotronJobInputIntegrationField'
 import { CyclotronJobInputConfiguration } from './types'
 
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
 
-const INPUT_TYPE_LIST = ['string', 'number', 'boolean', 'dictionary', 'choice', 'json', 'integration', 'email'] as const
+const INPUT_TYPE_LIST = [
+    'string',
+    'number',
+    'boolean',
+    'dictionary',
+    'choice',
+    'json',
+    'integration',
+    'email',
+    'native_email',
+] as const
 
 export type CyclotronJobInputsProps = {
-    onInputChange: (key: string, input: CyclotronJobInputType) => void
+    onInputChange?: (key: string, input: CyclotronJobInputType) => void
     configuration: CyclotronJobInputConfiguration
     parentConfiguration?: CyclotronJobInputConfiguration
     onInputSchemaChange?: (schema: CyclotronJobInputSchemaType[]) => void
     showSource: boolean
+    sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
 }
 
 export function CyclotronJobInputs({
@@ -52,6 +66,7 @@ export function CyclotronJobInputs({
     onInputSchemaChange,
     onInputChange,
     showSource,
+    sampleGlobalsWithInputs,
 }: CyclotronJobInputsProps): JSX.Element | null {
     if (!configuration.inputs_schema?.length) {
         return <span className="italic text-secondary">This function does not require any input variables.</span>
@@ -86,6 +101,7 @@ export function CyclotronJobInputs({
                                     onInputSchemaChange={onInputSchemaChange}
                                     onInputChange={onInputChange}
                                     showSource={showSource}
+                                    sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                                 />
                             )
                         })}
@@ -101,7 +117,7 @@ function JsonConfigField(props: {
     className?: string
     autoFocus?: boolean
     templating?: boolean
-    sampleGlobalsWithInputs?: CyclotronJobInvocationGlobalsWithInputs
+    sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
 }): JSX.Element {
     const key = useMemo(() => `json_field_${uuid()}`, [])
     const templatingKind = props.input.templating ?? 'hog'
@@ -141,7 +157,7 @@ function JsonConfigField(props: {
                                     verticalScrollbarSize: 0,
                                 },
                             }}
-                            globals={props.templating ? props.sampleGlobalsWithInputs : undefined}
+                            globals={props.templating ? (props.sampleGlobalsWithInputs ?? undefined) : undefined}
                         />
                         {props.templating ? (
                             <span className="absolute top-0 right-0 z-10 p-px opacity-0 transition-opacity group-hover:opacity-100">
@@ -166,6 +182,7 @@ function JsonConfigField(props: {
 }
 
 function EmailTemplateField({
+    schema,
     value,
     onChange,
     sampleGlobalsWithInputs,
@@ -173,9 +190,16 @@ function EmailTemplateField({
     schema: CyclotronJobInputSchemaType
     value: any
     onChange: (value: any) => void
-    sampleGlobalsWithInputs?: CyclotronJobInvocationGlobalsWithInputs
+    sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
 }): JSX.Element {
-    return <EmailTemplater variables={sampleGlobalsWithInputs} value={value} onChange={onChange} />
+    return (
+        <EmailTemplater
+            type={schema.type as 'email' | 'native_email'}
+            variables={sampleGlobalsWithInputs ?? {}}
+            value={value}
+            onChange={onChange}
+        />
+    )
 }
 
 function CyclotronJobTemplateInput(props: {
@@ -183,7 +207,7 @@ function CyclotronJobTemplateInput(props: {
     templating: boolean
     onChange?: (value: CyclotronJobInputType) => void
     input: CyclotronJobInputType
-    sampleGlobalsWithInputs?: CyclotronJobInvocationGlobalsWithInputs
+    sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
 }): JSX.Element {
     const templating = props.input.templating ?? 'hog'
 
@@ -204,7 +228,7 @@ function CyclotronJobTemplateInput(props: {
                 value={props.input.value ?? ''}
                 onChange={(val) => props.onChange?.({ ...props.input, value: val ?? '' })}
                 language={props.input.templating === 'hog' ? 'hogTemplate' : 'liquid'}
-                globals={props.sampleGlobalsWithInputs}
+                globals={props.sampleGlobalsWithInputs ?? undefined}
             />
             <span className="absolute top-0 right-0 z-10 p-px opacity-0 transition-opacity group-hover:opacity-100">
                 <CyclotronJobTemplateSuggestionsButton
@@ -224,10 +248,12 @@ function DictionaryField({
     input,
     onChange,
     templating,
+    sampleGlobalsWithInputs,
 }: {
     input: CyclotronJobInputType
     onChange?: (value: CyclotronJobInputType) => void
     templating: boolean
+    sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
 }): JSX.Element {
     const value = input.value ?? {}
     const [entries, setEntries] = useState<[string, string][]>(Object.entries(value))
@@ -246,7 +272,7 @@ function DictionaryField({
         prevFilteredEntriesRef.current = filteredEntries
 
         const val = Object.fromEntries(filteredEntries)
-        onChange?.({ ...input, value: val })
+        onChange?.({ ...input, value: val }) // oxlint-disable-line react-hooks/exhaustive-deps
     }, [entries, onChange])
 
     const handleEnableIncludeObject = (): void => {
@@ -288,6 +314,7 @@ function DictionaryField({
                             setEntries(newEntries)
                         }}
                         templating={templating}
+                        sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                     />
 
                     <LemonButton
@@ -322,6 +349,7 @@ type CyclotronJobInputProps = {
     disabled?: boolean
     configuration: CyclotronJobInputConfiguration
     parentConfiguration?: CyclotronJobInputConfiguration
+    sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
 }
 
 function CyclotronJobInputRenderer({
@@ -331,6 +359,7 @@ function CyclotronJobInputRenderer({
     input,
     configuration,
     parentConfiguration,
+    sampleGlobalsWithInputs,
 }: CyclotronJobInputProps): JSX.Element {
     const templating = schema.templating ?? true
 
@@ -343,13 +372,20 @@ function CyclotronJobInputRenderer({
                     onChange={disabled ? () => {} : onChange}
                     className="ph-no-capture"
                     templating={templating}
+                    sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                 />
             )
         case 'number':
             return <LemonInput type="number" value={input.value} onChange={onValueChange} className="ph-no-capture" />
         case 'json':
             return (
-                <JsonConfigField input={input} onChange={onChange} className="ph-no-capture" templating={templating} />
+                <JsonConfigField
+                    input={input}
+                    onChange={onChange}
+                    className="ph-no-capture"
+                    templating={templating}
+                    sampleGlobalsWithInputs={sampleGlobalsWithInputs}
+                />
             )
         case 'choice':
             return (
@@ -363,7 +399,14 @@ function CyclotronJobInputRenderer({
                 />
             )
         case 'dictionary':
-            return <DictionaryField input={input} onChange={onChange} templating={templating} />
+            return (
+                <DictionaryField
+                    input={input}
+                    onChange={onChange}
+                    templating={templating}
+                    sampleGlobalsWithInputs={sampleGlobalsWithInputs}
+                />
+            )
         case 'boolean':
             return (
                 <LemonSwitch checked={input.value} onChange={(checked) => onValueChange(checked)} disabled={disabled} />
@@ -381,7 +424,15 @@ function CyclotronJobInputRenderer({
                 />
             )
         case 'email':
-            return <EmailTemplateField schema={schema} value={input.value} onChange={onValueChange} />
+        case 'native_email':
+            return (
+                <EmailTemplateField
+                    schema={schema}
+                    value={input.value}
+                    onChange={onValueChange}
+                    sampleGlobalsWithInputs={sampleGlobalsWithInputs}
+                />
+            )
         default:
             return (
                 <strong className="text-danger">
@@ -397,6 +448,7 @@ type CyclotronJobInputSchemaControlsProps = {
     onDone: () => void
     configuration: CyclotronJobInputConfiguration
     parentConfiguration?: CyclotronJobInputConfiguration
+    sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
 }
 
 function CyclotronJobInputSchemaControls({
@@ -405,6 +457,7 @@ function CyclotronJobInputSchemaControls({
     onDone,
     configuration,
     parentConfiguration,
+    sampleGlobalsWithInputs,
 }: CyclotronJobInputSchemaControlsProps): JSX.Element {
     const _onChange = (data: Partial<CyclotronJobInputSchemaType> | null): void => {
         if (data?.key?.length === 0) {
@@ -517,6 +570,7 @@ function CyclotronJobInputSchemaControls({
                     onChange={(val) => _onChange({ default: val.value })}
                     configuration={configuration}
                     parentConfiguration={parentConfiguration}
+                    sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                 />
             </LemonField.Pure>
         </div>
@@ -525,7 +579,7 @@ function CyclotronJobInputSchemaControls({
 
 type CyclotronJobInputWithSchemaProps = CyclotronJobInputsProps & {
     schema: CyclotronJobInputSchemaType
-    sampleGlobalsWithInputs?: CyclotronJobInvocationGlobalsWithInputs
+    sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
 }
 
 function CyclotronJobInputWithSchema({
@@ -535,6 +589,7 @@ function CyclotronJobInputWithSchema({
     onInputSchemaChange,
     onInputChange,
     showSource,
+    sampleGlobalsWithInputs,
 }: CyclotronJobInputWithSchemaProps): JSX.Element | null {
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: schema.key })
     const [editing, setEditing] = useState(false)
@@ -578,7 +633,16 @@ function CyclotronJobInputWithSchema({
             }}
         >
             {!editing ? (
-                <LemonField name={`inputs.${schema.key}`} help={schema.description}>
+                <LemonField
+                    name={`inputs.${schema.key}`}
+                    help={
+                        typeof schema.description === 'string' ? (
+                            <LemonMarkdown className="max-w-[30rem]" lowKeyHeadings>
+                                {schema.description}
+                            </LemonMarkdown>
+                        ) : undefined
+                    }
+                >
                     {({
                         value,
                         onChange: _onChange,
@@ -633,7 +697,7 @@ function CyclotronJobInputWithSchema({
                                         </span>
                                         <LemonButton
                                             onClick={() => {
-                                                onChange({ value: '' })
+                                                onChange({ value: '', secret: false })
                                             }}
                                             size="small"
                                             type="secondary"
@@ -648,6 +712,7 @@ function CyclotronJobInputWithSchema({
                                         onChange={onChange}
                                         configuration={configuration}
                                         parentConfiguration={parentConfiguration}
+                                        sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                                     />
                                 )}
                             </>
@@ -662,6 +727,7 @@ function CyclotronJobInputWithSchema({
                         onDone={() => setEditing(false)}
                         configuration={configuration}
                         parentConfiguration={parentConfiguration}
+                        sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                     />
                 </div>
             )}

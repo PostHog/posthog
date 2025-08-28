@@ -1,9 +1,10 @@
-import { toMatchImageSnapshot } from 'jest-image-snapshot'
-import { getStoryContext, TestRunnerConfig, TestContext } from '@storybook/test-runner'
-import type { Locator, Page, LocatorScreenshotOptions } from '@playwright/test'
-import type { Mocks } from '~/mocks/utils'
+import type { Locator, LocatorScreenshotOptions, Page } from '@playwright/test'
 import { StoryContext } from '@storybook/csf'
+import { TestContext, TestRunnerConfig, getStoryContext } from '@storybook/test-runner'
+import { toMatchImageSnapshot } from 'jest-image-snapshot'
 import path from 'path'
+
+import type { Mocks } from '~/mocks/utils'
 
 const DEFAULT_VIEWPORT = { width: 1280, height: 720 }
 
@@ -71,6 +72,7 @@ const LOADER_SELECTORS = [
 ]
 
 const customSnapshotsDir = path.resolve(__dirname, '../../../frontend/__snapshots__')
+// eslint-disable-next-line no-console
 console.log('[test-runner] Storybook snapshots will be saved to', customSnapshotsDir)
 
 const JEST_TIMEOUT_MS = 15000
@@ -97,6 +99,7 @@ module.exports = {
         const viewport = storyContext.parameters?.testOptions?.viewport || DEFAULT_VIEWPORT
 
         await page.evaluate(
+            // eslint-disable-next-line no-console
             ([retry, id]) => console.log(`[${id}] Attempt ${retry}`),
             [ATTEMPT_COUNT_PER_ID[context.id], context.id]
         )
@@ -118,7 +121,7 @@ module.exports = {
         }
     },
     tags: {
-        skip: ['test-skip'], // NOTE: This is overridden by the CI action storybook-chromatic.yml to include browser specific skipping
+        skip: ['test-skip'], // NOTE: This is overridden by the CI action ci-storybook.yml to include browser specific skipping
     },
 } as TestRunnerConfig
 
@@ -159,7 +162,7 @@ async function takeSnapshotWithTheme(
     browser: SupportedBrowserName,
     theme: SnapshotTheme,
     storyContext: StoryContext
-) {
+): Promise<void> {
     const { allowImagesWithoutWidth = false } = storyContext.parameters?.testOptions ?? {}
 
     // Set the right theme
@@ -169,7 +172,23 @@ async function takeSnapshotWithTheme(
     await waitForPageReady(page)
     // check if all images have width, unless purposefully skipped
     if (!allowImagesWithoutWidth) {
-        await page.waitForFunction(() => Array.from(document.images).every((i: HTMLImageElement) => !!i.naturalWidth))
+        await page.waitForFunction(() => {
+            const allImages = Array.from(document.images)
+            const areAllImagesLoaded = allImages.every(
+                // ProseMirror-separator isn't an actual image of any sort, so we ignore those
+                (i: HTMLImageElement) => !!i.naturalWidth || i.classList.contains('ProseMirror-separator')
+            )
+            if (areAllImagesLoaded) {
+                // Hide gifs to prevent their animations causing flakiness
+                for (const image of allImages) {
+                    if (image.src.endsWith('.gif')) {
+                        image.style.visibility = 'hidden'
+                        image.style.background = 'red'
+                    }
+                }
+            }
+            return areAllImagesLoaded
+        })
     }
     await page.waitForTimeout(2000)
 
@@ -183,7 +202,7 @@ async function doTakeSnapshotWithTheme(
     browser: SupportedBrowserName,
     theme: SnapshotTheme,
     storyContext: StoryContext
-) {
+): Promise<void> {
     const { includeNavigationInSnapshot = false, snapshotTargetSelector } = storyContext.parameters?.testOptions ?? {}
 
     // Figure out what's the right check function depending on the parameters

@@ -1,7 +1,7 @@
+import json
 from typing import Any, Optional, Union, cast
 from urllib.parse import urlencode
 
-import structlog
 from django import forms
 from django.conf import settings
 from django.contrib.auth import login, password_validation
@@ -9,8 +9,11 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.shortcuts import redirect
 from django.urls.base import reverse
+
+import structlog
+import posthoganalytics
 from rest_framework import exceptions, generics, permissions, response, serializers
-from posthog.exceptions_capture import capture_exception
+from rest_framework.request import Request
 from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
 
@@ -18,21 +21,11 @@ from posthog.api.email_verification import EmailVerifier, is_email_verification_
 from posthog.api.shared import UserBasicSerializer
 from posthog.demo.matrix import MatrixManager
 from posthog.demo.products.hedgebox import HedgeboxMatrix
-from rest_framework.request import Request
 from posthog.email import is_email_available
-from posthog.event_usage import (
-    alias_invite_id,
-    report_user_joined_organization,
-    report_user_signed_up,
-)
-from posthog.models import (
-    Organization,
-    OrganizationDomain,
-    OrganizationInvite,
-    InviteExpiredException,
-    Team,
-    User,
-)
+from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
+from posthog.exceptions_capture import capture_exception
+from posthog.helpers.email_utils import EmailValidationHelper
+from posthog.models import InviteExpiredException, Organization, OrganizationDomain, OrganizationInvite, Team, User
 from posthog.permissions import CanCreateOrg
 from posthog.rate_limit import SignupIPThrottle
 from posthog.utils import get_can_create_org, is_relative_url
@@ -108,6 +101,11 @@ class SignupSerializer(serializers.Serializer):
             password_validation.validate_password(value)
         return value
 
+    def validate_email(self, value):
+        if not settings.DEMO and EmailValidationHelper.user_exists(value):
+            raise serializers.ValidationError("There is already an account with this email address.", code="unique")
+        return value
+
     def is_email_auto_verified(self):
         return self.is_social_signup
 
@@ -131,6 +129,7 @@ class SignupSerializer(serializers.Serializer):
                 **validated_data,
             )
         except IntegrityError:
+            # This should be rare now due to the check above, but kept for safety
             raise exceptions.ValidationError(
                 {"email": "There is already an account with this email address."},
                 code="unique",
@@ -536,6 +535,7 @@ def social_create_user(
     *args,
     **kwargs,
 ):
+    posthoganalytics.tag("details", json.dumps(details))
     invite_id = strategy.session_get("invite_id")
     backend_processor = "social_create_user"
     email = details["email"][0] if isinstance(details["email"], list | tuple) else details["email"]
@@ -575,6 +575,8 @@ def social_create_user(
 
     if not email or not full_name:
         missing_attr = "email" if not email else "name"
+        posthoganalytics.tag("email", email)
+        posthoganalytics.tag("name", full_name)
         raise ValidationError(
             {missing_attr: "This field is required and was not provided by the IdP."},
             code="required",

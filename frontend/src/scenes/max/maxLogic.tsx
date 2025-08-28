@@ -1,10 +1,13 @@
-import { IconBook, IconGraph, IconHogQL, IconPlug, IconRewindPlay } from '@posthog/icons'
 import { actions, afterMount, connect, defaults, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, decodeParams, router, urlToAction } from 'kea-router'
+
+import { IconBook, IconGraph, IconHogQL, IconPlug, IconRewindPlay } from '@posthog/icons'
+
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { IconSurveys } from 'lib/lemon-ui/icons'
 import { objectsEqual, uuid } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
@@ -123,12 +126,11 @@ export const maxLogic = kea<maxLogicType>([
             },
         ],
 
-        // The shadow ID for the temporary conversations that have started streaming, but didn't receive a conversation object yet.
-        tempConversationId: [
-            generateTempId(),
+        // The frontend-generated UUID for new conversations
+        frontendConversationId: [
+            uuid(),
             {
-                startNewConversation: () => generateTempId(),
-                setConversationId: () => generateTempId(),
+                startNewConversation: () => uuid(),
             },
         ],
 
@@ -201,7 +203,7 @@ export const maxLogic = kea<maxLogicType>([
         conversation: [
             (s) => [s.conversationHistory, s.conversationId],
             (conversationHistory, conversationId) => {
-                if (conversationId && !isTempId(conversationId)) {
+                if (conversationId) {
                     return conversationHistory.find((c) => c.id === conversationId) ?? null
                 }
                 return null
@@ -247,13 +249,7 @@ export const maxLogic = kea<maxLogicType>([
         conversationLoading: [
             (s) => [s.conversationHistory, s.conversationHistoryLoading, s.conversationId, s.conversation],
             (conversationHistory, conversationHistoryLoading, conversationId, conversation) => {
-                return (
-                    !conversationHistory.length &&
-                    conversationHistoryLoading &&
-                    !!conversationId &&
-                    !isTempId(conversationId) &&
-                    !conversation
-                )
+                return !conversationHistory.length && conversationHistoryLoading && !!conversationId && !conversation
             },
         ],
 
@@ -267,20 +263,15 @@ export const maxLogic = kea<maxLogicType>([
         ],
 
         chatTitle: [
-            (s) => [s.conversationId, s.conversation, s.conversationHistoryVisible],
-            (conversationId, conversation, conversationHistoryVisible) => {
+            (s) => [s.conversation, s.conversationHistoryVisible],
+            (conversation, conversationHistoryVisible) => {
                 if (conversationHistoryVisible) {
                     return 'Chat history'
                 }
 
                 // Existing conversation or the first generation is in progress
-                if (conversation || isTempId(conversationId)) {
-                    return conversation?.title ?? 'New chat'
-                }
-
-                // Conversation is loading
-                if (conversationId) {
-                    return null
+                if (conversation) {
+                    return conversation.title ?? 'New chat'
                 }
 
                 return 'Max AI'
@@ -288,12 +279,12 @@ export const maxLogic = kea<maxLogicType>([
         ],
 
         threadLogicKey: [
-            (s) => [s.threadKeys, s.conversationId, s.tempConversationId],
-            (threadKeys, conversationId, tempConversationId) => {
+            (s) => [s.threadKeys, s.conversationId, s.frontendConversationId],
+            (threadKeys, conversationId, frontendConversationId) => {
                 if (conversationId) {
                     return threadKeys[conversationId] || conversationId
                 }
-                return tempConversationId
+                return frontendConversationId
             },
         ],
     }),
@@ -319,12 +310,7 @@ export const maxLogic = kea<maxLogicType>([
             // the current chat is a temp chat
             // we have explicitly marked
             // we're in an autorun conversation
-            if (
-                !values.conversationId ||
-                values.autoRun ||
-                isTempId(values.conversationId) ||
-                payload?.doNotUpdateCurrentThread
-            ) {
+            if (!values.conversationId || values.autoRun || payload?.doNotUpdateCurrentThread) {
                 return
             }
 
@@ -334,10 +320,6 @@ export const maxLogic = kea<maxLogicType>([
             // after the history has been loaded.
             if (conversation) {
                 actions.scrollThreadToBottom('instant')
-                if (conversation.status === ConversationStatus.InProgress) {
-                    // If the conversation is in progress, poll the conversation status.
-                    actions.pollConversation(values.conversationId)
-                }
             } else {
                 // If the conversation is not found, retrieve once the conversation status and reset if 404.
                 actions.pollConversation(values.conversationId, 0, 0)
@@ -461,10 +443,24 @@ export const maxLogic = kea<maxLogicType>([
         },
     })),
 
-    actionToUrl(() => ({
+    actionToUrl(({ values }) => ({
         startNewConversation: () => {
             const { chat, ...params } = decodeParams(router.values.location.search, '?')
             return [router.values.location.pathname, params, router.values.location.hash]
+        },
+        setConversationId: (payload: Record<string, any>) => {
+            const { conversationId } = payload
+            // Only set the URL parameter if this is a new conversation (using frontendConversationId)
+            if (conversationId && conversationId === values.frontendConversationId) {
+                const params = decodeParams(router.values.location.search, '?')
+                return [
+                    router.values.location.pathname,
+                    { ...params, chat: conversationId },
+                    router.values.location.hash,
+                ]
+            }
+            // Return undefined to not update URL for existing conversations
+            return undefined
         },
     })),
 
@@ -555,13 +551,30 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
                 content: 'How can I set up the error tracking in…',
             },
             {
-                content: 'How can I set up the LLM Observability in…',
+                content: 'How can I set up the LLM analytics in…',
             },
             {
                 content: 'How can I set up the product analytics in…',
             },
         ],
         tooltip: 'Max can help you set up PostHog SDKs in your stack.',
+    },
+    {
+        label: 'Surveys',
+        icon: <IconSurveys />,
+        suggestions: [
+            {
+                content: 'Create a survey to collect NPS responses from users',
+            },
+            {
+                content: 'Create a survey to CSAT responses from users',
+            },
+            {
+                content: 'Create a survey to measure product market fit',
+            },
+        ],
+        url: urls.surveys(),
+        tooltip: 'Max can help you create surveys to collect feedback from your users.',
     },
     {
         label: 'Docs',
@@ -624,12 +637,4 @@ export function mergeConversations(
         ...newObj,
         messages: oldObj?.messages ?? [],
     }
-}
-
-export function generateTempId(): string {
-    return `new-${uuid()}`
-}
-
-export function isTempId(id?: string | null): boolean {
-    return id?.startsWith('new-') ?? false
 }

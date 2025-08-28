@@ -26,7 +26,6 @@ pub struct GroupingRule {
 
     // If a rule has been custom grouped, it might also be auto-assigned
     pub user_id: Option<i32>,
-    pub user_group_id: Option<Uuid>,
     pub role_id: Option<Uuid>,
     pub order_key: i32,
     pub bytecode: Value,
@@ -44,7 +43,7 @@ impl GroupingRule {
         sqlx::query_as!(
             GroupingRule,
             r#"
-                SELECT id, team_id, user_id, user_group_id, role_id, order_key, bytecode, created_at, updated_at
+                SELECT id, team_id, user_id, role_id, order_key, bytecode, created_at, updated_at
                 FROM posthog_errortrackinggroupingrule
                 WHERE team_id = $1 AND disabled_data IS NULL
             "#,
@@ -115,8 +114,7 @@ impl GroupingRule {
                 StepOutcome::Finished(Value::Bool(b)) => return Ok(b),
                 StepOutcome::Finished(res) => {
                     return Err(VmError::Other(format!(
-                        "Grouping rule returned {:?}, expected a boolean value",
-                        res
+                        "Grouping rule returned {res:?}, expected a boolean value"
                     )))
                 }
                 StepOutcome::NativeCall(name, args) => {
@@ -131,7 +129,7 @@ impl GroupingRule {
     }
 
     pub fn assignment(&self) -> Option<NewAssignment> {
-        NewAssignment::try_new(self.user_id, self.user_group_id, self.role_id)
+        NewAssignment::try_new(self.user_id, self.role_id)
     }
 }
 
@@ -143,7 +141,35 @@ pub async fn try_grouping_rules(
 ) -> Result<Option<GroupingRule>, UnhandledError> {
     let timing = common_metrics::timing_guard(GROUPING_RULES_PROCESSING_TIME, &[]);
 
-    let props_json = serde_json::to_value(exception_properties)?;
+    let mut props_json = serde_json::to_value(exception_properties)?;
+
+    if let Value::Object(ref mut props) = props_json {
+        let exception_list = &exception_properties.exception_list;
+        props.insert(
+            "$exception_types".to_string(),
+            serde_json::to_value(exception_list.get_unique_types())?,
+        );
+        props.insert(
+            "$exception_values".to_string(),
+            serde_json::to_value(exception_list.get_unique_messages())?,
+        );
+        props.insert(
+            "$exception_releases".to_string(),
+            serde_json::to_value(exception_list.get_release_map())?,
+        );
+        props.insert(
+            "$exception_sources".to_string(),
+            serde_json::to_value(exception_list.get_unique_sources())?,
+        );
+        props.insert(
+            "$exception_functions".to_string(),
+            serde_json::to_value(exception_list.get_unique_functions())?,
+        );
+        props.insert(
+            "$exception_handled".to_string(),
+            serde_json::to_value(exception_list.get_is_handled())?,
+        );
+    }
 
     let mut rules = team_manager.get_grouping_rules(&mut *con, team_id).await?;
 
@@ -183,7 +209,10 @@ mod test {
     use uuid::Uuid;
 
     use crate::{
-        config::Config, fingerprinting::resolve_fingerprint, teams::TeamManager, types::RawErrProps,
+        config::Config,
+        fingerprinting::resolve_fingerprint,
+        teams::TeamManager,
+        types::{ExceptionList, RawErrProps},
     };
 
     use super::GroupingRule;
@@ -211,7 +240,6 @@ mod test {
             id: Uuid::new_v4(),
             team_id: 1,
             user_id: None,
-            user_group_id: None,
             role_id: None,
             order_key: 1,
             bytecode: rule_bytecode(),
@@ -222,8 +250,10 @@ mod test {
 
     fn test_props() -> RawErrProps {
         RawErrProps {
-            exception_list: vec![],
+            exception_list: ExceptionList(vec![]),
             fingerprint: None,
+            issue_name: None,
+            issue_description: None,
             other: HashMap::new(),
         }
     }

@@ -1,17 +1,17 @@
 import json
-import structlog
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Optional
 
 from django.http import HttpResponse
+from django.utils.html import escape
+
+import structlog
 from rest_framework import status
 
 from posthog.exceptions import generate_exception_response
+from posthog.models.utils import uuid7
 from posthog.sampling import sample_on_property
 from posthog.utils_cors import cors_response
-from posthog.models.utils import uuid7
-
-from django.utils.html import escape
 
 logger = structlog.get_logger(__name__)
 
@@ -124,6 +124,7 @@ def build_csp_event(props: dict, distinct_id: str, session_id: str, version: str
     return {
         "event": "$csp_violation",
         "distinct_id": distinct_id,
+        "timestamp": datetime.now(UTC).isoformat(),
         "properties": {
             "$session_id": session_id,
             "$csp_version": version,

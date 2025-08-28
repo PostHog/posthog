@@ -1,35 +1,38 @@
-import typing as t
 import uuid
+import typing as t
+
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-import psycopg
 from django.conf import settings
 from django.test import override_settings
-from freezegun import freeze_time
+
+import psycopg
 from rest_framework import status
 
 from posthog.models import Team
 from posthog.models.project import Project
-from posthog.temporal.data_imports.pipelines.bigquery import BigQuerySourceConfig
-from posthog.temporal.data_imports.pipelines.schemas import (
-    PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
-)
-from posthog.temporal.data_imports.pipelines.stripe.constants import (
+from posthog.temporal.data_imports.sources.bigquery.bigquery import BigQuerySourceConfig
+from posthog.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+    CREDIT_NOTE_RESOURCE_NAME as STRIPE_CREDIT_NOTE_RESOURCE_NAME,
+    CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
+    DISPUTE_RESOURCE_NAME as STRIPE_DISPUTE_RESOURCE_NAME,
+    INVOICE_ITEM_RESOURCE_NAME as STRIPE_INVOICE_ITEM_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
+    PAYOUT_RESOURCE_NAME as STRIPE_PAYOUT_RESOURCE_NAME,
     PRICE_RESOURCE_NAME as STRIPE_PRICE_RESOURCE_NAME,
     PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
+    REFUND_RESOURCE_NAME as STRIPE_REFUND_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
-from posthog.temporal.data_imports.pipelines.stripe.settings import ENDPOINTS
-from posthog.test.base import APIBaseTest
+from posthog.temporal.data_imports.sources.stripe.settings import ENDPOINTS as STRIPE_ENDPOINTS
 from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
 from posthog.warehouse.models.external_data_job import ExternalDataJob
-from posthog.warehouse.models.external_data_schema import (
-    sync_frequency_interval_to_sync_frequency,
-)
+from posthog.warehouse.models.external_data_schema import sync_frequency_interval_to_sync_frequency
 
 
 class TestExternalDataSource(APIBaseTest):
@@ -58,7 +61,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "client_secret": "sk_test_123",
+                    "stripe_secret_key": "sk_test_123",
                     "schemas": [
                         {
                             "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -71,6 +74,16 @@ class TestExternalDataSource(APIBaseTest):
                         {"name": STRIPE_PRICE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                         {"name": STRIPE_INVOICE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                         {"name": STRIPE_CHARGE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_REFUND_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_CREDIT_NOTE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_INVOICE_ITEM_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_PAYOUT_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_DISPUTE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {
+                            "name": STRIPE_CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
+                            "should_sync": True,
+                            "sync_type": "full_refresh",
+                        },
                     ],
                 },
             },
@@ -81,7 +94,7 @@ class TestExternalDataSource(APIBaseTest):
         # number of schemas should match default schemas for Stripe
         self.assertEqual(
             ExternalDataSchema.objects.filter(source_id=payload["id"]).count(),
-            len(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[ExternalDataSource.Type.STRIPE]),
+            len(STRIPE_ENDPOINTS),
         )
 
     def test_create_external_data_source_delete_on_missing_schemas(self):
@@ -90,7 +103,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "client_secret": "sk_test_123",
+                    "stripe_secret_key": "sk_test_123",
                     "schemas": False,
                 },
             },
@@ -105,7 +118,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "client_secret": "sk_test_123",
+                    "stripe_secret_key": "sk_test_123",
                     "schemas": [
                         {"name": "SomeOtherSchema", "should_sync": True, "sync_type": "full_refresh"},
                     ],
@@ -124,7 +137,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "client_secret": "sk_test_123",
+                    "stripe_secret_key": "sk_test_123",
                     "schemas": [
                         {
                             "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -137,6 +150,11 @@ class TestExternalDataSource(APIBaseTest):
                         {"name": STRIPE_PRICE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                         {"name": STRIPE_INVOICE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                         {"name": STRIPE_CHARGE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_REFUND_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_CREDIT_NOTE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_INVOICE_ITEM_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_PAYOUT_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_DISPUTE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                     ],
                 },
             },
@@ -150,7 +168,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "client_secret": "sk_test_123",
+                    "stripe_secret_key": "sk_test_123",
                     "schemas": [
                         {
                             "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -163,6 +181,11 @@ class TestExternalDataSource(APIBaseTest):
                         {"name": STRIPE_PRICE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                         {"name": STRIPE_INVOICE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                         {"name": STRIPE_CHARGE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_REFUND_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_CREDIT_NOTE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_INVOICE_ITEM_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_PAYOUT_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_DISPUTE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                     ],
                 },
             },
@@ -177,7 +200,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "client_secret": "sk_test_123",
+                    "stripe_secret_key": "sk_test_123",
                     "schemas": [
                         {
                             "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -190,6 +213,11 @@ class TestExternalDataSource(APIBaseTest):
                         {"name": STRIPE_PRICE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                         {"name": STRIPE_INVOICE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                         {"name": STRIPE_CHARGE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_REFUND_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_CREDIT_NOTE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_INVOICE_ITEM_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_PAYOUT_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_DISPUTE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                     ],
                 },
                 "prefix": "test_",
@@ -204,7 +232,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "client_secret": "sk_test_123",
+                    "stripe_secret_key": "sk_test_123",
                     "schemas": [
                         {
                             "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -217,6 +245,11 @@ class TestExternalDataSource(APIBaseTest):
                         {"name": STRIPE_PRICE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                         {"name": STRIPE_INVOICE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                         {"name": STRIPE_CHARGE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_REFUND_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_CREDIT_NOTE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_INVOICE_ITEM_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_PAYOUT_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_DISPUTE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                     ],
                 },
                 "prefix": "test_",
@@ -232,7 +265,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "client_secret": "sk_test_123",
+                    "stripe_secret_key": "sk_test_123",
                     "schemas": [
                         {
                             "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -295,7 +328,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "client_secret": "sk_test_123",
+                    "stripe_secret_key": "sk_test_123",
                     "schemas": [
                         {
                             "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -352,7 +385,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "client_secret": "sk_test_123",
+                    "stripe_secret_key": "sk_test_123",
                     "schemas": [
                         {
                             "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -405,8 +438,10 @@ class TestExternalDataSource(APIBaseTest):
 
     def test_create_external_data_source_bigquery_removes_project_id_prefix(self):
         """Test we remove the `project_id` prefix of a `dataset_id`."""
-        with patch("posthog.warehouse.api.external_data_source.get_bigquery_schemas") as mocked_get_bigquery_schemas:
-            mocked_get_bigquery_schemas.return_value = {"my_schema": "something"}
+        with patch(
+            "posthog.temporal.data_imports.sources.bigquery.source.get_bigquery_schemas"
+        ) as mocked_get_bigquery_schemas:
+            mocked_get_bigquery_schemas.return_value = {"my_table": [("something", "DATE")]}
 
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_sources/",
@@ -415,7 +450,7 @@ class TestExternalDataSource(APIBaseTest):
                     "payload": {
                         "schemas": [
                             {
-                                "name": "my_schema",
+                                "name": "my_table",
                                 "should_sync": True,
                                 "sync_type": "incremental",
                                 "incremental_field": "id",
@@ -439,10 +474,10 @@ class TestExternalDataSource(APIBaseTest):
         source = response.json()
         source_model = ExternalDataSource.objects.get(id=source["id"])
 
-        assert source_model.job_inputs["project_id"] == "my_project"
-        assert source_model.job_inputs["dataset_id"] == "my_dataset"
-        assert source_model.job_inputs["private_key"] == "my_private_key"
-        assert source_model.job_inputs["private_key_id"] == "my_private_key_id"
+        assert source_model.job_inputs["key_file"]["project_id"] == "my_project"
+        assert source_model.job_inputs["key_file"]["private_key"] == "my_private_key"
+        assert source_model.job_inputs["key_file"]["private_key_id"] == "my_private_key_id"
+        assert source_model.job_inputs["dataset_id"] == "my_project.my_dataset"
 
     def test_create_external_data_source_missing_required_bigquery_job_input(self):
         """Test we fail source creation when missing inputs."""
@@ -462,15 +497,15 @@ class TestExternalDataSource(APIBaseTest):
         )
         assert response.status_code == 400
         assert len(ExternalDataSource.objects.all()) == 0
-        assert response.json()["detail"].startswith("Missing required BigQuery inputs")
-        assert "'private_key'" in response.json()["detail"]
-        assert "'private_key_id'" in response.json()["detail"]
+        assert response.json()["message"].startswith("Invalid source config")
+        assert "'private_key'" in response.json()["message"]
+        assert "'private_key_id'" in response.json()["message"]
 
     def test_list_external_data_source(self):
         self._create_external_data_source()
         self._create_external_data_source()
 
-        with self.assertNumQueries(23):
+        with self.assertNumQueries(24):
             response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
         payload = response.json()
 
@@ -611,7 +646,7 @@ class TestExternalDataSource(APIBaseTest):
 
     def test_database_schema_stripe_credentials(self):
         with patch(
-            "posthog.warehouse.api.external_data_source.validate_stripe_credentials"
+            "posthog.temporal.data_imports.sources.stripe.source.validate_stripe_credentials"
         ) as validate_credentials_mock:
             validate_credentials_mock.return_value = True
 
@@ -619,8 +654,8 @@ class TestExternalDataSource(APIBaseTest):
                 f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Stripe",
-                    "client_secret": "blah",
-                    "account_id": "blah",
+                    "stripe_secret_key": "blah",
+                    "stripe_account_id": "blah",
                 },
             )
 
@@ -628,7 +663,7 @@ class TestExternalDataSource(APIBaseTest):
 
     def test_database_schema_stripe_credentials_sad_path(self):
         with patch(
-            "posthog.warehouse.api.external_data_source.validate_stripe_credentials"
+            "posthog.temporal.data_imports.sources.stripe.source.validate_stripe_credentials"
         ) as validate_credentials_mock:
             validate_credentials_mock.side_effect = Exception("Invalid API key")
 
@@ -641,15 +676,13 @@ class TestExternalDataSource(APIBaseTest):
             )
 
             assert response.status_code == 400
-            assert response.json()["message"] == "Invalid credentials: Stripe secret is incorrect"
+            assert "Invalid API key" in response.json()["message"]
 
     def test_database_schema_stripe_permissions_error(self):
         with patch(
-            "posthog.warehouse.api.external_data_source.validate_stripe_credentials"
+            "posthog.temporal.data_imports.sources.stripe.source.validate_stripe_credentials"
         ) as validate_credentials_mock:
-            from posthog.temporal.data_imports.pipelines.stripe import (
-                StripePermissionError,
-            )
+            from posthog.temporal.data_imports.sources.stripe.stripe import StripePermissionError
 
             missing_permissions = {"Account": "Error message for Account", "Invoice": "Error message for Invoice"}
             validate_credentials_mock.side_effect = StripePermissionError(missing_permissions)
@@ -667,7 +700,7 @@ class TestExternalDataSource(APIBaseTest):
 
     def test_database_schema_zendesk_credentials(self):
         with patch(
-            "posthog.warehouse.api.external_data_source.validate_zendesk_credentials"
+            "posthog.temporal.data_imports.sources.zendesk.source.validate_credentials"
         ) as validate_credentials_mock:
             validate_credentials_mock.return_value = True
 
@@ -685,7 +718,7 @@ class TestExternalDataSource(APIBaseTest):
 
     def test_database_schema_zendesk_credentials_sad_path(self):
         with patch(
-            "posthog.warehouse.api.external_data_source.validate_zendesk_credentials"
+            "posthog.temporal.data_imports.sources.zendesk.source.validate_credentials"
         ) as validate_credentials_mock:
             validate_credentials_mock.return_value = False
 
@@ -703,13 +736,15 @@ class TestExternalDataSource(APIBaseTest):
 
     def test_database_schema_non_postgres_source(self):
         with patch(
-            "posthog.warehouse.api.external_data_source.validate_stripe_credentials"
+            "posthog.temporal.data_imports.sources.stripe.source.validate_stripe_credentials"
         ) as validate_credentials_mock:
             validate_credentials_mock.return_value = True
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Stripe",
+                    "stripe_secret_key": "sk_test_123",
+                    "stripe_account_id": "blah",
                 },
             )
             results = response.json()
@@ -717,15 +752,15 @@ class TestExternalDataSource(APIBaseTest):
             self.assertEqual(response.status_code, 200)
 
             table_names = [table["table"] for table in results]
-            for table in ENDPOINTS:
+            for table in STRIPE_ENDPOINTS:
                 assert table in table_names
 
     @patch(
-        "posthog.warehouse.api.external_data_source.get_sql_schemas_for_source_type",
+        "posthog.temporal.data_imports.sources.postgres.source.get_postgres_schemas",
         return_value={"table_1": [("id", "integer")]},
     )
     @patch(
-        "posthog.warehouse.api.external_data_source.get_postgres_row_count",
+        "posthog.temporal.data_imports.sources.postgres.source.get_postgres_row_count",
         return_value={"table_1": 42},
     )
     def test_internal_postgres(self, patch_get_sql_schemas_for_source_type, patch_get_postgres_row_count):
@@ -777,7 +812,7 @@ class TestExternalDataSource(APIBaseTest):
                 },
             )
             self.assertEqual(response.status_code, 400)
-            self.assertEqual(response.json(), {"message": "Cannot use internal database"})
+            self.assertEqual(response.json(), {"message": "Hosts with internal IP addresses are not allowed"})
 
         with override_settings(CLOUD_DEPLOYMENT="EU"):
             team_1 = Team.objects.create(id=1, organization=self.team.organization)
@@ -824,7 +859,7 @@ class TestExternalDataSource(APIBaseTest):
                 },
             )
             self.assertEqual(response.status_code, 400)
-            self.assertEqual(response.json(), {"message": "Cannot use internal database"})
+            self.assertEqual(response.json(), {"message": "Hosts with internal IP addresses are not allowed"})
 
     def test_source_jobs(self):
         source = self._create_external_data_source()
@@ -973,14 +1008,31 @@ class TestExternalDataSource(APIBaseTest):
         manipulates the flattened structure.
         """
         # First create a source without SSH tunnel
-        source = self._create_external_data_source()
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test",
+            job_inputs={
+                "source_type": "Postgres",
+                "host": "172.16.0.0",
+                "port": "123",
+                "database": "database",
+                "user": "user",
+                "password": "password",
+                "schema": "public",
+            },
+        )
 
         # Update with SSH tunnel config
         response = self.client.patch(
             f"/api/environments/{self.team.pk}/external_data_sources/{str(source.pk)}/",
             data={
                 "job_inputs": {
-                    "ssh-tunnel": {
+                    "ssh_tunnel": {
                         "enabled": True,
                         "host": "ssh.example.com",
                         "port": 22,
@@ -1000,14 +1052,14 @@ class TestExternalDataSource(APIBaseTest):
 
         # Verify the SSH tunnel config was normalized correctly
         source.refresh_from_db()
-        assert source.job_inputs["ssh_tunnel_enabled"] == "True"
-        assert source.job_inputs["ssh_tunnel_host"] == "ssh.example.com"
-        assert source.job_inputs["ssh_tunnel_port"] == "22"
-        assert source.job_inputs["ssh_tunnel_auth_type"] == "username_password"
-        assert source.job_inputs["ssh_tunnel_auth_type_username"] == "testuser"
-        assert source.job_inputs["ssh_tunnel_auth_type_password"] == "testpass"
-        assert source.job_inputs["ssh_tunnel_auth_type_passphrase"] == "testphrase"
-        assert source.job_inputs["ssh_tunnel_auth_type_private_key"] == "testkey"
+        assert source.job_inputs["ssh_tunnel"]["enabled"] == "True"
+        assert source.job_inputs["ssh_tunnel"]["host"] == "ssh.example.com"
+        assert source.job_inputs["ssh_tunnel"]["port"] == "22"
+        assert source.job_inputs["ssh_tunnel"]["auth"]["type"] == "username_password"
+        assert source.job_inputs["ssh_tunnel"]["auth"]["username"] == "testuser"
+        assert source.job_inputs["ssh_tunnel"]["auth"]["password"] == "testpass"
+        assert source.job_inputs["ssh_tunnel"]["auth"]["passphrase"] == "testphrase"
+        assert source.job_inputs["ssh_tunnel"]["auth"]["private_key"] == "testkey"
 
         # Test the to_representation from flattened to nested structure
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
@@ -1016,23 +1068,25 @@ class TestExternalDataSource(APIBaseTest):
         data = response.json()
 
         assert "job_inputs" in data
-        assert "ssh-tunnel" in data["job_inputs"]
-        ssh_tunnel = data["job_inputs"]["ssh-tunnel"]
+        assert "ssh_tunnel" in data["job_inputs"]
+        ssh_tunnel = data["job_inputs"]["ssh_tunnel"]
 
         assert ssh_tunnel["enabled"] == "True"
         assert ssh_tunnel["host"] == "ssh.example.com"
         assert ssh_tunnel["port"] == "22"
-        assert "auth_type" in ssh_tunnel
-        assert ssh_tunnel["auth_type"]["selection"] == "username_password"
-        assert ssh_tunnel["auth_type"]["username"] == "testuser"
-        assert ssh_tunnel["auth_type"]["password"] is None
-        assert ssh_tunnel["auth_type"]["passphrase"] is None
-        assert ssh_tunnel["auth_type"]["private_key"] is None
+        assert "auth" in ssh_tunnel
+        assert ssh_tunnel["auth"]["selection"] == "username_password"
+        assert ssh_tunnel["auth"]["username"] == "testuser"
+        assert ssh_tunnel["auth"]["password"] is None
+        assert ssh_tunnel["auth"]["passphrase"] is None
+        assert ssh_tunnel["auth"]["private_key"] is None
 
     def test_snowflake_auth_type_create_and_update(self):
         """Test that we can create and update the auth type for a Snowflake source"""
-        with patch("posthog.warehouse.api.external_data_source.get_snowflake_schemas") as mocked_get_snowflake_schemas:
-            mocked_get_snowflake_schemas.return_value = {"my_table": "something"}
+        with patch(
+            "posthog.temporal.data_imports.sources.snowflake.source.get_snowflake_schemas"
+        ) as mocked_get_snowflake_schemas:
+            mocked_get_snowflake_schemas.return_value = {"my_table": [("something", "DATE")]}
 
             # Create a Snowflake source with password auth
             response = self.client.post(
@@ -1046,7 +1100,7 @@ class TestExternalDataSource(APIBaseTest):
                         "warehouse": "my_warehouse",
                         "auth_type": {
                             "selection": "password",
-                            "username": "my_username",
+                            "user": "my_username",
                             "password": "my_password",
                             "private_key": "",
                             "passphrase": "",
@@ -1074,16 +1128,16 @@ class TestExternalDataSource(APIBaseTest):
 
         assert source_model.job_inputs is not None
         job_inputs: dict[str, t.Any] = source_model.job_inputs
-        assert job_inputs["account_id"] == "my_account_id"
-        assert job_inputs["database"] == "my_database"
-        assert job_inputs["warehouse"] == "my_warehouse"
-        assert job_inputs["auth_type"] == "password"
-        assert job_inputs["user"] == "my_username"
-        assert job_inputs["password"] == "my_password"
-        assert job_inputs["passphrase"] == ""
-        assert job_inputs["private_key"] == ""
         assert job_inputs["role"] == "my_role"
         assert job_inputs["schema"] == "my_schema"
+        assert job_inputs["database"] == "my_database"
+        assert job_inputs["warehouse"] == "my_warehouse"
+        assert job_inputs["account_id"] == "my_account_id"
+        assert job_inputs["auth_type"]["selection"] == "password"
+        assert job_inputs["auth_type"]["user"] == "my_username"
+        assert job_inputs["auth_type"]["password"] == "my_password"
+        assert job_inputs["auth_type"]["passphrase"] == ""
+        assert job_inputs["auth_type"]["private_key"] == ""
 
         # Update the source with a new auth type
         response = self.client.patch(
@@ -1091,16 +1145,16 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "job_inputs": {
                     "role": "my_role",
-                    "user": "my_username",
                     "schema": "my_schema",
                     "database": "my_database",
                     "warehouse": "my_warehouse",
                     "account_id": "my_account_id",
                     "auth_type": {
                         "selection": "keypair",
-                        "username": "my_username",
+                        "user": "my_username",
                         "private_key": "my_private_key",
                         "passphrase": "my_passphrase",
+                        "password": "",
                     },
                 }
             },
@@ -1115,17 +1169,19 @@ class TestExternalDataSource(APIBaseTest):
         assert job_inputs["account_id"] == "my_account_id"
         assert job_inputs["database"] == "my_database"
         assert job_inputs["warehouse"] == "my_warehouse"
-        assert job_inputs["auth_type"] == "keypair"
-        assert job_inputs["user"] == "my_username"
-        assert job_inputs["passphrase"] == "my_passphrase"
-        assert job_inputs["private_key"] == "my_private_key"
         assert job_inputs["role"] == "my_role"
         assert job_inputs["schema"] == "my_schema"
+        assert job_inputs["auth_type"]["selection"] == "keypair"
+        assert job_inputs["auth_type"]["user"] == "my_username"
+        assert job_inputs["auth_type"]["passphrase"] == "my_passphrase"
+        assert job_inputs["auth_type"]["private_key"] == "my_private_key"
 
     def test_bigquery_create_and_update(self):
         """Test that we can create and update the config for a BigQuery source"""
-        with patch("posthog.warehouse.api.external_data_source.get_bigquery_schemas") as mocked_get_bigquery_schemas:
-            mocked_get_bigquery_schemas.return_value = {"my_table": "something"}
+        with patch(
+            "posthog.temporal.data_imports.sources.bigquery.source.get_bigquery_schemas"
+        ) as mocked_get_bigquery_schemas:
+            mocked_get_bigquery_schemas.return_value = {"my_table": [("something", "DATE")]}
 
             # Create a BigQuery source
             response = self.client.post(
@@ -1175,14 +1231,15 @@ class TestExternalDataSource(APIBaseTest):
         # validate against the actual class we use in the Temporal activity
         bq_config = BigQuerySourceConfig.from_dict(job_inputs)
 
-        assert bq_config.project_id == "dummy_project_id"
+        assert bq_config.key_file.project_id == "dummy_project_id"
         assert bq_config.dataset_id == "dummy_dataset_id"
-        assert bq_config.private_key == "dummy_private_key"
-        assert bq_config.private_key_id == "dummy_private_key_id"
-        assert bq_config.client_email == "dummy_client_email"
-        assert bq_config.token_uri == "dummy_token_uri"
-        assert bq_config.using_temporary_dataset is False
-        assert bq_config.temporary_dataset_id == ""
+        assert bq_config.key_file.private_key == "dummy_private_key"
+        assert bq_config.key_file.private_key_id == "dummy_private_key_id"
+        assert bq_config.key_file.client_email == "dummy_client_email"
+        assert bq_config.key_file.token_uri == "dummy_token_uri"
+        assert bq_config.temporary_dataset is not None
+        assert bq_config.temporary_dataset.enabled is False
+        assert bq_config.temporary_dataset.temporary_dataset_id == ""
 
         # # Update the source by adding a temporary dataset
         response = self.client.patch(
@@ -1219,14 +1276,15 @@ class TestExternalDataSource(APIBaseTest):
         # validate against the actual class we use in the Temporal activity
         bq_config = BigQuerySourceConfig.from_dict(source_model.job_inputs)
 
-        assert bq_config.project_id == "dummy_project_id"
+        assert bq_config.key_file.project_id == "dummy_project_id"
         assert bq_config.dataset_id == "dummy_dataset_id"
-        assert bq_config.private_key == "dummy_private_key"
-        assert bq_config.private_key_id == "dummy_private_key_id"
-        assert bq_config.client_email == "dummy_client_email"
-        assert bq_config.token_uri == "dummy_token_uri"
-        assert bq_config.using_temporary_dataset is True
-        assert bq_config.temporary_dataset_id == "dummy_temporary_dataset_id"
+        assert bq_config.key_file.private_key == "dummy_private_key"
+        assert bq_config.key_file.private_key_id == "dummy_private_key_id"
+        assert bq_config.key_file.client_email == "dummy_client_email"
+        assert bq_config.key_file.token_uri == "dummy_token_uri"
+        assert bq_config.temporary_dataset is not None
+        assert bq_config.temporary_dataset.enabled is True
+        assert bq_config.temporary_dataset.temporary_dataset_id == "dummy_temporary_dataset_id"
 
         # # Update the source by adding dataset project id
         response = self.client.patch(
@@ -1263,12 +1321,20 @@ class TestExternalDataSource(APIBaseTest):
         # validate against the actual class we use in the Temporal activity
         bq_config = BigQuerySourceConfig.from_dict(source_model.job_inputs)
 
-        assert bq_config.project_id == "dummy_project_id"
+        assert bq_config.key_file.project_id == "dummy_project_id"
         assert bq_config.dataset_id == "dummy_dataset_id"
-        assert bq_config.private_key == "dummy_private_key"
-        assert bq_config.private_key_id == "dummy_private_key_id"
-        assert bq_config.client_email == "dummy_client_email"
-        assert bq_config.token_uri == "dummy_token_uri"
-        assert bq_config.using_temporary_dataset is False
-        assert bq_config.using_custom_dataset_project is True
-        assert bq_config.dataset_project_id == "other_project_id"
+        assert bq_config.key_file.private_key == "dummy_private_key"
+        assert bq_config.key_file.private_key_id == "dummy_private_key_id"
+        assert bq_config.key_file.client_email == "dummy_client_email"
+        assert bq_config.key_file.token_uri == "dummy_token_uri"
+        assert bq_config.temporary_dataset is not None
+        assert bq_config.temporary_dataset.enabled is False
+        assert bq_config.dataset_project is not None
+        assert bq_config.dataset_project.enabled is True
+        assert bq_config.dataset_project.dataset_project_id == "other_project_id"
+
+    def test_get_wizard_sources(self):
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/wizard")
+        payload = response.json()
+        assert response.status_code == 200
+        assert payload is not None

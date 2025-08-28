@@ -2089,14 +2089,13 @@ exports[`sessionRecordingDataLogic loading session events load events after meta
       "query": {
         "kind": "HogQLQuery",
         "query": "
-SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, properties.$viewport_width, properties.$viewport_height, properties.$screen_name
+SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, properties.$viewport_width, properties.$viewport_height, properties.$screen_name, distinct_id
 FROM events
 WHERE timestamp > '2023-04-30 14:46:20'
 AND timestamp < '2023-05-02 14:46:32'
 AND $session_id = '2'
 ORDER BY timestamp ASC
 LIMIT 1000000",
-        "version": 1,
       },
       "refresh": undefined,
       "variables_override": undefined,
@@ -2108,14 +2107,13 @@ LIMIT 1000000",
         "query": {
           "kind": "HogQLQuery",
           "query": "
-SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, properties.$viewport_width, properties.$viewport_height, properties.$screen_name
+SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, properties.$viewport_width, properties.$viewport_height, properties.$screen_name, distinct_id
 FROM events
 WHERE timestamp > '2023-04-30 14:46:20'
 AND timestamp < '2023-05-02 14:46:32'
 AND $session_id = '2'
 ORDER BY timestamp ASC
 LIMIT 1000000",
-          "version": 1,
         },
         "refresh": undefined,
         "variables_override": undefined,
@@ -2130,7 +2128,7 @@ LIMIT 1000000",
       "query": {
         "kind": "HogQLQuery",
         "query": "
-SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type
+SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, distinct_id
 FROM events
 WHERE timestamp > '2023-05-01 14:41:20'
 AND timestamp < '2023-05-01 14:51:32'
@@ -2139,7 +2137,6 @@ AND properties.$lib != 'web'
 AND person_id = '0187d7c7-61b7-0000-d6a1-59b207080ac0'
 ORDER BY timestamp ASC
 LIMIT 1000000",
-        "version": 1,
       },
       "refresh": undefined,
       "variables_override": undefined,
@@ -2151,7 +2148,7 @@ LIMIT 1000000",
         "query": {
           "kind": "HogQLQuery",
           "query": "
-SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type
+SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, distinct_id
 FROM events
 WHERE timestamp > '2023-05-01 14:41:20'
 AND timestamp < '2023-05-01 14:51:32'
@@ -2160,7 +2157,6 @@ AND properties.$lib != 'web'
 AND person_id = '0187d7c7-61b7-0000-d6a1-59b207080ac0'
 ORDER BY timestamp ASC
 LIMIT 1000000",
-          "version": 1,
         },
         "refresh": undefined,
         "variables_override": undefined,

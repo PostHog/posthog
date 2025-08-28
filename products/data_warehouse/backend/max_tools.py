@@ -1,27 +1,119 @@
-from typing import Optional
-from ee.hogai.tool import MaxTool
-from pydantic import BaseModel, Field
-from products.data_warehouse.backend.prompts import SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
-from posthog.hogql.database.database import create_hogql_database, serialize_database
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.ai import HOGQL_EXAMPLE_MESSAGE, IDENTITY_MESSAGE, SCHEMA_MESSAGE
-from ee.hogai.graph.sql.toolkit import SQL_SCHEMA
+from typing import Optional, cast
+
+from asgiref.sync import async_to_sync
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_openai import ChatOpenAI
+from posthoganalytics import capture_exception
+from pydantic import BaseModel, Field
 
-from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException, parse_pydantic_structured_output
+from posthog.schema import AssistantHogQLQuery
+
+from posthog.models import Team, User
+
+from products.data_warehouse.backend.prompts import (
+    HOGQL_GENERATOR_USER_PROMPT,
+    SQL_ASSISTANT_ROOT_SYSTEM_PROMPT,
+    TIME_PERIOD_PROMPT,
+)
+
+from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.graph.schema_generator.utils import SchemaGeneratorOutput
-
-from posthog.hogql.errors import ExposedHogQLError, ResolutionError
-from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import print_ast
+from ee.hogai.graph.sql.mixins import HogQLGeneratorMixin
+from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
+from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
+from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
+from ee.hogai.graph.taxonomy.tools import base_final_answer
+from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
+from ee.hogai.tool import MaxTool
 
 
 class HogQLGeneratorArgs(BaseModel):
     instructions: str = Field(description="The instructions for what query to generate.")
 
 
-class HogQLGeneratorTool(MaxTool):
+class FinalAnswerArgs(SchemaGeneratorOutput[str]):
+    pass
+
+
+class final_answer(base_final_answer[FinalAnswerArgs]):
+    __doc__ = "Use this tool to output the final SQL query ready to be executed."
+
+
+class HogQLGeneratorToolkit(TaxonomyAgentToolkit):
+    def __init__(self, team: Team):
+        super().__init__(team)
+
+    def _get_custom_tools(self) -> list:
+        """Get custom tools for the HogQLGenerator."""
+
+        return [final_answer]
+
+    def _format_properties(self, props: list[tuple[str, str | None, str | None]]) -> str:
+        """
+        Override parent implementation to use YAML format instead of XML.
+        """
+        return self._format_properties_yaml(props)
+
+
+GENERATION_ATTEMPTS_ALLOWED = 3
+
+
+class HogQLGeneratorNode(
+    TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgentState[FinalAnswerArgs]], HogQLGeneratorMixin
+):
+    def __init__(self, team: Team, user: User, toolkit_class: HogQLGeneratorToolkit):
+        super().__init__(team, user, toolkit_class=toolkit_class)
+
+    def _get_system_prompt(self) -> ChatPromptTemplate:
+        """Get default system prompts. Override in subclasses for custom prompts."""
+
+        all_messages = [
+            *super()._get_default_system_prompts(),
+        ]
+        system_messages = [("system", message) for message in all_messages]
+        return ChatPromptTemplate(system_messages, template_format="mustache")
+
+    def _construct_messages(self, state: TaxonomyAgentState) -> ChatPromptTemplate:
+        """
+        Overriding the parent method to handle async system prompt construction.
+        """
+
+        # Get the async system prompt
+        system_prompt = async_to_sync(self._construct_system_prompt)()
+
+        # Create combined system messages, preserving the original taxonomy system prompt structure
+        taxonomy_system_messages = [("system", message) for message in super()._get_default_system_prompts()]
+
+        combined_messages = [
+            *system_prompt.messages,
+            *taxonomy_system_messages,
+            ("system", TIME_PERIOD_PROMPT),
+            ("human", state.change or ""),
+            *(state.tool_progress_messages or []),
+        ]
+
+        # Create the final prompt template, preserving partial variables from the async system prompt
+        return ChatPromptTemplate(
+            combined_messages, template_format="mustache", partial_variables=system_prompt.partial_variables
+        )
+
+
+class HogQLGeneratorToolsNode(TaxonomyAgentToolsNode[TaxonomyAgentState, TaxonomyAgentState[FinalAnswerArgs]]):
+    def __init__(self, team: Team, user: User, toolkit_class: HogQLGeneratorToolkit):
+        super().__init__(team, user, toolkit_class=toolkit_class)
+
+
+class HogQLGeneratorGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[FinalAnswerArgs]]):
+    def __init__(self, team: Team, user: User):
+        super().__init__(
+            team,
+            user,
+            loop_node_class=HogQLGeneratorNode,
+            tools_node_class=HogQLGeneratorToolsNode,
+            toolkit_class=HogQLGeneratorToolkit,
+        )
+
+
+class HogQLGeneratorTool(HogQLGeneratorMixin, MaxTool):
     name: str = "generate_hogql_query"
     description: str = (
         "Write or edit an SQL query to answer the user's question, and apply it to the current SQL editor"
@@ -29,75 +121,52 @@ class HogQLGeneratorTool(MaxTool):
     thinking_message: str = "Coming up with an SQL query"
     args_schema: type[BaseModel] = HogQLGeneratorArgs
     root_system_prompt_template: str = SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
+    show_tool_call_message: bool = False
 
-    def _run_impl(self, instructions: str) -> tuple[str, str]:
-        database = create_hogql_database(team=self._team)
-        hogql_context = HogQLContext(team=self._team, enable_select_queries=True, database=database)
+    async def _arun_impl(self, instructions: str) -> tuple[str, str]:
+        current_query: str | None = self.context.get("current_query", "")
+        user_prompt = HOGQL_GENERATOR_USER_PROMPT.format(instructions=instructions, current_query=current_query)
 
-        serialized_database = serialize_database(hogql_context)
-        schema_description = "\n\n".join(
-            (
-                f"Table `{table_name}` with fields:\n"
-                + "\n".join(f"- {field.name} ({field.type})" for field in table.fields.values())
-                for table_name, table in serialized_database.items()
-                # Only the most important core tables, plus all warehouse tables
-                if table_name in ["events", "groups", "persons"]
-                or table_name in database.get_warehouse_tables()
-                or table_name in database.get_views()
-            )
-        )
+        graph = HogQLGeneratorGraph(team=self._team, user=self._user).compile_full_graph()
 
-        prompt = ChatPromptTemplate.from_messages(
-            [
-                (
-                    "system",
-                    IDENTITY_MESSAGE
-                    + "\n\n<example_query>\n"
-                    + HOGQL_EXAMPLE_MESSAGE
-                    + "\n</example_query>\n\n"
-                    + SCHEMA_MESSAGE.format(schema_description=schema_description)
-                    + "\n\n<current_query>\n{{{current_query}}}\n</current_query>",
-                ),
-                ("user", "Write a new HogQL query or tweak the current one to satisfy this request: " + instructions),
-            ],
-            template_format="mustache",
-        )
+        graph_context = {
+            "change": user_prompt,
+            "output": None,
+            "tool_progress_messages": [],
+            **self.context,
+        }
 
-        final_error: Optional[Exception] = None
-        for _ in range(3):
+        final_result: SchemaGeneratorOutput[AssistantHogQLQuery] | None = None
+        final_error: Optional[PydanticOutputParserException] = None
+        for _ in range(GENERATION_ATTEMPTS_ALLOWED):
             try:
-                chain = prompt | self._model
-                result = chain.invoke(self.context)
-                parsed_result = self._parse_output(result, hogql_context)
-                break
+                result_so_far = await graph.ainvoke(graph_context)
+                if result_so_far.get("intermediate_steps"):
+                    if result_so_far["intermediate_steps"][-1]:
+                        return result_so_far["intermediate_steps"][-1][0].tool_input, ""
+                    else:
+                        return "I need more information to generate the query.", ""
+                else:
+                    output = result_so_far["output"]
+                    assert output is not None
+                    final_result = self._parse_output(output)
+                    # If quality check raises, we will still iterate if we've got any attempts left,
+                    # however if we don't have any more attempts, we're okay to use `resulting_query` (instead of throwing)
+                    await self._quality_check_output(
+                        output=final_result,
+                    )
+                    final_error = None
+                    break  # All good, let's go
             except PydanticOutputParserException as e:
-                prompt += f"Avoid this error: {str(e)}"
+                graph_context["change"] += f"\n\nAvoid this error that we had with our previous attempt:\n\n{str(e)}"
                 final_error = e
-        else:
-            raise final_error
 
-        return "```sql\n" + parsed_result + "\n```", parsed_result
+        if not final_result:
+            raise cast(Exception, final_error)  # We haven't managed to create valid query JSON even once
 
-    @property
-    def _model(self):
-        return ChatOpenAI(model="gpt-4.1", temperature=0.3, disable_streaming=True).with_structured_output(
-            SQL_SCHEMA,
-            method="function_calling",
-            include_raw=False,
-        )
+        if final_error is not None:
+            # We've got some result but the last time still had some syntactic issue (_validate_hogql() raised)
+            # Well, better that that nothing - let's just capture the error and send what we've got
+            capture_exception(final_error)
 
-    def _parse_output(self, output, hogql_context: HogQLContext):  # type: ignore
-        result = parse_pydantic_structured_output(SchemaGeneratorOutput[str])(output)  # type: ignore
-        # We also ensure the generated SQL is valid
-        assert result.query is not None
-        try:
-            print_ast(parse_select(result.query), context=hogql_context, dialect="clickhouse")
-        except (ExposedHogQLError, ResolutionError) as err:
-            err_msg = str(err)
-            if err_msg.startswith("no viable alternative"):
-                # The "no viable alternative" ANTLR error is horribly unhelpful, both for humans and LLMs
-                err_msg = f'This is not valid parsable SQL! The last 5 characters where we tripped up were "{result.query[-5:]}".'
-            raise PydanticOutputParserException(llm_output=result.query, validation_message=err_msg)
-        except Exception as e:
-            raise PydanticOutputParserException(llm_output=result.query, validation_message=str(e))
-        return result.query
+        return "```sql\n" + final_result.query.query + "\n```", final_result.query.query

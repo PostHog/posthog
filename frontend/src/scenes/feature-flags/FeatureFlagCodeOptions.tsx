@@ -1,4 +1,5 @@
 import { IconServer } from '@posthog/icons'
+
 import {
     IconAndroidOS,
     IconAppleIOS,
@@ -16,13 +17,12 @@ import {
 import { SDKKey } from '~/types'
 
 import {
-    AndroidSnippet,
     APISnippet,
+    AndroidSnippet,
     CSharpSnippet,
     FeatureFlagSnippet,
     FlutterSnippet,
     GolangSnippet,
-    iOSSnippet,
     JSBootstrappingSnippet,
     JSSnippet,
     NodeJSSnippet,
@@ -32,6 +32,7 @@ import {
     ReactSnippet,
     RubySnippet,
     UTM_TAGS,
+    iOSSnippet,
 } from './FeatureFlagSnippets'
 
 const DOC_BASE_URL = 'https://posthog.com/docs/'
@@ -57,7 +58,7 @@ export enum LibraryType {
 export const OPTIONS: InstructionOption[] = [
     {
         value: 'JavaScript',
-        documentationLink: `${DOC_BASE_URL}libraries/js${UTM_TAGS}`,
+        documentationLink: `${DOC_BASE_URL}libraries/js/features${UTM_TAGS}`,
         Snippet: JSSnippet,
         type: LibraryType.Client,
         key: SDKKey.JS_WEB,
@@ -73,7 +74,7 @@ export const OPTIONS: InstructionOption[] = [
     },
     {
         value: 'API',
-        documentationLink: `${DOC_BASE_URL}api/post-only-endpoints#example-request--response-decide-v3`,
+        documentationLink: `${DOC_BASE_URL}api/flags${UTM_TAGS}`,
         Snippet: APISnippet,
         type: LibraryType.Server,
         key: SDKKey.API,

@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, path, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import { router } from 'kea-router'
+
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
@@ -42,7 +43,7 @@ const DEFAULT_SLACK_INPUTS: Record<string, any> = {
                 type: 'actions',
                 elements: [
                     {
-                        url: '{project.url}/error_tracking/{event.distinct_id}',
+                        url: '{project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}',
                         text: { text: 'View Issue', type: 'plain_text' },
                         type: 'button',
                     },

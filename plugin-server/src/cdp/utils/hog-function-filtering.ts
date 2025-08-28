@@ -1,11 +1,14 @@
-import { ExecResult } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
-import { Histogram } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 import RE2 from 're2'
 
+import { ExecResult } from '@posthog/hogvm'
+
 import { HogFlow } from '../../schema/hogflow'
+import { RawClickHouseEvent } from '../../types'
+import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
-import { UUIDT } from '../../utils/utils'
+import { UUIDT, clickHouseTimestampToISO } from '../../utils/utils'
 import {
     HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,
@@ -19,8 +22,14 @@ const hogFunctionFilterDuration = new Histogram({
     name: 'cdp_hog_function_filter_duration_ms',
     help: 'Processing time for filtering a function',
     // We have a timeout so we don't need to worry about much more than that
-    buckets: [0, 10, 20, 50, 100, 200],
+    buckets: [0, 10, 20, 50, 100, 200, 300, 500, 1000],
     labelNames: ['type'],
+})
+
+const hogFunctionPreFilterCounter = new Counter({
+    name: 'cdp_hog_function_prefilter_result',
+    help: 'Count of pre-filter results',
+    labelNames: ['result'],
 })
 
 interface HogFilterResult {
@@ -68,6 +77,128 @@ function getElementsChainElements(elementsChain: string): string[] {
         elementMatches.add(elementMatch[1])
     }
     return Array.from(elementMatches)
+}
+
+export function convertClickhouseRawEventToFilterGlobals(event: RawClickHouseEvent): HogFunctionFilterGlobals {
+    const properties = event.properties ? parseJSON(event.properties) : {}
+    const elementsChain = event.elements_chain ?? properties['$elements_chain']
+
+    // Handle timestamp conversion
+    const eventTimestamp = DateTime.fromISO(event.timestamp).isValid
+        ? event.timestamp
+        : clickHouseTimestampToISO(event.timestamp)
+
+    // Handle person
+    let person: HogFunctionFilterGlobals['person'] = null
+    let pdi: HogFunctionFilterGlobals['pdi'] = null
+
+    if (event.person_id) {
+        const personProperties = event.person_properties ? parseJSON(event.person_properties) : {}
+
+        person = {
+            id: event.person_id,
+            properties: personProperties,
+        }
+
+        pdi = {
+            distinct_id: event.distinct_id,
+            person_id: event.person_id,
+            person: {
+                id: event.person_id,
+                properties: personProperties,
+            },
+        }
+    }
+
+    // Initialize response with basic structure
+    const response: HogFunctionFilterGlobals = {
+        event: event.event,
+        elements_chain: elementsChain,
+        elements_chain_href: '',
+        elements_chain_texts: [] as string[],
+        elements_chain_ids: [] as string[],
+        elements_chain_elements: [] as string[],
+        timestamp: eventTimestamp,
+        properties,
+        person,
+        pdi,
+        distinct_id: event.distinct_id,
+        $group_0: null,
+        $group_1: null,
+        $group_2: null,
+        $group_3: null,
+        $group_4: null,
+        group_0: { properties: {} },
+        group_1: { properties: {} },
+        group_2: { properties: {} },
+        group_3: { properties: {} },
+        group_4: { properties: {} },
+    }
+
+    // Handle groups from RawClickHouseEvent
+    const groupProperties = [
+        event.group0_properties,
+        event.group1_properties,
+        event.group2_properties,
+        event.group3_properties,
+        event.group4_properties,
+    ]
+
+    groupProperties.forEach((groupPropsString, index) => {
+        if (groupPropsString) {
+            const groupProps = parseJSON(groupPropsString)
+            const groupKey = `group_${index}` as keyof HogFunctionFilterGlobals
+
+            if (groupKey in response) {
+                ;(response as any)[groupKey] = {
+                    properties: groupProps,
+                }
+            }
+        }
+    })
+
+    // Extract group IDs from properties
+    for (let i = 0; i < 5; i++) {
+        const groupIdKey = `$group_${i}` as keyof HogFunctionFilterGlobals
+        const groupIdValue = properties[groupIdKey]
+
+        if (groupIdValue && groupIdKey in response) {
+            ;(response as any)[groupIdKey] = groupIdValue
+        }
+    }
+
+    // Handle elements_chain processing with lazy evaluation
+    if (elementsChain) {
+        const cache: Record<string, any> = {}
+        Object.defineProperties(response, {
+            elements_chain_href: {
+                get: () => {
+                    cache.elements_chain_href ??= getElementsChainHref(elementsChain)
+                    return cache.elements_chain_href
+                },
+            },
+            elements_chain_texts: {
+                get: () => {
+                    cache.elements_chain_texts ??= getElementsChainTexts(elementsChain)
+                    return cache.elements_chain_texts
+                },
+            },
+            elements_chain_ids: {
+                get: () => {
+                    cache.elements_chain_ids ??= getElementsChainIds(elementsChain)
+                    return cache.elements_chain_ids
+                },
+            },
+            elements_chain_elements: {
+                get: () => {
+                    cache.elements_chain_elements ??= getElementsChainElements(elementsChain)
+                    return cache.elements_chain_elements
+                },
+            },
+        })
+    }
+
+    return response
 }
 
 export function convertToHogFunctionFilterGlobal(
@@ -167,6 +298,23 @@ export function convertToHogFunctionFilterGlobal(
     return response
 }
 
+const HOG_FILTERING_TIMEOUT_MS = 100
+
+function preFilterResult(filters: HogFunctionType['filters'], filterGlobals: HogFunctionFilterGlobals): boolean {
+    const eventMatches = filters?.events?.some((eventFilter) => {
+        // We need to test if the id is null (all events) or if it is in the list of event matchers
+        return eventFilter.id === null || eventFilter.id === filterGlobals.event
+    })
+
+    // If none of the event filters match we return false
+    if (!eventMatches) {
+        return false
+    }
+    // If we get here, there is at least one event filter and it checks this event type
+    // hence we say its a match and return true
+    return true
+}
+
 /**
  * Shared utility to check if an event matches the filters of a HogFunction.
  * Used by both the HogExecutorService (for destinations) and HogTransformerService (for transformations).
@@ -184,7 +332,6 @@ export async function filterFunctionInstrumented(options: {
     const { fn, filters, filterGlobals, enabledTelemetry, eventUuid } = options
     const type = 'type' in fn ? fn.type : 'hogflow'
     const fnKind = 'type' in fn ? 'HogFunction' : 'HogFlow'
-    const start = performance.now()
     const logs: LogEntry[] = []
     const metrics: MinimalAppMetric[] = []
 
@@ -195,7 +342,22 @@ export async function filterFunctionInstrumented(options: {
         metrics,
     }
 
+    let preFilterMatch = null
+
     try {
+        // If there are no filters (only bytecode exists then on the filter object)
+        // everything matches no need to execute bytecode (lets save those cpu cycles)
+        if (filters && Object.keys(filters).length === 1 && 'bytecode' in filters) {
+            // if we have no filters we assume we match all events hence match = true
+            hogFunctionPreFilterCounter.inc({ result: 'no_filters' })
+        }
+
+        // check whether we have a match with our pre-filter
+        // Only run if we have event filters and NO action filters (as actions are pre-saved event filters)
+        if (filters?.events?.length && !filters?.actions?.length) {
+            preFilterMatch = preFilterResult(filters, filterGlobals)
+        }
+
         if (!filters?.bytecode) {
             throw new Error('Filters were not compiled correctly and so could not be executed')
         }
@@ -205,6 +367,20 @@ export async function filterFunctionInstrumented(options: {
             telemetry: enabledTelemetry,
         })
 
+        if (execHogOutcome) {
+            hogFunctionFilterDuration.observe({ type }, execHogOutcome.durationMs)
+        }
+
+        if (execHogOutcome.durationMs > HOG_FILTERING_TIMEOUT_MS) {
+            logger.error('🦔', `[${fnKind}] Filter took longer than expected`, {
+                functionId: fn.id,
+                functionName: fn.name,
+                teamId: fn.team_id,
+                duration: execHogOutcome.durationMs,
+                eventId: options?.eventUuid,
+            })
+        }
+
         execResult = execHogOutcome.execResult
 
         if (!execHogOutcome.execResult || execHogOutcome.error || execHogOutcome.execResult.error) {
@@ -212,6 +388,30 @@ export async function filterFunctionInstrumented(options: {
         }
 
         result.match = typeof execHogOutcome.execResult.result === 'boolean' && execHogOutcome.execResult.result
+
+        // if our filter was not used we don't wanna do any comparison
+        if (preFilterMatch !== null) {
+            if (preFilterMatch === false && result.match === true) {
+                // we would have filtered out this event but it actually matched the bytecode filter
+                // this would mean we dropped a valid event
+
+                logger.warn(
+                    '🦔',
+                    `[${fnKind}] Pre-filter mismatch detected - event would have been incorrectly filtered`,
+                    {
+                        functionId: fn.id,
+                        functionName: fn.name,
+                        teamId: fn.team_id,
+                        eventUuid: eventUuid,
+                        eventName: filterGlobals.event,
+                        preFilterMatch,
+                        resultMatch: result.match,
+                    }
+                )
+
+                hogFunctionPreFilterCounter.inc({ result: 'mismatch_unsafe' })
+            }
+        }
 
         if (!result.match) {
             metrics.push({
@@ -223,7 +423,7 @@ export async function filterFunctionInstrumented(options: {
             })
         }
     } catch (error) {
-        logger.error('🦔', `[${fnKind}] Error filtering function`, {
+        logger.debug('🦔', `[${fnKind}] Error filtering function`, {
             functionId: fn.id,
             functionName: fn.name,
             teamId: fn.team_id,
@@ -249,24 +449,6 @@ export async function filterFunctionInstrumented(options: {
             message: `Error filtering event ${eventUuid}: ${error.message}`,
         })
         result.error = error.message
-    } finally {
-        const duration = performance.now() - start
-
-        // Re-using the constant from hog-executor.service.ts
-        const DEFAULT_TIMEOUT_MS = 100
-
-        hogFunctionFilterDuration.observe({ type }, duration)
-
-        if (duration > DEFAULT_TIMEOUT_MS) {
-            logger.error('🦔', `[${fnKind}] Filter took longer than expected`, {
-                functionId: fn.id,
-                functionName: fn.name,
-                teamId: fn.team_id,
-                duration,
-                eventId: options?.eventUuid,
-            })
-        }
     }
-
     return result
 }

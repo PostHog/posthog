@@ -2,28 +2,19 @@ from datetime import datetime
 from typing import Any, Optional, Union, cast
 from zoneinfo import ZoneInfo
 
+from posthog.schema import PersonsOnEventsMode
+
 from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.constants import PropertyOperatorType
 from posthog.models import Filter, Team
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
-from posthog.models.cohort.util import (
-    format_static_cohort_query,
-    get_count_operator,
-    get_entity_query,
-)
+from posthog.models.cohort.util import format_static_cohort_query, get_count_operator, get_entity_query
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.property import (
-    BehavioralPropertyType,
-    OperatorInterval,
-    Property,
-    PropertyGroup,
-    PropertyName,
-)
-from posthog.models.property.util import prop_filter_json_extract, parse_prop_grouped_clauses
+from posthog.models.property import BehavioralPropertyType, OperatorInterval, Property, PropertyGroup, PropertyName
+from posthog.models.property.util import parse_prop_grouped_clauses, prop_filter_json_extract
 from posthog.queries.event_query import EventQuery
 from posthog.queries.util import PersonPropertiesMode
-from posthog.schema import PersonsOnEventsMode
 from posthog.utils import relative_date_parse
 
 Relative_Date = tuple[int, OperatorInterval]
@@ -564,7 +555,9 @@ class FOSSCohortQuery(EventQuery):
         self._fields.append(field)
 
         # Negation is handled in the where clause to ensure the right result if a full join occurs where the joined person did not perform the event
-        return f"{'NOT' if prop.negation else ''} {column_name}", {
+        # For OR conditions, we need to handle NULL values that occur when a person doesn't appear in the behavioral subquery
+        # NULL should be treated as false for behavioral conditions
+        return f"{'NOT' if prop.negation else ''} coalesce({column_name}, false)", {
             **date_params,
             **entity_params,
             **entity_filters_params,
@@ -585,8 +578,10 @@ class FOSSCohortQuery(EventQuery):
         self._fields.append(field)
 
         # Negation is handled in the where clause to ensure the right result if a full join occurs where the joined person did not perform the event
+        # For OR conditions, we need to handle NULL values that occur when a person doesn't appear in the behavioral subquery
+        # NULL should be treated as false for behavioral conditions
         return (
-            f"{'NOT' if prop.negation else ''} {column_name}",
+            f"{'NOT' if prop.negation else ''} coalesce({column_name}, false)",
             {
                 f"{operator_value_param}": count,
                 **date_params,

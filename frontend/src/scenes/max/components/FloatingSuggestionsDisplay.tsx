@@ -1,9 +1,10 @@
-import { IconChevronLeft } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { maxLogic, QUESTION_SUGGESTIONS_DATA, SuggestionGroup } from '../maxLogic'
+import { IconChevronLeft } from '@posthog/icons'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+
+import { QUESTION_SUGGESTIONS_DATA, SuggestionGroup, maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { checkSuggestionRequiresUserInput, stripSuggestionPlaceholders } from '../utils'
 
@@ -73,7 +74,7 @@ export function FloatingSuggestionsDisplay({
     }
 
     return (
-        <div className="mb-1">
+        <div className="mt-1 mx-1">
             {/* Main suggestion groups */}
             {(!activeSuggestionGroup || !compact) && (
                 <>

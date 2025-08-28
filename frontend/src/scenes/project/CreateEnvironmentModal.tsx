@@ -1,8 +1,10 @@
-import { LemonButton, LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
+
+import { LemonButton, LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
+
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { useEffect, useState } from 'react'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -40,7 +42,7 @@ export function CreateEnvironmentModal({
     // Anytime the team changes close the modal as it indicates we have created a new team
     useEffect(() => {
         closeModal()
-    }, [currentProject])
+    }, [currentProject]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <LemonModal

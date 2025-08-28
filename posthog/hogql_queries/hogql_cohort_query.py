@@ -4,52 +4,54 @@ from typing import Literal, Optional, Union, cast
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.constants import PropertyOperatorType
+from posthog.schema import (
+    ActionsNode,
+    ActorsQuery,
+    BaseMathType,
+    DateRange,
+    EventPropertyFilter,
+    EventsNode,
+    EventsQuery,
+    FunnelConversionWindowTimeUnit,
+    FunnelsActorsQuery,
+    FunnelsFilter,
+    FunnelsQuery,
+    HogQLPropertyFilter,
+    HogQLQueryModifiers,
+    InsightActorsQuery,
+    PersonPropertyFilter,
+    PersonsOnEventsMode,
+    PropertyGroupFilterValue,
+    PropertyOperator,
+    StickinessActorsQuery,
+    StickinessCriteria,
+    StickinessFilter,
+    StickinessQuery,
+    TrendsFilter,
+    TrendsQuery,
+)
+
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectQuery, SelectSetNode, SelectSetQuery
-from posthog.hogql.constants import LimitContext
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.hogql.property import get_property_type
 from posthog.hogql.query import HogQLQueryExecutor
+
+from posthog.constants import PropertyOperatorType
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
-from posthog.models import Filter, Cohort, Team, Property
+from posthog.models import Cohort, Filter, Property, Team
 from posthog.models.property import PropertyGroup
+from posthog.queries.cohort_query import CohortQuery
 from posthog.queries.foss_cohort_query import (
-    validate_interval,
-    parse_and_validate_positive_integer,
     INTERVAL_TO_SECONDS,
     FOSSCohortQuery,
+    parse_and_validate_positive_integer,
+    validate_interval,
 )
-from posthog.schema import (
-    ActorsQuery,
-    EventsQuery,
-    InsightActorsQuery,
-    TrendsQuery,
-    DateRange,
-    TrendsFilter,
-    EventsNode,
-    ActionsNode,
-    BaseMathType,
-    FunnelsQuery,
-    FunnelsActorsQuery,
-    FunnelsFilter,
-    FunnelConversionWindowTimeUnit,
-    StickinessQuery,
-    StickinessFilter,
-    StickinessCriteria,
-    StickinessActorsQuery,
-    PersonPropertyFilter,
-    PropertyOperator,
-    PropertyGroupFilterValue,
-    EventPropertyFilter,
-    HogQLPropertyFilter,
-    HogQLQueryModifiers,
-    PersonsOnEventsMode,
-)
-from posthog.queries.cohort_query import CohortQuery
 from posthog.types import AnyPropertyFilter
 
 
@@ -118,6 +120,7 @@ class HogQLCohortQuery:
             modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
             team=self.team,
             limit_context=LimitContext.COHORT_CALCULATION,
+            settings=HogQLGlobalSettings(allow_experimental_analyzer=None),
         )
 
     def get_query(self) -> SelectQuery | SelectSetQuery:
@@ -462,7 +465,7 @@ class HogQLCohortQuery:
                             subsequent_select_queries=[
                                 SelectSetNode(
                                     select_query=query,
-                                    set_operator="UNION DISTINCT" if all_children_positive else "INTERSECT",
+                                    set_operator="UNION DISTINCT" if all_children_positive else "INTERSECT DISTINCT",
                                 )
                                 for (query, negation) in children[1:]
                             ],
@@ -484,7 +487,9 @@ class HogQLCohortQuery:
                         SelectSetNode(
                             select_query=query,
                             set_operator=(
-                                "UNION DISTINCT" if all_children_negated else ("EXCEPT" if negation else "INTERSECT")
+                                "UNION DISTINCT"
+                                if all_children_negated
+                                else ("EXCEPT" if negation else "INTERSECT DISTINCT")
                             ),
                         )
                         for (query, negation) in children[1:]

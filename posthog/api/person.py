@@ -1,16 +1,17 @@
-import builtins
 import json
+import builtins
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, List, Optional, TypeVar, Union, cast  # noqa: UP035
 
 from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
+
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter
 from loginas.utils import is_impersonated_session
-from posthog.api.insight import capture_legacy_api_call
 from prometheus_client import Counter
+from requests import HTTPError
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.exceptions import MethodNotAllowed, NotFound, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
@@ -20,27 +21,19 @@ from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 from statshog.defaults.django import statsd
 
+from posthog.hogql.constants import CSV_EXPORT_LIMIT
+
 from posthog.api.capture import capture_internal
 from posthog.api.documentation import PersonPropertiesSerializer, extend_schema
+from posthog.api.insight import capture_legacy_api_call
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.utils import (
-    action,
-    format_paginated_url,
-    get_pk_or_uuid,
-    get_target_entity,
-)
+from posthog.api.utils import action, format_paginated_url, get_pk_or_uuid, get_target_entity
 from posthog.constants import INSIGHT_FUNNELS, LIMIT, OFFSET, FunnelVizType
 from posthog.decorators import cached_by_filters
-from posthog.hogql.constants import CSV_EXPORT_LIMIT
 from posthog.logging.timing import timed
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Cohort, Filter, Person, Team, User
-from posthog.models.activity_logging.activity_log import (
-    Change,
-    Detail,
-    load_activity,
-    log_activity,
-)
+from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort.util import get_all_cohort_ids_by_person_uuid
@@ -49,15 +42,13 @@ from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.models.person.missing_person import MissingPerson
 from posthog.models.person.deletion import reset_deleted_person_distinct_ids
+from posthog.models.person.missing_person import MissingPerson
 from posthog.models.person.util import delete_person
 from posthog.queries.actor_base_query import ActorBaseQuery, get_serialized_people
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
 from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
-from posthog.queries.funnels.funnel_unordered_persons import (
-    ClickhouseFunnelUnorderedActors,
-)
+from posthog.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
 from posthog.queries.insight import insight_sync_execute
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.properties_timeline import PropertiesTimeline
@@ -67,17 +58,15 @@ from posthog.queries.trends.lifecycle import Lifecycle
 from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.queries.util import get_earliest_timestamp
 from posthog.rate_limit import (
+    BreakGlassBurstThrottle,
+    BreakGlassSustainedThrottle,
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
 )
 from posthog.renderers import SafeJSONRenderer
 from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
-from posthog.utils import (
-    convert_property_value,
-    format_query_params_absolute_url,
-    is_anonymous_id,
-)
+from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id
 
 DEFAULT_PAGE_LIMIT = 100
 # Sync with .../lib/constants.tsx and .../ingestion/hooks.ts
@@ -148,6 +137,16 @@ class PersonsThrottle(ClickHouseSustainedRateThrottle):
     scope = "persons"
 
 
+class PersonsBreakGlassBurstThrottle(BreakGlassBurstThrottle):
+    scope = "persons"
+    rate = "60/minute"
+
+
+class PersonsBreakGlassSustainedThrottle(BreakGlassSustainedThrottle):
+    scope = "persons"
+    rate = "300/hour"
+
+
 class PersonSerializer(serializers.HyperlinkedModelSerializer):
     name = serializers.SerializerMethodField()
 
@@ -197,9 +196,7 @@ def get_funnel_actor_class(filter: Filter) -> Callable:
 
     if filter.correlation_person_entity and EE_AVAILABLE:
         if EE_AVAILABLE:
-            from ee.clickhouse.queries.funnels.funnel_correlation_persons import (
-                FunnelCorrelationActors,
-            )
+            from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
 
             funnel_actor_class = FunnelCorrelationActors
         else:
@@ -230,7 +227,12 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
     pagination_class = PersonLimitOffsetPagination
-    throttle_classes = [ClickHouseBurstRateThrottle, PersonsThrottle]
+    throttle_classes = [
+        ClickHouseBurstRateThrottle,
+        PersonsThrottle,
+        PersonsBreakGlassBurstThrottle,
+        PersonsBreakGlassSustainedThrottle,
+    ]
     lifecycle_class = Lifecycle
     stickiness_class = Stickiness
 
@@ -430,7 +432,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         key = request.GET.get("key")
         value = request.GET.get("value")
         flattened = []
-        if key:
+        if key and not key.startswith("$virt"):
             result = self._get_person_property_values_for_key(key, value)
 
             for value, count in result:
@@ -552,20 +554,44 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def delete_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
         person: Person = get_pk_or_uuid(Person.objects.filter(team_id=self.team_id), pk).get()
 
-        capture_internal(
-            distinct_id=person.distinct_ids[0],
-            ip=None,
-            site_url=None,
-            token=self.team.api_token,
-            now=datetime.now(),
-            sent_at=None,
-            event={
-                "event": "$delete_person_property",
-                "properties": {"$unset": [request.data["$unset"]]},
-                "distinct_id": person.distinct_ids[0],
-                "timestamp": datetime.now().isoformat(),
-            },
-        )
+        event_name = "$delete_person_property"
+        distinct_id = person.distinct_ids[0]
+        timestamp = datetime.now(UTC)
+        properties = {
+            "$unset": [request.data["$unset"]],
+        }
+
+        try:
+            resp = capture_internal(
+                token=self.team.api_token,
+                event_name=event_name,
+                event_source="person_viewset",
+                distinct_id=distinct_id,
+                timestamp=timestamp,
+                properties=properties,
+                process_person_profile=True,
+            )
+            resp.raise_for_status()
+
+        # HTTP error - if applicable, thrown after retires are exhausted
+        except HTTPError as he:
+            return response.Response(
+                {
+                    "success": False,
+                    "detail": "Unable to delete property",
+                },
+                status=he.response.status_code,
+            )
+
+        # catches event payload errors (CaptureInternalError) and misc. (timeout etc.)
+        except Exception:
+            return response.Response(
+                {
+                    "success": False,
+                    "detail": f"Unable to delete property",
+                },
+                status=400,
+            )
 
         log_activity(
             organization_id=self.organization.id,
@@ -655,20 +681,28 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def _set_properties(self, properties, user):
         instance = self.get_object()
-        capture_internal(
-            distinct_id=instance.distinct_ids[0],
-            ip=None,
-            site_url=None,
-            token=instance.team.api_token,
-            now=datetime.now(),
-            sent_at=None,
-            event={
-                "event": "$set",
-                "properties": {"$set": properties},
-                "distinct_id": instance.distinct_ids[0],
-                "timestamp": datetime.now().isoformat(),
-            },
-        )
+        distinct_id = instance.distinct_ids[0]
+        event_name = "$set"
+        timestamp = datetime.now(UTC)
+        properties = {
+            "$set": properties,
+        }
+
+        try:
+            resp = capture_internal(
+                token=instance.team.api_token,
+                event_name=event_name,
+                event_source="person_viewset",
+                distinct_id=distinct_id,
+                timestamp=timestamp,
+                properties=properties,
+                process_person_profile=True,
+            )
+            resp.raise_for_status()
+
+        # Failures in this codepath (old and new) are ignored here
+        except Exception:
+            pass
 
         if self.organization.id:  # should always be true, but mypy...
             log_activity(

@@ -1,5 +1,6 @@
 import { actions, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 
 import { AppMetricsTotalsV2Response, AppMetricsV2RequestParams, AppMetricsV2Response } from '~/types'
@@ -16,6 +17,7 @@ export const ALL_METRIC_TYPES = [
     { label: 'Succeeded', value: 'succeeded' },
     { label: 'Failed', value: 'failed' },
     { label: 'Filtered', value: 'filtered' },
+    { label: 'Dropped', value: 'dropped' },
     { label: 'Disabled temporarily', value: 'disabled_temporarily' },
     { label: 'Disabled permanently', value: 'disabled_permanently' },
     { label: 'Masked', value: 'masked' },

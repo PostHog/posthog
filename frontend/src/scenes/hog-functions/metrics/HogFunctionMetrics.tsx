@@ -1,3 +1,6 @@
+import { BindLogic, useActions, useValues } from 'kea'
+import { useEffect, useRef, useState } from 'react'
+
 import { IconCalendar } from '@posthog/icons'
 import {
     LemonButton,
@@ -9,21 +12,22 @@ import {
     SpinnerOverlay,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
+
 import { Chart, ChartDataset, ChartItem } from 'lib/Chart'
 import { getColorVar } from 'lib/colors'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { humanFriendlyNumber, inStorybookTestRunner } from 'lib/utils'
-import { useEffect, useRef, useState } from 'react'
 import { hogFunctionConfigurationLogic } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 
-import { ALL_METRIC_TYPES, hogFunctionMetricsLogic, HogFunctionMetricsLogicProps } from './hogFunctionMetricsLogic'
+import { ALL_METRIC_TYPES, HogFunctionMetricsLogicProps, hogFunctionMetricsLogic } from './hogFunctionMetricsLogic'
 
 const METRICS_INFO = {
     succeeded: 'Total number of events processed successfully',
     failed: 'Total number of events that had errors during processing',
     filtered: 'Total number of events that were filtered out',
+    dropped: 'Total number of events that were dropped during processing',
     disabled_temporarily:
         'Total number of events that were skipped due to the destination being temporarily disabled (due to issues such as the destination being down or rate-limited)',
     disabled_permanently:
@@ -37,86 +41,90 @@ export function HogFunctionMetrics({ id }: HogFunctionMetricsLogicProps): JSX.El
     const { type } = useValues(hogFunctionConfigurationLogic({ id }))
     const { setFilters, loadMetrics, loadMetricsTotals } = useActions(logic)
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         loadMetrics()
         loadMetricsTotals()
-    }, [])
+    })
 
     return (
-        <BindLogic logic={hogFunctionMetricsLogic} props={{ id }}>
-            <div className="deprecated-space-y-4">
-                <AppMetricsTotals />
+        <>
+            <BindLogic logic={hogFunctionMetricsLogic} props={{ id }}>
+                <div className="deprecated-space-y-4">
+                    <AppMetricsTotals />
 
-                <div className="flex gap-2 items-center">
-                    <h2 className="mb-0">Delivery trends</h2>
-                    <div className="flex-1" />
-                    <LemonDropdown
-                        closeOnClickInside={false}
-                        matchWidth={false}
-                        placement="right-end"
-                        overlay={
-                            <div className="overflow-hidden deprecated-space-y-2 max-w-100">
-                                {ALL_METRIC_TYPES.filter(
-                                    ({ value }) => value !== 'fetch' || type !== 'transformation'
-                                ).map(({ label, value }) => {
-                                    return (
-                                        <LemonButton
-                                            key={value}
-                                            fullWidth
-                                            icon={
-                                                <LemonCheckbox
-                                                    checked={filters?.name?.split(',').includes(value)}
-                                                    className="pointer-events-none"
-                                                />
-                                            }
-                                            onClick={() => {
-                                                setFilters({
-                                                    name: filters?.name?.split(',').includes(value)
-                                                        ? filters.name
-                                                              .split(',')
-                                                              .filter((t) => t != value)
-                                                              .join(',')
-                                                        : filters.name + ',' + value,
-                                                })
-                                            }}
-                                        >
-                                            {label}
-                                        </LemonButton>
-                                    )
-                                })}
-                            </div>
-                        }
-                    >
-                        <LemonButton size="small" type="secondary">
-                            Filters
-                        </LemonButton>
-                    </LemonDropdown>
-                    <LemonSelect
-                        options={[
-                            { label: 'Hourly', value: 'hour' },
-                            { label: 'Daily', value: 'day' },
-                            { label: 'Weekly', value: 'week' },
-                        ]}
-                        size="small"
-                        value={filters.interval}
-                        onChange={(value) => setFilters({ interval: value })}
-                    />
-                    <DateFilter
-                        dateTo={filters.before}
-                        dateFrom={filters.after}
-                        onChange={(from, to) => setFilters({ after: from || undefined, before: to || undefined })}
-                        allowedRollingDateOptions={['days', 'weeks', 'months', 'years']}
-                        makeLabel={(key) => (
-                            <>
-                                <IconCalendar /> {key}
-                            </>
-                        )}
-                    />
+                    <div className="flex gap-2 items-center">
+                        <h2 className="mb-0">Delivery trends</h2>
+                        <div className="flex-1" />
+                        <LemonDropdown
+                            closeOnClickInside={false}
+                            matchWidth={false}
+                            placement="right-end"
+                            overlay={
+                                <div className="overflow-hidden deprecated-space-y-2 max-w-100">
+                                    {ALL_METRIC_TYPES.filter(
+                                        ({ value }) =>
+                                            (value !== 'fetch' || type !== 'transformation') &&
+                                            (value !== 'dropped' || type === 'transformation')
+                                    ).map(({ label, value }) => {
+                                        return (
+                                            <LemonButton
+                                                key={value}
+                                                fullWidth
+                                                icon={
+                                                    <LemonCheckbox
+                                                        checked={filters?.name?.split(',').includes(value)}
+                                                        className="pointer-events-none"
+                                                    />
+                                                }
+                                                onClick={() => {
+                                                    setFilters({
+                                                        name: filters?.name?.split(',').includes(value)
+                                                            ? filters.name
+                                                                  .split(',')
+                                                                  .filter((t) => t != value)
+                                                                  .join(',')
+                                                            : filters.name + ',' + value,
+                                                    })
+                                                }}
+                                            >
+                                                {label}
+                                            </LemonButton>
+                                        )
+                                    })}
+                                </div>
+                            }
+                        >
+                            <LemonButton size="small" type="secondary">
+                                Filters
+                            </LemonButton>
+                        </LemonDropdown>
+                        <LemonSelect
+                            options={[
+                                { label: 'Hourly', value: 'hour' },
+                                { label: 'Daily', value: 'day' },
+                                { label: 'Weekly', value: 'week' },
+                            ]}
+                            size="small"
+                            value={filters.interval}
+                            onChange={(value) => setFilters({ interval: value })}
+                        />
+                        <DateFilter
+                            dateTo={filters.before}
+                            dateFrom={filters.after}
+                            onChange={(from, to) => setFilters({ after: from || undefined, before: to || undefined })}
+                            allowedRollingDateOptions={['days', 'weeks', 'months', 'years']}
+                            makeLabel={(key) => (
+                                <>
+                                    <IconCalendar /> {key}
+                                </>
+                            )}
+                        />
+                    </div>
+
+                    <AppMetricsGraph />
                 </div>
-
-                <AppMetricsGraph />
-            </div>
-        </BindLogic>
+            </BindLogic>
+        </>
     )
 }
 
@@ -276,6 +284,9 @@ function colorConfig(name: string): Partial<ChartDataset<'line', any>> {
             break
         case 'failed':
             color = getColorVar('danger')
+            break
+        case 'dropped':
+            color = getColorVar('warning')
             break
         default:
             color = getColorVar('data-color-1')

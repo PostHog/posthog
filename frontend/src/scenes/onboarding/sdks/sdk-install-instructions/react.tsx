@@ -1,14 +1,15 @@
-import { LemonDivider } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+
+import { LemonDivider } from '@posthog/lemon-ui'
+
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import SetupWizardBanner from './components/SetupWizardBanner'
-import { JSInstallSnippet } from './js-web'
 import { SDK_DEFAULTS_DATE } from './constants'
+import { JSInstallSnippet } from './js-web'
 
 function ReactEnvVarsSnippet(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -49,7 +50,7 @@ createRoot(document.getElementById('root')).render(
 
 export function SDKInstallReactInstructions({ hideWizard }: { hideWizard?: boolean }): JSX.Element {
     const { isCloudOrDev } = useValues(preflightLogic)
-    const showSetupWizard = useFeatureFlag('AI_SETUP_WIZARD') && !hideWizard && isCloudOrDev
+    const showSetupWizard = !hideWizard && isCloudOrDev
     return (
         <>
             {showSetupWizard && (

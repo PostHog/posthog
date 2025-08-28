@@ -1,23 +1,23 @@
-from collections.abc import Sequence
 import json
-from conditional_cache import lru_cache
+from collections.abc import Sequence
 from typing import Any, Literal
-import deltalake.exceptions
+
+from django.conf import settings
+
 import pyarrow as pa
+import deltalake as deltalake
 import pyarrow.compute as pc
+import deltalake.exceptions
+from conditional_cache import lru_cache
 from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from dlt.common.normalizers.naming.snake_case import NamingConvention
-import deltalake as deltalake
-from django.conf import settings
+from structlog.types import FilteringBoundLogger
+
 from posthog.exceptions_capture import capture_exception
-from posthog.settings.base_variables import TEST
-from posthog.temporal.common.logger import FilteringBoundLogger
-from posthog.temporal.data_imports.pipelines.pipeline.utils import (
-    normalize_column_name,
-)
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
+from posthog.temporal.data_imports.pipelines.pipeline.utils import normalize_column_name
 from posthog.warehouse.models import ExternalDataJob
-from posthog.warehouse.s3 import get_s3_client
+from posthog.warehouse.s3 import ensure_bucket_exists, get_s3_client
 
 
 class DeltaTableHelper:
@@ -37,7 +37,14 @@ class DeltaTableHelper:
                 "Missing env vars for data warehouse. Required vars: AIRBYTE_BUCKET_KEY, AIRBYTE_BUCKET_SECRET, AIRBYTE_BUCKET_REGION"
             )
 
-        if TEST:
+        if settings.USE_LOCAL_SETUP:
+            ensure_bucket_exists(
+                settings.BUCKET_URL,
+                settings.AIRBYTE_BUCKET_KEY,
+                settings.AIRBYTE_BUCKET_SECRET,
+                settings.OBJECT_STORAGE_ENDPOINT,
+            )
+
             return {
                 "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
                 "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,

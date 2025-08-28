@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
 
 import { useMocks } from '~/mocks/jest'
@@ -48,6 +49,7 @@ const basicDashboard: DashboardBasicType = {
     pinned: false,
     created_at: new Date().toISOString(),
     created_by: null,
+    last_accessed_at: null,
     is_shared: false,
     deleted: false,
     creation_mode: 'default',

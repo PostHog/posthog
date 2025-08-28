@@ -1,9 +1,11 @@
 use crate::{
+    api::types::FlagValue,
     cohorts::cohort_models::{Cohort, CohortId},
     config::{Config, DEFAULT_TEST_CONFIG},
     flags::flag_models::{
         FeatureFlag, FeatureFlagRow, FlagFilters, FlagPropertyGroup, TEAM_FLAGS_CACHE_PREFIX,
     },
+    properties::property_models::{OperatorType, PropertyFilter, PropertyType},
     team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX},
 };
 use anyhow::Error;
@@ -23,7 +25,7 @@ pub fn random_string(prefix: &str, length: usize) -> String {
         .take(length)
         .map(char::from)
         .collect();
-    format!("{}{}", prefix, suffix)
+    format!("{prefix}{suffix}")
 }
 
 pub async fn insert_new_team_in_redis(
@@ -85,21 +87,20 @@ pub async fn insert_flags_for_team_in_redis(
     };
 
     client
-        .set(
-            format!("{}{}", TEAM_FLAGS_CACHE_PREFIX, project_id),
-            payload,
-        )
+        .set(format!("{TEAM_FLAGS_CACHE_PREFIX}{project_id}"), payload)
         .await?;
 
     Ok(())
 }
 
-pub fn setup_redis_client(url: Option<String>) -> Arc<dyn RedisClientTrait + Send + Sync> {
+pub async fn setup_redis_client(url: Option<String>) -> Arc<dyn RedisClientTrait + Send + Sync> {
     let redis_url = match url {
         Some(value) => value,
         None => "redis://localhost:6379/".to_string(),
     };
-    let client = RedisClient::new(redis_url).expect("Failed to create redis client");
+    let client = RedisClient::new(redis_url)
+        .await
+        .expect("Failed to create redis client");
     Arc::new(client)
 }
 
@@ -187,9 +188,9 @@ pub async fn insert_new_team_in_pg(
     // Create new organization from scratch
     client.run_query(
         r#"INSERT INTO posthog_organization
-        (id, name, slug, created_at, updated_at, plugins_access_level, for_internal_metrics, is_member_join_email_enabled, enforce_2fa, is_hipaa, customer_id, available_product_features, personalization, setup_section_2_completed, domain_whitelist) 
+        (id, name, slug, created_at, updated_at, plugins_access_level, for_internal_metrics, is_member_join_email_enabled, enforce_2fa, is_hipaa, customer_id, available_product_features, personalization, setup_section_2_completed, domain_whitelist, members_can_use_personal_api_keys, allow_publicly_shared_resources)
         VALUES
-        ($1::uuid, 'Test Organization', 'test-organization', '2024-06-17 14:40:49.298579+00:00', '2024-06-17 14:40:49.298593+00:00', 9, false, true, NULL, false, NULL, '{}', '{}', true, '{}')
+        ($1::uuid, 'Test Organization', 'test-organization', '2024-06-17 14:40:49.298579+00:00', '2024-06-17 14:40:49.298593+00:00', 9, false, true, NULL, false, NULL, '{}', '{}', true, '{}', true, true)
         ON CONFLICT DO NOTHING"#.to_string(),
         vec![ORG_ID.to_string()],
         Some(2000),
@@ -229,9 +230,9 @@ pub async fn insert_new_team_in_pg(
 
     // Insert a team with the correct team-project relationship
     let res = sqlx::query(
-        r#"INSERT INTO posthog_team 
-        (id, uuid, organization_id, project_id, api_token, name, created_at, updated_at, app_urls, anonymize_ips, completed_snippet_onboarding, ingested_event, session_recording_opt_in, is_demo, access_control, test_account_filters, timezone, data_attributes, plugins_opt_in, opt_out_capture, event_names, event_names_with_usage, event_properties, event_properties_with_usage, event_properties_numerical, cookieless_server_hash_mode, base_currency) VALUES
-        ($1, $2, $3::uuid, $4, $5, $6, '2024-06-17 14:40:51.332036+00:00', '2024-06-17', '{}', false, false, false, false, false, false, '{}', 'UTC', '["data-attr"]', false, false, '[]', '[]', '[]', '[]', '[]', $7, 'USD')"#
+        r#"INSERT INTO posthog_team
+        (id, uuid, organization_id, project_id, api_token, name, created_at, updated_at, app_urls, anonymize_ips, completed_snippet_onboarding, ingested_event, session_recording_opt_in, is_demo, access_control, test_account_filters, timezone, data_attributes, plugins_opt_in, opt_out_capture, event_names, event_names_with_usage, event_properties, event_properties_with_usage, event_properties_numerical, cookieless_server_hash_mode, base_currency, session_recording_retention_period, web_analytics_pre_aggregated_tables_enabled) VALUES
+        ($1, $2, $3::uuid, $4, $5, $6, '2024-06-17 14:40:51.332036+00:00', '2024-06-17', '{}', false, false, false, false, false, false, '{}', 'UTC', '["data-attr"]', false, false, '[]', '[]', '[]', '[]', '[]', $7, 'USD', '30d', false)"#
     ).bind(team.id).bind(uuid).bind(ORG_ID).bind(team.project_id).bind(&team.api_token).bind(&team.name).bind(team.cookieless_server_hash_mode).execute(&mut *conn).await?;
     assert_eq!(res.rows_affected(), 1);
 
@@ -280,7 +281,7 @@ pub async fn insert_flag_for_team_in_pg(
             name: Some("flag1 description".to_string()),
             active: true,
             deleted: false,
-            ensure_experience_continuity: false,
+            ensure_experience_continuity: Some(false),
             team_id,
             filters: json!({
                 "groups": [
@@ -297,15 +298,16 @@ pub async fn insert_flag_for_team_in_pg(
                 ],
             }),
             version: None,
+            evaluation_runtime: Some("all".to_string()),
         },
     };
 
     let mut conn = client.get_connection().await?;
     let res = sqlx::query(
         r#"INSERT INTO posthog_featureflag
-        (id, team_id, name, key, filters, deleted, active, ensure_experience_continuity, created_at) VALUES
-        ($1, $2, $3, $4, $5, $6, $7, $8, '2024-06-17')"#
-    ).bind(payload_flag.id).bind(team_id).bind(&payload_flag.name).bind(&payload_flag.key).bind(&payload_flag.filters).bind(payload_flag.deleted).bind(payload_flag.active).bind(payload_flag.ensure_experience_continuity).execute(&mut *conn).await?;
+        (id, team_id, name, key, filters, deleted, active, ensure_experience_continuity, evaluation_runtime, created_at) VALUES
+        ($1, $2, $3, $4, $5, $6, $7, $8, $9, '2024-06-17')"#
+    ).bind(payload_flag.id).bind(team_id).bind(&payload_flag.name).bind(&payload_flag.key).bind(&payload_flag.filters).bind(payload_flag.deleted).bind(payload_flag.active).bind(payload_flag.ensure_experience_continuity).bind(&payload_flag.evaluation_runtime).execute(&mut *conn).await?;
 
     assert_eq!(res.rows_affected(), 1);
 
@@ -538,8 +540,9 @@ pub fn create_test_flag(
         }),
         deleted: deleted.unwrap_or(false),
         active: active.unwrap_or(true),
-        ensure_experience_continuity: ensure_experience_continuity.unwrap_or(false),
+        ensure_experience_continuity: Some(ensure_experience_continuity.unwrap_or(false)),
         version: Some(1),
+        evaluation_runtime: Some("all".to_string()),
     }
 }
 
@@ -552,7 +555,7 @@ pub async fn insert_suppression_rule_in_pg(
     let mut conn = client.get_connection().await?;
     let rule_id = uuid::Uuid::new_v4();
     sqlx::query(
-        r#"INSERT INTO posthog_errortrackingsuppressionrule 
+        r#"INSERT INTO posthog_errortrackingsuppressionrule
            (id, team_id, filters, created_at, updated_at, order_key)
            VALUES ($1, $2, $3, NOW(), NOW(), 0)"#,
     )
@@ -577,4 +580,67 @@ pub async fn update_team_autocapture_exceptions(
         .execute(&mut *conn)
         .await?;
     Ok(())
+}
+
+/// Create a test flag with multiple property filters
+pub fn create_test_flag_with_properties(
+    id: i32,
+    team_id: TeamId,
+    key: &str,
+    filters: Vec<PropertyFilter>,
+) -> FeatureFlag {
+    create_test_flag(
+        Some(id),
+        Some(team_id),
+        None,
+        Some(key.to_string()),
+        Some(FlagFilters {
+            groups: vec![FlagPropertyGroup {
+                properties: Some(filters),
+                rollout_percentage: Some(100.0),
+                variant: None,
+            }],
+            multivariate: None,
+            aggregation_group_type_index: None,
+            payloads: None,
+            super_groups: None,
+            holdout_groups: None,
+        }),
+        None,
+        None,
+        None,
+    )
+}
+
+/// Create a test flag with a single property filter
+pub fn create_test_flag_with_property(
+    id: i32,
+    team_id: TeamId,
+    key: &str,
+    filter: PropertyFilter,
+) -> FeatureFlag {
+    create_test_flag_with_properties(id, team_id, key, vec![filter])
+}
+
+/// Create a test flag that depends on another flag
+pub fn create_test_flag_that_depends_on_flag(
+    id: i32,
+    team_id: TeamId,
+    key: &str,
+    depends_on_flag_id: i32,
+    depends_on_flag_value: FlagValue,
+) -> FeatureFlag {
+    create_test_flag_with_property(
+        id,
+        team_id,
+        key,
+        PropertyFilter {
+            key: depends_on_flag_id.to_string(),
+            value: Some(json!(depends_on_flag_value)),
+            operator: Some(OperatorType::FlagEvaluatesTo),
+            prop_type: PropertyType::Flag,
+            group_type_index: None,
+            negation: None,
+        },
+    )
 }

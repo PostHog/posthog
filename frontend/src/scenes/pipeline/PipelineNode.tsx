@@ -1,8 +1,11 @@
 import { useValues } from 'kea'
+
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs/LemonTabs'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { HogFunctionMetricsV2 } from 'scenes/hog-functions/metrics/HogFunctionMetricsV2'
 import { HogFunctionTesting } from 'scenes/hog-functions/testing/HogFunctionTesting'
 import { PipelineNodeLogs } from 'scenes/pipeline/PipelineNodeLogs'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -15,8 +18,8 @@ import { BatchExportRuns } from '../data-pipelines/batch-exports/BatchExportRuns
 import { HogFunctionLogs } from '../hog-functions/logs/HogFunctionLogs'
 import { HogFunctionMetrics } from '../hog-functions/metrics/HogFunctionMetrics'
 import { PipelineNodeConfiguration } from './PipelineNodeConfiguration'
-import { pipelineNodeLogic, PipelineNodeLogicProps } from './pipelineNodeLogic'
 import { PipelineNodeMetrics } from './PipelineNodeMetrics'
+import { PipelineNodeLogicProps, pipelineNodeLogic } from './pipelineNodeLogic'
 import { PipelineBackend } from './types'
 
 export const PIPELINE_TAB_TO_NODE_STAGE: Partial<Record<PipelineTab, PipelineStage>> = {
@@ -60,7 +63,9 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
         [PipelineNodeTab.Configuration]: <PipelineNodeConfiguration />,
         [PipelineNodeTab.Metrics]:
             node.backend === PipelineBackend.HogFunction ? (
-                <HogFunctionMetrics id={node.id} />
+                <FlaggedFeature flag="cdp-app-metrics-new" fallback={<HogFunctionMetrics id={node.id} />}>
+                    <HogFunctionMetricsV2 id={node.id} />
+                </FlaggedFeature>
             ) : (
                 <PipelineNodeMetrics id={id} />
             ),
@@ -109,7 +114,7 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
                             key: tab,
                             content: content,
                             link: params.stage ? urls.pipelineNode(stage, id, tab as PipelineNodeTab) : undefined,
-                        } as LemonTab<PipelineNodeTab>)
+                        }) as LemonTab<PipelineNodeTab>
                 )}
             />
         </>

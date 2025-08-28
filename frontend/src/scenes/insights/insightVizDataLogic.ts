@@ -1,5 +1,8 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import {
     DISPLAY_TYPES_WITHOUT_DETAILED_RESULTS,
     DISPLAY_TYPES_WITHOUT_LEGEND,
@@ -9,7 +12,6 @@ import { parseProperties } from 'lib/components/PropertyFilters/utils'
 import { NON_TIME_SERIES_DISPLAY_TYPES, NON_VALUES_ON_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils'
-import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { getClampedFunnelStepRange } from 'scenes/funnels/funnelUtils'
@@ -21,12 +23,12 @@ import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { getAllEventNames, queryFromKind } from '~/queries/nodes/InsightViz/utils'
+import { extractValidationError, getAllEventNames, queryFromKind } from '~/queries/nodes/InsightViz/utils'
 import {
     BreakdownFilter,
     CompareFilter,
-    DatabaseSchemaField,
     DataWarehouseNode,
+    DatabaseSchemaField,
     DateRange,
     FunnelExclusionSteps,
     FunnelsFilter,
@@ -111,7 +113,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateBreakdownFilter: (breakdownFilter: BreakdownFilter) => ({ breakdownFilter }),
         updateCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         updateDisplay: (display: ChartDisplayType | undefined) => ({ display }),
-        updateHiddenLegendIndexes: (hiddenLegendIndexes: number[] | undefined) => ({ hiddenLegendIndexes }),
         setTimedOutQueryId: (id: string | null) => ({ id }),
         setIsIntervalManuallySet: (isIntervalManuallySet: boolean) => ({ isIntervalManuallySet }),
         toggleFormulaMode: true,
@@ -224,7 +225,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         yAxisScaleType: [(s) => [s.querySource], (q) => (q ? getYAxisScaleType(q) : null)],
         showMultipleYAxes: [(s) => [s.querySource], (q) => (q ? getShowMultipleYAxes(q) : null)],
         resultCustomizationBy: [(s) => [s.querySource], (q) => (q ? getResultCustomizationBy(q) : null)],
-        goalLines: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? getGoalLines(q) : null)],
+        goalLines: [(s) => [s.querySource], (q) => (isTrendsQuery(q) || isFunnelsQuery(q) ? getGoalLines(q) : null)],
         insightFilter: [(s) => [s.querySource], (q) => (q ? filterForQuery(q) : null)],
         trendsFilter: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.trendsFilter : null)],
         funnelsFilter: [(s) => [s.querySource], (q) => (isFunnelsQuery(q) ? q.funnelsFilter : null)],
@@ -295,7 +296,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             },
         ],
 
-        isDataWarehouseSeries: [
+        hasDataWarehouseSeries: [
             (s) => [s.isTrends, s.series],
             (isTrends, series): boolean => {
                 return isTrends && (series || []).length > 0 && !!series?.some((node) => isDataWarehouseNode(node))
@@ -303,11 +304,17 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         currentDataWarehouseSchemaColumns: [
-            (s) => [s.series, s.isSingleSeries, s.isDataWarehouseSeries, s.isBreakdownSeries, s.dataWarehouseTablesMap],
+            (s) => [
+                s.series,
+                s.isSingleSeries,
+                s.hasDataWarehouseSeries,
+                s.isBreakdownSeries,
+                s.dataWarehouseTablesMap,
+            ],
             (
                 series,
                 isSingleSeries,
-                isDataWarehouseSeries,
+                hasDataWarehouseSeries,
                 isBreakdownSeries,
                 dataWarehouseTablesMap
             ): DatabaseSchemaField[] => {
@@ -315,7 +322,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     !series ||
                     series.length === 0 ||
                     (!isSingleSeries && !isBreakdownSeries) ||
-                    !isDataWarehouseSeries
+                    !hasDataWarehouseSeries
                 ) {
                     return []
                 }
@@ -405,13 +412,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
         validationError: [
             (s) => [s.insightDataError],
-            (insightDataError): string | null => {
-                // We use 512 for query timeouts
-                // Async queries put the error message on data.error_message, while synchronous ones use detail
-                return insightDataError?.status === 400 || insightDataError?.status === 512
-                    ? (insightDataError.detail || insightDataError.data?.error_message)?.replace('Try ', 'Try ') // Add unbreakable space for better line breaking
-                    : null
-            },
+            (insightDataError): string | null => extractValidationError(insightDataError),
         ],
 
         timezone: [(s) => [s.insightData], (insightData) => insightData?.timezone || 'UTC'],
@@ -570,11 +571,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateDisplay: ({ display }) => {
             actions.updateInsightFilter({ display })
         },
-        updateHiddenLegendIndexes: ({ hiddenLegendIndexes }) => {
-            actions.updateInsightFilter({ hiddenLegendIndexes })
-        },
 
-        // data loading side effects i.e. diplaying loading screens for queries with longer duration
+        // data loading side effects i.e. displaying loading screens for queries with longer duration
         loadData: async ({ queryId }, breakpoint) => {
             actions.setTimedOutQueryId(null)
 
@@ -584,7 +582,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 actions.setTimedOutQueryId(queryId)
                 const tags = {
                     kind: values.querySource?.kind,
-                    scene: sceneLogic.isMounted() ? sceneLogic.values.scene : null,
+                    scene: sceneLogic.isMounted() ? sceneLogic.values.activeSceneId : null,
                 }
                 posthog.capture('insight timeout message shown', tags)
             }

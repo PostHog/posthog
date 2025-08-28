@@ -1,19 +1,21 @@
 import './InsightsTable.scss'
 
 import { useActions, useValues } from 'kea'
-import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
-import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
 import { compare as compareFn } from 'natural-orderby'
 import { useMemo } from 'react'
+
+import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
+import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { resultCustomizationsModalLogic } from '~/queries/nodes/InsightViz/resultCustomizationsModalLogic'
+import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { isValidBreakdown } from '~/queries/utils'
 import { ChartDisplayType, ItemMode } from '~/types'
 
@@ -80,13 +82,14 @@ export function InsightsTable({
         breakdownFilter,
         trendsFilter,
         isSingleSeries,
-        hiddenLegendIndexes,
         getTrendsColor,
+        getTrendsHidden,
+        insightData,
     } = useValues(trendsDataLogic(insightProps))
-    const { toggleHiddenLegendIndex, updateHiddenLegendIndexes } = useActions(trendsDataLogic(insightProps))
+    const { toggleResultHidden, toggleAllResultsHidden } = useActions(trendsDataLogic(insightProps))
     const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
     const { setAggregationType } = useActions(insightsTableDataLogic(insightProps))
-    const { hasInsightColors } = useValues(resultCustomizationsModalLogic(insightProps))
+    const { weekStartDay, timezone } = useValues(teamLogic)
 
     const handleSeriesEditClick = (item: IndexedTrendResult): void => {
         const entityFilter = entityFilterLogic.findMounted({
@@ -113,8 +116,8 @@ export function InsightsTable({
                     <SeriesCheckColumnTitle
                         indexedResults={indexedResults}
                         canCheckUncheckSeries={canCheckUncheckSeries}
-                        hiddenLegendIndexes={hiddenLegendIndexes}
-                        updateHiddenLegendIndexes={updateHiddenLegendIndexes}
+                        getTrendsHidden={getTrendsHidden}
+                        toggleAllResultsHidden={toggleAllResultsHidden}
                     />
                 )}
                 <span>Series</span>
@@ -136,8 +139,8 @@ export function InsightsTable({
                 <SeriesCheckColumnItem
                     item={item}
                     canCheckUncheckSeries={canCheckUncheckSeries}
-                    hiddenLegendIndexes={hiddenLegendIndexes}
-                    toggleHiddenLegendIndex={toggleHiddenLegendIndex}
+                    isHidden={getTrendsHidden(item)}
+                    toggleResultHidden={toggleResultHidden}
                     label={<div className="ml-2 font-normal">{label}</div>}
                 />
             ) : (
@@ -201,7 +204,11 @@ export function InsightsTable({
                 )
 
             columns.push({
-                title: <MultipleBreakdownColumnTitle>{breakdown.property?.toString()}</MultipleBreakdownColumnTitle>,
+                title: (
+                    <MultipleBreakdownColumnTitle>
+                        {extractExpressionComment(breakdown.property?.toString())}
+                    </MultipleBreakdownColumnTitle>
+                ),
                 render: (_, item) => {
                     return <BreakdownColumnItem item={item} formatItemBreakdownLabel={formatItemBreakdownLabel} />
                 },
@@ -223,7 +230,7 @@ export function InsightsTable({
         })
     }
 
-    if (hasInsightColors && !isMainInsightView) {
+    if (!isMainInsightView && !embedded) {
         columns.push({
             title: <ColorCustomizationColumnTitle />,
             render: (_, item) => <ColorCustomizationColumnItem item={item} />,
@@ -283,6 +290,9 @@ export function InsightsTable({
                     indexedResults={indexedResults}
                     compare={compareFilter?.compare}
                     interval={interval}
+                    resolvedDateRange={insightData?.resolved_date_range}
+                    timezone={timezone}
+                    weekStartDay={weekStartDay}
                 />
             ),
             render: (_, item: IndexedTrendResult) => {
@@ -292,7 +302,7 @@ export function InsightsTable({
             sorter: (a: IndexedTrendResult, b: IndexedTrendResult) => dataSorter(a, b, index),
             align: 'right',
         }))
-    }, [indexedResults, trendsFilter, isStickiness, compareFilter?.compare, interval])
+    }, [indexedResults, trendsFilter, isStickiness, compareFilter?.compare, interval]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     columns.push(...valueColumns)
 
@@ -302,7 +312,7 @@ export function InsightsTable({
             dataSource={
                 isLegend || isMainInsightView
                     ? indexedResults
-                    : indexedResults.filter((r) => !hiddenLegendIndexes?.includes(r.id))
+                    : indexedResults.filter((dataset) => !getTrendsHidden(dataset))
             }
             embedded={embedded}
             columns={columns}

@@ -1,18 +1,24 @@
-import { lemonToast } from '@posthog/lemon-ui'
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import api from 'lib/api'
 import posthog from 'posthog-js'
-import { getErrorsForFields, SOURCE_DETAILS } from 'scenes/data-warehouse/new/sourceWizardLogic'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
+import api from 'lib/api'
+import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
+import { buildKeaFormDefaultFromSourceDetails, getErrorsForFields } from 'scenes/data-warehouse/new/sourceWizardLogic'
+
+import { SourceConfig } from '~/queries/schema/schema-general'
 import { ExternalDataJob, ExternalDataSchemaStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
+import { externalDataSourcesLogic } from '../../externalDataSourcesLogic'
 import { dataWarehouseSourceSceneLogic } from '../DataWarehouseSourceScene'
 import type { dataWarehouseSourceSettingsLogicType } from './dataWarehouseSourceSettingsLogicType'
 
 export interface DataWarehouseSourceSettingsLogicProps {
     id: string
+    availableSources: Record<string, SourceConfig>
 }
 
 const REFRESH_INTERVAL = 5000
@@ -21,6 +27,10 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
     path(['scenes', 'data-warehouse', 'settings', 'source', 'dataWarehouseSourceSettingsLogic']),
     props({} as DataWarehouseSourceSettingsLogicProps),
     key(({ id }) => id),
+    connect({
+        values: [availableSourcesDataLogic, ['availableSources']],
+        actions: [externalDataSourcesLogic, ['updateSource']],
+    }),
     actions({
         setSourceId: (id: string) => ({ id }),
         reloadSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
@@ -36,8 +46,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                 loadSource: async () => {
                     return await api.externalDataSources.get(values.sourceId)
                 },
-                updateSchema: async (schema: ExternalDataSourceSchema, breakpoint) => {
-                    await breakpoint(500)
+                updateSchema: async (schema: ExternalDataSourceSchema) => {
                     // Optimistic UI updates before sending updates to the backend
                     const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataSource
                     const schemaIndex = clonedSource.schemas.findIndex((n) => n.id === schema.id)
@@ -54,11 +63,6 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                     }
 
                     return source
-                },
-                updateSource: async (source: ExternalDataSource) => {
-                    const updatedSource = await api.externalDataSources.update(values.sourceId, source)
-                    actions.loadSourceSuccess(updatedSource)
-                    return updatedSource
                 },
             },
         ],
@@ -112,22 +116,30 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                 setIsProjectTime: (_, { isProjectTime }) => isProjectTime,
             },
         ],
+        sourceConfigLoading: [
+            false as boolean,
+            {
+                submitSourceConfigRequest: () => true,
+                submitSourceConfigSuccess: () => false,
+                submitSourceConfigFailure: () => false,
+            },
+        ],
     })),
     selectors({
         sourceFieldConfig: [
-            (s) => [s.source],
-            (source) => {
-                if (!source) {
+            (s) => [s.source, s.availableSources],
+            (source, availableSources) => {
+                if (!source || !availableSources) {
                     return null
                 }
 
-                return SOURCE_DETAILS[source.source_type]
+                return availableSources[source.source_type]
             },
         ],
     }),
-    forms(({ values, actions }) => ({
+    forms(({ values, actions, props }) => ({
         sourceConfig: {
-            defaults: {} as Record<string, any>,
+            defaults: buildKeaFormDefaultFromSourceDetails(props.availableSources),
             errors: (sourceValues) => {
                 return getErrorsForFields(values.sourceFieldConfig?.fields ?? [], sourceValues as any)
             },
@@ -160,10 +172,11 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                 }
 
                 try {
-                    const updatedSource = await api.externalDataSources.update(values.sourceId, {
+                    await externalDataSourcesLogic.asyncActions.updateSource({
+                        ...values.source!,
                         job_inputs: newJobInputs,
                     })
-                    actions.loadSourceSuccess(updatedSource)
+                    actions.loadSource()
                     lemonToast.success('Source updated')
                 } catch (e: any) {
                     if (e.message) {

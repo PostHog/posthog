@@ -1,11 +1,14 @@
 import './SessionRecordingPreview.scss'
 
-import { IconBug, IconCursorClick, IconKeyboard, IconLive, IconPinFilled } from '@posthog/icons'
 import clsx from 'clsx'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+
+import { IconBug, IconCursorClick, IconKeyboard, IconLive } from '@posthog/icons'
+
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -14,20 +17,28 @@ import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToN
 import { asDisplay } from 'scenes/persons/person-utils'
 import { SimpleTimeLabel } from 'scenes/session-recordings/components/SimpleTimeLabel'
 import { countryTitleFrom } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
-import { playerSettingsLogic, TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { TimestampFormat, playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { urls } from 'scenes/urls'
 
 import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { SessionRecordingType } from '~/types'
 
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
-import { DEFAULT_RECORDING_FILTERS_ORDER_BY, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
+import {
+    DEFAULT_RECORDING_FILTERS_ORDER_BY,
+    MAX_SELECTED_RECORDINGS,
+    sessionRecordingsPlaylistLogic,
+} from './sessionRecordingsPlaylistLogic'
 
 export interface SessionRecordingPreviewProps {
     recording: SessionRecordingType
     isActive?: boolean
     onClick?: () => void
-    pinned?: boolean
+    /**
+     * Whether to show a sessionRecordingPlaylistLogic selection checkbox on this preview.
+     * @default false
+     */
+    selectable?: boolean
 }
 
 function RecordingDuration({ recordingDuration }: { recordingDuration: number | undefined }): JSX.Element {
@@ -133,14 +144,6 @@ function FirstURL(props: { startUrl: string | undefined }): JSX.Element {
     )
 }
 
-function PinnedIndicator(): JSX.Element | null {
-    return (
-        <Tooltip placement="top-end" title={<>This recording is pinned to this list.</>}>
-            <IconPinFilled className="text-sm text-orange shrink-0" />
-        </Tooltip>
-    )
-}
-
 function RecordingOngoingIndicator(): JSX.Element {
     return (
         <Tooltip title="This recording is still ongoing - we received data within the last 5 minutes.">
@@ -174,15 +177,15 @@ export function UnwatchedIndicator({ otherViewersCount }: { otherViewersCount: n
                     isExcludedFromHideRecordingsMenu
                         ? 'UnwatchedIndicator--primary'
                         : otherViewersCount
-                        ? 'UnwatchedIndicator--secondary'
-                        : 'UnwatchedIndicator--primary'
+                          ? 'UnwatchedIndicator--secondary'
+                          : 'UnwatchedIndicator--primary'
                 )}
                 aria-label={
                     isExcludedFromHideRecordingsMenu
                         ? 'unwatched-recording-by-you-label'
                         : otherViewersCount
-                        ? 'unwatched-recording-by-you-label'
-                        : 'unwatched-recording-by-everyone-label'
+                          ? 'unwatched-recording-by-you-label'
+                          : 'unwatched-recording-by-everyone-label'
                 }
             />
         </Tooltip>
@@ -193,15 +196,41 @@ function durationToShow(recording: SessionRecordingType, order: RecordingsQuery[
     return order === 'active_seconds'
         ? recording.active_seconds
         : order === 'inactive_seconds'
-        ? recording.inactive_seconds
-        : recording.recording_duration
+          ? recording.inactive_seconds
+          : recording.recording_duration
+}
+
+function ItemCheckbox({ recording }: { recording: SessionRecordingType }): JSX.Element {
+    const { selectedRecordingsIds } = useValues(sessionRecordingsPlaylistLogic)
+    const { setSelectedRecordingsIds } = useActions(sessionRecordingsPlaylistLogic)
+
+    return (
+        <LemonCheckbox
+            checked={selectedRecordingsIds.some((s) => s === recording.id)}
+            data-attr="select-recording"
+            aria-label="Select recording"
+            disabledReason={
+                selectedRecordingsIds.length >= MAX_SELECTED_RECORDINGS
+                    ? `Cannot select more than ${MAX_SELECTED_RECORDINGS} recordings at once`
+                    : undefined
+            }
+            onChange={() => {
+                if (selectedRecordingsIds.some((r) => r === recording.id)) {
+                    setSelectedRecordingsIds(selectedRecordingsIds.filter((r) => r !== recording.id))
+                } else {
+                    setSelectedRecordingsIds([...selectedRecordingsIds, recording.id])
+                }
+            }}
+            stopPropagation
+        />
+    )
 }
 
 export function SessionRecordingPreview({
     recording,
     isActive,
     onClick,
-    pinned,
+    selectable = false,
 }: SessionRecordingPreviewProps): JSX.Element {
     const { playlistTimestampFormat } = useValues(playerSettingsLogic)
 
@@ -224,7 +253,8 @@ export function SessionRecordingPreview({
                 )}
                 onClick={() => onClick?.()}
             >
-                <div className="grow overflow-hidden deprecated-space-y-1">
+                {selectable && <ItemCheckbox recording={recording} />}
+                <div className="grow overflow-hidden deprecated-space-y-1 ml-1">
                     <div className="flex items-center justify-between gap-x-0.5">
                         <div className="flex overflow-hidden font-medium ph-no-capture">
                             <span className="truncate">{asDisplay(recording.person)}</span>
@@ -287,11 +317,10 @@ export function SessionRecordingPreview({
                     className={clsx(
                         'min-w-6 flex flex-col gap-x-0.5 items-center',
                         // need different margin if the first item is an icon
-                        recording.ongoing || pinned ? 'mt-1' : 'mt-2'
+                        recording.ongoing ? 'mt-1' : 'mt-2'
                     )}
                 >
                     {recording.ongoing ? <RecordingOngoingIndicator /> : null}
-                    {pinned ? <PinnedIndicator /> : null}
                     {!recording.viewed ? (
                         <UnwatchedIndicator otherViewersCount={recording.viewers?.length || 0} />
                     ) : null}

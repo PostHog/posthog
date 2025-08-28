@@ -1,7 +1,9 @@
-import { Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Fragment } from 'react'
+
+import { Link } from '@posthog/lemon-ui'
+
+import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
@@ -16,7 +18,7 @@ export function ActionsListView({ actions }: ActionsListViewProps): JSX.Element 
     const { selectAction } = useActions(actionsTabLogic)
 
     return (
-        <div className="flex flex-col h-full overflow-y-scroll deprecated-space-y-px mb-2">
+        <div className="flex flex-col h-full overflow-y-auto deprecated-space-y-px mb-2">
             {actions.length ? (
                 actions.map((action, index) => (
                     <Fragment key={action.id}>

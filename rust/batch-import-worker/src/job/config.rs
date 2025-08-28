@@ -204,13 +204,23 @@ impl SinkConfig {
             } => Ok(Box::new(
                 FileEmitter::new(path.clone(), *as_json, *cleanup).await?,
             )),
-            SinkConfig::Kafka(kafka_emitter_config) => Ok(Box::new(
-                // We use the job id as the kafka transactional id, since it's persistent across
-                // e.g. restarts and worker-job-passing, but still allows multiple jobs/workers to
-                // emit to kafka at the same time.
-                KafkaEmitter::new(kafka_emitter_config.clone(), &model.id.to_string(), context)
-                    .await?,
-            )),
+            SinkConfig::Kafka(kafka_emitter_config) => {
+                // resolve logical topic to env var configured topic
+                let actual_topic = context
+                    .config
+                    .resolve_kafka_topic(&kafka_emitter_config.topic)?;
+                let resolved_config = KafkaEmitterConfig {
+                    topic: actual_topic,
+                    send_rate: kafka_emitter_config.send_rate,
+                    transaction_timeout_seconds: kafka_emitter_config.transaction_timeout_seconds,
+                };
+                Ok(Box::new(
+                    // We use the job id as the kafka transactional id, since it's persistent across
+                    // e.g. restarts and worker-job-passing, but still allows multiple jobs/workers to
+                    // emit to kafka at the same time.
+                    KafkaEmitter::new(resolved_config, &model.id.to_string(), context).await?,
+                ))
+            }
         }
     }
 }
@@ -324,13 +334,11 @@ impl DateRangeExportSourceConfig {
                     .secrets
                     .get(key_secret)
                     .ok_or(Error::msg(format!(
-                        "Missing API key as secret {}",
-                        key_secret
+                        "Missing API key as secret {key_secret}"
                     )))?
                     .as_str()
                     .ok_or(Error::msg(format!(
-                        "API key secret {} is not a string",
-                        key_secret
+                        "API key secret {key_secret} is not a string"
                     )))?;
                 AuthConfig::ApiKey {
                     header_name: header_name.clone(),
@@ -342,13 +350,11 @@ impl DateRangeExportSourceConfig {
                     .secrets
                     .get(token_secret)
                     .ok_or(Error::msg(format!(
-                        "Missing bearer token as secret {}",
-                        token_secret
+                        "Missing bearer token as secret {token_secret}"
                     )))?
                     .as_str()
                     .ok_or(Error::msg(format!(
-                        "Bearer token secret {} is not a string",
-                        token_secret
+                        "Bearer token secret {token_secret} is not a string"
                     )))?;
                 AuthConfig::BearerToken {
                     token: token.to_string(),
@@ -362,25 +368,21 @@ impl DateRangeExportSourceConfig {
                     .secrets
                     .get(username_secret)
                     .ok_or(Error::msg(format!(
-                        "Missing username as secret {}",
-                        username_secret
+                        "Missing username as secret {username_secret}",
                     )))?
                     .as_str()
                     .ok_or(Error::msg(format!(
-                        "Username secret {} is not a string",
-                        username_secret
+                        "Username secret {username_secret} is not a string",
                     )))?;
                 let password = secrets
                     .secrets
                     .get(password_secret)
                     .ok_or(Error::msg(format!(
-                        "Missing password as secret {}",
-                        password_secret
+                        "Missing password as secret {password_secret}",
                     )))?
                     .as_str()
                     .ok_or(Error::msg(format!(
-                        "Password secret {} is not a string",
-                        password_secret
+                        "Password secret {password_secret} is not a string",
                     )))?;
                 AuthConfig::BasicAuth {
                     username: username.to_string(),
@@ -392,13 +394,11 @@ impl DateRangeExportSourceConfig {
                     .secrets
                     .get(secret_key_secret)
                     .ok_or(Error::msg(format!(
-                        "Missing secret key as secret {}",
-                        secret_key_secret
+                        "Missing secret key as secret {secret_key_secret}"
                     )))?
                     .as_str()
                     .ok_or(Error::msg(format!(
-                        "Secret key secret {} is not a string",
-                        secret_key_secret
+                        "Secret key secret {secret_key_secret} is not a string"
                     )))?;
                 AuthConfig::MixpanelAuth {
                     secret_key: secret_key.to_string(),

@@ -1,25 +1,25 @@
-import dataclasses
-import inspect
 import sys
-from enum import StrEnum
-from typing import Any, Literal, Optional, Union, get_args
+import inspect
+import dataclasses
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from enum import StrEnum
+from typing import Any, Literal, Optional, Union, get_args
 
-from posthog.hogql.base import Type, Expr, CTE, ConstantType, UnknownType, AST
+from posthog.hogql.base import AST, CTE, ConstantType, Expr, Type, UnknownType
 from posthog.hogql.constants import ConstantDataType, HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
+    DatabaseField,
+    ExpressionField,
+    FieldOrTable,
     FieldTraverser,
     LazyJoin,
+    LazyTable,
+    StringArrayDatabaseField,
     StringJSONDatabaseField,
     Table,
     VirtualTable,
-    LazyTable,
-    FieldOrTable,
-    DatabaseField,
-    StringArrayDatabaseField,
-    ExpressionField,
 )
 from posthog.hogql.errors import NotImplementedError, QueryError, ResolutionError
 
@@ -250,6 +250,8 @@ class SelectQueryType(Type):
     anonymous_tables: list[Union["SelectQueryType", "SelectSetQueryType"]] = field(default_factory=list)
     # the parent select query, if this is a lambda
     parent: Optional[Union["SelectQueryType", "SelectSetQueryType"]] = None
+    # whether this type is related to a lambda scope
+    is_lambda_type: bool = False
 
     def get_alias_for_table_type(self, table_type: TableOrSelectType) -> Optional[str]:
         for key, value in self.tables.items():
@@ -841,13 +843,17 @@ class SelectQuery(Expr):
     view_name: Optional[str] = None
 
     @classmethod
-    def empty(cls) -> "SelectQuery":
+    def empty(cls, *, columns: list[str] | None = None) -> "SelectQuery":
         """Returns an empty SelectQuery that evaluates to no rows.
 
         Creates a query that selects constant 1 with a WHERE clause that is always false,
         effectively returning zero rows while maintaining valid SQL syntax.
         """
-        return SelectQuery(select=[Constant(value=1)], where=Constant(value=False))
+        if columns is None:
+            columns = ["_"]
+        return SelectQuery(
+            select=[Alias(alias=column, expr=Constant(value=1)) for column in columns], where=Constant(value=False)
+        )
 
 
 SetOperator = Literal["UNION ALL", "UNION DISTINCT", "INTERSECT", "INTERSECT DISTINCT", "EXCEPT"]
@@ -911,10 +917,9 @@ class HogQLXAttribute(AST):
 
 
 @dataclass(kw_only=True)
-class HogQLXTag(AST):
+class HogQLXTag(Expr):
     kind: str
     attributes: list[HogQLXAttribute]
-    type: Optional[Type] = None
 
     def to_dict(self):
         return {

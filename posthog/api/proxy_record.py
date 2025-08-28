@@ -1,8 +1,11 @@
 import asyncio
 import hashlib
-import posthoganalytics
+
 from django.conf import settings
+
+import posthoganalytics
 from rest_framework import serializers, status
+from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -13,8 +16,6 @@ from posthog.models.organization import Organization
 from posthog.permissions import OrganizationAdminWritePermissions
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.proxy_service import CreateManagedProxyInputs, DeleteManagedProxyInputs
-
-from rest_framework.response import Response
 
 
 def generate_target_cname(organization_id, domain) -> str:
@@ -28,8 +29,8 @@ def generate_target_cname(organization_id, domain) -> str:
 def _capture_proxy_event(request, record: ProxyRecord, event_type: str) -> None:
     organization = Organization.objects.get(id=record.organization_id)
     posthoganalytics.capture(
-        request.user.distinct_id,
-        f"managed reverse proxy {event_type}",
+        distinct_id=str(request.user.distinct_id),
+        event=f"managed reverse proxy {event_type}",
         properties={
             "proxy_record_id": record.id,
             "domain": record.domain,

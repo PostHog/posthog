@@ -1,24 +1,17 @@
-import { IconCalendar, IconPin, IconPinFilled } from '@posthog/icons'
-import {
-    LemonBadge,
-    LemonBanner,
-    LemonButton,
-    LemonDivider,
-    LemonInput,
-    LemonTable,
-    Link,
-    Tooltip,
-} from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+
+import { IconCalendar, IconPin, IconPinFilled } from '@posthog/icons'
+import { LemonBadge, LemonButton, LemonDivider, LemonInput, LemonTable, Link, Tooltip } from '@posthog/lemon-ui'
+
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconArrowUp } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { IconArrowUp } from 'lib/lemon-ui/icons'
 import { isObject } from 'lib/utils'
 import { SavedSessionRecordingPlaylistsEmptyState } from 'scenes/session-recordings/saved-playlists/SavedSessionRecordingPlaylistsEmptyState'
 import { urls } from 'scenes/urls'
@@ -56,7 +49,7 @@ export function countColumn({
     return {
         dataIndex: 'recordings_counts',
         title: 'Count',
-        tooltip: 'Count of recordings in the playlist',
+        tooltip: 'Count of recordings in the collection',
         isHidden: !showCountColumn,
         width: 0,
         render: function Render(recordings_counts) {
@@ -220,7 +213,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                                     fullWidth
                                     loading={playlistsLoading}
                                 >
-                                    Delete playlist
+                                    Delete collection
                                 </LemonButton>
                             </>
                         }
@@ -232,24 +225,6 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
 
     return (
         <div className="deprecated-space-y-4">
-            <LemonBanner type="info" dismissKey="session-recordings-playlists-banner">
-                We've made some updates!
-                <br />
-                <p className="font-normal">
-                    Playlists used to combine saved filters and pinned recordings, but that sometimes led to confusion.
-                    Now, they are handled separately:
-                    <ul className="list-disc list-inside">
-                        <li>
-                            <Link to={`${urls.replay(ReplayTabs.Home)}?showFilters=true&filtersTab=saved`}>
-                                Saved Filters
-                            </Link>{' '}
-                            stay with filters.
-                        </li>
-                        <li>Collections are simple recording lists — no filters involved.</li>
-                    </ul>
-                    More predictable, less messy!
-                </p>
-            </LemonBanner>
             <div className="flex justify-between gap-2 mb-2 items-center flex-wrap">
                 <LemonInput
                     type="search"

@@ -1,12 +1,14 @@
+import { useActions, useValues } from 'kea'
+import { useState } from 'react'
+
 import { IconX } from '@posthog/icons'
 import { LemonButton, LemonFileInput, lemonToast } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
-import { IconUploadFile } from 'lib/lemon-ui/icons'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
-import { useState } from 'react'
+import { IconUploadFile } from 'lib/lemon-ui/icons'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 export function OrganizationLogo(): JSX.Element {
@@ -34,7 +36,7 @@ export function OrganizationLogo(): JSX.Element {
                 onChange={setFilesToUpload}
                 loading={uploading}
                 value={filesToUpload}
-                disabled={!!restrictionReason}
+                disabledReason={restrictionReason}
                 callToAction={
                     <>
                         <div className="relative">
@@ -80,10 +82,10 @@ export function OrganizationLogo(): JSX.Element {
                     restrictionReason
                         ? restrictionReason
                         : !currentOrganization
-                        ? 'Organization not loaded'
-                        : logoMediaId === currentOrganization.logo_media_id
-                        ? 'Logo unchanged'
-                        : undefined
+                          ? 'Organization not loaded'
+                          : logoMediaId === currentOrganization.logo_media_id
+                            ? 'Logo unchanged'
+                            : undefined
                 }
                 loading={currentOrganizationLoading || uploading}
             >

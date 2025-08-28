@@ -1,7 +1,10 @@
 import { useValues } from 'kea'
 
+import { isNewExperimentResponse } from 'scenes/experiments/experimentLogic'
+
 import {
     CachedExperimentQueryResponse,
+    CachedNewExperimentQueryResponse,
     ExperimentVariantFunnelsBaseStats,
     ExperimentVariantTrendsBaseStats,
 } from '~/queries/schema/schema-general'
@@ -16,6 +19,28 @@ const isExperimentVariantFunnels = (
     return 'success_count' in variant && 'failure_count' in variant
 }
 
+const calculateLegacyExposureCount = (result: CachedExperimentQueryResponse): number => {
+    if (!result.variants) {
+        return -1
+    }
+
+    return (result.variants as (ExperimentVariantTrendsBaseStats | ExperimentVariantFunnelsBaseStats)[]).reduce(
+        (acc: number, variant: ExperimentVariantTrendsBaseStats | ExperimentVariantFunnelsBaseStats) => {
+            if (isExperimentVariantFunnels(variant)) {
+                return acc + variant.success_count + variant.failure_count
+            }
+            return acc + variant.count
+        },
+        0
+    )
+}
+
+const calculateExposureCount = (result: CachedNewExperimentQueryResponse): number =>
+    [result.baseline, ...(result.variant_results || [])].reduce(
+        (acc, { number_of_samples }) => acc + number_of_samples,
+        0
+    )
+
 /**
  * we calculate the exposure difference between the metric results and the breakdown results.
  * we can get exposure count from the experiment logic or the metric results, but this may change in the future.
@@ -24,26 +49,20 @@ const isExperimentVariantFunnels = (
  */
 const calculateExposureDifference = (
     result: CachedExperimentQueryResponse,
-    breakdownResults: FunnelStep[][]
+    breakdownResults: FunnelStep[][] | null
 ): number => {
-    if (result.variants && breakdownResults) {
-        const totalExposureCount = (
-            result.variants as (ExperimentVariantTrendsBaseStats | ExperimentVariantFunnelsBaseStats)[]
-        ).reduce((acc: number, variant: ExperimentVariantTrendsBaseStats | ExperimentVariantFunnelsBaseStats) => {
-            if (isExperimentVariantFunnels(variant)) {
-                return acc + variant.success_count + variant.failure_count
-            }
-            return acc + variant.count
-        }, 0)
+    // calculate the breakdown results total
+    const breakdownResultsTotalExposureCount = breakdownResults
+        ? breakdownResults.reduce((acc, result) => {
+              return acc + result[0].count
+          }, 0)
+        : 0
 
-        const breakdownResultsTotalExposureCount = breakdownResults.reduce((acc, result) => {
-            return acc + result[0].count
-        }, 0)
-
-        return totalExposureCount - breakdownResultsTotalExposureCount
+    if (isNewExperimentResponse(result)) {
+        return calculateExposureCount(result) - breakdownResultsTotalExposureCount
     }
 
-    return -1
+    return calculateLegacyExposureCount(result) - breakdownResultsTotalExposureCount
 }
 
 export const ResultsBreakdownContent = ({
@@ -53,7 +72,7 @@ export const ResultsBreakdownContent = ({
     result: CachedExperimentQueryResponse
     children?: (props: ResultBreakdownRenderProps) => JSX.Element | null
 }): JSX.Element | null => {
-    const { query, breakdownResults, breakdownResultsLoading } = useValues(resultsBreakdownLogic)
+    const { query, breakdownResults, breakdownResultsLoading, breakdownLastRefresh } = useValues(resultsBreakdownLogic)
 
     const exposureDifference = calculateExposureDifference(result, breakdownResults as FunnelStep[][])
 
@@ -66,6 +85,6 @@ export const ResultsBreakdownContent = ({
      * we should use a shared context with props.
      */
     return children && typeof children === 'function'
-        ? children({ query, breakdownResults, breakdownResultsLoading, exposureDifference })
+        ? children({ query, breakdownResults, breakdownResultsLoading, exposureDifference, breakdownLastRefresh })
         : null
 }

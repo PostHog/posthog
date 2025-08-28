@@ -1,26 +1,35 @@
+import { router } from 'kea-router'
+import posthog from 'posthog-js'
+
 import { IconRewindPlay } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
-import { router } from 'kea-router'
+
 import { humanFriendlyNumber } from 'lib/utils'
-import posthog from 'posthog-js'
 import { ResultsBreakdown } from 'scenes/experiments/components/ResultsBreakdown/ResultsBreakdown'
 import { ResultsBreakdownSkeleton } from 'scenes/experiments/components/ResultsBreakdown/ResultsBreakdownSkeleton'
+import { ResultsInsightInfoBanner } from 'scenes/experiments/components/ResultsBreakdown/ResultsInsightInfoBanner'
 import { ResultsQuery } from 'scenes/experiments/components/ResultsBreakdown/ResultsQuery'
 import { getViewRecordingFilters } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
 
-import { CachedExperimentQueryResponse, ExperimentMetric } from '~/queries/schema/schema-general'
+import {
+    CachedExperimentQueryResponse,
+    ExperimentMetric,
+    isExperimentFunnelMetric,
+    isExperimentMeanMetric,
+    isExperimentRatioMetric,
+} from '~/queries/schema/schema-general'
 import { Experiment, FilterLogicalOperator, RecordingUniversalFilters, ReplayTabs } from '~/types'
 
-import { ResultsInsightInfoBanner } from 'scenes/experiments/components/ResultsBreakdown/ResultsInsightInfoBanner'
 import {
-    formatPValue,
+    ExperimentVariantResult,
     formatChanceToWin,
+    formatMetricValue,
+    formatPValue,
+    getIntervalLabel,
+    getVariantInterval,
     isBayesianResult,
     isFrequentistResult,
-    getVariantInterval,
-    getIntervalLabel,
-    ExperimentVariantResult,
 } from '../shared/utils'
 
 export function ResultDetails({
@@ -43,17 +52,18 @@ export function ResultDetails({
             render: (_, item) => <div className="font-semibold">{item.key}</div>,
         },
         {
-            key: 'value',
-            title: metric.metric_type === 'mean' ? 'Mean' : 'Conversion rate',
-            render: (_, item) => {
-                const value = item.sum / item.number_of_samples
-                return metric.metric_type === 'mean' ? value.toFixed(2) : `${(value * 100).toFixed(2)}%`
-            },
+            key: 'total-users',
+            title: 'Total users',
+            render: (_, item) => humanFriendlyNumber(item.number_of_samples),
         },
         {
-            key: 'samples',
-            title: 'Samples',
-            render: (_, item) => humanFriendlyNumber(item.number_of_samples),
+            key: 'value',
+            title: isExperimentMeanMetric(metric)
+                ? 'Mean'
+                : isExperimentRatioMetric(metric)
+                  ? 'Ratio'
+                  : 'Conversion rate',
+            render: (_, item) => formatMetricValue(item, metric),
         },
         {
             key: 'statistical_measure',
@@ -156,21 +166,31 @@ export function ResultDetails({
     return (
         <div className="space-y-2">
             <LemonTable columns={columns} dataSource={dataSource} loading={false} />
-            {metric.metric_type === 'funnel' && (
+            {isExperimentFunnelMetric(metric) && (
                 <ResultsBreakdown
                     result={result}
                     experiment={experiment}
                     metricIndex={metricIndex}
                     isPrimary={!isSecondary}
                 >
-                    {({ query, breakdownResultsLoading, breakdownResults, exposureDifference }) => {
+                    {({
+                        query,
+                        breakdownResultsLoading,
+                        breakdownResults,
+                        exposureDifference,
+                        breakdownLastRefresh,
+                    }) => {
                         return (
                             <>
                                 {breakdownResultsLoading && <ResultsBreakdownSkeleton />}
                                 {query && breakdownResults && (
                                     <>
                                         <ResultsInsightInfoBanner exposureDifference={exposureDifference} />
-                                        <ResultsQuery query={query} breakdownResults={breakdownResults} />
+                                        <ResultsQuery
+                                            query={query}
+                                            breakdownResults={breakdownResults}
+                                            breakdownLastRefresh={breakdownLastRefresh}
+                                        />
                                     </>
                                 )}
                             </>

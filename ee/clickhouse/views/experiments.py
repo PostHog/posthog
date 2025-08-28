@@ -2,31 +2,31 @@ from enum import Enum
 from typing import Any, Literal
 
 from django.db.models import Q, QuerySet
+from django.dispatch import receiver
+
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from ee.clickhouse.queries.experiments.utils import requires_flag_warning
-from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
-from ee.clickhouse.views.experiment_saved_metrics import (
-    ExperimentToSavedMetricSerializer,
-)
+from posthog.schema import ExperimentEventExposureConfig
+
 from posthog.api.cohort import CohortSerializer
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.models.experiment import (
-    Experiment,
-    ExperimentHoldout,
-    ExperimentSavedMetric,
-)
+from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
+from posthog.models.signals import model_activity_signal
 from posthog.models.team.team import Team
-from posthog.schema import ExperimentEventExposureConfig
+
+from ee.clickhouse.queries.experiments.utils import requires_flag_warning
+from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
+from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
 
 class ExperimentSerializer(serializers.ModelSerializer):
@@ -136,43 +136,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
         return value
 
-    def validate_metrics(self, value):
-        EXPERIMENT_METRIC_QTY_LIMIT = 10  # This should match frontend constant
-        if value and len(value) > EXPERIMENT_METRIC_QTY_LIMIT:
-            raise ValidationError(f"You can only have up to {EXPERIMENT_METRIC_QTY_LIMIT} primary metrics")
-        return value
-
-    def validate_metrics_secondary(self, value):
-        EXPERIMENT_METRIC_QTY_LIMIT = 10  # This should match frontend constant
-        if value and len(value) > EXPERIMENT_METRIC_QTY_LIMIT:
-            raise ValidationError(f"You can only have up to {EXPERIMENT_METRIC_QTY_LIMIT} secondary metrics")
-        return value
-
     def validate(self, data):
-        # Validate that total metrics (regular + shared) don't exceed limits
-        metrics = data.get("metrics", [])
-        metrics_secondary = data.get("metrics_secondary", [])
-        saved_metrics_ids = data.get("saved_metrics_ids", [])
-
-        if saved_metrics_ids:
-            EXPERIMENT_METRIC_QTY_LIMIT = 10  # This should match frontend constant
-            primary_shared_count = len([m for m in saved_metrics_ids if m.get("metadata", {}).get("type") == "primary"])
-            secondary_shared_count = len(
-                [m for m in saved_metrics_ids if m.get("metadata", {}).get("type") == "secondary"]
-            )
-
-            total_primary = len(metrics) + primary_shared_count
-            total_secondary = len(metrics_secondary) + secondary_shared_count
-
-            if total_primary > EXPERIMENT_METRIC_QTY_LIMIT:
-                raise ValidationError(
-                    f"You can only have up to {EXPERIMENT_METRIC_QTY_LIMIT} primary metrics (including shared metrics)"
-                )
-            if total_secondary > EXPERIMENT_METRIC_QTY_LIMIT:
-                raise ValidationError(
-                    f"You can only have up to {EXPERIMENT_METRIC_QTY_LIMIT} secondary metrics (including shared metrics)"
-                )
-
         # Validate start/end dates
         start_date = data.get("start_date")
         end_date = data.get("end_date")
@@ -233,9 +197,10 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
         variants = []
         aggregation_group_type_index = None
-        if validated_data["parameters"]:
-            variants = validated_data["parameters"].get("feature_flag_variants", [])
-            aggregation_group_type_index = validated_data["parameters"].get("aggregation_group_type_index")
+        if "parameters" in validated_data:
+            if validated_data["parameters"] is not None:
+                variants = validated_data["parameters"].get("feature_flag_variants", [])
+                aggregation_group_type_index = validated_data["parameters"].get("aggregation_group_type_index")
 
         request = self.context["request"]
         validated_data["created_by"] = request.user
@@ -272,6 +237,11 @@ class ExperimentSerializer(serializers.ModelSerializer):
                 "active": not is_draft,
                 "creation_context": "experiments",
             }
+
+            # Pass ensure_experience_continuity from experiment parameters
+            parameters = validated_data.get("parameters") or {}
+            if parameters.get("ensure_experience_continuity") is not None:
+                feature_flag_data["ensure_experience_continuity"] = parameters["ensure_experience_continuity"]
             if validated_data.get("_create_in_folder") is not None:
                 feature_flag_data["_create_in_folder"] = validated_data["_create_in_folder"]
             feature_flag_serializer = FeatureFlagSerializer(
@@ -537,6 +507,63 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
         return Response({"result": warning})
 
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def duplicate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        source_experiment: Experiment = self.get_object()
+
+        # Allow overriding the feature flag key from the request
+        feature_flag_key = request.data.get("feature_flag_key", source_experiment.feature_flag.key)
+
+        # Generate a unique name for the duplicate
+        base_name = f"{source_experiment.name} (Copy)"
+        duplicate_name = base_name
+        counter = 1
+        while Experiment.objects.filter(team_id=self.team_id, name=duplicate_name, deleted=False).exists():
+            duplicate_name = f"{base_name} {counter}"
+            counter += 1
+
+        # Prepare saved metrics data for the serializer
+        saved_metrics_data = []
+        for experiment_to_saved_metric in source_experiment.experimenttosavedmetric_set.all():
+            saved_metrics_data.append(
+                {
+                    "id": experiment_to_saved_metric.saved_metric.id,
+                    "metadata": experiment_to_saved_metric.metadata,
+                }
+            )
+
+        # Prepare data for duplication
+        duplicate_data = {
+            "name": duplicate_name,
+            "description": source_experiment.description,
+            "type": source_experiment.type,
+            "parameters": source_experiment.parameters,
+            "filters": source_experiment.filters,
+            "metrics": source_experiment.metrics,
+            "metrics_secondary": source_experiment.metrics_secondary,
+            "stats_config": source_experiment.stats_config,
+            "exposure_criteria": source_experiment.exposure_criteria,
+            "saved_metrics_ids": saved_metrics_data,
+            "feature_flag_key": feature_flag_key,  # Use provided key or fall back to existing
+            # Reset fields for new experiment
+            "start_date": None,
+            "end_date": None,
+            "archived": False,
+            "deleted": False,
+        }
+
+        # Create the duplicate experiment using the serializer
+        duplicate_serializer = ExperimentSerializer(
+            data=duplicate_data,
+            context=self.get_serializer_context(),
+        )
+        duplicate_serializer.is_valid(raise_exception=True)
+        duplicate_experiment = duplicate_serializer.save()
+
+        return Response(
+            ExperimentSerializer(duplicate_experiment, context=self.get_serializer_context()).data, status=201
+        )
+
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def create_exposure_cohort_for_experiment(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment = self.get_object()
         flag = getattr(experiment, "feature_flag", None)
@@ -621,3 +648,21 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
         experiment.exposure_cohort = cohort
         experiment.save(update_fields=["exposure_cohort"])
         return Response({"cohort": cohort_serializer.data}, status=201)
+
+
+@receiver(model_activity_signal, sender=Experiment)
+def handle_experiment_change(sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs):
+    log_activity(
+        organization_id=after_update.team.organization_id,
+        team_id=after_update.team_id,
+        user=after_update.created_by
+        if activity == "created"
+        else getattr(after_update, "last_modified_by", after_update.created_by),
+        was_impersonated=was_impersonated,
+        item_id=after_update.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update), name=after_update.name
+        ),
+    )

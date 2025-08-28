@@ -1,8 +1,8 @@
-import { Meta, StoryFn } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 import { useActions } from 'kea'
-import { router } from 'kea-router'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useEffect } from 'react'
+
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -13,21 +13,24 @@ import { RevenueAnalyticsGroupBy } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator, RevenueAnalyticsPropertyFilter } from '~/types'
 
 import databaseSchemaMock from './__mocks__/DatabaseSchemaQuery.json'
+import revenueAnalyticsGrossRevenueQueryMock from './__mocks__/RevenueAnalyticsGrossRevenueQuery.json'
 import revenueAnalyticsGrowthRateMock from './__mocks__/RevenueAnalyticsGrowthRateQuery.json'
-import RevenueAnalyticsGrossRevenueQueryMock from './__mocks__/RevenueAnalyticsGrossRevenueQuery.json'
+import revenueAnalyticsMRRQueryMock from './__mocks__/RevenueAnalyticsMRRQuery.json'
+import revenueAnalyticsMetricsQueryMock from './__mocks__/RevenueAnalyticsMetricsQuery.json'
 import revenueAnalyticsOverviewMock from './__mocks__/RevenueAnalyticsOverviewQuery.json'
 import revenueAnalyticsTopCustomersMock from './__mocks__/RevenueAnalyticsTopCustomersQuery.json'
 import { revenueAnalyticsLogic } from './revenueAnalyticsLogic'
 
 const meta: Meta = {
+    component: App,
     title: 'Scenes-App/Revenue Analytics',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
-        featureFlags: [FEATURE_FLAGS.REVENUE_ANALYTICS, FEATURE_FLAGS.REVENUE_ANALYTICS_MRR],
+        featureFlags: [FEATURE_FLAGS.REVENUE_ANALYTICS, FEATURE_FLAGS.MRR_BREAKDOWN_REVENUE_ANALYTICS],
+        pageUrl: urls.revenueAnalytics(),
         testOptions: {
-            includeNavigationInSnapshot: true,
             waitForLoadersToDisappear: true,
         },
     },
@@ -53,12 +56,16 @@ const meta: Meta = {
                         return [200, databaseSchemaMock]
                     } else if (queryKind === 'RevenueAnalyticsGrowthRateQuery') {
                         return [200, revenueAnalyticsGrowthRateMock]
-                    } else if (queryKind === 'RevenueAnalyticsTopCustomersQuery') {
-                        return [200, revenueAnalyticsTopCustomersMock]
+                    } else if (queryKind === 'RevenueAnalyticsMetricsQuery') {
+                        return [200, revenueAnalyticsMetricsQueryMock]
                     } else if (queryKind === 'RevenueAnalyticsOverviewQuery') {
                         return [200, revenueAnalyticsOverviewMock]
                     } else if (queryKind === 'RevenueAnalyticsGrossRevenueQuery') {
-                        return [200, RevenueAnalyticsGrossRevenueQueryMock]
+                        return [200, revenueAnalyticsGrossRevenueQueryMock]
+                    } else if (queryKind === 'RevenueAnalyticsMRRQuery') {
+                        return [200, revenueAnalyticsMRRQueryMock]
+                    } else if (queryKind === 'RevenueAnalyticsTopCustomersQuery') {
+                        return [200, revenueAnalyticsTopCustomersMock]
                     }
                 },
             },
@@ -79,19 +86,11 @@ export function RevenueAnalyticsDashboard(): JSX.Element {
         useActions(revenueAnalyticsLogic)
 
     useEffect(() => {
-        // Open the revenue analytics dashboard page
-        router.actions.push(urls.revenueAnalytics())
-
         setGrowthRateDisplayMode('table')
         setTopCustomersDisplayMode('table')
         setRevenueAnalyticsFilters([PRODUCT_A_PROPERTY_FILTER])
         setGroupBy([RevenueAnalyticsGroupBy.PRODUCT])
     }, [setGrowthRateDisplayMode, setTopCustomersDisplayMode, setRevenueAnalyticsFilters, setGroupBy])
-
-    useEffect(() => {
-        // Open the revenue analytics dashboard page
-        router.actions.push(urls.revenueAnalytics())
-    }, [])
 
     return <App />
 }
@@ -115,9 +114,6 @@ export function RevenueAnalyticsDashboardSyncInProgress(): JSX.Element {
     })
 
     useEffect(() => {
-        // Open the revenue analytics dashboard page
-        router.actions.push(urls.revenueAnalytics())
-
         setGrowthRateDisplayMode('line')
         setTopCustomersDisplayMode('line')
         setRevenueAnalyticsFilters([PRODUCT_A_PROPERTY_FILTER])
@@ -127,14 +123,6 @@ export function RevenueAnalyticsDashboardSyncInProgress(): JSX.Element {
     return <App />
 }
 
-export const RevenueAnalyticsDashboardWithoutFeatureFlag: StoryFn = () => {
-    useEffect(() => {
-        router.actions.push(urls.revenueAnalytics())
-    }, [])
-
-    return <App />
-}
-RevenueAnalyticsDashboardWithoutFeatureFlag.parameters = {
-    ...meta.parameters,
-    featureFlags: [],
+export const RevenueAnalyticsDashboardWithoutFeatureFlag: StoryObj<typeof meta> = {
+    parameters: { featureFlags: [] },
 }

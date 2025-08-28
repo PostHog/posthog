@@ -1,50 +1,46 @@
-import datetime as dt
 import math
+import datetime as dt
 from dataclasses import dataclass, field
-from enum import auto, StrEnum
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Optional,
-    cast,
-)
+from enum import StrEnum, auto
+from typing import TYPE_CHECKING, Any, Optional, cast
 from urllib.parse import urlencode, urlparse, urlunparse
 from zoneinfo import ZoneInfo
 
 import pytz
 
-from posthog.demo.matrix.models import Effect, SimPerson, SimSessionIntent, EVENT_AUTOCAPTURE
+from posthog.demo.matrix.models import EVENT_AUTOCAPTURE, Effect, SimPerson, SimSessionIntent
+
 from .taxonomy import (
-    EVENT_SIGNED_UP,
-    EVENT_LOGGED_IN,
-    EVENT_UPLOADED_FILE,
-    EVENT_DOWNLOADED_FILE,
     EVENT_DELETED_FILE,
-    EVENT_SHARED_FILE_LINK,
-    EVENT_UPGRADED_PLAN,
-    EVENT_PAID_BILL,
     EVENT_DOWNGRADED_PLAN,
+    EVENT_DOWNLOADED_FILE,
     EVENT_INVITED_TEAM_MEMBER,
-    EVENT_REMOVED_TEAM_MEMBER,
+    EVENT_LOGGED_IN,
     EVENT_LOGGED_OUT,
+    EVENT_PAID_BILL,
+    EVENT_REMOVED_TEAM_MEMBER,
+    EVENT_SHARED_FILE_LINK,
+    EVENT_SIGNED_UP,
+    EVENT_UPGRADED_PLAN,
+    EVENT_UPLOADED_FILE,
+    GROUP_TYPE_ACCOUNT,
+    NEW_SIGNUP_PAGE_FLAG_KEY,
+    NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT,
+    SIGNUP_SUCCESS_RATE_CONTROL,
+    SIGNUP_SUCCESS_RATE_TEST,
+    URL_ACCOUNT_BILLING,
+    URL_ACCOUNT_SETTINGS,
+    URL_ACCOUNT_TEAM,
+    URL_FILES,
     URL_HOME,
-    URL_SIGNUP,
     URL_LOGIN,
     URL_MARIUS_TECH_TIPS,
     URL_PRICING,
-    URL_FILES,
-    URL_ACCOUNT_SETTINGS,
-    URL_ACCOUNT_BILLING,
-    URL_ACCOUNT_TEAM,
-    NEW_SIGNUP_PAGE_FLAG_KEY,
-    NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT,
-    SIGNUP_SUCCESS_RATE_TEST,
-    SIGNUP_SUCCESS_RATE_CONTROL,
-    GROUP_TYPE_ACCOUNT,
-    dyn_url_file,
-    dyn_url_invite,
     URL_PRODUCT_AD_LINK_1,
     URL_PRODUCT_AD_LINK_2,
+    URL_SIGNUP,
+    dyn_url_file,
+    dyn_url_invite,
 )
 
 if TYPE_CHECKING:
@@ -201,6 +197,19 @@ class HedgeboxPerson(SimPerson):
             self.country_code = (
                 "US" if self.cluster.random.random() < 0.7132 else self.cluster.address_provider.country_code()
             )
+            # mimesis doesn't support choosing cities in a specific country, so these will be pretty odd until they fix this
+            self.region = (
+                "California"
+                if self.country_code == "US" and self.cluster.random.random() < 0.5
+                else self.cluster.address_provider.region()
+            )
+            self.city = (
+                "San Francisco"
+                if self.region == "California" and self.cluster.random.random() < 0.3
+                else self.cluster.address_provider.city()
+            )
+            self.language = "en-GB" if self.country_code == "GB" else "en-US"
+
             try:  # Some tiny regions aren't in pytz - we want to omit those
                 self.timezone = self.cluster.random.choice(pytz.country_timezones[self.country_code])
             except KeyError:

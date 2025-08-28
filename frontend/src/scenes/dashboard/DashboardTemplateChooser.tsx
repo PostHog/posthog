@@ -1,13 +1,13 @@
 import './DashboardTemplateChooser.scss'
 
-import { LemonTag } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCoverImage'
-import { openSaveToModal } from 'lib/components/FileSystem/SaveTo/saveToLogic'
-import { Spinner } from 'lib/lemon-ui/Spinner'
-import BlankDashboardHog from 'public/blank-dashboard-hog.png'
 import { useState } from 'react'
+
+import { LemonTag } from '@posthog/lemon-ui'
+
+import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCoverImage'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import {
     DashboardTemplateProps,
     dashboardTemplatesLogic,
@@ -15,6 +15,8 @@ import {
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
 import { DashboardTemplateType, TemplateAvailabilityContext } from '~/types'
+
+import BlankDashboardHog from 'public/blank-dashboard-hog.png'
 
 export function DashboardTemplateChooser({
     scope = 'default',
@@ -32,8 +34,6 @@ export function DashboardTemplateChooser({
         addDashboard,
         setIsLoading,
         showVariableSelectModal,
-        hideNewDashboardModal,
-        showNewDashboardModal,
     } = useActions(newDashboardLogic)
 
     return (
@@ -51,19 +51,10 @@ export function DashboardTemplateChooser({
                                 return
                             }
                             setIsLoading(true)
-                            hideNewDashboardModal()
-                            openSaveToModal({
-                                defaultFolder: 'Unfiled/Dashboards',
-                                callback: (folder) =>
-                                    addDashboard({
-                                        name: 'New Dashboard',
-                                        show: true,
-                                        ...(typeof folder === 'string' ? { _create_in_folder: folder } : {}),
-                                    }),
-                                cancelCallback: () => {
-                                    setIsLoading(false)
-                                    showNewDashboardModal()
-                                },
+                            addDashboard({
+                                name: 'New Dashboard',
+                                show: true,
+                                _create_in_folder: 'Unfiled/Dashboards',
                             })
                         }}
                         index={0}

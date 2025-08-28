@@ -1257,6 +1257,7 @@ export const dashboard: DashboardType = {
     ],
     created_at: '2022-06-29T10:18:57.707542Z',
     created_by: null,
+    last_accessed_at: null,
     is_shared: true,
     deleted: false,
     creation_mode: 'default',

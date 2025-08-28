@@ -1,17 +1,15 @@
 # This module is responsible for adding tags/metadata to outgoing clickhouse queries in a thread-safe manner
-import contextvars
 import uuid
-from enum import StrEnum
+import contextvars
 from collections.abc import Generator
 from contextlib import contextmanager, suppress
-
-from pydantic import BaseModel, ConfigDict
+from enum import StrEnum
 from typing import Any, Optional
 
 # from posthog.clickhouse.client.connection import Workload
 # from posthog.schema import PersonsOnEventsMode
-
 from cachetools import cached
+from pydantic import BaseModel, ConfigDict
 
 
 class AccessMethod(StrEnum):
@@ -35,6 +33,9 @@ class Feature(StrEnum):
     QUERY = "query"
     INSIGHT = "insight"
     DASHBOARD = "dashboard"
+    CACHE_WARMUP = "cache_warmup"
+    DATA_MODELING = "data_modeling"
+    IMPORT_PIPELINE = "import_pipeline"
 
 
 class TemporalTags(BaseModel):
@@ -53,18 +54,43 @@ class TemporalTags(BaseModel):
     model_config = ConfigDict(validate_assignment=True, use_enum_values=True)
 
 
+class DagsterTags(BaseModel):
+    """
+    Tags for Dagster runs
+
+    Check: https://docs.dagster.io/api/dagster/internals#dagster.DagsterRun
+    """
+
+    job_name: Optional[str] = None
+    run_id: Optional[str] = None
+    tags: Optional[dict[str, str]] = None
+    root_run_id: Optional[str] = None
+    parent_run_id: Optional[str] = None
+    job_snapshot_id: Optional[str] = None
+    execution_plan_snapshot_id: Optional[str] = None
+
+    op_name: Optional[str] = None
+    asset_key: Optional[str] = None
+
+
 class QueryTags(BaseModel):
     team_id: Optional[int] = None
     user_id: Optional[int] = None
     access_method: Optional[AccessMethod] = None
+    api_key_mask: Optional[str] = None
+    api_key_label: Optional[str] = None
     org_id: Optional[uuid.UUID] = None
     product: Optional[Product] = None
+
+    # at this moment: request for HTTP request, celery, dagster and temporal are used, please don't use others.
     kind: Optional[str] = None
     id: Optional[str] = None
     session_id: Optional[uuid.UUID] = None
 
     # temporalio tags
     temporal: Optional[TemporalTags] = None
+    # dagster specific tags
+    dagster: Optional[DagsterTags] = None
 
     query: Optional[object] = None
     query_settings: Optional[object] = None
@@ -91,6 +117,10 @@ class QueryTags(BaseModel):
     cohort_id: Optional[int] = None
     entity_math: Optional[list[str]] = None
 
+    # replays
+    replay_playlist_id: Optional[int] = None
+
+    # experiments
     experiment_feature_flag_key: Optional[str] = None
     experiment_id: Optional[int] = None
     experiment_name: Optional[str] = None
@@ -124,9 +154,9 @@ class QueryTags(BaseModel):
     user_email: Optional[str] = None
 
     # constant query tags
-    git_commit: str
-    container_hostname: str
-    service_name: str
+    git_commit: Optional[str] = None
+    container_hostname: Optional[str] = None
+    service_name: Optional[str] = None
 
     model_config = ConfigDict(validate_assignment=True, use_enum_values=True)
 
@@ -138,6 +168,11 @@ class QueryTags(BaseModel):
         self.kind = "temporal"
         self.temporal = temporal_tags
 
+    def with_dagster(self, dagster_tags: DagsterTags):
+        """Tags for dagster runs and activities."""
+        self.kind = "dagster"
+        self.dagster = dagster_tags
+
     def to_json(self) -> str:
         return self.model_dump_json(exclude_none=True)
 
@@ -148,7 +183,7 @@ query_tags: contextvars.ContextVar = contextvars.ContextVar("query_tags")
 @cached(cache={})
 def __get_constant_tags() -> dict[str, str]:
     # import locally to avoid circular imports
-    from posthog.settings import CONTAINER_HOSTNAME, TEST, OTEL_SERVICE_NAME
+    from posthog.settings import CONTAINER_HOSTNAME, OTEL_SERVICE_NAME, TEST
 
     if TEST:
         return {"git_commit": "test", "container_hostname": "test", "service_name": "test"}

@@ -1,8 +1,12 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
+
+import { LemonTag } from '@posthog/lemon-ui'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { campaignsLogic } from './campaignsLogic'
@@ -19,6 +23,16 @@ export function CampaignsTable(): JSX.Element {
             render: (_, item) => {
                 return (
                     <LemonTableLink to={urls.messagingCampaign(item.id)} title={item.name} description={item.status} />
+                )
+            },
+        },
+        {
+            title: 'Status',
+            render: (_, item) => {
+                return (
+                    <LemonTag type={item.status === 'active' ? 'success' : 'default'}>
+                        {capitalizeFirstLetter(item.status)}
+                    </LemonTag>
                 )
             },
         },

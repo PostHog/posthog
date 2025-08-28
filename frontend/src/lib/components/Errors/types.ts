@@ -13,7 +13,24 @@ export interface ErrorTrackingException {
     }
 }
 
-export type ErrorTrackingRuntime = 'web' | 'python' | 'node' | 'unknown'
+export type ErrorTrackingRuntime =
+    | 'web'
+    | 'python'
+    | 'node'
+    | 'go'
+    | 'rust'
+    | 'ruby'
+    | 'php'
+    | 'java'
+    | 'react-native'
+    | 'android'
+    | 'ios'
+    | 'elixir'
+    | 'swift'
+    | 'dart'
+    | 'flutter'
+    | 'dotnet'
+    | 'unknown'
 
 interface ErrorTrackingRawStackTrace {
     type: 'raw'
@@ -83,7 +100,7 @@ export type FingerprintRecordPart = FingerprintManual | FingerprintFrame | Finge
 
 export interface ExceptionAttributes {
     ingestionErrors?: string[]
-    runtime: ErrorTrackingRuntime
+    runtime?: ErrorTrackingRuntime
     type?: string
     value?: string
     synthetic?: boolean
@@ -96,7 +113,7 @@ export interface ExceptionAttributes {
     sentryUrl?: string
     level?: string
     url?: string
-    handled: boolean
+    handled?: boolean
 }
 
 export type SymbolSetStatus = 'valid' | 'invalid'

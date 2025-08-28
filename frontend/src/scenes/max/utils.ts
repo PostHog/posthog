@@ -1,26 +1,26 @@
 import { decodeParams, encodeParams } from 'kea-router'
+
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils'
 
 import {
+    AnyAssistantGeneratedQuery,
+    AnyAssistantSupportedQuery,
     AssistantMessage,
     AssistantMessageType,
     AssistantToolCallMessage,
     FailureMessage,
     HumanMessage,
+    NotebookUpdateMessage,
     ReasoningMessage,
     RootAssistantMessage,
     VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
-import {
-    AssistantFunnelsQuery,
-    AssistantHogQLQuery,
-    AssistantRetentionQuery,
-    AssistantTrendsQuery,
-} from '~/queries/schema/schema-assistant-queries'
 import { FunnelsQuery, HogQLQuery, RetentionQuery, TrendsQuery } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isHogQLQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
-import { SidePanelTab } from '~/types'
+import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel, SidePanelTab } from '~/types'
+
+import { MaxActionContext, MaxContextType, MaxDashboardContext, MaxEventContext, MaxInsightContext } from './maxTypes'
 
 export function isReasoningMessage(message: RootAssistantMessage | undefined | null): message is ReasoningMessage {
     return message?.type === AssistantMessageType.Reasoning
@@ -50,31 +50,23 @@ export function isFailureMessage(message: RootAssistantMessage | undefined | nul
     return message?.type === AssistantMessageType.Failure
 }
 
-// The cast function below look like no-ops, but they're here to ensure AssistantFooQuery types stay compatible
-// with their respective FooQuery types. If an incompatibility arises, TypeScript will shout here
-function castAssistantTrendsQuery(query: AssistantTrendsQuery): TrendsQuery {
-    return query
+export function isNotebookUpdateMessage(
+    message: RootAssistantMessage | undefined | null
+): message is NotebookUpdateMessage {
+    return message?.type === AssistantMessageType.Notebook
 }
-function castAssistantFunnelsQuery(query: AssistantFunnelsQuery): FunnelsQuery {
-    return query
-}
-function castAssistantRetentionQuery(query: AssistantRetentionQuery): RetentionQuery {
-    return query
-}
-function castAssistantHogQLQuery(query: AssistantHogQLQuery): HogQLQuery {
-    return query
-}
+
 export function castAssistantQuery(
-    query: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
+    query: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery
 ): TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery {
     if (isTrendsQuery(query)) {
-        return castAssistantTrendsQuery(query)
+        return query
     } else if (isFunnelsQuery(query)) {
-        return castAssistantFunnelsQuery(query)
+        return query
     } else if (isRetentionQuery(query)) {
-        return castAssistantRetentionQuery(query)
+        return query
     } else if (isHogQLQuery(query)) {
-        return castAssistantHogQLQuery(query)
+        return query
     }
     throw new Error(`Unsupported query type: ${query.kind}`)
 }
@@ -165,4 +157,45 @@ export function generateBurstPoints(spikeCount: number, spikiness: number): stri
     }
 
     return points.trim()
+}
+
+// Utility functions for transforming data to max context
+export const insightToMaxContext = (insight: Partial<QueryBasedInsightModel>): MaxInsightContext => {
+    const source = (insight.query as any)?.source
+    return {
+        type: MaxContextType.INSIGHT,
+        id: insight.short_id!,
+        name: insight.name || insight.derived_name,
+        description: insight.description,
+        query: source,
+    }
+}
+
+export const dashboardToMaxContext = (dashboard: DashboardType<QueryBasedInsightModel>): MaxDashboardContext => {
+    return {
+        type: MaxContextType.DASHBOARD,
+        id: dashboard.id,
+        name: dashboard.name,
+        description: dashboard.description,
+        insights: dashboard.tiles.filter((tile) => tile.insight).map((tile) => insightToMaxContext(tile.insight!)),
+        filters: dashboard.filters,
+    }
+}
+
+export const eventToMaxContextPayload = (event: EventDefinition): MaxEventContext => {
+    return {
+        type: MaxContextType.EVENT,
+        id: event.id,
+        name: event.name,
+        description: event.description,
+    }
+}
+
+export const actionToMaxContextPayload = (action: ActionType): MaxActionContext => {
+    return {
+        type: MaxContextType.ACTION,
+        id: action.id,
+        name: action.name || `Action ${action.id}`,
+        description: action.description || '',
+    }
 }

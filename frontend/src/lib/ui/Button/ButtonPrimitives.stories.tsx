@@ -1,5 +1,7 @@
-import { IconGear, IconSearch } from '@posthog/icons'
 import type { Meta } from '@storybook/react'
+
+import { IconGear, IconSearch } from '@posthog/icons'
+
 import { Link } from 'lib/lemon-ui/Link/Link'
 import {
     DropdownMenu,
@@ -25,7 +27,15 @@ export function Default(): JSX.Element {
     return (
         <div className="flex flex-col gap-4 max-w-lg">
             <ButtonPrimitive variant="outline" size="base">
-                Button base
+                Default
+            </ButtonPrimitive>
+
+            <ButtonPrimitive variant="outline" size="base">
+                Outline
+            </ButtonPrimitive>
+
+            <ButtonPrimitive variant="danger" size="base">
+                Danger
             </ButtonPrimitive>
 
             <ButtonPrimitive size="base" disabled>

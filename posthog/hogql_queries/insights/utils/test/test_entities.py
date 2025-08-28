@@ -8,6 +8,7 @@ from posthog.hogql.visitor import clear_locations
 from posthog.hogql_queries.insights.utils.entities import entity_to_expr, is_equal, is_superset
 from posthog.models.action.action import Action
 from posthog.models.team.team import Team
+
 from posthog.schema import (
     ActionsNode,
     EmptyPropertyFilter,
@@ -19,6 +20,7 @@ from posthog.schema import (
 from posthog.test.base import BaseTest
 from posthog.types import EntityNode
 
+from posthog.hogql_queries.insights.utils.entities import is_equal, is_superset
 
 testdata_equals = [
     (EventsNode(), EventsNode(), True),

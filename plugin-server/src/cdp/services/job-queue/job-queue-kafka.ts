@@ -3,7 +3,6 @@
  * To make this easier this class is designed to abstract the queue as much as possible from
  * the underlying implementation.
  */
-
 import { Message } from 'node-rdkafka'
 import { compress, uncompress } from 'snappy'
 
@@ -112,10 +111,6 @@ export class CyclotronJobQueueKafka {
         const invocations = invocationResults.reduce((acc, res) => {
             if (res.finished) {
                 return acc
-            }
-
-            if (res.invocation.queue === 'fetch' && !res.invocation.queueParameters) {
-                throw new Error('Fetch job has no queue parameters')
             }
 
             return [...acc, res.invocation]

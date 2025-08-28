@@ -1,13 +1,14 @@
 import { useValues } from 'kea'
+import { useCallback } from 'react'
+
 import { ErrorEventType } from 'lib/components/Errors/types'
 import { dayjs } from 'lib/dayjs'
-import { useCallback } from 'react'
 
 import { ErrorTag } from '../components/ErrorTag'
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
 
 export function useErrorTagRenderer(): (evt: ErrorEventType | null) => JSX.Element {
-    const { lastSeen, firstSeenEvent, selectedEvent } = useValues(errorTrackingIssueSceneLogic)
+    const { lastSeen, firstSeen, selectedEvent } = useValues(errorTrackingIssueSceneLogic)
     return useCallback(
         (evt: ErrorEventType | null) => {
             if (!evt) {
@@ -16,7 +17,7 @@ export function useErrorTagRenderer(): (evt: ErrorEventType | null) => JSX.Eleme
             if (lastSeen && evt.timestamp && dayjs(evt.timestamp).isSame(lastSeen)) {
                 return <ErrorTag color="red" label="Last Seen" />
             }
-            if (firstSeenEvent && firstSeenEvent.uuid == evt.uuid) {
+            if (firstSeen && evt.timestamp && dayjs(evt.timestamp).isSame(firstSeen)) {
                 return <ErrorTag color="blue" label="First Seen" />
             }
             if (selectedEvent && selectedEvent.uuid == evt.uuid) {
@@ -24,6 +25,6 @@ export function useErrorTagRenderer(): (evt: ErrorEventType | null) => JSX.Eleme
             }
             return <></>
         },
-        [lastSeen, firstSeenEvent, selectedEvent]
+        [lastSeen, firstSeen, selectedEvent]
     )
 }

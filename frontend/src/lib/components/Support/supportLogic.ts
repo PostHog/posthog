@@ -1,13 +1,15 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { urlToAction } from 'kea-router'
-import { dayjs } from 'lib/dayjs'
+import posthog from 'posthog-js'
+
+import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils'
-import posthog from 'posthog-js'
+import { parseExceptionEvent } from 'lib/utils/exceptionUtils'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -18,12 +20,13 @@ import {
     OrganizationBasicType,
     Region,
     SidePanelTab,
+    StartupProgramLabel,
     TeamPublicType,
     UserType,
 } from '~/types'
 
-import type { supportLogicType } from './supportLogicType'
 import { openSupportModal } from './SupportModal'
+import type { supportLogicType } from './supportLogicType'
 
 export function getPublicSupportSnippet(
     cloudRegion: Region | null | undefined,
@@ -53,21 +56,31 @@ function getSessionReplayLink(): string {
     return `\nSession: ${replayUrl}`
 }
 
-function getErrorTrackingLink(): string {
+function getErrorTrackingLink(uuid?: string): string {
+    const values = [
+        {
+            key: '$session_id',
+            value: [posthog.get_session_id()],
+            operator: 'exact',
+            type: 'event',
+        },
+    ]
+
+    if (uuid) {
+        values.push({
+            type: 'hogql',
+            key: `uuid = '${uuid}'`,
+            value: null,
+        } as any)
+    }
+
     const filterGroup = encodeURIComponent(
         JSON.stringify({
             type: 'AND',
             values: [
                 {
                     type: 'AND',
-                    values: [
-                        {
-                            key: '$session_id',
-                            value: [posthog.get_session_id()],
-                            operator: 'exact',
-                            type: 'event',
-                        },
-                    ],
+                    values,
                 },
             ],
         })
@@ -107,6 +120,16 @@ export const TARGET_AREA_TO_NAME = [
         title: 'General',
         options: [
             {
+                value: 'login',
+                'data-attr': `support-form-target-area-login`,
+                label: 'Authentication (incl. login, sign-up, invites)',
+            },
+            {
+                value: 'analytics_platform',
+                'data-attr': `support-form-target-area-analytics_platform`,
+                label: 'Analytics features (incl. alerts, subscriptions, exports, etc.)',
+            },
+            {
                 value: 'billing',
                 'data-attr': `support-form-target-area-billing`,
                 label: 'Billing',
@@ -127,11 +150,6 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'Data management (incl. events, actions, properties)',
             },
             {
-                value: 'login',
-                'data-attr': `support-form-target-area-login`,
-                label: 'Authentication (incl. login, sign-up, invites)',
-            },
-            {
                 value: 'mobile',
                 'data-attr': `support-form-target-area-mobile`,
                 label: 'Mobile',
@@ -147,6 +165,11 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'Onboarding',
             },
             {
+                value: 'platform_addons',
+                'data-attr': `support-form-target-area-platform_addons`,
+                label: 'Platform addons',
+            },
+            {
                 value: 'sdk',
                 'data-attr': `support-form-target-area-onboarding`,
                 label: 'SDK / Implementation',
@@ -157,9 +180,9 @@ export const TARGET_AREA_TO_NAME = [
         title: 'Individual product',
         options: [
             {
-                value: 'analytics',
-                'data-attr': `support-form-target-area-analytics`,
-                label: 'Product analytics (incl. insights, dashboards, annotations)',
+                value: 'data_warehouse',
+                'data-attr': `support-form-target-area-data_warehouse`,
+                label: 'Data warehouse (sources)',
             },
             {
                 value: 'batch_exports',
@@ -170,11 +193,6 @@ export const TARGET_AREA_TO_NAME = [
                 value: 'cdp_destinations',
                 'data-attr': `support-form-target-area-cdp_destinations`,
                 label: 'Destinations (real-time)',
-            },
-            {
-                value: 'data_warehouse',
-                'data-attr': `support-form-target-area-data_warehouse`,
-                label: 'Data warehouse (sources)',
             },
             {
                 value: 'error_tracking',
@@ -197,9 +215,9 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'Group analytics',
             },
             {
-                value: 'llm-observability',
-                'data-attr': `support-form-target-area-llm-observability`,
-                label: 'LLM observability',
+                value: 'llm-analytics',
+                'data-attr': `support-form-target-area-llm-analytics`,
+                label: 'LLM analytics',
             },
             {
                 value: 'max-ai',
@@ -210,6 +228,11 @@ export const TARGET_AREA_TO_NAME = [
                 value: 'messaging',
                 'data-attr': `support-form-target-area-messaging`,
                 label: 'Messaging',
+            },
+            {
+                value: 'analytics',
+                'data-attr': `support-form-target-area-analytics`,
+                label: 'Product analytics (incl. insights, dashboards, etc.)',
             },
             {
                 value: 'revenue_analytics',
@@ -274,8 +297,12 @@ export type SupportTicketTargetArea =
     | 'data_ingestion'
     | 'batch_exports'
     | 'messaging'
+    | 'platform_addons'
+    | 'max-ai'
 export type SupportTicketSeverityLevel = keyof typeof SEVERITY_LEVEL_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
+
+export type SupportTicketExceptionEvent = { uuid: string; event: string; properties?: Record<string, any> }
 
 export const getLabelBasedOnTargetArea = (target_area: SupportTicketTargetArea): null | string => {
     for (const category of TARGET_AREA_TO_NAME) {
@@ -314,6 +341,7 @@ export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = 
     source: 'data_warehouse',
     sources: 'data_warehouse',
     messaging: 'messaging',
+    billing: 'billing',
 }
 
 export const SUPPORT_TICKET_TEMPLATES = {
@@ -351,6 +379,7 @@ export type SupportFormFields = {
     target_area: SupportTicketTargetArea | null
     severity_level: SupportTicketSeverityLevel | null
     message: string
+    exception_event?: SupportTicketExceptionEvent
     isEmailFormOpen?: boolean | 'true' | 'false'
 }
 
@@ -369,6 +398,8 @@ export const supportLogic = kea<supportLogicType>([
             ['hasAvailableFeature'],
             billingLogic,
             ['billing'],
+            organizationLogic,
+            ['isCurrentOrganizationNew'],
         ],
         actions: [sidePanelStateLogic, ['openSidePanel', 'setSidePanelOptions']],
     })),
@@ -376,10 +407,10 @@ export const supportLogic = kea<supportLogicType>([
         closeSupportForm: true,
         openSupportForm: (values: Partial<SupportFormFields>) => values,
         submitZendeskTicket: (form: SupportFormFields) => form,
+        ensureZendeskOrganization: true,
         updateUrlParams: true,
         openEmailForm: true,
         closeEmailForm: true,
-        setFocusedField: (field: string | null) => ({ field }),
     })),
     reducers(() => ({
         isSupportFormOpen: [
@@ -394,14 +425,6 @@ export const supportLogic = kea<supportLogicType>([
             {
                 openEmailForm: () => true,
                 closeEmailForm: () => false,
-            },
-        ],
-        focusedField: [
-            null as string | null,
-            {
-                setFocusedField: (_, { field }) => field,
-                // Reset focused field when form is closed
-                closeSupportForm: () => null,
             },
         ],
     })),
@@ -430,8 +453,8 @@ export const supportLogic = kea<supportLogicType>([
                 formValues.name = values.user?.first_name ?? formValues.name ?? 'name not set'
                 formValues.email = values.user?.email ?? formValues.email ?? ''
                 actions.submitZendeskTicket(formValues)
-                actions.closeSupportForm()
-                actions.resetSendSupportRequest()
+                // Form closing and resetting is now handled in submitZendeskTicket listener
+                // based on success/failure of the submission
             },
         },
     })),
@@ -442,6 +465,10 @@ export const supportLogic = kea<supportLogicType>([
                 sendSupportRequest.kind
                     ? SUPPORT_TICKET_KIND_TO_TITLE[sendSupportRequest.kind]
                     : 'Leave a message with PostHog',
+        ],
+        targetArea: [
+            (s) => [s.sendSupportRequest],
+            (sendSupportRequest: SupportFormFields) => sendSupportRequest.target_area,
         ],
     }),
     listeners(({ actions, props, values }) => ({
@@ -460,7 +487,16 @@ export const supportLogic = kea<supportLogicType>([
                 actions.setSidePanelOptions(panelOptions)
             }
         },
-        openSupportForm: async ({ name, email, isEmailFormOpen, kind, target_area, severity_level, message }) => {
+        openSupportForm: async ({
+            name,
+            email,
+            isEmailFormOpen,
+            kind,
+            target_area,
+            severity_level,
+            message,
+            exception_event,
+        }: Partial<SupportFormFields>) => {
             let area = target_area ?? getURLPathToTargetArea(window.location.pathname)
             if (!userLogic.values.user) {
                 area = 'login'
@@ -472,7 +508,8 @@ export const supportLogic = kea<supportLogicType>([
                 kind,
                 target_area: area,
                 severity_level: severity_level ?? null,
-                message: message ?? '',
+                message: message ?? values.sendSupportRequest.message ?? '',
+                exception_event,
             })
 
             if (isEmailFormOpen === 'true' || isEmailFormOpen === true) {
@@ -490,13 +527,21 @@ export const supportLogic = kea<supportLogicType>([
 
             actions.updateUrlParams()
         },
-        submitZendeskTicket: async ({ name, email, kind, target_area, severity_level, message }) => {
+        submitZendeskTicket: async ({
+            name,
+            email,
+            kind,
+            target_area,
+            severity_level,
+            message,
+            exception_event,
+        }: SupportFormFields) => {
             const zendesk_ticket_uuid = uuid()
             const subject =
                 SUPPORT_KIND_TO_SUBJECT[kind ?? 'support'] +
                 ': ' +
                 (target_area
-                    ? getLabelBasedOnTargetArea(target_area) ?? `${target_area} (feature preview)`
+                    ? (getLabelBasedOnTargetArea(target_area) ?? `${target_area} (feature preview)`)
                     : 'General') +
                 ' (' +
                 zendesk_ticket_uuid +
@@ -505,15 +550,13 @@ export const supportLogic = kea<supportLogicType>([
 
             const billing = billingLogic.values.billing
             const billingPlan = billingLogic.values.billingPlan
-            const currentOrganization = organizationLogic.values.currentOrganization
 
             let planLevelTag = 'plan_free'
 
             const knownEnterpriseOrgIds = ['018713f3-8d56-0000-32fa-75ce97e6662f']
             const isKnownEnterpriseOrg = knownEnterpriseOrgIds.includes(userLogic?.values?.user?.organization?.id || '')
 
-            const orgCreatedAt = currentOrganization?.created_at
-            const isNewOrganization = orgCreatedAt && dayjs().diff(dayjs(orgCreatedAt), 'month') < 3
+            const isNewOrganization = values.isCurrentOrganizationNew
 
             const hasBoostTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'boost'
             const hasScaleTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'scale'
@@ -539,7 +582,10 @@ export const supportLogic = kea<supportLogicType>([
                         planLevelTag = 'plan_teams_legacy'
                         break
                     case BillingPlan.Paid:
-                        planLevelTag = 'plan_pay-as-you-go'
+                        const projectedAmount = parseFloat(billing?.projected_total_amount_usd_with_limit || '0')
+                        const shouldMarkAsFree = projectedAmount === 0
+
+                        planLevelTag = shouldMarkAsFree ? 'plan_pay-as-you-go_free' : 'plan_pay-as-you-go_paying'
                         break
                     case BillingPlan.Free:
                         planLevelTag = 'plan_free'
@@ -547,11 +593,23 @@ export const supportLogic = kea<supportLogicType>([
                 }
             }
 
+            const startupProgramLabel = billing?.startup_program_label
+            if (startupProgramLabel === StartupProgramLabel.YC) {
+                planLevelTag = 'plan_yc'
+            } else if (startupProgramLabel === StartupProgramLabel.Startup) {
+                planLevelTag = 'plan_startup'
+            }
+
+            const { accountOwner } = billingLogic.values
+
+            const ownerName = accountOwner?.name?.toLowerCase().replace(/[^a-z0-9]/g, '_') || 'unassigned'
+            const accountOwnerTag = `owner_${ownerName}`
+
             const payload = {
                 request: {
                     requester: { name: name, email: email },
                     subject: subject,
-                    tags: [planLevelTag],
+                    tags: [planLevelTag, accountOwnerTag],
                     custom_fields: [
                         {
                             id: 22084126888475,
@@ -574,8 +632,16 @@ export const supportLogic = kea<supportLogicType>([
                             value: values.hasAvailableFeature(AvailableFeature.PRIORITY_SUPPORT)
                                 ? 'priority_support'
                                 : values.hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT)
-                                ? 'email_support'
-                                : 'free_support',
+                                  ? 'email_support'
+                                  : 'free_support',
+                        },
+                        {
+                            id: 37742340880411,
+                            value: accountOwner?.name || 'unassigned',
+                        },
+                        {
+                            id: 39967113285659,
+                            value: exception_event ? parseExceptionEvent(exception_event) : '',
                         },
                     ],
                     comment: {
@@ -586,7 +652,7 @@ export const supportLogic = kea<supportLogicType>([
                             `\nTarget area: ${target_area}` +
                             `\nReport event: http://go/ticketByUUID/${zendesk_ticket_uuid}` +
                             getSessionReplayLink() +
-                            getErrorTrackingLink() +
+                            getErrorTrackingLink(exception_event?.uuid) +
                             getCurrentLocationLink() +
                             getDjangoAdminLink(
                                 userLogic.values.user,
@@ -609,12 +675,48 @@ export const supportLogic = kea<supportLogicType>([
 
             try {
                 const zendeskRequestBody = JSON.stringify(payload, undefined, 4)
+
+                // First attempt with standard fetch (unchanged from original)
                 const response = await fetch('https://posthoghelp.zendesk.com/api/v2/requests.json', {
                     method: 'POST',
                     body: zendeskRequestBody,
                     headers: { 'Content-Type': 'application/json' },
                 })
+
+                // If the fetch request fails, try the Beacon API as a fallback
                 if (!response.ok) {
+                    console.warn('Fetch attempt to submit support ticket failed, trying Beacon API as fallback')
+
+                    // Detect Firefox
+                    const isFirefox = navigator.userAgent.toLowerCase().indexOf('firefox') > -1
+
+                    // Try Beacon API
+                    const beaconSuccess = navigator.sendBeacon(
+                        'https://posthoghelp.zendesk.com/api/v2/requests.json',
+                        zendeskRequestBody
+                    )
+
+                    if (beaconSuccess) {
+                        // Track success
+                        const properties = {
+                            zendesk_ticket_uuid,
+                            kind,
+                            target_area,
+                            message,
+                            submission_method: 'beacon',
+                            browser: isFirefox ? 'firefox' : 'other',
+                        }
+                        posthog.capture('support_ticket', properties)
+                        lemonToast.success(
+                            "Got the message! If we have follow-up information for you, we'll reply via email."
+                        )
+                        // Only close and reset the form on success
+                        actions.closeSupportForm()
+                        actions.resetSendSupportRequest()
+                        return
+                    }
+
+                    // If both fetch and beacon fail, show the original error message
                     const error = new Error(`There was an error creating the support ticket with zendesk.`)
                     const extra: Record<string, any> = { zendeskBody: zendeskRequestBody }
                     Object.entries(payload).forEach(([key, value]) => {
@@ -632,7 +734,11 @@ export const supportLogic = kea<supportLogicType>([
                         ...extra,
                         ...contexts,
                     })
-                    lemonToast.error(`There was an error sending the message.`)
+                    lemonToast.error(
+                        `Oops, the message couldn't be sent. Please change your browser's privacy level to the standard or default level, then try again. (E.g. In Firefox: Settings > Privacy & Security > Standard)`,
+                        { hideButton: true }
+                    )
+                    // Don't close the form or reset the data so user can try again
                     return
                 }
 
@@ -650,13 +756,27 @@ export const supportLogic = kea<supportLogicType>([
                 }
                 posthog.capture('support_ticket', properties)
                 lemonToast.success("Got the message! If we have follow-up information for you, we'll reply via email.")
+
+                actions.ensureZendeskOrganization()
+
+                // Only close and reset the form on success
+                actions.closeSupportForm()
+                actions.resetSendSupportRequest()
             } catch (e) {
                 posthog.captureException(e)
-                lemonToast.error(`There was an error sending the message.`)
+
+                // More helpful error message
+                // Use the same error message regardless of browser
+                lemonToast.error(
+                    `Oops, the message couldn't be sent. Please change your browser's privacy level to the standard or default level, then try again. (E.g. In Firefox: Settings > Privacy & Security > Standard)`,
+                    { hideButton: true }
+                )
+                // Don't close the form or reset the data so user can try again
             }
         },
 
         closeSupportForm: () => {
+            // Form is only reset by explicit Cancel button or successful submission
             props.onClose?.()
         },
 
@@ -664,6 +784,29 @@ export const supportLogic = kea<supportLogicType>([
             // Only update URL params for non-text fields to prevent focus loss during typing
             if (name !== 'message' && name !== 'name' && name !== 'email') {
                 actions.updateUrlParams()
+            }
+        },
+
+        ensureZendeskOrganization: async () => {
+            try {
+                const currentOrganization = organizationLogic.values.currentOrganization
+
+                if (!currentOrganization?.id || !currentOrganization?.name) {
+                    return
+                }
+
+                await api.create('/api/support/ensure-zendesk-organization', {
+                    organization_id: currentOrganization.id,
+                    organization_name: currentOrganization.name,
+                })
+            } catch (error) {
+                posthog.captureException(error, {
+                    context: 'zendesk_organization_creation',
+                    organization_id: organizationLogic.values.currentOrganization?.id,
+                    organization_name: organizationLogic.values.currentOrganization?.name,
+                    error_message: error instanceof Error ? error.message : String(error),
+                    error_status: error && typeof error === 'object' && 'status' in error ? error.status : undefined,
+                })
             }
         },
     })),

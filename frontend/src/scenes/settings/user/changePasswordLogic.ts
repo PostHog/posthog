@@ -1,6 +1,8 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { connect, kea, path, selectors } from 'kea'
 import { forms } from 'kea-forms'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { ValidatedPasswordResult, validatePassword } from 'lib/components/PasswordStrength'
 import { userLogic } from 'scenes/userLogic'
@@ -25,7 +27,9 @@ export const changePasswordLogic = kea<changePasswordLogicType>([
                     (!values.user || values.user.has_password) && !current_password
                         ? 'Please enter your current password'
                         : undefined,
-                password: !password ? 'Please enter your password to continue' : values.validatedPassword.feedback,
+                password: !password
+                    ? 'Please enter your password to continue'
+                    : values.validatedPassword.feedback || undefined,
             }),
             submit: async ({ password, current_password }, breakpoint) => {
                 await breakpoint(150)
@@ -38,7 +42,10 @@ export const changePasswordLogic = kea<changePasswordLogicType>([
                     actions.resetChangePassword({ password: '', current_password: '' })
                     lemonToast.success('Password changed')
                 } catch (e: any) {
-                    actions.setChangePasswordManualErrors({ [e.attr]: e.detail })
+                    setTimeout(() => {
+                        // TRICKY: We want to run on the next tick otherwise the errors don't show (possibly because of the async wait in the submit)
+                        actions.setChangePasswordManualErrors({ [e.attr]: e.detail })
+                    }, 1)
                 }
             },
         },

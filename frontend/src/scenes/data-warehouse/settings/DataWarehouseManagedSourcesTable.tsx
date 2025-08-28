@@ -1,5 +1,7 @@
-import { LemonButton, LemonDialog, LemonTable, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonButton, LemonDialog, LemonSkeleton, LemonTable, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -8,7 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { ExternalDataJobStatus } from '~/types'
 
-import { SOURCE_DETAILS } from '../new/sourceWizardLogic'
+import { availableSourcesDataLogic } from '../new/availableSourcesDataLogic'
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 
 export const StatusTagSetting: Record<ExternalDataJobStatus, 'primary' | 'success' | 'danger'> = {
@@ -23,6 +25,11 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
     const { dataWarehouseSources, dataWarehouseSourcesLoading, sourceReloadingById } =
         useValues(dataWarehouseSettingsLogic)
     const { deleteSource, reloadSource } = useActions(dataWarehouseSettingsLogic)
+    const { availableSources, availableSourcesLoading } = useValues(availableSourcesDataLogic)
+
+    if (availableSourcesLoading || !availableSources) {
+        return <LemonSkeleton />
+    }
 
     return (
         <LemonTable
@@ -42,7 +49,7 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
                     render: (_, source) => (
                         <LemonTableLink
                             to={urls.dataWarehouseSource(`managed-${source.id}`)}
-                            title={SOURCE_DETAILS[source.source_type]?.label ?? source.source_type}
+                            title={availableSources[source.source_type]?.label ?? source.source_type}
                             description={source.prefix}
                         />
                     ),

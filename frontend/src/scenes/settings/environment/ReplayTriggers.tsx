@@ -1,3 +1,8 @@
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
+import { useState } from 'react'
+
 import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
@@ -11,27 +16,22 @@ import {
     LemonSelect,
     LemonSnack,
     LemonTag,
-    lemonToast,
     Link,
     Popover,
     Spinner,
+    lemonToast,
 } from '@posthog/lemon-ui'
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
-import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { useState } from 'react'
+import { IconCancel } from 'lib/lemon-ui/icons'
 import { AiRegexHelper, AiRegexHelperButton } from 'scenes/session-recordings/components/AiRegexHelper/AiRegexHelper'
-import { replayTriggersLogic } from 'scenes/settings/environment/replayTriggersLogic'
 import { SupportedPlatforms } from 'scenes/settings/environment/SessionRecordingSettings'
+import { isStringWithLength, replayTriggersLogic } from 'scenes/settings/environment/replayTriggersLogic'
 import { sessionReplayIngestionControlLogic } from 'scenes/settings/environment/sessionReplayIngestionControlLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -40,14 +40,18 @@ import { SelectOption } from '~/queries/nodes/InsightViz/PropertyGroupFilters/An
 import { AvailableFeature, MultivariateFlagOptions } from '~/types'
 import { SessionReplayUrlTriggerConfig } from '~/types'
 
-function variantOptions(multivariate: MultivariateFlagOptions | undefined): LemonSegmentedButtonOption<string>[] {
+export const ANY_VARIANT = 'any'
+
+export function variantOptions(
+    multivariate: MultivariateFlagOptions | undefined
+): LemonSegmentedButtonOption<string>[] {
     if (!multivariate) {
         return []
     }
     return [
         {
-            label: 'any',
-            value: 'any',
+            label: ANY_VARIANT,
+            value: ANY_VARIANT,
         },
         ...multivariate.variants.map((variant) => {
             return {
@@ -75,10 +79,10 @@ function LinkedFlagSelector(): JSX.Element | null {
 
     return (
         <>
-            <div className="flex flex-col deprecated-space-y-2">
+            <div className="flex flex-col deprecated-space-y-2 mt-2">
                 <div className="flex justify-between">
                     <LemonLabel className="text-base">
-                        Enable recordings using feature flag {featureFlagLoading && <Spinner />}
+                        <TriggerMatchTypeTag /> Enable recordings using feature flag {featureFlagLoading && <Spinner />}
                     </LemonLabel>
                     <div className="flex flex-row justify-start">
                         <FlagSelector
@@ -113,7 +117,7 @@ function LinkedFlagSelector(): JSX.Element | null {
                         <LemonLabel className="text-base">Link to a specific flag variant</LemonLabel>
                         <LemonSegmentedButton
                             className="min-w-1/3"
-                            value={currentTeam?.session_recording_linked_flag?.variant ?? 'any'}
+                            value={currentTeam?.session_recording_linked_flag?.variant ?? ANY_VARIANT}
                             options={variantOptions(linkedFlag?.filters.multivariate)}
                             onChange={(variant) => {
                                 if (!linkedFlag) {
@@ -124,7 +128,7 @@ function LinkedFlagSelector(): JSX.Element | null {
                                     session_recording_linked_flag: {
                                         id: linkedFlag?.id,
                                         key: linkedFlag?.key,
-                                        variant: variant === 'any' ? null : variant,
+                                        variant: variant === ANY_VARIANT ? null : variant,
                                     },
                                 })
                             }}
@@ -178,26 +182,24 @@ function UrlConfigForm({
             </div>
             <div className="flex justify-between gap-2 w-full">
                 <div>
-                    <FlaggedFeature flag={FEATURE_FLAGS.RECORDINGS_AI_REGEX}>
-                        <AiRegexHelper
-                            onApply={(regex) => {
-                                try {
-                                    const payload: SessionReplayUrlTriggerConfig = {
-                                        url: regex,
-                                        matching: 'regex',
-                                    }
-                                    if (type === 'trigger') {
-                                        addUrlTrigger(payload)
-                                    } else {
-                                        addUrlBlocklist(payload)
-                                    }
-                                } catch {
-                                    lemonToast.error('Failed to apply regex')
+                    <AiRegexHelper
+                        onApply={(regex) => {
+                            try {
+                                const payload: SessionReplayUrlTriggerConfig = {
+                                    url: regex,
+                                    matching: 'regex',
                                 }
-                            }}
-                        />
-                        <AiRegexHelperButton />
-                    </FlaggedFeature>
+                                if (type === 'trigger') {
+                                    addUrlTrigger(payload)
+                                } else {
+                                    addUrlBlocklist(payload)
+                                }
+                            } catch {
+                                lemonToast.error('Failed to apply regex')
+                            }
+                        }}
+                    />
+                    <AiRegexHelperButton />
                 </div>
 
                 <div className="flex gap-2">
@@ -393,8 +395,13 @@ function EventSelectButton(): JSX.Element {
             overlay={
                 <TaxonomicFilter
                     onChange={(_, value) => {
-                        updateEventTriggerConfig(Array.from(new Set(eventTriggerConfig?.concat([value as string]))))
+                        if (isStringWithLength(value)) {
+                            updateEventTriggerConfig(Array.from(new Set(eventTriggerConfig?.concat([value]))))
+                        }
                         setOpen(false)
+                    }}
+                    excludedProperties={{
+                        [TaxonomicFilterGroupType.Events]: [null], // This will hide "All events"
                     }}
                     taxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
                 />
@@ -418,9 +425,11 @@ function EventTriggerOptions(): JSX.Element | null {
     const { updateEventTriggerConfig } = useActions(replayTriggersLogic)
 
     return (
-        <div className="flex flex-col deprecated-space-y-2 mt-4">
+        <div className="flex flex-col deprecated-space-y-2 mt-2">
             <div className="flex items-center gap-2 justify-between">
-                <LemonLabel className="text-base">Event emitted</LemonLabel>
+                <LemonLabel className="text-base">
+                    <TriggerMatchTypeTag /> Event emitted
+                </LemonLabel>
                 <EventSelectButton />
             </div>
             <SupportedPlatforms
@@ -452,8 +461,10 @@ function Sampling(): JSX.Element {
 
     return (
         <>
-            <div className="flex flex-row justify-between">
-                <LemonLabel className="text-base">Sampling</LemonLabel>
+            <div className="flex flex-row justify-between mt-2">
+                <LemonLabel className="text-base">
+                    <TriggerMatchTypeTag /> Sampling
+                </LemonLabel>
                 <LemonSelect
                     onChange={(v) => {
                         updateCurrentTeam({ session_recording_sample_rate: v })
@@ -607,6 +618,7 @@ function TriggerMatchChoice(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-y-1">
+            <LemonLabel className="text-base py-2">Trigger matching</LemonLabel>
             <SupportedPlatforms web={{ version: '1.238.0' }} />
             <LemonBanner type="info" className="text-sm" hideIcon={true} dismissKey="replay-trigger-match-1-238-0">
                 <div className="flex flex-row gap-x-4 items-center">
@@ -666,9 +678,22 @@ function TriggerMatchChoice(): JSX.Element {
                     }}
                     value={currentTeam?.session_recording_trigger_match_type_config || 'all'}
                 />
-                <div>triggers match</div>
+                <div>triggers below match</div>
             </div>
         </div>
+    )
+}
+
+function TriggerMatchTypeTag(): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
+    // Let's follow PostHog style of AND / OR from funnels
+    return (
+        <LemonTag type="danger" className="my-2 mr-2">
+            {currentTeam?.session_recording_trigger_match_type_config &&
+            currentTeam?.session_recording_trigger_match_type_config === 'any'
+                ? 'OR'
+                : 'AND'}
+        </LemonTag>
     )
 }
 
@@ -695,9 +720,11 @@ export function ReplayTriggers(): JSX.Element {
                 <LemonDivider />
                 <UrlTriggerOptions />
                 <EventTriggerOptions />
+                <PayGateMini feature={AvailableFeature.REPLAY_FEATURE_FLAG_BASED_RECORDING}>
+                    <LinkedFlagSelector />
+                </PayGateMini>
                 <PayGateMini feature={AvailableFeature.SESSION_REPLAY_SAMPLING}>
                     <Sampling />
-                    <LinkedFlagSelector />
                 </PayGateMini>
             </div>
             <MinimumDurationSetting />

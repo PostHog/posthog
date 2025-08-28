@@ -1,11 +1,14 @@
 from uuid import uuid4
 
+from posthog.test.base import APIBaseTest
+
 from django.db import transaction
+
 from rest_framework import status
 
-from ee.models.assistant import CoreMemory
 from posthog.models.team.team import Team
-from posthog.test.base import APIBaseTest
+
+from ee.models.assistant import CoreMemory
 
 
 class TestCoreMemoryAPI(APIBaseTest):

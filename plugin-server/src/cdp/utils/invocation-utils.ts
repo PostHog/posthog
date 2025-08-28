@@ -1,5 +1,4 @@
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
-
 import { UUIDT } from '../../utils/utils'
 import {
     CyclotronJobInvocation,
@@ -8,7 +7,6 @@ import {
     HogFunctionInvocationGlobalsWithInputs,
 } from '../types'
 import { HogFunctionType } from '../types'
-import { isLegacyPluginHogFunction, isSegmentPluginHogFunction } from '../utils'
 
 export function createInvocation(
     globals: HogFunctionInvocationGlobalsWithInputs,
@@ -19,15 +17,12 @@ export function createInvocation(
         state: {
             globals,
             timings: [],
+            attempts: 0,
         },
         teamId: hogFunction.team_id,
         functionId: hogFunction.id,
         hogFunction,
-        queue: isLegacyPluginHogFunction(hogFunction)
-            ? 'plugin'
-            : isSegmentPluginHogFunction(hogFunction)
-            ? 'segment'
-            : 'hog',
+        queue: 'hog',
         queuePriority: 0,
     }
 }
@@ -40,14 +35,13 @@ export function cloneInvocation<T extends CyclotronJobInvocation>(
     invocation: T,
     params: Pick<
         Partial<CyclotronJobInvocation>,
-        'queuePriority' | 'queueMetadata' | 'queueScheduledAt' | 'queueParameters'
-    > &
-        Pick<CyclotronJobInvocation, 'queue'>
+        'queue' | 'queuePriority' | 'queueMetadata' | 'queueScheduledAt' | 'queueParameters'
+    > = {}
 ): T {
     return {
         ...invocation,
-        // The target queue is always required
-        queue: params.queue,
+        // The target queue is typically the same as the source but can be overridden
+        queue: params.queue ?? invocation.queue,
         // The source is kept from the invocation always as it is important for the job queue router
         queueSource: invocation.queueSource,
         // Metadata is only used from the invocation if the queue is staying the same
@@ -68,9 +62,8 @@ export function createInvocationResult<T extends CyclotronJobInvocation>(
     invocation: CyclotronJobInvocation,
     invocationParams: Pick<
         Partial<CyclotronJobInvocation>,
-        'queuePriority' | 'queueMetadata' | 'queueScheduledAt' | 'queueParameters'
-    > &
-        Pick<CyclotronJobInvocation, 'queue'>,
+        'queue' | 'queuePriority' | 'queueMetadata' | 'queueScheduledAt' | 'queueParameters'
+    > = {},
     resultParams: Pick<
         Partial<CyclotronJobInvocationResult>,
         'finished' | 'capturedPostHogEvents' | 'logs' | 'metrics' | 'error'

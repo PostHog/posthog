@@ -1,20 +1,24 @@
-import functools
 import uuid
+import functools
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from typing import Any, Optional, cast
+from zoneinfo import ZoneInfo
+
+import pytest
 from unittest import mock
 
-import aioboto3
-import deltalake
-import posthoganalytics
-import psycopg
-import pytest
-import pytest_asyncio
-import s3fs
-from asgiref.sync import sync_to_async
-from deltalake import DeltaTable
 from django.conf import settings
 from django.test import override_settings
+
+import s3fs
+import psycopg
+import aioboto3
+import deltalake
+import pytest_asyncio
+import posthoganalytics
+from asgiref.sync import sync_to_async
+from deltalake import DeltaTable
 from dlt.common.configuration.specs.aws_credentials import AwsCredentials
 from dlt.sources.helpers.rest_client.client import RESTClient
 from stripe import ListObject
@@ -22,15 +26,6 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
-from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.insights.funnels.funnel import Funnel
-from posthog.hogql_queries.insights.funnels.funnel_query_context import (
-    FunnelQueryContext,
-)
-from posthog.models import DataWarehouseTable
-from posthog.models.team.team import Team
 from posthog.schema import (
     BreakdownFilter,
     BreakdownType,
@@ -39,29 +34,43 @@ from posthog.schema import (
     HogQLQueryModifiers,
     PersonsOnEventsMode,
 )
+
+from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
+from posthog.hogql_queries.insights.funnels.funnel import Funnel
+from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+from posthog.models import DataWarehouseTable
+from posthog.models.team.team import Team
+from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
+from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
+from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
 from posthog.temporal.data_imports.row_tracking import get_rows
 from posthog.temporal.data_imports.settings import ACTIVITIES
-from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
-from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
-from posthog.temporal.utils import ExternalDataWorkflowInputs
-from posthog.warehouse.models import (
-    ExternalDataJob,
-    ExternalDataSchema,
-    ExternalDataSource,
+from posthog.temporal.data_imports.sources.stripe.constants import (
+    BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
+    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+    CREDIT_NOTE_RESOURCE_NAME as STRIPE_CREDIT_NOTE_RESOURCE_NAME,
+    CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
+    CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
+    DISPUTE_RESOURCE_NAME as STRIPE_DISPUTE_RESOURCE_NAME,
+    INVOICE_ITEM_RESOURCE_NAME as STRIPE_INVOICE_ITEM_RESOURCE_NAME,
+    INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
+    PAYOUT_RESOURCE_NAME as STRIPE_PAYOUT_RESOURCE_NAME,
+    PRICE_RESOURCE_NAME as STRIPE_PRICE_RESOURCE_NAME,
+    PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
+    REFUND_RESOURCE_NAME as STRIPE_REFUND_RESOURCE_NAME,
+    SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
+from posthog.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
+from posthog.temporal.utils import ExternalDataWorkflowInputs
+from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from posthog.warehouse.models.external_data_job import get_latest_run_if_exists
 from posthog.warehouse.models.external_table_definitions import external_tables
 from posthog.warehouse.models.join import DataWarehouseJoin
-from posthog.temporal.data_imports.pipelines.stripe.constants import (
-    BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
-    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
-    CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
-    INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
-    PRICE_RESOURCE_NAME as STRIPE_PRICE_RESOURCE_NAME,
-    PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
-    SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
-)
+from posthog.warehouse.types import ExternalDataSourceType
 
 BUCKET_NAME = "test-pipeline"
 SESSION = aioboto3.Session()
@@ -100,36 +109,62 @@ def mock_stripe_client(
     stripe_balance_transaction,
     stripe_charge,
     stripe_customer,
+    stripe_dispute,
+    stripe_invoiceitem,
     stripe_invoice,
+    stripe_payout,
     stripe_price,
     stripe_product,
+    stripe_refund,
     stripe_subscription,
+    stripe_credit_note,
+    stripe_customer_balance_transaction,
 ):
-    with mock.patch("posthog.temporal.data_imports.pipelines.stripe.StripeClient") as MockStripeClient:
+    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient") as MockStripeClient:
         mock_balance_transaction_list = mock.MagicMock()
         mock_charges_list = mock.MagicMock()
         mock_customers_list = mock.MagicMock()
+        mock_disputes_list = mock.MagicMock()
+        mock_invoice_items_list = mock.MagicMock()
         mock_invoice_list = mock.MagicMock()
+        mock_payouts_list = mock.MagicMock()
         mock_price_list = mock.MagicMock()
         mock_product_list = mock.MagicMock()
+        mock_refunds_list = mock.MagicMock()
         mock_subscription_list = mock.MagicMock()
+        mock_credit_notes_list = mock.MagicMock()
+        mock_customer_balance_transactions_list = mock.MagicMock()
 
         mock_balance_transaction_list.auto_paging_iter.return_value = stripe_balance_transaction["data"]
         mock_charges_list.auto_paging_iter.return_value = stripe_charge["data"]
         mock_customers_list.auto_paging_iter.return_value = stripe_customer["data"]
+        mock_disputes_list.auto_paging_iter.return_value = stripe_dispute["data"]
+        mock_invoice_items_list.auto_paging_iter.return_value = stripe_invoiceitem["data"]
         mock_invoice_list.auto_paging_iter.return_value = stripe_invoice["data"]
+        mock_payouts_list.auto_paging_iter.return_value = stripe_payout["data"]
         mock_price_list.auto_paging_iter.return_value = stripe_price["data"]
         mock_product_list.auto_paging_iter.return_value = stripe_product["data"]
+        mock_refunds_list.auto_paging_iter.return_value = stripe_refund["data"]
         mock_subscription_list.auto_paging_iter.return_value = stripe_subscription["data"]
+        mock_credit_notes_list.auto_paging_iter.return_value = stripe_credit_note["data"]
+        mock_customer_balance_transactions_list.auto_paging_iter.return_value = stripe_customer_balance_transaction[
+            "data"
+        ]
 
         instance = MockStripeClient.return_value
         instance.balance_transactions.list.return_value = mock_balance_transaction_list
         instance.charges.list.return_value = mock_charges_list
         instance.customers.list.return_value = mock_customers_list
+        instance.disputes.list.return_value = mock_disputes_list
+        instance.invoice_items.list.return_value = mock_invoice_items_list
         instance.invoices.list.return_value = mock_invoice_list
+        instance.payouts.list.return_value = mock_payouts_list
         instance.prices.list.return_value = mock_price_list
         instance.products.list.return_value = mock_product_list
+        instance.refunds.list.return_value = mock_refunds_list
         instance.subscriptions.list.return_value = mock_subscription_list
+        instance.credit_notes.list.return_value = mock_credit_notes_list
+        instance.customers.balance_transactions.list.return_value = mock_customer_balance_transactions_list
 
         yield instance
 
@@ -173,7 +208,7 @@ async def _run(
         team=team,
         status="running",
         source_type=source_type,
-        revenue_analytics_enabled=source_type == ExternalDataSource.Type.STRIPE,
+        revenue_analytics_enabled=source_type == ExternalDataSourceType.STRIPE,
         job_inputs=job_inputs,
     )
 
@@ -274,12 +309,16 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
     with (
         mock.patch.object(RESTClient, "paginate", mock_paginate),
         mock.patch.object(ListObject, "auto_paging_iter", return_value=iter(mock_data_response)),
+        mock.patch.object(InvoiceListWithAllLines, "auto_paging_iter", return_value=iter(mock_data_response)),
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
+            BUCKET_PATH=BUCKET_NAME,
             AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
             AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
             AIRBYTE_BUCKET_REGION="us-east-1",
             AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+            DATA_WAREHOUSE_REDIS_HOST="localhost",
+            DATA_WAREHOUSE_REDIS_PORT="6379",
         ),
         mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
         mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
@@ -400,6 +439,84 @@ async def test_stripe_subscription(team, stripe_subscription, mock_stripe_client
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
+async def test_stripe_dispute(team, stripe_dispute, mock_stripe_client):
+    await _run(
+        team=team,
+        schema_name=STRIPE_DISPUTE_RESOURCE_NAME,
+        table_name="stripe_dispute",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        mock_data_response=stripe_dispute["data"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_stripe_payout(team, stripe_payout, mock_stripe_client):
+    await _run(
+        team=team,
+        schema_name=STRIPE_PAYOUT_RESOURCE_NAME,
+        table_name="stripe_payout",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        mock_data_response=stripe_payout["data"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_stripe_refund(team, stripe_refund, mock_stripe_client):
+    await _run(
+        team=team,
+        schema_name=STRIPE_REFUND_RESOURCE_NAME,
+        table_name="stripe_refund",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        mock_data_response=stripe_refund["data"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_stripe_invoiceitem(team, stripe_invoiceitem, mock_stripe_client):
+    await _run(
+        team=team,
+        schema_name=STRIPE_INVOICE_ITEM_RESOURCE_NAME,
+        table_name="stripe_invoiceitem",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        mock_data_response=stripe_invoiceitem["data"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_stripe_credit_note(team, stripe_credit_note, mock_stripe_client):
+    await _run(
+        team=team,
+        schema_name=STRIPE_CREDIT_NOTE_RESOURCE_NAME,
+        table_name="stripe_creditnote",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        mock_data_response=stripe_credit_note["data"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_stripe_customer_balance_transaction(team, stripe_customer_balance_transaction, mock_stripe_client):
+    await _run(
+        team=team,
+        schema_name=STRIPE_CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
+        table_name="stripe_customerbalancetransaction",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        mock_data_response=stripe_customer_balance_transaction["data"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
 async def test_zendesk_brands(team, zendesk_brands):
     await _run(
         team=team,
@@ -407,9 +524,9 @@ async def test_zendesk_brands(team, zendesk_brands):
         table_name="zendesk_brands",
         source_type="Zendesk",
         job_inputs={
-            "zendesk_subdomain": "test",
-            "zendesk_api_key": "test_api_key",
-            "zendesk_email_address": "test@posthog.com",
+            "subdomain": "test",
+            "api_key": "test_api_key",
+            "email_address": "test@posthog.com",
         },
         mock_data_response=zendesk_brands["brands"],
     )
@@ -424,9 +541,9 @@ async def test_zendesk_organizations(team, zendesk_organizations):
         table_name="zendesk_organizations",
         source_type="Zendesk",
         job_inputs={
-            "zendesk_subdomain": "test",
-            "zendesk_api_key": "test_api_key",
-            "zendesk_email_address": "test@posthog.com",
+            "subdomain": "test",
+            "api_key": "test_api_key",
+            "email_address": "test@posthog.com",
         },
         mock_data_response=zendesk_organizations["organizations"],
     )
@@ -441,9 +558,9 @@ async def test_zendesk_groups(team, zendesk_groups):
         table_name="zendesk_groups",
         source_type="Zendesk",
         job_inputs={
-            "zendesk_subdomain": "test",
-            "zendesk_api_key": "test_api_key",
-            "zendesk_email_address": "test@posthog.com",
+            "subdomain": "test",
+            "api_key": "test_api_key",
+            "email_address": "test@posthog.com",
         },
         mock_data_response=zendesk_groups["groups"],
     )
@@ -458,9 +575,9 @@ async def test_zendesk_sla_policies(team, zendesk_sla_policies):
         table_name="zendesk_sla_policies",
         source_type="Zendesk",
         job_inputs={
-            "zendesk_subdomain": "test",
-            "zendesk_api_key": "test_api_key",
-            "zendesk_email_address": "test@posthog.com",
+            "subdomain": "test",
+            "api_key": "test_api_key",
+            "email_address": "test@posthog.com",
         },
         mock_data_response=zendesk_sla_policies["sla_policies"],
     )
@@ -475,9 +592,9 @@ async def test_zendesk_users(team, zendesk_users):
         table_name="zendesk_users",
         source_type="Zendesk",
         job_inputs={
-            "zendesk_subdomain": "test",
-            "zendesk_api_key": "test_api_key",
-            "zendesk_email_address": "test@posthog.com",
+            "subdomain": "test",
+            "api_key": "test_api_key",
+            "email_address": "test@posthog.com",
         },
         mock_data_response=zendesk_users["users"],
     )
@@ -492,9 +609,9 @@ async def test_zendesk_ticket_fields(team, zendesk_ticket_fields):
         table_name="zendesk_ticket_fields",
         source_type="Zendesk",
         job_inputs={
-            "zendesk_subdomain": "test",
-            "zendesk_api_key": "test_api_key",
-            "zendesk_email_address": "test@posthog.com",
+            "subdomain": "test",
+            "api_key": "test_api_key",
+            "email_address": "test@posthog.com",
         },
         mock_data_response=zendesk_ticket_fields["ticket_fields"],
     )
@@ -509,9 +626,9 @@ async def test_zendesk_ticket_events(team, zendesk_ticket_events):
         table_name="zendesk_ticket_events",
         source_type="Zendesk",
         job_inputs={
-            "zendesk_subdomain": "test",
-            "zendesk_api_key": "test_api_key",
-            "zendesk_email_address": "test@posthog.com",
+            "subdomain": "test",
+            "api_key": "test_api_key",
+            "email_address": "test@posthog.com",
         },
         mock_data_response=zendesk_ticket_events["ticket_events"],
     )
@@ -526,9 +643,9 @@ async def test_zendesk_tickets(team, zendesk_tickets):
         table_name="zendesk_tickets",
         source_type="Zendesk",
         job_inputs={
-            "zendesk_subdomain": "test",
-            "zendesk_api_key": "test_api_key",
-            "zendesk_email_address": "test@posthog.com",
+            "subdomain": "test",
+            "api_key": "test_api_key",
+            "email_address": "test@posthog.com",
         },
         mock_data_response=zendesk_tickets["tickets"],
     )
@@ -543,9 +660,9 @@ async def test_zendesk_ticket_metric_events(team, zendesk_ticket_metric_events):
         table_name="zendesk_ticket_metric_events",
         source_type="Zendesk",
         job_inputs={
-            "zendesk_subdomain": "test",
-            "zendesk_api_key": "test_api_key",
-            "zendesk_email_address": "test@posthog.com",
+            "subdomain": "test",
+            "api_key": "test_api_key",
+            "email_address": "test@posthog.com",
         },
         mock_data_response=zendesk_ticket_metric_events["ticket_metric_events"],
     )
@@ -985,9 +1102,9 @@ async def test_non_retryable_error(team, zendesk_brands):
         status="running",
         source_type="Zendesk",
         job_inputs={
-            "zendesk_subdomain": "test",
-            "zendesk_api_key": "test_api_key",
-            "zendesk_email_address": "test@posthog.com",
+            "subdomain": "test",
+            "api_key": "test_api_key",
+            "email_address": "test@posthog.com",
         },
     )
 
@@ -1093,9 +1210,9 @@ async def test_inconsistent_types_in_data(team):
         status="running",
         source_type="Zendesk",
         job_inputs={
-            "zendesk_subdomain": "test",
-            "zendesk_api_key": "test_api_key",
-            "zendesk_email_address": "test@posthog.com",
+            "subdomain": "test",
+            "api_key": "test_api_key",
+            "email_address": "test@posthog.com",
         },
     )
 
@@ -1352,7 +1469,7 @@ async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_co
     await postgres_connection.commit()
 
     with (
-        mock.patch("posthog.temporal.data_imports.pipelines.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
+        mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
         mock.patch.object(DeltaTable, "merge") as mock_merge,
         mock.patch.object(deltalake, "write_deltalake") as mock_write,
         mock.patch.object(PipelineNonDLT, "_post_run_operations") as mock_post_run_operations,
@@ -1441,7 +1558,7 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
     )
 
     with (
-        mock.patch("posthog.temporal.data_imports.pipelines.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
+        mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
         mock.patch.object(DeltaTable, "merge") as mock_merge,
         mock.patch.object(deltalake, "write_deltalake") as mock_write,
         mock.patch.object(PipelineNonDLT, "_post_run_operations") as mock_post_run_operations,
@@ -1727,9 +1844,12 @@ async def test_partition_folders_with_existing_table(team, postgres_config, post
     )
     await postgres_connection.commit()
 
+    def mock_setup_partitioning(pa_table, existing_delta_table, schema, resource, logger):
+        return pa_table
+
     # Emulate an existing table with no partitions
     with mock.patch(
-        "posthog.temporal.data_imports.pipelines.pipeline.pipeline.should_partition_table", return_value=False
+        "posthog.temporal.data_imports.pipelines.pipeline.pipeline.setup_partitioning", mock_setup_partitioning
     ):
         workflow_id, inputs = await _run(
             team=team,
@@ -1813,9 +1933,12 @@ async def test_partition_folders_with_existing_table_and_pipeline_reset(
     )
     await postgres_connection.commit()
 
+    def mock_setup_partitioning(pa_table, existing_delta_table, schema, resource, logger):
+        return pa_table
+
     # Emulate an existing table with no partitions
     with mock.patch(
-        "posthog.temporal.data_imports.pipelines.pipeline.pipeline.should_partition_table", return_value=False
+        "posthog.temporal.data_imports.pipelines.pipeline.pipeline.setup_partitioning", mock_setup_partitioning
     ):
         workflow_id, inputs = await _run(
             team=team,
@@ -1932,7 +2055,7 @@ async def test_partition_folders_delta_merge_called_with_partition_predicate(
     )
 
     with (
-        mock.patch("posthog.temporal.data_imports.pipelines.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
+        mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
         mock.patch.object(DeltaTable, "merge") as mock_merge,
         mock.patch.object(deltalake, "write_deltalake") as mock_write,
         mock.patch.object(PipelineNonDLT, "_post_run_operations") as mock_post_run_operations,
@@ -2003,7 +2126,11 @@ async def test_row_tracking_incrementing(team, postgres_config, postgres_connect
     mock_finish_row_tracking.assert_called_once()
 
     assert schema_id is not None
-    row_count_in_redis = get_rows(team.id, schema_id)
+    with override_settings(
+        DATA_WAREHOUSE_REDIS_HOST="localhost",
+        DATA_WAREHOUSE_REDIS_PORT="6379",
+    ):
+        row_count_in_redis = get_rows(team.id, schema_id)
 
     assert row_count_in_redis == 1
 
@@ -2118,3 +2245,384 @@ async def test_append_only_table(team, mock_stripe_client):
     # We should now have 2 rows with the same `id`
     assert len(res.results) == 2
     assert res.results[0][0] == res.results[1][0]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_worker_shutdown_desc_sort_order(team, stripe_price, mock_stripe_client):
+    """Testing that a descending sort ordered source will not trigger the rescheduling"""
+
+    def mock_raise_if_is_worker_shutdown(self):
+        raise WorkerShuttingDownError("test_id", "test_type", "test_queue", 1, "test_workflow", "test_workflow_type")
+
+    with (
+        mock.patch.object(ShutdownMonitor, "raise_if_is_worker_shutdown", mock_raise_if_is_worker_shutdown),
+        mock.patch(
+            "posthog.temporal.data_imports.external_data_job.trigger_schedule_buffer_one"
+        ) as mock_trigger_schedule_buffer_one,
+        mock.patch.object(PipelineNonDLT, "_chunk_size", 1),
+    ):
+        _, inputs = await _run(
+            team=team,
+            schema_name=STRIPE_PRICE_RESOURCE_NAME,
+            table_name="stripe_price",
+            source_type="Stripe",
+            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+            mock_data_response=stripe_price["data"],
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field": "created", "incremental_field_type": "integer"},
+            ignore_assertions=True,
+        )
+
+    # assert that the running job was completed successfully and that the new workflow was NOT triggered
+    mock_trigger_schedule_buffer_one.assert_not_called()
+
+    run: ExternalDataJob | None = await get_latest_run_if_exists(
+        team_id=inputs.team_id, pipeline_id=inputs.external_data_source_id
+    )
+
+    assert run is not None
+    assert run.status == ExternalDataJob.Status.COMPLETED
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_worker_shutdown_triggers_schedule_buffer_one(team, zendesk_brands):
+    def mock_raise_if_is_worker_shutdown(self):
+        raise WorkerShuttingDownError("test_id", "test_type", "test_queue", 1, "test_workflow", "test_workflow_type")
+
+    with (
+        mock.patch.object(ShutdownMonitor, "raise_if_is_worker_shutdown", mock_raise_if_is_worker_shutdown),
+        mock.patch(
+            "posthog.temporal.data_imports.external_data_job.trigger_schedule_buffer_one"
+        ) as mock_trigger_schedule_buffer_one,
+        mock.patch.object(PipelineNonDLT, "_chunk_size", 1),
+    ):
+        _, inputs = await _run(
+            team=team,
+            schema_name="brands",
+            table_name="zendesk_brands",
+            source_type="Zendesk",
+            job_inputs={
+                "subdomain": "test",
+                "api_key": "test_api_key",
+                "email_address": "test@posthog.com",
+            },
+            mock_data_response=zendesk_brands["brands"],
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field": "created_at", "incremental_field_type": "datetime"},
+            ignore_assertions=True,
+        )
+
+    # assert that the running job was completed successfully and that the new workflow was triggered
+    mock_trigger_schedule_buffer_one.assert_called_once_with(mock.ANY, str(inputs.external_data_schema_id))
+
+    run: ExternalDataJob | None = await get_latest_run_if_exists(
+        team_id=inputs.team_id, pipeline_id=inputs.external_data_source_id
+    )
+
+    assert run is not None
+    assert run.status == ExternalDataJob.Status.COMPLETED
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_billing_limits_too_many_rows(team, postgres_config, postgres_connection):
+    from ee.api.test.test_billing import create_billing_customer
+    from ee.models.license import License
+
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.billing_limits (id integer)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.billing_limits (id) VALUES (1)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.billing_limits (id) VALUES (2)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.commit()
+
+    with (
+        mock.patch("ee.api.billing.requests.get") as mock_billing_request,
+        mock.patch("posthog.cloud_utils.is_instance_licensed_cached", None),
+    ):
+        await sync_to_async(License.objects.create)(
+            key="12345::67890",
+            plan="enterprise",
+            valid_until=datetime(2038, 1, 19, 3, 14, 7, tzinfo=ZoneInfo("UTC")),
+        )
+
+        mock_res = create_billing_customer()
+        usage_summary = mock_res.get("usage_summary") or {}
+        mock_billing_request.return_value.status_code = 200
+        mock_billing_request.return_value.json.return_value = {
+            "license": {
+                "type": "scale",
+            },
+            "customer": {
+                **mock_res,
+                "usage_summary": {**usage_summary, "rows_synced": {"limit": 0, "usage": 0}},
+            },
+        }
+
+        await _run(
+            team=team,
+            schema_name="billing_limits",
+            table_name="postgres_billing_limits",
+            source_type="Postgres",
+            job_inputs={
+                "host": postgres_config["host"],
+                "port": postgres_config["port"],
+                "database": postgres_config["database"],
+                "user": postgres_config["user"],
+                "password": postgres_config["password"],
+                "schema": postgres_config["schema"],
+                "ssh_tunnel_enabled": "False",
+            },
+            mock_data_response=[],
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
+            ignore_assertions=True,
+        )
+
+    job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.get)(
+        team_id=team.id, schema__name="billing_limits"
+    )
+
+    assert job.status == ExternalDataJob.Status.BILLING_LIMIT_TOO_LOW
+
+    with pytest.raises(Exception):
+        await sync_to_async(execute_hogql_query)(f"SELECT * FROM postgres_billing_limits", team)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_billing_limits_too_many_rows_previously(team, postgres_config, postgres_connection):
+    from ee.api.test.test_billing import create_billing_customer
+    from ee.models.license import License
+
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.billing_limits (id integer)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.billing_limits (id) VALUES (1)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.billing_limits (id) VALUES (2)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.commit()
+
+    with (
+        mock.patch("ee.api.billing.requests.get") as mock_billing_request,
+        mock.patch("posthog.cloud_utils.is_instance_licensed_cached", None),
+    ):
+        source = await sync_to_async(ExternalDataSource.objects.create)(team=team)
+        # A previous job that reached the billing limit
+        await sync_to_async(ExternalDataJob.objects.create)(
+            team=team,
+            rows_synced=10,
+            pipeline=source,
+            finished_at=datetime.now(),
+            billable=True,
+            status=ExternalDataJob.Status.COMPLETED,
+        )
+
+        await sync_to_async(License.objects.create)(
+            key="12345::67890",
+            plan="enterprise",
+            valid_until=datetime(2038, 1, 19, 3, 14, 7, tzinfo=ZoneInfo("UTC")),
+        )
+
+        mock_res = create_billing_customer()
+        usage_summary = mock_res.get("usage_summary") or {}
+        mock_billing_request.return_value.status_code = 200
+        mock_billing_request.return_value.json.return_value = {
+            "license": {
+                "type": "scale",
+            },
+            "customer": {
+                **mock_res,
+                "usage_summary": {**usage_summary, "rows_synced": {"limit": 10, "usage": 0}},
+            },
+        }
+
+        await _run(
+            team=team,
+            schema_name="billing_limits",
+            table_name="postgres_billing_limits",
+            source_type="Postgres",
+            job_inputs={
+                "host": postgres_config["host"],
+                "port": postgres_config["port"],
+                "database": postgres_config["database"],
+                "user": postgres_config["user"],
+                "password": postgres_config["password"],
+                "schema": postgres_config["schema"],
+                "ssh_tunnel_enabled": "False",
+            },
+            mock_data_response=[],
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
+            ignore_assertions=True,
+        )
+
+    job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.get)(
+        team_id=team.id, schema__name="billing_limits"
+    )
+
+    assert job.status == ExternalDataJob.Status.BILLING_LIMIT_TOO_LOW
+
+    with pytest.raises(Exception):
+        await sync_to_async(execute_hogql_query)(f"SELECT * FROM postgres_billing_limits", team)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_pipeline_mb_chunk_size(team, zendesk_brands):
+    with (
+        mock.patch.object(PipelineNonDLT, "_chunk_size_bytes", 1),
+        mock.patch.object(PipelineNonDLT, "_chunk_size", 5000),  # Explicitly make this big
+        mock.patch.object(PipelineNonDLT, "_process_pa_table") as mock_process_pa_table,
+    ):
+        await _run(
+            team=team,
+            schema_name="brands",
+            table_name="zendesk_brands",
+            source_type="Zendesk",
+            job_inputs={
+                "subdomain": "test",
+                "api_key": "test_api_key",
+                "email_address": "test@posthog.com",
+            },
+            mock_data_response=[*zendesk_brands["brands"], *zendesk_brands["brands"]],  # Return two items
+            ignore_assertions=True,
+        )
+
+    # Returning two items should cause the pipeline to process each item individually
+
+    assert mock_process_pa_table.call_count == 2
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_postgres_deleting_schemas(team, postgres_config, postgres_connection):
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.table_1 (id integer)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.table_1 (id) VALUES (1)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.table_2 (id integer)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.commit()
+
+    _, inputs = await _run(
+        team=team,
+        schema_name="table_1",
+        table_name="postgres_table_1",
+        source_type="Postgres",
+        job_inputs={
+            "host": postgres_config["host"],
+            "port": postgres_config["port"],
+            "database": postgres_config["database"],
+            "user": postgres_config["user"],
+            "password": postgres_config["password"],
+            "schema": postgres_config["schema"],
+            "ssh_tunnel_enabled": "False",
+        },
+        mock_data_response=[],
+    )
+
+    @sync_to_async
+    def get_schemas():
+        schemas = ExternalDataSchema.objects.filter(source_id=inputs.external_data_source_id, deleted=False)
+
+        return list(schemas)
+
+    schemas = await get_schemas()
+    assert len(schemas) == 2
+
+    # Drop the table we've not synced yet
+    await postgres_connection.execute("DROP TABLE {schema}.table_2".format(schema=postgres_config["schema"]))
+    await postgres_connection.commit()
+
+    await _execute_run(str(uuid.uuid4()), inputs, [])
+
+    schemas = await get_schemas()
+
+    # It should have soft deleted the unsynced table
+    assert len(schemas) == 1
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_postgres_deleting_schemas_with_pre_synced_data(team, postgres_config, postgres_connection):
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.table_1 (id integer)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.table_1 (id) VALUES (1)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.table_2 (id integer)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.table_2 (id) VALUES (1)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.commit()
+
+    # Sync both tables
+    _, inputs = await _run(
+        team=team,
+        schema_name="table_1",
+        table_name="postgres_table_1",
+        source_type="Postgres",
+        job_inputs={
+            "host": postgres_config["host"],
+            "port": postgres_config["port"],
+            "database": postgres_config["database"],
+            "user": postgres_config["user"],
+            "password": postgres_config["password"],
+            "schema": postgres_config["schema"],
+            "ssh_tunnel_enabled": "False",
+        },
+        mock_data_response=[],
+    )
+
+    @sync_to_async
+    def get_schemas():
+        schemas = ExternalDataSchema.objects.filter(source_id=inputs.external_data_source_id, deleted=False)
+
+        return list(schemas)
+
+    schemas = await get_schemas()
+    assert len(schemas) == 2
+
+    # Drop the table that we've already synced
+    await postgres_connection.execute("DROP TABLE {schema}.table_1".format(schema=postgres_config["schema"]))
+    await postgres_connection.commit()
+
+    # Sync the second table - this will trigger `sync_new_schemas_activity`
+    unsynced_schema_ids = [s.id for s in schemas if s.id != inputs.external_data_schema_id]
+    assert len(unsynced_schema_ids) == 1
+    unsynced_schema_id = unsynced_schema_ids[0]
+    await _execute_run(
+        str(uuid.uuid4()),
+        ExternalDataWorkflowInputs(
+            team_id=inputs.team_id,
+            external_data_source_id=inputs.external_data_source_id,
+            external_data_schema_id=unsynced_schema_id,  # the schema id of the second table
+            billable=inputs.billable,
+        ),
+        [],
+    )
+
+    schemas = await get_schemas()
+    # Because table_1 has already been synced and we hold data for it, we dont delete the schema
+    assert len(schemas) == 2
+
+    # The schema with the deleted upstream table should now have "should_sync" updated to False and status set to completed
+    synced_schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert synced_schema.should_sync is False
+    assert synced_schema.status == ExternalDataSchema.Status.COMPLETED

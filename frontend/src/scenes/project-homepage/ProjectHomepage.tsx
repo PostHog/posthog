@@ -1,19 +1,21 @@
 import './ProjectHomepage.scss'
 
+import { useActions, useValues } from 'kea'
+
 import { IconHome } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceModal'
-import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { SceneDashboardChoiceRequired } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceRequired'
+import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
-import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
@@ -33,6 +35,11 @@ export function ProjectHomepage(): JSX.Element {
     const { showSceneDashboardChoiceModal } = useActions(
         sceneDashboardChoiceModalLogic({ scene: Scene.ProjectHomepage })
     )
+
+    // TODO: Remove this after AA test is over
+    const { featureFlags } = useValues(featureFlagLogic)
+    const aaTestBayesianLegacy = featureFlags[FEATURE_FLAGS.AA_TEST_BAYESIAN_LEGACY]
+    const aaTestBayesianNew = featureFlags[FEATURE_FLAGS.AA_TEST_BAYESIAN_NEW]
 
     const headerButtons = (
         <>
@@ -58,6 +65,10 @@ export function ProjectHomepage(): JSX.Element {
 
     return (
         <div className="ProjectHomepage">
+            {/* TODO: Remove this after AA test is over. Just a hidden element. */}
+            <span className="hidden" data-attr="aa-test-flag-result">
+                AA test flag result: {String(aaTestBayesianLegacy)} {String(aaTestBayesianNew)}
+            </span>
             <PageHeader buttons={headerButtons} />
             {dashboardLogicProps ? (
                 <HomeDashboard dashboardLogicProps={dashboardLogicProps} />

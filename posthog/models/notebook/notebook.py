@@ -1,26 +1,30 @@
 from typing import TYPE_CHECKING
-from django.db.models import JSONField
-from django.utils import timezone
 
 from django.db import models
-from django.db.models import QuerySet
+from django.db.models import JSONField, QuerySet
+from django.utils import timezone
 
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
-from posthog.models.utils import UUIDModel, RootTeamMixin
-from posthog.utils import generate_short_id
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.utils import RootTeamMixin, UUIDTModel
+from posthog.utils import generate_short_id
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
 
-class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDModel):
+class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
+    class Visibility(models.TextChoices):
+        INTERNAL = "internal", "internal"
+        DEFAULT = "default", "default"
+
     short_id = models.CharField(max_length=12, blank=True, default=generate_short_id)
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     title = models.CharField(max_length=256, blank=True, null=True)
     content: JSONField = JSONField(default=None, null=True, blank=True)
     text_content = models.TextField(blank=True, null=True)
     deleted = models.BooleanField(default=False)
+    visibility = models.CharField(choices=Visibility.choices, default=Visibility.DEFAULT, max_length=20)
     version = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)

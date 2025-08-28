@@ -1,13 +1,15 @@
-import { LemonButton, LemonButtonProps, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconDocumentExpand } from 'lib/lemon-ui/icons'
-import { Spinner } from 'lib/lemon-ui/Spinner'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useCallback, useEffect, useState } from 'react'
 
-import { NotebookSyncStatus } from '~/types'
+import { IconBook } from '@posthog/icons'
+import { LemonButton, LemonButtonProps, LemonTag } from '@posthog/lemon-ui'
 
-import { notebookLogic, NotebookLogicProps } from './notebookLogic'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconDocumentExpand } from 'lib/lemon-ui/icons'
+
+import { NotebookSyncStatus } from '../types'
+import { NotebookLogicProps, notebookLogic } from './notebookLogic'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
 
 const syncStatusMap: Record<NotebookSyncStatus, { content: React.ReactNode; tooltip: React.ReactNode }> = {
@@ -67,6 +69,7 @@ export const NotebookSyncInfo = (props: NotebookLogicProps): JSX.Element | null 
             clearTimeout(t)
             clearDebounceTimeout()
         }
+        // oxlint-disable-next-line exhaustive-deps
     }, [syncStatus])
 
     if (!debouncedSyncStatus) {
@@ -92,6 +95,21 @@ export const NotebookExpandButton = (props: Pick<LemonButtonProps, 'size' | 'typ
             onClick={() => setIsExpanded(!isExpanded)}
             icon={<IconDocumentExpand mode={isExpanded ? 'expand' : 'collapse'} />}
             tooltip={isExpanded ? 'Fix content width' : 'Fill content width'}
+            tooltipPlacement="left"
+        />
+    )
+}
+
+export const NotebookTableOfContentsButton = (props: Pick<LemonButtonProps, 'size' | 'type'>): JSX.Element => {
+    const { showTableOfContents } = useValues(notebookSettingsLogic)
+    const { setShowTableOfContents } = useActions(notebookSettingsLogic)
+
+    return (
+        <LemonButton
+            {...props}
+            onClick={() => setShowTableOfContents(!showTableOfContents)}
+            icon={<IconBook />}
+            tooltip={showTableOfContents ? 'Hide table of contents' : 'Show table of contents'}
             tooltipPlacement="left"
         />
     )

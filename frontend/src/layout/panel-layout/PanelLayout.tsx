@@ -1,14 +1,15 @@
 import { cva } from 'cva'
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { cn } from 'lib/utils/css-classes'
 import { useEffect } from 'react'
+
+import { cn } from 'lib/utils/css-classes'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { DatabaseTree } from './DatabaseTree/DatabaseTree'
-import { panelLayoutLogic } from './panelLayoutLogic'
 import { PanelLayoutNavBar } from './PanelLayoutNavBar'
 import { PROJECT_TREE_KEY, ProjectTree } from './ProjectTree/ProjectTree'
 import { projectTreeLogic } from './ProjectTree/projectTreeLogic'
+import { panelLayoutLogic } from './panelLayoutLogic'
 
 const panelLayoutStyles = cva({
     base: 'gap-0 w-fit relative h-screen z-[var(--z-layout-panel)]',
@@ -158,7 +159,7 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                         />
                     )}
                     {activePanelIdentifier === 'Products' && (
-                        <ProjectTree root="products://" searchPlaceholder="Search products" />
+                        <ProjectTree root="products://" searchPlaceholder="Search apps" />
                     )}
                     {activePanelIdentifier === 'Shortcuts' && (
                         <ProjectTree root="shortcuts://" searchPlaceholder="Search your shortcuts" />
@@ -183,7 +184,7 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                 />
             )}
 
-            {projectTreeMode === 'table' && (
+            {isLayoutPanelVisible && projectTreeMode === 'table' && (
                 <div
                     onClick={() => {
                         // Return to tree mode when clicking outside the table view

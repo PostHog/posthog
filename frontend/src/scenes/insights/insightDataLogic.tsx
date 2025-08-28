@@ -1,14 +1,15 @@
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { actionToUrl, router } from 'kea-router'
+
 import { objectsEqual } from 'lib/utils'
 import { DATAWAREHOUSE_EDITOR_ITEM_ID } from 'scenes/data-warehouse/utils'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { maxContextLogic } from 'scenes/max/maxContextLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 
 import { examples } from '~/queries/examples'
-import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getDefaultQuery, queryFromKind } from '~/queries/nodes/InsightViz/utils'
@@ -36,7 +37,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             insightLogic,
             ['insight', 'savedInsight'],
             insightSceneLogic,
-            ['insightId', 'insightMode', 'activeScene'],
+            ['insightId', 'insightMode', 'activeSceneId'],
             teamLogic,
             ['currentTeamId'],
             dataNodeLogic({
@@ -60,11 +61,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
         actions: [
             insightLogic,
-            ['setInsight', 'setMaxContext'],
+            ['setInsight'],
             dataNodeLogic({ key: insightVizDataNodeKey(props) } as DataNodeLogicProps),
             ['loadData', 'loadDataSuccess', 'loadDataFailure', 'setResponse as setInsightData'],
         ],
-        logic: [insightDataTimingLogic(props), insightUsageLogic(props), maxContextLogic],
+        logic: [insightDataTimingLogic(props), insightUsageLogic(props)],
     })),
 
     actions({
@@ -216,15 +217,12 @@ export const insightDataLogic = kea<insightDataLogicType>([
             actions.setInsightData({ ...values.insightData, result: savedResult ? savedResult : null })
         },
         setQuery: ({ query }) => {
-            // Update MaxAI context when query changes
-            actions.setMaxContext()
-
             // if the query is not changed, don't save it
             if (!query || !values.queryChanged) {
                 return
             }
             // only run on insight scene
-            if (insightSceneLogic.values.activeScene !== Scene.Insight) {
+            if (sceneLogic.values.activeSceneId !== Scene.Insight) {
                 return
             }
             // don't save for saved insights
@@ -251,7 +249,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         setQuery: ({ query }) => {
             if (
                 values.queryChanged &&
-                insightSceneLogic.values.activeScene === Scene.Insight &&
+                sceneLogic.values.activeSceneId === Scene.Insight &&
                 insightSceneLogic.values.insightId === 'new'
             ) {
                 // query is changed and we are in edit mode

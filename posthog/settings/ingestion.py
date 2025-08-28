@@ -1,4 +1,5 @@
 import os
+
 import structlog
 
 from posthog.settings.utils import get_from_env, get_list, get_set
@@ -48,6 +49,11 @@ REPLAY_OVERFLOW_SESSIONS_ENABLED = get_from_env("REPLAY_OVERFLOW_SESSIONS_ENABLE
 
 REPLAY_RETENTION_DAYS_MIN = get_from_env("REPLAY_RETENTION_DAYS_MIN", type_cast=int, default=30)
 REPLAY_RETENTION_DAYS_MAX = get_from_env("REPLAY_RETENTION_DAYS_MAX", type_cast=int, default=90)
+REPLAY_CAPTURE_ENDPOINT = os.getenv("REPLAY_CAPTURE_ENDPOINT", "/s/")
+
+CAPTURE_INTERNAL_URL = os.getenv("CAPTURE_INTERNAL_URL", "http://localhost:8010")
+CAPTURE_REPLAY_INTERNAL_URL = os.getenv("CAPTURE_REPLAY_INTERNAL_URL", "http://localhost:8010")
+CAPTURE_INTERNAL_MAX_WORKERS = get_from_env("CAPTURE_INTERNAL_MAX_WORKERS", type_cast=int, default=16)
 
 NEW_ANALYTICS_CAPTURE_ENDPOINT = os.getenv("NEW_CAPTURE_ENDPOINT", "/i/v0/e/")
 NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS = get_set(os.getenv("NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS", ""))

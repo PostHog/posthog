@@ -1,22 +1,28 @@
-import { IconDatabase, IconPieChart, IconPlus } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDivider, Link, SpinnerOverlay } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+
+import { IconDatabase, IconPieChart, IconPlus } from '@posthog/icons'
+import { LemonBanner, LemonButton, Link, SpinnerOverlay } from '@posthog/lemon-ui'
+
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { cn } from 'lib/utils/css-classes'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
-import { PipelineStage, ProductKey, SidePanelTab } from '~/types'
+import { PipelineStage, ProductKey } from '~/types'
 
 import { RevenueAnalyticsFilters } from './RevenueAnalyticsFilters'
 import { REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID, revenueAnalyticsLogic } from './revenueAnalyticsLogic'
 import { revenueAnalyticsSettingsLogic } from './settings/revenueAnalyticsSettingsLogic'
-import { GrossRevenueTile, OverviewTile, RevenueGrowthRateTile, TopCustomersTile, RevenueTile } from './tiles'
+import { GrossRevenueTile, MRRTile, MetricsTile, OverviewTile, RevenueGrowthRateTile, TopCustomersTile } from './tiles'
 
 export const scene: SceneExport = {
     component: RevenueAnalyticsScene,
@@ -32,7 +38,12 @@ const PRODUCT_THING_NAME = 'revenue'
 export function RevenueAnalyticsScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { dataWarehouseSources } = useValues(revenueAnalyticsSettingsLogic)
-    const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { revenueEnabledDataWarehouseSources } = useValues(revenueAnalyticsLogic)
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
+
+    const sourceRunningForTheFirstTime = revenueEnabledDataWarehouseSources?.find(
+        (source) => source.status === 'Running' && !source.last_run_at
+    )
 
     if (!featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS]) {
         return (
@@ -51,7 +62,7 @@ export function RevenueAnalyticsScene(): JSX.Element {
                         type="primary"
                         icon={<IconPlus />}
                         onClick={() => {
-                            openSidePanel(SidePanelTab.FeaturePreviews, FEATURE_FLAGS.REVENUE_ANALYTICS)
+                            router.actions.push(urls.settings('user-feature-previews'))
                         }}
                         data-attr="activate-revenue-analytics"
                     >
@@ -69,13 +80,49 @@ export function RevenueAnalyticsScene(): JSX.Element {
 
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
-            <RevenueAnalyticsSceneContent />
+            <SceneContent>
+                <LemonBanner
+                    type="info"
+                    dismissKey="revenue-analytics-beta-banner"
+                    action={{ children: 'Send feedback', id: 'revenue-analytics-feedback-button' }}
+                    className={cn(!newSceneLayout && 'mb-2')}
+                >
+                    Revenue Analytics is in beta. Please let us know what you'd like to see here and/or report any
+                    issues directly to us!
+                </LemonBanner>
+
+                {sourceRunningForTheFirstTime && (
+                    <LemonBanner
+                        type="success"
+                        dismissKey={`revenue-analytics-sync-in-progress-banner-${sourceRunningForTheFirstTime.id}`}
+                        action={{ children: 'Refresh', onClick: () => window.location.reload() }}
+                        className={cn(!newSceneLayout && 'mb-2')}
+                    >
+                        One of your revenue data warehouse sources is running for the first time. <br />
+                        This means you might not see all of your revenue data yet. <br />
+                        We display partial data - most recent months first - while the initial sync is running. <br />
+                        Refresh the page to see the latest data.
+                    </LemonBanner>
+                )}
+                <SceneTitleSection
+                    name="Revenue Analytics"
+                    description="Track and analyze your revenue metrics to understand your business performance and growth."
+                    resourceType={{
+                        type: 'revenue',
+                        typePlural: 'Revenue Analytics',
+                    }}
+                />
+                <SceneDivider />
+                <RevenueAnalyticsSceneContent />
+            </SceneContent>
         </BindLogic>
     )
 }
 
 const RevenueAnalyticsSceneContent = (): JSX.Element => {
-    const { hasRevenueTables, hasRevenueEvents, revenueEnabledDataWarehouseSources } = useValues(revenueAnalyticsLogic)
+    const { hasRevenueTables, hasRevenueEvents } = useValues(revenueAnalyticsLogic)
+
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     // Still loading from the server, so we'll show a spinner
     if (hasRevenueTables === null) {
@@ -87,47 +134,8 @@ const RevenueAnalyticsSceneContent = (): JSX.Element => {
         return <RevenueAnalyticsSceneOnboarding />
     }
 
-    const sourceRunningForTheFirstTime = revenueEnabledDataWarehouseSources?.find(
-        (source) => source.status === 'Running' && !source.last_run_at
-    )
-
     return (
-        <div>
-            <LemonBanner
-                type="info"
-                dismissKey="revenue-analytics-beta-banner"
-                className="mb-2"
-                action={{ children: 'Send feedback', id: 'revenue-analytics-feedback-button' }}
-            >
-                Revenue Analytics is in beta. Please let us know what you'd like to see here and/or report any issues
-                directly to us!
-            </LemonBanner>
-
-            <LemonBanner type="warning" dismissKey="revenue-analytics-deferred-revenue-banner" className="mb-2">
-                <b>We've made some updates!</b>
-                <br />
-                We've recently introduced deferred revenue recognition for data warehouse sources. This means you will
-                see revenue in the future if you've created an invoice item with a <code>period.start</code> and{' '}
-                <code>period.end</code> that spans several months.
-                <br />
-                More information on{' '}
-                <Link to="https://posthog.com/docs/web-analytics/revenue-analytics#deferred-revenue">our docs</Link>.
-            </LemonBanner>
-
-            {sourceRunningForTheFirstTime && (
-                <LemonBanner
-                    type="success"
-                    className="mb-2"
-                    dismissKey={`revenue-analytics-sync-in-progress-banner-${sourceRunningForTheFirstTime.id}`}
-                    action={{ children: 'Refresh', onClick: () => window.location.reload() }}
-                >
-                    One of your revenue data warehouse sources is running for the first time. <br />
-                    This means you might not see all of your revenue data yet. <br />
-                    We display partial data - most recent months first - while the initial sync is running. <br />
-                    Refresh the page to see the latest data.
-                </LemonBanner>
-            )}
-
+        <div className={cn('RevenueAnalyticsDashboard', newSceneLayout && '-mt-2')}>
             <RevenueAnalyticsFilters />
             <RevenueAnalyticsTables />
         </div>
@@ -192,12 +200,11 @@ const RevenueAnalyticsTables = (): JSX.Element => {
     return (
         <div className="flex flex-col gap-4 mt-4">
             <OverviewTile />
-            <GrossRevenueTile />
-            <RevenueTile />
-
-            <LemonDivider className="mt-6" />
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <MRRTile />
+                <GrossRevenueTile />
+                <MetricsTile />
                 <RevenueGrowthRateTile />
                 <TopCustomersTile />
             </div>

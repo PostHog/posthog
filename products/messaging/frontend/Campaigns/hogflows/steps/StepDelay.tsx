@@ -1,6 +1,7 @@
-import { IconClock } from '@posthog/icons'
 import { Node } from '@xyflow/react'
 import { useActions } from 'kea'
+
+import { IconClock } from '@posthog/icons'
 
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowAction } from '../types'
@@ -10,15 +11,16 @@ import { HogFlowStep, HogFlowStepNodeProps } from './types'
 
 export const StepDelay: HogFlowStep<'delay'> = {
     type: 'delay',
-    name: 'Wait',
+    name: 'Delay',
     description: 'Wait for a specified duration.',
-    icon: <IconClock />,
+    icon: <IconClock className="text-[#a20031]" />,
+    color: '#a20031',
     renderNode: (props) => <StepDelayNode {...props} />,
     renderConfiguration: (node) => <StepDelayConfiguration node={node} />,
     create: () => {
         return {
             action: {
-                name: 'Wait',
+                name: 'Delay',
                 description: '',
                 type: 'delay',
                 on_error: 'continue',

@@ -1,30 +1,30 @@
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
 from posthog.schema import (
+    CachedRevenueAnalyticsOverviewQueryResponse,
+    ResolvedDateRangeResponse,
     RevenueAnalyticsOverviewItem,
     RevenueAnalyticsOverviewItemKey,
-    CachedRevenueAnalyticsOverviewQueryResponse,
-    RevenueAnalyticsOverviewQueryResponse,
     RevenueAnalyticsOverviewQuery,
+    RevenueAnalyticsOverviewQueryResponse,
 )
 
-from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
+from posthog.hogql import ast
 from posthog.hogql.database.schema.exchange_rate import EXCHANGE_RATE_DECIMAL_PRECISION
-from products.revenue_analytics.backend.views.revenue_analytics_invoice_item_view import RevenueAnalyticsInvoiceItemView
+from posthog.hogql.query import execute_hogql_query
 
+from products.revenue_analytics.backend.views import RevenueAnalyticsRevenueItemView
+
+from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
 
 CONSTANT_ZERO = ast.Constant(value=0)
 
 
-class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner):
+class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalyticsOverviewQueryResponse]):
     query: RevenueAnalyticsOverviewQuery
-    response: RevenueAnalyticsOverviewQueryResponse
     cached_response: CachedRevenueAnalyticsOverviewQueryResponse
 
     def to_query(self) -> ast.SelectQuery:
-        # If there are no charge revenue views, we return a query that returns 0 for all values
-        _, _, invoice_item_subquery, _ = self.revenue_subqueries
-        if invoice_item_subquery is None:
+        # If there is no revenue item view, we return a query that returns 0 for all values
+        if self.revenue_subqueries.revenue_item is None:
             return ast.SelectQuery(
                 select=[
                     ast.Alias(alias="revenue", expr=CONSTANT_ZERO),
@@ -87,16 +87,24 @@ class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner):
                     ),
                 ),
             ],
-            select_from=self.append_joins(
+            select_from=self._append_joins(
                 ast.JoinExpr(
-                    alias=RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), table=invoice_item_subquery
+                    alias=RevenueAnalyticsRevenueItemView.get_generic_view_alias(),
+                    table=self.revenue_subqueries.revenue_item,
                 ),
-                self.joins_for_properties,
+                self.joins_for_properties(RevenueAnalyticsRevenueItemView),
             ),
-            where=ast.And(exprs=[self.timestamp_where_clause(), *self.where_property_exprs]),
+            where=ast.And(
+                exprs=[
+                    self.timestamp_where_clause(
+                        [RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "timestamp"],
+                    ),
+                    *self.where_property_exprs,
+                ]
+            ),
         )
 
-    def calculate(self):
+    def _calculate(self):
         response = execute_hogql_query(
             query_type="revenue_analytics_overview_query",
             query=self.to_query(),
@@ -113,6 +121,10 @@ class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner):
         return RevenueAnalyticsOverviewQueryResponse(
             results=results,
             modifiers=self.modifiers,
+            resolved_date_range=ResolvedDateRangeResponse(
+                date_from=self.query_date_range.date_from(),
+                date_to=self.query_date_range.date_to(),
+            ),
         )
 
 

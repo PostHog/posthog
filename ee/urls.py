@@ -2,11 +2,18 @@ from typing import Any
 
 from django.conf import settings
 from django.contrib import admin
+from django.contrib.admin.sites import NotRegistered  # type: ignore[attr-defined]
 from django.urls import include
 from django.urls.conf import path
 from django.views.decorators.csrf import csrf_exempt
 
+from django_otp.plugins.otp_static.models import StaticDevice
+from django_otp.plugins.otp_totp.models import TOTPDevice
+
+from posthog.utils import opt_slash_path
+
 from ee.api import integration
+from ee.api.mcp.http import mcp_view
 from ee.support_sidebar_max.views import MaxChatViewSet
 
 from .api import (
@@ -26,7 +33,6 @@ from .api.rbac import organization_resource_access, role
 
 
 def extend_api_router() -> None:
-    from ee.api import max_tools
     from posthog.api import (
         environment_dashboards_router,
         environments_router,
@@ -36,6 +42,8 @@ def extend_api_router() -> None:
         register_grandfathered_environment_nested_viewset,
         router as root_router,
     )
+
+    from ee.api import max_tools, session_summaries
 
     root_router.register(r"billing", billing.BillingViewset, "billing")
     root_router.register(r"license", license.LicenseViewSet)
@@ -101,16 +109,29 @@ def extend_api_router() -> None:
 
     environments_router.register(r"max_tools", max_tools.MaxToolsViewSet, "environment_max_tools", ["team_id"])
 
+    environments_router.register(
+        r"session_summaries", session_summaries.SessionSummariesViewSet, "environment_session_summaries", ["team_id"]
+    )
+
 
 # The admin interface is disabled on self-hosted instances, as its misuse can be unsafe
-admin_urlpatterns = (
-    [path("admin/", include("loginas.urls")), path("admin/", admin.site.urls)] if settings.ADMIN_PORTAL_ENABLED else []
-)
+if settings.ADMIN_PORTAL_ENABLED:
+    # these models are auto-registered but we don't want to expose them to staff
+    for model in (StaticDevice, TOTPDevice):
+        try:
+            admin.site.unregister(model)
+        except NotRegistered:
+            pass
+
+    admin_urlpatterns = [path("admin/", include("loginas.urls")), path("admin/", admin.site.urls)]
+else:
+    admin_urlpatterns = []
 
 
 urlpatterns: list[Any] = [
     path("api/saml/metadata/", authentication.saml_metadata_view),
     path("api/sentry_stats/", sentry_stats.sentry_stats),
     path("max/chat/", csrf_exempt(MaxChatViewSet.as_view({"post": "create"})), name="max_chat"),
+    opt_slash_path("mcp", csrf_exempt(mcp_view)),
     *admin_urlpatterns,
 ]

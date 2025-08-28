@@ -1,4 +1,4 @@
-from posthog.warehouse.util import database_sync_to_async
+from posthog.sync import database_sync_to_async
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource

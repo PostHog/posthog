@@ -30,6 +30,7 @@ AXES_META_PRECEDENCE_ORDER = ["HTTP_X_FORWARDED_FOR", "REMOTE_ADDR"]
 # NOTE: Add these definitions here and on `tach.toml`
 PRODUCTS_APPS = [
     "products.early_access_features",
+    "products.tasks",
     "products.links",
     "products.revenue_analytics",
     "products.user_interviews",
@@ -63,6 +64,8 @@ INSTALLED_APPS = [
     # 'two_factor.plugins.email',  # <- if you want email capability.
     # 'two_factor.plugins.yubikey',  # <- for yubikey capability.
     "oauth2_provider",
+    "mcp_server",
+    "django_admin_inline_paginator",
 ]
 
 MIDDLEWARE = [
@@ -73,7 +76,6 @@ MIDDLEWARE = [
     "django_structlog.middlewares.CeleryMiddleware",
     "posthog.middleware.Fix204Middleware",
     "django.middleware.security.SecurityMiddleware",
-    "posthog.middleware.CaptureMiddleware",
     # NOTE: we need healthcheck high up to avoid hitting middlewares that may be
     # using dependencies that the healthcheck should be checking. It should be
     # ok below the above middlewares however.
@@ -88,6 +90,7 @@ MIDDLEWARE = [
     "posthog.middleware.QueryTimeCountingMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "posthog.middleware.SessionAgeMiddleware",
+    "posthog.middleware.ActivityLoggingMiddleware",
     "posthog.middleware.user_logging_context_middleware",
     "django_otp.middleware.OTPMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
@@ -99,7 +102,7 @@ MIDDLEWARE = [
     "posthog.middleware.CHQueries",
     "django_prometheus.middleware.PrometheusAfterMiddleware",
     "posthog.middleware.PostHogTokenCookieMiddleware",
-    "posthog.middleware.Fix204Middleware",
+    "posthog.middleware.AdminCSPMiddleware",
     "posthoganalytics.integrations.django.PosthogContextMiddleware",
 ]
 
@@ -165,7 +168,7 @@ LOGIN_URL = "/login"
 LOGOUT_URL = "/logout"
 LOGIN_REDIRECT_URL = "/"
 APPEND_SLASH = False
-CORS_URLS_REGEX = r"^(/site_app/|/array/|/api/(?!early_access_features|surveys|web_experiments).*$)"
+CORS_URLS_REGEX = r"^(/site_app/|/array/|/static/|/api/(?!early_access_features|surveys|web_experiments).*$)"
 CORS_ALLOW_HEADERS = default_headers + CORS_ALLOWED_TRACING_HEADERS
 X_FRAME_OPTIONS = "SAMEORIGIN"
 
@@ -183,6 +186,7 @@ SOCIAL_AUTH_PIPELINE = (
     "social_core.pipeline.social_auth.associate_user",
     "social_core.pipeline.social_auth.load_extra_data",
     "social_core.pipeline.user.user_details",
+    "posthog.api.authentication.social_login_notification",
 )
 
 SOCIAL_AUTH_STRATEGY = "social_django.strategy.DjangoStrategy"
@@ -192,6 +196,7 @@ SOCIAL_AUTH_FIELDS_STORED_IN_SESSION = [
     "user_name",
     "email_opt_in",
     "organization_name",
+    "reauth",
 ]
 SOCIAL_AUTH_GITHUB_SCOPE = ["user:email"]
 SOCIAL_AUTH_GITHUB_KEY: str | None = os.getenv("SOCIAL_AUTH_GITHUB_KEY")
@@ -221,6 +226,8 @@ IMPERSONATION_IDLE_TIMEOUT_SECONDS = get_from_env("IMPERSONATION_IDLE_TIMEOUT_SE
 IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY = get_from_env(
     "IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY", "impersonation_last_activity"
 )
+# Disallow impersonating other staff
+CAN_LOGIN_AS = lambda request, target_user: request.user.is_staff and not target_user.is_staff
 
 SESSION_COOKIE_CREATED_AT_KEY = get_from_env("SESSION_COOKIE_CREATED_AT_KEY", "session_created_at")
 
@@ -351,7 +358,7 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 "^/?api/(environments|projects)/\\d+/performance_events/?$",
                 "^/?api/(environments|projects)/\\d+/performance_events/.*$",
                 "^/?api/(environments|projects)/\\d+/exports/\\d+/content/?$",
-                "^/?api/(environments|projects)/\\d+/activity_log/important_changes/?$",
+                "^/?api/(environments|projects)/\\d+/my_notifications/?$",
                 "^/?api/(environments|projects)/\\d+/uploaded_media/?$",
                 "^/uploaded_media/.*$",
                 "^/api/element/stats/?$",
@@ -452,13 +459,6 @@ KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS = int(os.getenv("KAFKA_PRODUCE_ACK_TIMEOUT_SEC
 # if `true` we highly increase the rate limit on /query endpoint and limit the number of concurrent queries
 API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_to_bool)
 
-####
-# Hog
-
-# Teams allowed to modify transformation code (comma-separated list of team IDs),
-# keep in sync with client-side feature flag HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED
-HOG_TRANSFORMATIONS_CUSTOM_ENABLED = get_from_env("HOG_TRANSFORMATIONS_CUSTOM_ENABLED", False, type_cast=bool)
-CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG = get_from_env("CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG", False, type_cast=bool)
 
 ####
 # Livestream
@@ -479,6 +479,10 @@ DEV_DISABLE_NAVIGATION_HOOKS = get_from_env("DEV_DISABLE_NAVIGATION_HOOKS", Fals
 # temporary flag to control new UUID version setting in posthog-js
 # is set to v7 to test new generation but can be set to "og" to revert
 POSTHOG_JS_UUID_VERSION = os.getenv("POSTHOG_JS_UUID_VERSION", "v7")
+
+# Feature flag to enable HogFunctions daily digest email for specific teams
+# Comma-separated list of team IDs that should receive the digest
+HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS = get_list(get_from_env("HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS", ""))
 
 
 ####
@@ -522,6 +526,9 @@ OAUTH2_PROVIDER_ACCESS_TOKEN_MODEL = "posthog.OAuthAccessToken"
 OAUTH2_PROVIDER_REFRESH_TOKEN_MODEL = "posthog.OAuthRefreshToken"
 OAUTH2_PROVIDER_ID_TOKEN_MODEL = "posthog.OAuthIDToken"
 OAUTH2_PROVIDER_GRANT_MODEL = "posthog.OAuthGrant"
+
+# Sharing configuration settings
+SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes
 
 if DEBUG:
     OAUTH2_PROVIDER["ALLOWED_REDIRECT_URI_SCHEMES"] = ["http", "https"]

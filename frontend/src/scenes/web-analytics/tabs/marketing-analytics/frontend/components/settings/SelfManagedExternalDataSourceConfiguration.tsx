@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+
 import { sourceWizardLogic } from 'scenes/data-warehouse/new/sourceWizardLogic'
 import { urls } from 'scenes/urls'
 
@@ -15,11 +16,9 @@ import { SharedExternalDataSourceConfiguration } from './SharedExternalDataSourc
 export function SelfManagedExternalDataSourceConfiguration(): JSX.Element {
     const { externalTables, loading } = useValues(marketingAnalyticsLogic)
     const { toggleManualLinkFormVisible, setManualLinkingProvider } = useActions(sourceWizardLogic)
-
     const tables: ExternalTable[] = externalTables.filter((source) =>
         VALID_SELF_MANAGED_MARKETING_SOURCES.includes(source.source_type as ManualLinkSourceType)
     )
-
     const handleSourceAdd = (manualLinkSource: ManualLinkSourceType): void => {
         router.actions.push(urls.pipelineNodeNew(PipelineStage.Source))
         toggleManualLinkFormVisible(true)
@@ -28,7 +27,7 @@ export function SelfManagedExternalDataSourceConfiguration(): JSX.Element {
 
     return (
         <SharedExternalDataSourceConfiguration<ManualLinkSourceType>
-            title="Self-managed Data Warehouse Sources Configuration"
+            title="Self-managed data warehouse sources configuration"
             description="Configure self-managed data warehouse sources to display marketing analytics in PostHog. You'll need to map the required columns for each table to enable the functionality."
             tables={tables}
             loading={loading}

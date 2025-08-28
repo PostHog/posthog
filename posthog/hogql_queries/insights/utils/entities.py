@@ -2,6 +2,8 @@ from posthog.hogql import ast
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.models.action.action import Action
 from posthog.models.team.team import Team
+from collections import Counter
+
 from posthog.schema import (
     ActionsNode,
     CohortPropertyFilter,
@@ -12,8 +14,8 @@ from posthog.schema import (
     FunnelExclusionEventsNode,
     HogQLPropertyFilter,
 )
+
 from posthog.types import AnyPropertyFilter, EntityNode, ExclusionEntityNode
-from collections import Counter
 
 
 def is_equal_type(a: EntityNode, b: EntityNode | ExclusionEntityNode) -> bool:

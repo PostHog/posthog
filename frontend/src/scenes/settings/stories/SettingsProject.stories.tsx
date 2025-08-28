@@ -1,8 +1,10 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { router } from 'kea-router'
-import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useEffect } from 'react'
+
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -22,7 +24,7 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-05-25',
-        featureFlags: Object.values(FEATURE_FLAGS), // Enable all feature flags for the settings page
+        featureFlags: Object.values(FEATURE_FLAGS).filter((flag) => flag !== FEATURE_FLAGS.NEW_SCENE_LAYOUT), // Enable all feature flags for the settings page, except the new scene layout
     },
     decorators: [
         mswDecorator({
@@ -50,6 +52,7 @@ const Template: StoryFn<StoryProps> = ({ sectionId }) => {
     useEffect(() => {
         router.actions.push(urls.settings(sectionId))
     }, [sectionId])
+
     return <App />
 }
 

@@ -1,9 +1,11 @@
-import { IconCheck, IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+
+import { IconCheck, IconX } from '@posthog/icons'
+
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CodeEditor, CodeEditorProps } from 'lib/monaco/CodeEditor'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import MaxTool from 'scenes/max/MaxTool'
 
 import { HogQLQuery } from '~/queries/schema/schema-general'
@@ -72,8 +74,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                     </div>
                     <div className="absolute bottom-6 right-4">
                         <MaxTool
-                            name="generate_hogql_query"
-                            displayName="Write and tweak SQL"
+                            identifier="generate_hogql_query"
                             context={{
                                 current_query: props.queryInput,
                             }}

@@ -1,5 +1,36 @@
+import json
 from datetime import datetime
+from time import sleep
 from typing import Optional
+
+from django.conf import settings
+from django.core.serializers.json import DjangoJSONEncoder
+
+from rest_framework.exceptions import APIException
+
+from posthog.schema import (
+    AssistantFunnelsQuery,
+    AssistantHogQLQuery,
+    AssistantRetentionQuery,
+    AssistantTrendsQuery,
+    FunnelsQuery,
+    HogQLQuery,
+    RetentionQuery,
+    TrendsQuery,
+)
+
+from posthog.hogql.errors import (
+    ExposedHogQLError,
+    NotImplementedError as HogQLNotImplementedError,
+)
+
+from posthog.api.services.query import process_query_dict
+from posthog.clickhouse.client.execute_async import get_query_status
+from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.errors import ExposedCHQueryError
+from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models.team.team import Team
+from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.query_executor.format import (
     FunnelResultsFormatter,
@@ -7,28 +38,6 @@ from ee.hogai.graph.query_executor.format import (
     SQLResultsFormatter,
     TrendsResultsFormatter,
 )
-from posthog.clickhouse.query_tagging import tags_context, Product
-from posthog.models.team.team import Team
-from posthog.schema import (
-    AssistantFunnelsQuery,
-    AssistantHogQLQuery,
-    AssistantRetentionQuery,
-    AssistantTrendsQuery,
-    TrendsQuery,
-    FunnelsQuery,
-    RetentionQuery,
-    HogQLQuery,
-)
-from django.conf import settings
-from posthog.api.services.query import process_query_dict
-from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.clickhouse.client.execute_async import get_query_status
-from rest_framework.exceptions import APIException
-from posthog.errors import ExposedCHQueryError
-from posthog.hogql.errors import ExposedHogQLError
-from time import sleep
-import json
-from django.core.serializers.json import DjangoJSONEncoder
 
 SupportedQueryTypes = (
     AssistantTrendsQuery
@@ -66,7 +75,7 @@ class AssistantQueryExecutor:
 
     def run_and_format_query(
         self, query: SupportedQueryTypes, execution_mode: Optional[ExecutionMode] = None
-    ) -> tuple[str, bool]:  # noqa: F821
+    ) -> tuple[str, bool]:
         """
         Run a query and format the results with detailed fallback information.
 
@@ -85,7 +94,7 @@ class AssistantQueryExecutor:
             Exception: If query execution fails with descriptive error messages
         """
         with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
-            response_dict = self._execute_query(query, execution_mode)
+            response_dict = self.execute_query(query, execution_mode)
 
         try:
             # Attempt to format results using query-specific formatters
@@ -99,7 +108,30 @@ class AssistantQueryExecutor:
             fallback_results = json.dumps(response_dict["results"], cls=DjangoJSONEncoder, separators=(",", ":"))
             return fallback_results, True  # Fallback was used
 
-    def _execute_query(self, query: SupportedQueryTypes, execution_mode: Optional[ExecutionMode] = None) -> dict:
+    @database_sync_to_async(thread_sensitive=False)
+    def arun_and_format_query(
+        self, query: SupportedQueryTypes, execution_mode: Optional[ExecutionMode] = None
+    ) -> tuple[str, bool]:
+        """
+        Run a query and format the results with detailed fallback information.
+
+        Args:
+            query: The query object (AssistantTrendsQuery, AssistantFunnelsQuery, etc.)
+            execution_mode: Optional execution mode override. If None, defaults to:
+                          - RECENT_CACHE_CALCULATE_ASYNC_IF_STALE in production
+                          - CALCULATE_BLOCKING_ALWAYS in tests
+
+        Returns:
+            Tuple of (formatted results as string, whether fallback was used)
+            - formatted results: Query results formatted for AI consumption
+            - fallback used: True if JSON fallback was used due to formatting errors
+
+        Raises:
+            Exception: If query execution fails with descriptive error messages
+        """
+        return self.run_and_format_query(query, execution_mode)
+
+    def execute_query(self, query: SupportedQueryTypes, execution_mode: Optional[ExecutionMode] = None) -> dict:
         """
         Execute a query and return the response dict.
 
@@ -162,7 +194,7 @@ class AssistantQueryExecutor:
                 # Use the completed query results
                 response_dict = query_status["results"]
 
-        except (APIException, ExposedHogQLError, ExposedCHQueryError) as err:
+        except (APIException, ExposedHogQLError, HogQLNotImplementedError, ExposedCHQueryError) as err:
             # Handle known query execution errors with user-friendly messages
             err_message = str(err)
             if isinstance(err, APIException):

@@ -1,22 +1,22 @@
 from typing import Any, cast
+from uuid import uuid4
 
 import pydantic
-from uuid import uuid4
 from rest_framework import serializers
 from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
-from rest_framework.permissions import IsAuthenticated
 
-
-from ee.hogai.utils.types import AssistantMode, AssistantState
-from ee.models.assistant import Conversation
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer
+
+from ee.hogai.utils.types import AssistantMode, AssistantState
+from ee.models.assistant import Conversation
 
 
 class InsightsToolCallSerializer(serializers.Serializer):
@@ -67,4 +67,9 @@ class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             tool_call_partial_state=serializer.validated_data["state"],
         )
 
-        return Response(assistant.generate())
+        return Response(
+            [
+                {"type": event_type, "data": data.model_dump(exclude_none=True)}
+                for event_type, data in assistant.invoke()
+            ]
+        )

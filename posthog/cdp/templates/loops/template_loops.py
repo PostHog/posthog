@@ -1,8 +1,9 @@
 import dataclasses
 from copy import deepcopy
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionTemplateMigrator
 
-template: HogFunctionTemplate = HogFunctionTemplate(
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, HogFunctionTemplateMigrator
+
+template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="stable",
     free=False,
     type="destination",
@@ -11,7 +12,8 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Update contacts in Loops.so",
     icon_url="/static/services/loops.png",
     category=["Email Marketing"],
-    hog="""
+    code_language="hog",
+    code="""
 if (empty(inputs.email)) {
     print('No email set. Skipping...')
     return
@@ -100,7 +102,7 @@ if (res.status >= 400) {
     },
 )
 
-template_send_event: HogFunctionTemplate = HogFunctionTemplate(
+template_send_event: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="stable",
     free=False,
     type="destination",
@@ -109,7 +111,8 @@ template_send_event: HogFunctionTemplate = HogFunctionTemplate(
     description="Send events to Loops.so",
     icon_url="/static/services/loops.png",
     category=["Email Marketing"],
-    hog="""
+    code_language="hog",
+    code="""
 if (empty(inputs.email)) {
     print('No email set. Skipping...')
     return
@@ -205,6 +208,8 @@ class TemplateLoopsMigrator(HogFunctionTemplateMigrator):
     @classmethod
     def migrate(cls, obj):
         hf = deepcopy(dataclasses.asdict(template))
+        hf["hog"] = hf["code"]
+        del hf["code"]
 
         apiKey = obj.config.get("apiKey", "")
         trackedEvents = obj.config.get("trackedEvents", "")

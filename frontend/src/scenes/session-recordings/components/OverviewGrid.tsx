@@ -1,6 +1,7 @@
-import { Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { ReactNode } from 'react'
+
+import { Tooltip } from '@posthog/lemon-ui'
 
 interface OverviewItemBase {
     icon?: ReactNode
@@ -55,7 +56,7 @@ export function OverviewGridItem({
                 </Tooltip>
             </div>
             <Tooltip title={description}>
-                <div className="overflow-x-scroll">{children}</div>
+                <div className="overflow-x-auto">{children}</div>
             </Tooltip>
         </div>
     )

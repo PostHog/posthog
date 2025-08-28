@@ -335,6 +335,6 @@ FROM
         exclude_events={exclude_events}::Array(String)
     ) AS events
 GROUP BY interval_start
-ORDER BY interval_start desc
+ORDER BY interval_start ASC
 SETTINGS max_replica_delay_for_distributed_queries=1
 """

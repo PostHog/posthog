@@ -1,10 +1,12 @@
 import './LemonTag.scss'
 
-import { IconEllipsis, IconX } from '@posthog/icons'
 import clsx from 'clsx'
+import { HTMLProps, forwardRef } from 'react'
+
+import { IconEllipsis, IconX } from '@posthog/icons'
+
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonButtonDropdown } from 'lib/lemon-ui/LemonButton'
-import { forwardRef, HTMLProps } from 'react'
 
 export type LemonTagType =
     | 'primary'
@@ -18,7 +20,6 @@ export type LemonTagType =
     | 'completion'
     | 'caution'
     | 'none'
-    | 'breakdown'
 
 export interface LemonTagProps {
     type?: LemonTagType
@@ -66,8 +67,8 @@ export const LemonTag: React.FunctionComponent<
                 disabledReason
                     ? 'cursor-not-allowed'
                     : props.onClick || (closeOnClick && icon && onClose)
-                    ? 'cursor-pointer'
-                    : undefined,
+                      ? 'cursor-pointer'
+                      : undefined,
                 `LemonTag--${type}`,
                 weight && `LemonTag--${weight}`,
                 closeOnClick && 'LemonTag--close-on-click',
@@ -111,7 +112,10 @@ export const LemonTag: React.FunctionComponent<
             {closable && !(closeOnClick && icon && onClose) && (
                 <LemonButton
                     icon={<IconX className="h-3.5 w-3.5" />}
-                    onClick={onClose}
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        onClose?.()
+                    }}
                     size="xsmall"
                     className="LemonTag__right-button"
                 />

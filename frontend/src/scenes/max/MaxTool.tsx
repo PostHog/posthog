@@ -1,52 +1,82 @@
-import { IconSparkles } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconTools } from 'lib/lemon-ui/icons'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import React, { useEffect } from 'react'
+
+import { IconSparkles, IconWrench } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
+
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { SidePanelTab } from '~/types'
 
-import { maxGlobalLogic, ToolDefinition } from './maxGlobalLogic'
+import { TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
+import { maxGlobalLogic } from './maxGlobalLogic'
 import { generateBurstPoints } from './utils'
 
-interface MaxToolProps extends ToolDefinition {
+interface MaxToolProps extends Omit<ToolRegistration, 'name' | 'description'> {
     /** The child element(s) that will be wrapped by this component */
     children: React.ReactElement | (({ toolAvailable }: { toolAvailable: boolean }) => React.ReactElement)
+    /** Whether MaxTool functionality is active. When false, just renders children without MaxTool wrapper. */
+    active?: boolean
     initialMaxPrompt?: string
     onMaxOpen?: () => void
     className?: string
+    position?: 'top-right' | 'bottom-right' | 'top-left' | 'bottom-left'
 }
 
 export function MaxTool({
-    name,
-    displayName,
+    identifier,
+    icon,
     context,
     introOverride,
     callback,
     children: Children,
+    active = true,
     initialMaxPrompt,
     onMaxOpen,
     className,
+    position = 'top-right',
 }: MaxToolProps): JSX.Element {
     const { registerTool, deregisterTool } = useActions(maxGlobalLogic)
     const { user } = useValues(userLogic)
     const { openSidePanel } = useActions(sidePanelLogic)
     const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
 
-    const isMaxAvailable = useFeatureFlag('ARTIFICIAL_HOG')
+    const definition = TOOL_DEFINITIONS[identifier as keyof typeof TOOL_DEFINITIONS]
+
+    const isMaxAvailable = useFeatureFlag('ARTIFICIAL_HOG') && active
     const isMaxOpen = isMaxAvailable && sidePanelOpen && selectedTab === SidePanelTab.Max
 
     useEffect(() => {
-        registerTool({ name, displayName, context, introOverride, callback })
-        return () => {
-            deregisterTool(name)
+        if (active) {
+            registerTool({
+                identifier,
+                name: definition.name,
+                description: definition.description,
+                icon,
+                context,
+                introOverride,
+                callback,
+            })
+            return (): void => {
+                deregisterTool(identifier)
+            }
         }
-    }, [name, displayName, JSON.stringify(context), introOverride, callback, registerTool, deregisterTool])
+    }, [
+        active,
+        identifier,
+        definition.name,
+        definition.description,
+        icon,
+        JSON.stringify(context),
+        introOverride,
+        callback,
+        registerTool,
+        deregisterTool,
+    ]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     let content: JSX.Element
     if (!isMaxAvailable) {
@@ -59,14 +89,14 @@ export function MaxTool({
                         !isMaxOpen ? (
                             <>
                                 <IconSparkles className="mr-1.5" />
-                                {displayName} with Max
+                                {definition.name} with Max
                             </>
                         ) : (
                             <>
                                 Max can use this tool
                                 <br />
-                                <IconTools className="mr-1.5" />
-                                <i>{displayName}</i>
+                                {icon || <IconWrench />}
+                                <i className="ml-1.5">{definition.name}</i>
                             </>
                         )
                     }
@@ -74,7 +104,13 @@ export function MaxTool({
                     delayMs={0}
                 >
                     <button
-                        className="absolute -top-2 -right-2 z-10 transition duration-50 cursor-pointer -scale-x-100 hover:scale-y-110 hover:-scale-x-110"
+                        className={clsx(
+                            'absolute z-10 transition duration-50 cursor-pointer -scale-x-100 hover:scale-y-110 hover:-scale-x-110',
+                            position === 'top-right' && '-top-2 -right-2',
+                            position === 'bottom-right' && '-bottom-2 -right-2',
+                            position === 'top-left' && '-top-2 -left-2',
+                            position === 'bottom-left' && '-bottom-2 -left-2'
+                        )}
                         type="button"
                         onClick={() => {
                             openSidePanel(SidePanelTab.Max, initialMaxPrompt)

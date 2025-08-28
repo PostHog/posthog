@@ -22,3 +22,12 @@ export async function tryCatch<T>(fn: () => Promise<T>): Promise<[Error | null, 
         return [e, null]
     }
 }
+
+export function tryCatchSync<T>(fn: () => T): [Error | null, T | null] {
+    try {
+        const result = fn()
+        return [null, result]
+    } catch (e) {
+        return [e, null]
+    }
+}

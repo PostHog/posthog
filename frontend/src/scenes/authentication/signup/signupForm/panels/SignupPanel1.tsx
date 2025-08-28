@@ -1,19 +1,21 @@
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { useEffect, useRef } from 'react'
+
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+
 import PasswordStrength from 'lib/components/PasswordStrength'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
-import { useEffect, useRef } from 'react'
-import RegionSelect from 'scenes/authentication/RegionSelect'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import RegionSelect from 'scenes/authentication/RegionSelect'
 
 import { signupLogic } from '../signupLogic'
 
 export function SignupPanel1(): JSX.Element | null {
     const { preflight, socialAuthAvailable } = useValues(preflightLogic)
-    const { isSignupPanel1Submitting, validatedPassword, loginUrl } = useValues(signupLogic)
+    const { isSignupPanel1Submitting, validatedPassword, loginUrl, emailCaseNotice } = useValues(signupLogic)
     const emailInputRef = useRef<HTMLInputElement | null>(null)
 
     useEffect(() => {
@@ -31,7 +33,11 @@ export function SignupPanel1(): JSX.Element | null {
                 </>
             )}
             <Form logic={signupLogic} formKey="signupPanel1" className="deprecated-space-y-4" enableFormOnSubmit>
-                <LemonField name="email" label="Email">
+                <LemonField
+                    name="email"
+                    label="Email"
+                    help={emailCaseNotice && <span className="text-warning">{emailCaseNotice}</span>}
+                >
                     <LemonInput
                         className="ph-ignore-input"
                         autoFocus

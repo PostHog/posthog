@@ -3,9 +3,9 @@ import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import {
     EventSink,
     EventToSinkMapping,
-    parseEventSinkConfig,
     SalesforceMeta,
     SalesforcePluginConfig,
+    parseEventSinkConfig,
     sendEventToSalesforce,
     verifyConfig,
 } from '../index'
@@ -58,7 +58,7 @@ describe('event sink mapping', () => {
 
         it('can parse nonsense as an empty event sink mapping', () => {
             const config = { eventEndpointMapping: '🤘' } as unknown as SalesforcePluginConfig
-            expect(() => parseEventSinkConfig(config)).toThrowError(
+            expect(() => parseEventSinkConfig(config)).toThrow(
                 'eventEndpointMapping must be an empty string or contain valid JSON!'
             )
         })
@@ -72,7 +72,7 @@ describe('event sink mapping', () => {
                         eventEndpointMapping: JSON.stringify(invalidMapping),
                     },
                 } as unknown as SalesforceMeta)
-            }).toThrowError('You must provide a salesforce path for each mapping in config.eventEndpointMapping.')
+            }).toThrow('You must provide a salesforce path for each mapping in config.eventEndpointMapping.')
         })
 
         it('can validate an event sink mapping with missing method', () => {
@@ -82,7 +82,7 @@ describe('event sink mapping', () => {
                         eventEndpointMapping: JSON.stringify(missingMethodInvalidMapping),
                     },
                 } as unknown as SalesforceMeta)
-            }).toThrowError('You must provide a method for each mapping in config.eventEndpointMapping.')
+            }).toThrow('You must provide a method for each mapping in config.eventEndpointMapping.')
         })
 
         it('can validate invalid JSON in EventToSinkMapping', () => {
@@ -95,7 +95,7 @@ describe('event sink mapping', () => {
                         eventEndpointMapping: JSON.stringify(mapping),
                     },
                 } as unknown as SalesforceMeta)
-            }).toThrowError('You must provide a salesforce path for each mapping in config.eventEndpointMapping.')
+            }).toThrow('You must provide a salesforce path for each mapping in config.eventEndpointMapping.')
         })
 
         it('can validate eventsToInclude must be present if an event sink mapping is not', () => {
@@ -105,7 +105,7 @@ describe('event sink mapping', () => {
                         eventEndpointMapping: '',
                     },
                 } as unknown as SalesforceMeta)
-            }).toThrowError('If you are not providing an eventEndpointMapping then you must provide events to include.')
+            }).toThrow('If you are not providing an eventEndpointMapping then you must provide events to include.')
         })
 
         it('can validate that you should not send v1 and v2 config', () => {
@@ -123,7 +123,7 @@ describe('event sink mapping', () => {
                         eventsToInclude: '$pageView',
                     },
                 } as unknown as SalesforceMeta)
-            }).toThrowError('You should not provide both eventsToInclude and eventMapping.')
+            }).toThrow('You should not provide both eventsToInclude and eventMapping.')
         })
     })
 

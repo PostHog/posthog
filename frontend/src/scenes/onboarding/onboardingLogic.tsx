@@ -1,40 +1,25 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { Breadcrumb, OnboardingProduct, ProductKey, SidePanelTab } from '~/types'
+import { Breadcrumb, OnboardingProduct, OnboardingStepKey, ProductKey, SidePanelTab } from '~/types'
 
 import type { onboardingLogicType } from './onboardingLogicType'
 import { availableOnboardingProducts } from './utils'
 
 export interface OnboardingLogicProps {
     onCompleteOnboarding?: (key: ProductKey) => void
-}
-
-export enum OnboardingStepKey {
-    INSTALL = 'install',
-    LINK_DATA = 'link_data',
-    PLANS = 'plans',
-    VERIFY = 'verify',
-    PRODUCT_CONFIGURATION = 'configure',
-    REVERSE_PROXY = 'proxy',
-    INVITE_TEAMMATES = 'invite_teammates',
-    DASHBOARD_TEMPLATE = 'dashboard_template',
-    DASHBOARD_TEMPLATE_CONFIGURE = 'dashboard_template_configure',
-    SESSION_REPLAY = 'session_replay',
-    AUTHORIZED_DOMAINS = 'authorized_domains',
-    SOURCE_MAPS = 'source_maps',
-    ALERTS = 'alerts',
 }
 
 export const breadcrumbExcludeSteps = [OnboardingStepKey.DASHBOARD_TEMPLATE_CONFIGURE]
@@ -76,7 +61,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
     props({} as OnboardingLogicProps),
     path(['scenes', 'onboarding', 'onboardingLogic']),
     // connect this so we start collecting live events the whole time during onboarding
-    connect(liveEventsTableLogic({ showLiveStreamErrorToast: false })),
     connect(() => ({
         values: [
             billingLogic,
@@ -100,6 +84,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             sidePanelStateLogic,
             ['openSidePanel'],
         ],
+        logic: [liveEventsTableLogic({ tabId: 'onboarding', showLiveStreamErrorToast: false })],
     })),
     actions({
         setProduct: (product: OnboardingProduct | null) => ({ product }),

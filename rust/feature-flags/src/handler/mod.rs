@@ -18,7 +18,8 @@ use crate::{
     flags::flag_service::FlagService,
     metrics::consts::FLAG_REQUESTS_COUNTER,
 };
-use tracing::{info, warn};
+use std::collections::HashMap;
+use tracing::{info, instrument, warn};
 
 /// Primary entry point for feature flag requests.
 /// 1) Parses and authenticates the request,
@@ -26,6 +27,7 @@ use tracing::{info, warn};
 /// 3) Prepares property overrides,
 /// 4) Evaluates the requested flags,
 /// 5) Returns a [`FlagsResponse`] or an error.
+#[instrument(skip_all, fields(request_id = %context.request_id))]
 pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, FlagError> {
     async move {
         let start_time = std::time::Instant::now();
@@ -39,11 +41,13 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         let (original_distinct_id, verified_token, request) =
             authentication::parse_and_authenticate(&context, &flag_service).await?;
 
-        let distinct_id_for_logging = original_distinct_id.clone();
+        let distinct_id_for_logging = original_distinct_id
+            .clone()
+            .unwrap_or_else(|| "disabled".to_string());
 
         tracing::debug!(
             "Authentication completed for distinct_id: {}",
-            original_distinct_id
+            distinct_id_for_logging
         );
 
         let team = flag_service
@@ -56,29 +60,41 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
             team.project_id
         );
 
-        // Check quota limits - don't return early, just use quota limited response if needed
-        let flags_response = if let Some(quota_limited_response) =
+        // Early exit if flags are disabled
+        let flags_response = if request.is_flags_disabled() {
+            FlagsResponse::new(false, HashMap::new(), None, context.request_id)
+        } else if let Some(quota_limited_response) =
             billing::check_limits(&context, &verified_token).await?
         {
             warn!("Request quota limited");
             quota_limited_response
         } else {
-            let distinct_id =
-                cookieless::handle_distinct_id(&context, &request, &team, original_distinct_id)
-                    .await?;
+            let distinct_id = cookieless::handle_distinct_id(
+                &context,
+                &request,
+                &team,
+                original_distinct_id
+                    .expect("distinct_id should be present when flags are not disabled"),
+            )
+            .await?;
 
             tracing::debug!("Distinct ID resolved: {}", distinct_id);
 
-            let filtered_flags =
-                flags::fetch_and_filter(&flag_service, team.project_id, &request, &context.meta)
-                    .await?;
+            let (filtered_flags, had_flag_errors) = flags::fetch_and_filter(
+                &flag_service,
+                team.project_id,
+                &context.meta,
+                &context.headers,
+                None,
+            )
+            .await?;
 
             tracing::debug!("Flags filtered: {} flags found", filtered_flags.flags.len());
 
             let property_overrides = properties::prepare_overrides(&context, &request)?;
 
             // Evaluate flags (this will return empty if is_flags_disabled is true)
-            let response = flags::evaluate_for_request(
+            let mut response = flags::evaluate_for_request(
                 &context.state,
                 team.id,
                 team.project_id,
@@ -90,8 +106,14 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
                 property_overrides.hash_key,
                 context.request_id,
                 request.is_flags_disabled(),
+                request.flag_keys.clone(),
             )
             .await;
+
+            // Set error flag if there were deserialization errors
+            if had_flag_errors {
+                response.errors_while_computing_flags = true;
+            }
 
             // Only record billing if flags are not disabled
             if !request.is_flags_disabled() {

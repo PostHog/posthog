@@ -2,7 +2,7 @@ use crate::{
     api::errors::FlagError,
     team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX},
 };
-use common_database::Client as DatabaseClient;
+use common_database::PostgresReader;
 use common_redis::Client as RedisClient;
 use std::sync::Arc;
 
@@ -13,19 +13,17 @@ impl Team {
         token: &str,
     ) -> Result<Team, FlagError> {
         tracing::debug!(
-            "Attempting to read team from Redis at key '{}{}'",
-            TEAM_TOKEN_CACHE_PREFIX,
-            token
+            "Attempting to read team from Redis at key '{TEAM_TOKEN_CACHE_PREFIX}{token}'"
         );
 
         // NB: if this lookup fails, we fall back to the database before returning an error
         let serialized_team = client
-            .get(format!("{TEAM_TOKEN_CACHE_PREFIX}{}", token))
+            .get(format!("{TEAM_TOKEN_CACHE_PREFIX}{token}"))
             .await?;
 
         // TODO: Consider an LRU cache for teams as well, with small TTL to skip redis/pg lookups
         let mut team: Team = serde_json::from_str(&serialized_team).map_err(|e| {
-            tracing::error!("failed to parse data to team for token {}: {}", token, e);
+            tracing::error!("failed to parse data to team for token {token}: {e}");
             FlagError::RedisDataParsingError
         })?;
         if team.project_id == 0 {
@@ -83,10 +81,7 @@ impl Team {
         Ok(())
     }
 
-    pub async fn from_pg(
-        client: Arc<dyn DatabaseClient + Send + Sync>,
-        token: &str,
-    ) -> Result<Team, FlagError> {
+    pub async fn from_pg(client: PostgresReader, token: &str) -> Result<Team, FlagError> {
         let mut conn = client.get_connection().await?;
 
         let query = "SELECT 
@@ -147,7 +142,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_team_from_redis() {
-        let client = setup_redis_client(None);
+        let client = setup_redis_client(None).await;
 
         let team = insert_new_team_in_redis(client.clone())
             .await
@@ -165,7 +160,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_invalid_team_from_redis() {
-        let client = setup_redis_client(None);
+        let client = setup_redis_client(None).await;
 
         match Team::from_redis(client.clone(), "banana").await {
             Err(FlagError::TokenValidationError) => (),
@@ -174,13 +169,10 @@ mod tests {
     }
 
     #[tokio::test]
+    #[should_panic(expected = "Failed to create redis client")]
     async fn test_cant_connect_to_redis_error_is_not_token_validation_error() {
-        let client = setup_redis_client(Some("redis://localhost:1111/".to_string()));
-
-        match Team::from_redis(client.clone(), "banana").await {
-            Err(FlagError::RedisUnavailable) => (),
-            _ => panic!("Expected RedisUnavailable"),
-        };
+        // Test that client creation fails when Redis is unavailable
+        setup_redis_client(Some("redis://localhost:1111/".to_string())).await;
     }
 
     #[tokio::test]
@@ -213,18 +205,18 @@ mod tests {
         .expect("Failed to write data to redis");
 
         // now get client connection for data
-        let client = setup_redis_client(None);
+        let client = setup_redis_client(None).await;
 
         match Team::from_redis(client.clone(), team.api_token.as_str()).await {
             Err(FlagError::RedisDataParsingError) => (),
-            Err(other) => panic!("Expected DataParsingError, got {:?}", other),
+            Err(other) => panic!("Expected DataParsingError, got {other:?}"),
             Ok(_) => panic!("Expected DataParsingError"),
         };
     }
 
     #[tokio::test]
     async fn test_fetch_team_from_before_project_id_from_redis() {
-        let client = setup_redis_client(None);
+        let client = setup_redis_client(None).await;
         let target_token = "phc_123456789012".to_string();
         // A payload form before December 2025, it's missing `project_id`
         let test_team = Team {
@@ -240,10 +232,10 @@ mod tests {
         };
 
         let serialized_team = serde_json::to_string(&test_team).expect("Failed to serialize team");
-        tracing::info!("Inserting test team payload: {}", serialized_team);
+        tracing::info!("Inserting test team payload: {serialized_team}");
         client
             .set(
-                format!("{}{}", TEAM_TOKEN_CACHE_PREFIX, target_token),
+                format!("{TEAM_TOKEN_CACHE_PREFIX}{target_token}"),
                 serialized_team,
             )
             .await

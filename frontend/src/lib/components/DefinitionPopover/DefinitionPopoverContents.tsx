@@ -1,11 +1,14 @@
 import { hide } from '@floating-ui/react'
-import { IconBadge, IconDashboard, IconEye, IconGraph, IconHide, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSegmentedButton, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { Fragment, useEffect, useMemo } from 'react'
+
+import { IconBadge, IconEye, IconHide, IconInfo } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonSegmentedButton, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+
 import { ActionPopoverInfo } from 'lib/components/DefinitionPopover/ActionPopoverInfo'
 import { CohortPopoverInfo } from 'lib/components/DefinitionPopover/CohortPopoverInfo'
 import { DefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopover'
-import { definitionPopoverLogic, DefinitionPopoverState } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
+import { DefinitionPopoverState, definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import {
@@ -15,14 +18,12 @@ import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
-import { Fragment, useEffect, useMemo } from 'react'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
-import { MaxContextOption, MaxDashboardContext, MaxInsightContext } from 'scenes/max/maxTypes'
 
 import { isCoreFilter } from '~/taxonomy/helpers'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
@@ -35,8 +36,8 @@ import {
 } from '~/types'
 
 import { HogQLDropdown } from '../HogQLDropdown/HogQLDropdown'
-import { taxonomicFilterLogic } from '../TaxonomicFilter/taxonomicFilterLogic'
 import { TZLabel } from '../TZLabel'
+import { taxonomicFilterLogic } from '../TaxonomicFilter/taxonomicFilterLogic'
 
 export function PropertyStatusControl({
     verified,
@@ -137,7 +138,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
         if (selectedItemMeta && definition.name == selectedItemMeta.id) {
             setLocalDefinition(selectedItemMeta)
         }
-    }, [definition])
+    }, [definition]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const hasSentAsLabel = useMemo(() => {
         const _definition = definition as PropertyDefinition
@@ -269,7 +270,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                                         title={
                                             isDataWarehousePersonProperty
                                                 ? _definition.id
-                                                : _definition.name ?? undefined
+                                                : (_definition.name ?? undefined)
                                         }
                                     >
                                         {hasSentAsLabel}
@@ -371,62 +372,6 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                         value={<span className="text-xs font-mono">{_definition.id}</span>}
                     />
                 </DefinitionPopover.Section>
-            </>
-        )
-    }
-    if (group.type === TaxonomicFilterGroupType.MaxAIContext) {
-        const _definition = definition as MaxContextOption
-        if (_definition.value !== 'current_page') {
-            return <></>
-        }
-        return (
-            <>
-                {sharedComponents}
-                {_definition.items?.dashboards && _definition.items.dashboards.length > 0 && (
-                    <DefinitionPopover.Section>
-                        <DefinitionPopover.Card
-                            title="Dashboard"
-                            value={
-                                <div className="flex flex-wrap gap-1">
-                                    {_definition.items.dashboards.map((dashboard: MaxDashboardContext) => (
-                                        <LemonTag
-                                            key={dashboard.id}
-                                            size="small"
-                                            icon={<IconDashboard />}
-                                            className="text-xs"
-                                        >
-                                            {dashboard.name || `Dashboard ${dashboard.id}`}
-                                        </LemonTag>
-                                    ))}
-                                </div>
-                            }
-                        />
-                    </DefinitionPopover.Section>
-                )}
-                {_definition.items?.insights && _definition.items.insights.length > 0 && (
-                    <>
-                        <LemonDivider className="DefinitionPopover my-4" />
-                        <DefinitionPopover.Section>
-                            <DefinitionPopover.Card
-                                title="Insights"
-                                value={
-                                    <div className="flex flex-wrap gap-1">
-                                        {_definition.items.insights.map((insight: MaxInsightContext) => (
-                                            <LemonTag
-                                                key={insight.id}
-                                                size="small"
-                                                icon={<IconGraph />}
-                                                className="text-xs"
-                                            >
-                                                {insight.name || `Insight ${insight.id}`}
-                                            </LemonTag>
-                                        ))}
-                                    </div>
-                                }
-                            />
-                        </DefinitionPopover.Section>
-                    </>
-                )}
             </>
         )
     }
@@ -677,7 +622,7 @@ export function ControlledDefinitionPopover({
     // independently by `infiniteListLogic`
     useEffect(() => {
         setDefinition(item)
-    }, [item])
+    }, [item, setDefinition])
 
     // Supports all types specified in selectedItemHasPopover
     const value = group.getValue?.(item)

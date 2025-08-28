@@ -1,15 +1,20 @@
 import json
+
+from freezegun import freeze_time
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    also_test_with_materialized_columns,
+    flush_persons_and_events,
+    snapshot_clickhouse_queries,
+)
 from unittest import mock
 from unittest.mock import patch
 
-from freezegun import freeze_time
 from rest_framework import status
 
-from posthog.api.services.query import process_query_dict
-from posthog.hogql.constants import LimitContext
-from posthog.models.insight_variable import InsightVariable
-from posthog.models.property_definition import PropertyDefinition, PropertyType
-from posthog.models.utils import UUIDT
 from posthog.schema import (
     CachedEventsQueryResponse,
     CachedHogQLQueryResponse,
@@ -25,15 +30,13 @@ from posthog.schema import (
     PropertyOperator,
     RetentionQuery,
 )
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    also_test_with_materialized_columns,
-    flush_persons_and_events,
-    snapshot_clickhouse_queries,
-)
+
+from posthog.hogql.constants import LimitContext
+
+from posthog.api.services.query import process_query_dict
+from posthog.models.insight_variable import InsightVariable
+from posthog.models.property_definition import PropertyDefinition, PropertyType
+from posthog.models.utils import UUIDT
 
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
@@ -1192,3 +1195,22 @@ class TestQueryDraftSql(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"sql": "SELECT 1"})
         hit_openai_mock.assert_called_once()
+
+
+class TestQueryUpgrade(APIBaseTest):
+    def test_upgrades_valid_query(self):
+        query = {"kind": "RetentionQuery", "retentionFilter": {"period": "Day", "totalIntervals": 7, "showMean": True}}
+
+        response = self.client.post(f"/api/environments/{self.team.id}/query/upgrade/", {"query": query})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "query": {
+                    "kind": "RetentionQuery",
+                    "retentionFilter": {"meanRetentionCalculation": "simple", "period": "Day", "totalIntervals": 7},
+                    "version": 2,
+                }
+            },
+        )

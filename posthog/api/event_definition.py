@@ -1,20 +1,27 @@
-from typing import Any, Literal, cast, Optional
+import json
+from typing import Any, Literal, Optional, cast
 
+from django.core.cache import cache
 from django.db.models import Manager
+
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, request, response, serializers, status, viewsets
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
+from posthog.api.utils import action
+from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature, EventDefinitionType
 from posthog.event_usage import report_user_action
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
-from posthog.models import EventDefinition
+from posthog.models import EventDefinition, Team
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
 from posthog.settings import EE_AVAILABLE
+from posthog.utils import get_safe_cache, relative_date_parse
 
 # If EE is enabled, we use ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer
 
@@ -107,7 +114,10 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
         return validated_data
 
     def update(self, event_definition: EventDefinition, validated_data):
-        raise EnterpriseFeatureException()
+        request = self.context.get("request")
+        if not (request and request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY)):
+            raise EnterpriseFeatureException()
+        return super().update(event_definition, validated_data)
 
     def get_is_action(self, obj):
         return hasattr(obj, "action_id") and obj.action_id is not None
@@ -157,6 +167,12 @@ class EventDefinitionViewSet(
         exclude_hidden = self.request.GET.get("exclude_hidden", "false").lower() == "true"
         if exclude_hidden and is_enterprise:
             search_query = search_query + " AND (hidden IS NULL OR hidden = false)"
+
+        excluded_properties = self.request.GET.get("excluded_properties")
+
+        if excluded_properties:
+            excluded_list = list(set(json.loads(excluded_properties)))
+            search_query = search_query + f" AND NOT name = ANY(ARRAY{excluded_list})"
 
         sql = create_event_definitions_sql(
             event_type,
@@ -244,3 +260,61 @@ class EventDefinitionViewSet(
             detail=Detail(name=cast(str, instance.name), changes=None),
         )
         return response.Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["GET"], url_path="metrics")
+    def metrics_totals(self, *args, **kwargs):
+        instance: EventDefinition = self.get_object()
+
+        query_usage_30_day = fetch_30day_event_queries(
+            team=self.team,
+            event_name=instance.name,
+        )
+
+        return response.Response(
+            {
+                "query_usage_30_day": query_usage_30_day,
+            }
+        )
+
+
+def fetch_30day_event_queries(
+    team: Team,
+    event_name: str,
+) -> int:
+    """
+    Calculate the total number of views for a specific event
+    """
+    cache_key = f"event_definition:event_views_total:{team.pk}:{event_name}"
+    cached_result = get_safe_cache(cache_key)
+    if cached_result is not None:
+        return cached_result
+
+    clickhouse_kwargs: dict[str, Any] = {
+        "team_id": team.pk,
+        "app_source": "event_usage",
+        "metric_name": "viewed",
+        "instance_id": f"event:{event_name}",
+        "after": relative_date_parse("30d", team.timezone_info).strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+
+    clickhouse_query = f"""
+        SELECT
+            sum(count) as count
+        FROM app_metrics2
+        WHERE team_id = %(team_id)s
+        AND app_source = %(app_source)s
+        AND timestamp >= toDateTime64(%(after)s, 6)
+        AND instance_id = %(instance_id)s
+        AND metric_name = %(metric_name)s
+    """
+
+    results = sync_execute(clickhouse_query, clickhouse_kwargs)
+
+    if not isinstance(results, list):
+        raise ValueError("Unexpected results from ClickHouse")
+
+    total = results[0][0] if results else 0
+
+    cache.set(cache_key, total, timeout=24 * 60 * 60)  # 24 hours
+
+    return total

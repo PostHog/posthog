@@ -1,11 +1,13 @@
-import { expectLogic, partial } from 'kea-test-utils'
 import { MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
+
+import { expectLogic, partial } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { FeatureFlagType, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { featureFlagLogic, NEW_FLAG } from './featureFlagLogic'
+import { detectFeatureFlagChanges } from './featureFlagConfirmationLogic'
+import { NEW_FLAG, featureFlagLogic } from './featureFlagLogic'
 
 const MOCK_FEATURE_FLAG = {
     ...NEW_FLAG,
@@ -141,6 +143,48 @@ describe('featureFlagLogic', () => {
                     }),
                     variants: [],
                 })
+        })
+    })
+
+    describe('change detection', () => {
+        it('detects active status changes', () => {
+            const originalFlag = { ...MOCK_FEATURE_FLAG, active: false }
+            const changedFlag = { ...originalFlag, active: true }
+
+            const changes = detectFeatureFlagChanges(originalFlag, changedFlag)
+            expect(changes).toContain('Enable the feature flag')
+        })
+
+        it('detects rollout percentage changes', () => {
+            const originalFlag = {
+                ...MOCK_FEATURE_FLAG,
+                filters: {
+                    groups: [{ properties: [], rollout_percentage: 100, variant: null }],
+                },
+            }
+            const changedFlag = {
+                ...originalFlag,
+                filters: {
+                    groups: [{ properties: [], rollout_percentage: 50, variant: null }],
+                },
+            }
+
+            const changes = detectFeatureFlagChanges(originalFlag, changedFlag)
+            expect(changes).toContain('Release condition rollout percentage changed')
+        })
+
+        it('returns no changes for new flags', () => {
+            const newFlag = { ...NEW_FLAG, key: 'new-flag', name: 'New Flag' }
+            const changes = detectFeatureFlagChanges(null, newFlag)
+            expect(changes.length).toBe(0)
+        })
+
+        it('returns no changes when nothing meaningful changed', () => {
+            const originalFlag = MOCK_FEATURE_FLAG
+            const changedFlag = { ...originalFlag, name: 'Different Name' } // Name change doesn't trigger confirmation
+
+            const changes = detectFeatureFlagChanges(originalFlag, changedFlag)
+            expect(changes.length).toBe(0)
         })
     })
 })

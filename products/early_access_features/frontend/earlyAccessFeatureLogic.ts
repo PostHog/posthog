@@ -1,10 +1,13 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
-import { openSaveToModal } from 'lib/components/FileSystem/SaveTo/saveToLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -44,15 +47,24 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
     props({} as EarlyAccessFeatureLogicProps),
     key(({ id }) => id),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], earlyAccessFeaturesLogic, ['earlyAccessFeatures']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            earlyAccessFeaturesLogic,
+            ['earlyAccessFeatures'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
     })),
     actions({
         setEarlyAccessFeatureMissing: true,
         toggleImplementOptInInstructionsModal: true,
         editFeature: (editing: boolean) => ({ editing }),
+        setOriginalStage: (stage: EarlyAccessFeatureStage) => ({ stage }),
         updateStage: (stage: EarlyAccessFeatureStage) => ({ stage }),
         deleteEarlyAccessFeature: (earlyAccessFeatureId: EarlyAccessFeatureType['id']) => ({ earlyAccessFeatureId }),
         setActiveTab: (activeTab: EarlyAccessFeatureTabs) => ({ activeTab }),
+        showGAPromotionConfirmation: (onConfirm: () => void) => ({ onConfirm }),
     }),
     loaders(({ props, values, actions }) => ({
         earlyAccessFeature: {
@@ -132,10 +144,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 if (props.id && props.id !== 'new') {
                     actions.saveEarlyAccessFeature(payload)
                 } else {
-                    openSaveToModal({
-                        defaultFolder: 'Unfiled/Early Access Features',
-                        callback: (folder) => actions.saveEarlyAccessFeature({ ...payload, _create_in_folder: folder }),
-                    })
+                    actions.saveEarlyAccessFeature({ ...payload, _create_in_folder: 'Unfiled/Early Access Features' })
                 }
             },
         },
@@ -154,6 +163,16 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 saveEarlyAccessFeatureSuccess: () => false,
             },
         ],
+        originalEarlyAccessFeatureStage: [
+            null as EarlyAccessFeatureStage | null,
+            {
+                setOriginalStage: (_, { stage }) => stage,
+                loadEarlyAccessFeatureSuccess: (_, { earlyAccessFeature }) =>
+                    'stage' in earlyAccessFeature ? earlyAccessFeature.stage : null,
+                saveEarlyAccessFeatureSuccess: (_, { earlyAccessFeature }) => earlyAccessFeature.stage,
+                editFeature: (state, { editing }) => (editing ? state : null),
+            },
+        ],
         implementOptInInstructionsModal: [
             false,
             {
@@ -167,7 +186,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             },
         ],
     }),
-    selectors(({ actions }) => ({
+    selectors(({ values, actions }) => ({
         breadcrumbs: [
             (s) => [s.earlyAccessFeature, s.isEditingFeature],
             (earlyAccessFeature: EarlyAccessFeatureType, isEditingFeature: boolean): Breadcrumb[] => [
@@ -180,9 +199,10 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                     key: ['EarlyAccessFeature', earlyAccessFeature.id || 'new'],
                     name: earlyAccessFeature.name,
                     forceEditMode: isEditingFeature,
-                    onRename: isEditingFeature
-                        ? async (newName) => actions.setEarlyAccessFeatureValue('name', newName)
-                        : undefined,
+                    onRename:
+                        isEditingFeature || !!values.featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+                            ? async (newName) => actions.setEarlyAccessFeatureValue('name', newName)
+                            : undefined,
                 },
             ],
         ],
@@ -214,8 +234,32 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 router.actions.replace(urls.earlyAccessFeature(_earlyAccessFeature.id))
             }
         },
+        showGAPromotionConfirmation: async ({ onConfirm }) => {
+            const { LemonDialog } = await import('lib/lemon-ui/LemonDialog')
+            LemonDialog.open({
+                title: 'Promote to General Availability?',
+                description:
+                    'Once promoted to General Availability, this feature cannot be edited anymore. Users will have access to the stable version.',
+                primaryButton: {
+                    children: 'Promote to GA',
+                    type: 'primary',
+                    onClick: onConfirm,
+                },
+                secondaryButton: {
+                    children: 'Cancel',
+                    type: 'tertiary',
+                },
+            })
+        },
         updateStage: async ({ stage }) => {
-            actions.saveEarlyAccessFeature({ ...values.earlyAccessFeature, stage })
+            // If promoting to General Availability, show confirmation dialog
+            if (stage === EarlyAccessFeatureStage.GeneralAvailability) {
+                actions.showGAPromotionConfirmation(() =>
+                    actions.saveEarlyAccessFeature({ ...values.earlyAccessFeature, stage })
+                )
+            } else {
+                actions.saveEarlyAccessFeature({ ...values.earlyAccessFeature, stage })
+            }
         },
         deleteEarlyAccessFeature: async ({ earlyAccessFeatureId }) => {
             try {

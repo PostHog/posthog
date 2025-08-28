@@ -1,6 +1,6 @@
 import threading
 from copy import deepcopy
-from datetime import timedelta, datetime
+from datetime import datetime, timedelta
 from math import ceil
 from operator import itemgetter
 from typing import Any, Optional, Union
@@ -8,45 +8,9 @@ from typing import Any, Optional, Union
 from django.conf import settings
 from django.db import models
 from django.db.models.functions import Coalesce
+
 from natsort import natsorted, ns
 
-from posthog.caching.insights_api import (
-    BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL,
-    REAL_TIME_INSIGHT_REFRESH_INTERVAL,
-    REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
-)
-from posthog.clickhouse import query_tagging
-from posthog.clickhouse.query_tagging import QueryTags
-from posthog.hogql import ast
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
-from posthog.hogql.printer import to_printed_hogql
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.insights.trends.breakdown import (
-    BREAKDOWN_NULL_DISPLAY,
-    BREAKDOWN_NULL_STRING_LABEL,
-    BREAKDOWN_NUMERIC_ALL_VALUES_PLACEHOLDER,
-    BREAKDOWN_OTHER_DISPLAY,
-    BREAKDOWN_OTHER_STRING_LABEL,
-)
-from posthog.hogql_queries.insights.trends.display import TrendsDisplay
-from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
-from posthog.hogql_queries.insights.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
-from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
-from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.hogql_queries.utils.formula_ast import FormulaAST
-from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.hogql_queries.utils.query_previous_period_date_range import (
-    QueryPreviousPeriodDateRange,
-)
-from posthog.hogql_queries.utils.timestamp_utils import get_earliest_timestamp_from_series
-from posthog.models import Team
-from posthog.models.action.action import Action
-from posthog.models.cohort.cohort import Cohort
-from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.property_definition import PropertyDefinition
-from posthog.queries.util import correct_result_for_sampling
 from posthog.schema import (
     ActionsNode,
     BreakdownItem,
@@ -68,18 +32,55 @@ from posthog.schema import (
     MultipleBreakdownOptions,
     MultipleBreakdownType,
     QueryTiming,
+    ResolvedDateRangeResponse,
     Series,
+    TrendsFormulaNode,
     TrendsQuery,
     TrendsQueryResponse,
-    TrendsFormulaNode,
 )
-from posthog.utils import format_label_date, multisort
+
+from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
+from posthog.hogql.printer import to_printed_hogql
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.timings import HogQLTimings
+
+from posthog.caching.insights_api import (
+    BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL,
+    REAL_TIME_INSIGHT_REFRESH_INTERVAL,
+    REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
+)
+from posthog.clickhouse import query_tagging
+from posthog.clickhouse.query_tagging import QueryTags
+from posthog.hogql_queries.insights.trends.breakdown import (
+    BREAKDOWN_NULL_DISPLAY,
+    BREAKDOWN_NULL_STRING_LABEL,
+    BREAKDOWN_NUMERIC_ALL_VALUES_PLACEHOLDER,
+    BREAKDOWN_OTHER_DISPLAY,
+    BREAKDOWN_OTHER_STRING_LABEL,
+)
+from posthog.hogql_queries.insights.trends.display import TrendsDisplay
+from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
+from posthog.hogql_queries.insights.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
+from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.utils.formula_ast import FormulaAST
+from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
+from posthog.hogql_queries.utils.timestamp_utils import format_label_date, get_earliest_timestamp_from_series
+from posthog.models import Team
+from posthog.models.action.action import Action
+from posthog.models.cohort.cohort import Cohort
+from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.property_definition import PropertyDefinition
+from posthog.queries.util import correct_result_for_sampling
+from posthog.utils import multisort
 from posthog.warehouse.models.util import get_view_or_table_by_name
 
 
-class TrendsQueryRunner(QueryRunner):
+class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
     query: TrendsQuery
-    response: TrendsQueryResponse
     cached_response: CachedTrendsQueryResponse
     series: list[SeriesWithExtras]
 
@@ -114,6 +115,8 @@ class TrendsQueryRunner(QueryRunner):
         query = convert_active_user_math_based_on_interval(query)
 
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
+
+    def __post_init__(self):
         self.update_hogql_modifiers()
         self.series = self.setup_series()
 
@@ -142,11 +145,18 @@ class TrendsQueryRunner(QueryRunner):
     def to_queries(self) -> list[ast.SelectQuery | ast.SelectSetQuery]:
         queries = []
         with self.timings.measure("trends_to_query"):
+            # If user requests 'all' time, determine the true earliest timestamp
+            earliest_timestamp = None
+            if self.query.dateRange and self.query.dateRange.date_from == "all":
+                earliest_timestamp = self._earliest_timestamp
+
             for series in self.series:
                 if not series.is_previous_period_series:
                     query_date_range = self.query_date_range
                 else:
                     query_date_range = self.query_previous_date_range
+
+                query_date_range._earliest_timestamp_fallback = earliest_timestamp
 
                 query_builder = TrendsQueryBuilder(
                     trends_query=series.overriden_query or self.query,
@@ -223,7 +233,7 @@ class TrendsQueryRunner(QueryRunner):
             if self._trends_display.is_total_value()
             else [
                 DayItem(
-                    label=format_label_date(value, self.query_date_range.interval_name),
+                    label=format_label_date(value, self.query_date_range, self.team.week_start_day),
                     value=value,
                 )
                 for value in self.query_date_range.all_values()
@@ -329,7 +339,7 @@ class TrendsQueryRunner(QueryRunner):
             compare=res_compare,
         )
 
-    def calculate(self):
+    def _calculate(self):
         queries = self.to_queries()
 
         if len(queries) == 0:
@@ -486,6 +496,10 @@ class TrendsQueryRunner(QueryRunner):
             hogql=response_hogql,
             modifiers=self.modifiers,
             error=". ".join(debug_errors),
+            resolved_date_range=ResolvedDateRangeResponse(
+                date_from=self.query_date_range.date_from(),
+                date_to=self.query_date_range.date_to(),
+            ),
         )
 
     def build_series_response(self, response: HogQLQueryResponse, series: SeriesWithExtras, series_count: int):
@@ -553,7 +567,8 @@ class TrendsQueryRunner(QueryRunner):
                 series_object = {
                     "data": get_value("total", val),
                     "labels": [
-                        format_label_date(item, self.query_date_range.interval_name) for item in get_value("date", val)
+                        format_label_date(item, self.query_date_range, self.team.week_start_day)
+                        for item in get_value("date", val)
                     ],
                     "days": [
                         item.strftime(
@@ -656,15 +671,15 @@ class TrendsQueryRunner(QueryRunner):
         return self.query.trendsFilter and self.query.trendsFilter.display == ChartDisplayType.BOLD_NUMBER
 
     @cached_property
+    def _earliest_timestamp(self) -> datetime:
+        return get_earliest_timestamp_from_series(
+            team=self.team,
+            series=[series.series for series in self.series],
+        )
+
+    @cached_property
     def query_date_range(self):
         interval = IntervalType.DAY if self._trends_display.is_total_value() else self.query.interval
-
-        # If user requests 'all' time, determine the true earliest timestamp
-        earliest_timestamp = None
-        if self.query.dateRange and self.query.dateRange.date_from == "all":
-            earliest_timestamp = get_earliest_timestamp_from_series(
-                self.team, [series.series for series in self.series]
-            )
 
         return QueryDateRange(
             date_range=self.query.dateRange,
@@ -672,7 +687,6 @@ class TrendsQueryRunner(QueryRunner):
             interval=interval,
             now=datetime.now(),
             exact_timerange=self.exact_timerange,
-            earliest_timestamp_fallback=earliest_timestamp,
         )
 
     @cached_property
@@ -888,6 +902,7 @@ class TrendsQueryRunner(QueryRunner):
                                 "breakdown_value": any_result.get("breakdown_value"),
                                 "compare_label": any_result.get("compare_label"),
                                 "days": any_result.get("days"),
+                                "labels": any_result.get("labels"),
                             }
                         )
                 new_result = self.apply_formula_to_results_group(

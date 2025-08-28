@@ -14,7 +14,9 @@ use crate::{
     app_context::AppContext,
     error::{EventError, PipelineFailure, PipelineResult, UnhandledError},
     issue_resolution::IssueStatus,
-    metric_consts::SUPPRESSED_ISSUE_DROPPED_EVENTS,
+    metric_consts::{
+        ISSUE_PROCESSING_TIME, STACK_PROCESSING_TIME, SUPPRESSED_ISSUE_DROPPED_EVENTS,
+    },
     recursively_sanitize_properties,
     types::RawErrProps,
 };
@@ -50,8 +52,14 @@ pub async fn do_exception_handling(
     // accidentally mutate or drop an event during processing - this ensures tha validity
     // of the indexes in indexed_props.
     let events = events;
+
+    let stack_timer = common_metrics::timing_guard(STACK_PROCESSING_TIME, &[]);
     let fingerprinted = do_stack_processing(context.clone(), &events, indexed_props).await?;
+    stack_timer.fin();
+
+    let issue_timer = common_metrics::timing_guard(ISSUE_PROCESSING_TIME, &[]);
     let issues = do_issue_processing(context, &events, &fingerprinted).await?;
+    issue_timer.fin();
 
     // Unfreeze, as we're about to replace the event properties.
     let mut events = events;

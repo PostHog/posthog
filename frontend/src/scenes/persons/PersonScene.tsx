@@ -1,13 +1,15 @@
+import { useActions, useValues } from 'kea'
+
 import { IconChevronDown, IconCopy, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS, PERSON_DISPLAY_NAME_COLUMN_NAME } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -18,6 +20,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import { NotebookNodeType } from 'scenes/notebooks/types'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -25,28 +28,19 @@ import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/Se
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
-import { NodeKind } from '~/queries/schema/schema-general'
-import {
-    ActivityScope,
-    NotebookNodeType,
-    PersonsTabType,
-    PersonType,
-    ProductKey,
-    PropertyDefinitionType,
-} from '~/types'
+import { ActivityScope, PersonType, PersonsTabType, ProductKey, PropertyDefinitionType } from '~/types'
 
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { PersonCohorts } from './PersonCohorts'
 import PersonFeedCanvas from './PersonFeedCanvas'
-import { personsLogic } from './personsLogic'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
+import { PersonsLogicProps, personsLogic } from './personsLogic'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<PersonsLogicProps> = {
     component: PersonScene,
     logic: personsLogic,
-    paramsToProps: ({ params: { _: rawUrlId } }): (typeof personsLogic)['props'] => ({
+    paramsToProps: ({ params: { _: rawUrlId } }) => ({
         syncWithUrl: true,
         urlId: decodeURIComponent(rawUrlId),
     }),
@@ -115,6 +109,8 @@ export function PersonScene(): JSX.Element | null {
         urlId,
         distinctId,
         primaryDistinctId,
+        eventsQuery,
+        exceptionsQuery,
     } = useValues(personsLogic)
     const { loadPersons, editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown, setDistinctId } =
         useActions(personsLogic)
@@ -214,22 +210,7 @@ export function PersonScene(): JSX.Element | null {
                     {
                         key: PersonsTabType.EVENTS,
                         label: <span data-attr="persons-events-tab">Events</span>,
-                        content: (
-                            <Query
-                                query={{
-                                    kind: NodeKind.DataTableNode,
-                                    full: true,
-                                    hiddenColumns: [PERSON_DISPLAY_NAME_COLUMN_NAME],
-                                    source: {
-                                        kind: NodeKind.EventsQuery,
-                                        select: defaultDataTableColumns(NodeKind.EventsQuery),
-                                        personId: person.id,
-                                        where: ["notEquals(event, '$exception')"],
-                                        after: '-24h',
-                                    },
-                                }}
-                            />
-                        ),
+                        content: <Query query={eventsQuery} />,
                     },
                     {
                         key: PersonsTabType.SESSION_RECORDINGS,
@@ -271,23 +252,7 @@ export function PersonScene(): JSX.Element | null {
                     {
                         key: PersonsTabType.EXCEPTIONS,
                         label: <span data-attr="persons-exceptions-tab">Exceptions</span>,
-                        content: (
-                            <Query
-                                query={{
-                                    kind: NodeKind.DataTableNode,
-                                    full: true,
-                                    showEventFilter: false,
-                                    hiddenColumns: [PERSON_DISPLAY_NAME_COLUMN_NAME],
-                                    source: {
-                                        kind: NodeKind.EventsQuery,
-                                        select: defaultDataTableColumns(NodeKind.EventsQuery),
-                                        personId: person.id,
-                                        event: '$exception',
-                                        after: '-24h',
-                                    },
-                                }}
-                            />
-                        ),
+                        content: <Query query={exceptionsQuery} />,
                     },
                     {
                         key: PersonsTabType.COHORTS,

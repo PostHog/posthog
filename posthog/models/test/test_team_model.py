@@ -1,7 +1,9 @@
-from ee.models.explicit_team_membership import ExplicitTeamMembership
+from posthog.test.base import BaseTest
+
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
-from posthog.test.base import BaseTest
+
+from ee.models.explicit_team_membership import ExplicitTeamMembership
 
 
 class TestTeam(BaseTest):
@@ -105,7 +107,7 @@ class TestTeam(BaseTest):
         # Make the team private
         AccessControl.objects.create(
             team=self.team,
-            resource="team",
+            resource="project",
             resource_id=str(self.team.id),
             organization_member=None,
             role=None,
@@ -142,7 +144,7 @@ class TestTeam(BaseTest):
         # Make the team private
         AccessControl.objects.create(
             team=self.team,
-            resource="team",
+            resource="project",
             resource_id=str(self.team.id),
             organization_member=None,
             role=None,
@@ -162,7 +164,7 @@ class TestTeam(BaseTest):
         # Give the member user access to the team
         AccessControl.objects.create(
             team=self.team,
-            resource="team",
+            resource="project",
             resource_id=str(self.team.id),
             organization_member=member_org_membership,
             access_level="member",
@@ -190,7 +192,7 @@ class TestTeam(BaseTest):
         # Make the team private
         AccessControl.objects.create(
             team=self.team,
-            resource="team",
+            resource="project",
             resource_id=str(self.team.id),
             organization_member=None,
             role=None,
@@ -215,7 +217,7 @@ class TestTeam(BaseTest):
 
         # Give the role access to the team
         AccessControl.objects.create(
-            team=self.team, resource="team", resource_id=str(self.team.id), role=role, access_level="member"
+            team=self.team, resource="project", resource_id=str(self.team.id), role=role, access_level="member"
         )
 
         # Set the original user as admin

@@ -1,5 +1,7 @@
 import './SavedInsights.scss'
 
+import { useActions, useValues } from 'kea'
+
 import {
     IconAI,
     IconBrackets,
@@ -26,7 +28,7 @@ import {
     IconWarning,
 } from '@posthog/icons'
 import { LemonSelectOptions } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { Alerts } from 'lib/components/Alerts/views/Alerts'
@@ -34,29 +36,34 @@ import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconAction, IconGridView, IconListView, IconTableChart } from 'lib/lemon-ui/icons'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { IconAction, IconGridView, IconListView, IconTableChart } from 'lib/lemon-ui/icons'
 import { isNonEmptyObject } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
-import { OverlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
+import { OverlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { isNodeWithSource } from '~/queries/utils'
 import {
@@ -88,7 +95,7 @@ export interface InsightTypeMetadata {
 
 export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.CalendarHeatmapQuery]: {
-        name: 'Calendar Heatmap',
+        name: 'Calendar heatmap (BETA)',
         description: 'Visualize total or unique users broken down by day and hour.',
         icon: IconRetentionHeatmap,
         inMenu: true,
@@ -174,6 +181,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconCursor,
         inMenu: true,
     },
+    [NodeKind.SessionBatchEventsQuery]: {
+        name: 'Session Batch Events',
+        description: 'Batch query for events from multiple sessions.',
+        icon: IconCursor,
+        inMenu: false,
+    },
     [NodeKind.PersonsNode]: {
         name: 'Persons',
         description: 'List and explore your persons.',
@@ -195,6 +208,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.InsightActorsQueryOptions]: {
         name: 'Persons',
         description: 'Options for InsightActorsQuery.',
+        icon: IconPerson,
+        inMenu: false,
+    },
+    [NodeKind.StickinessActorsQuery]: {
+        name: 'Persons',
+        description: 'List of persons matching specified conditions, derived from an insight.',
         icon: IconPerson,
         inMenu: false,
     },
@@ -282,9 +301,9 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPiggyBank,
         inMenu: true,
     },
-    [NodeKind.RevenueAnalyticsGrossRevenueQuery]: {
-        name: 'Revenue Analytics Gross Revenue',
-        description: 'View revenue analytics gross revenue.',
+    [NodeKind.RevenueAnalyticsMetricsQuery]: {
+        name: 'Revenue Analytics Metrics',
+        description: 'View revenue analytics customer, subscription count, ARPU, and LTV.',
         icon: IconPiggyBank,
         inMenu: true,
     },
@@ -294,15 +313,21 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPiggyBank,
         inMenu: true,
     },
-    [NodeKind.RevenueAnalyticsTopCustomersQuery]: {
-        name: 'Revenue Analytics Top Customers',
-        description: 'View revenue analytics top customers.',
+    [NodeKind.RevenueAnalyticsGrossRevenueQuery]: {
+        name: 'Revenue Analytics Gross Revenue',
+        description: 'View gross revenue analytics.',
         icon: IconPiggyBank,
         inMenu: true,
     },
-    [NodeKind.RevenueAnalyticsRevenueQuery]: {
-        name: 'Revenue Analytics Revenue',
-        description: 'View revenue analytics MRR/ARR.',
+    [NodeKind.RevenueAnalyticsMRRQuery]: {
+        name: 'Revenue Analytics MRR',
+        description: 'View MRR revenue analytics.',
+        icon: IconPiggyBank,
+        inMenu: true,
+    },
+    [NodeKind.RevenueAnalyticsTopCustomersQuery]: {
+        name: 'Revenue Analytics Top Customers',
+        description: 'View revenue analytics top customers.',
         icon: IconPiggyBank,
         inMenu: true,
     },
@@ -348,6 +373,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: true,
     },
+    [NodeKind.WebTrendsQuery]: {
+        name: 'Web Trends',
+        description: 'Analyze web trends and patterns over time.',
+        icon: IconTrends,
+        inMenu: true,
+    },
     [NodeKind.HogQuery]: {
         name: 'Hog',
         description: 'Hog query.',
@@ -376,6 +407,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         name: 'Error Tracking',
         description: 'List and explore exception groups.',
         icon: IconWarning,
+        inMenu: false,
+    },
+    [NodeKind.ErrorTrackingIssueCorrelationQuery]: {
+        name: 'Error Tracking Correlation',
+        description: 'Explore issues affecting other events.',
+        icon: IconCorrelationAnalysis,
         inMenu: false,
     },
     [NodeKind.RecordingsQuery]: {
@@ -448,7 +485,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         inMenu: false,
     },
     [NodeKind.TracesQuery]: {
-        name: 'LLM Observability Traces',
+        name: 'LLM Analytics Traces',
         icon: IconAI,
         inMenu: false,
     },
@@ -465,6 +502,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.WebAnalyticsExternalSummaryQuery]: {
         name: 'Web Analytics External Summary',
         icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MarketingAnalyticsTableQuery]: {
+        name: 'Marketing Analytics Table',
+        icon: IconHogQL,
         inMenu: false,
     },
 }
@@ -552,7 +594,7 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
             minAccessLevel={AccessControlLevel.Editor}
             userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.Insight]}
         >
-            New insight
+            New
         </AccessControlledLemonButton>
     )
 }
@@ -561,7 +603,6 @@ function SavedInsightsGrid(): JSX.Element {
     const { loadInsights, renameInsight, duplicateInsight } = useActions(savedInsightsLogic)
     const { insights, insightsLoading, pagination } = useValues(savedInsightsLogic)
     const { currentProjectId } = useValues(projectLogic)
-
     const paginationState = usePagination(insights?.results || [], pagination)
 
     return (
@@ -599,8 +640,9 @@ function SavedInsightsGrid(): JSX.Element {
 export function SavedInsights(): JSX.Element {
     const { loadInsights, updateFavoritedInsight, renameInsight, duplicateInsight, setSavedInsightsFilters } =
         useActions(savedInsightsLogic)
-    const { insights, count, insightsLoading, filters, sorting, pagination, alertModalId } =
+    const { insights, count, insightsLoading, filters, sorting, pagination, alertModalId, usingFilters } =
         useValues(savedInsightsLogic)
+
     const { hasTagging } = useValues(organizationLogic)
     const { currentProjectId } = useValues(projectLogic)
     const summarizeInsight = useSummarizeInsight()
@@ -609,6 +651,8 @@ export function SavedInsights(): JSX.Element {
 
     const startCount = (page - 1) * INSIGHTS_PER_PAGE + 1
     const endCount = page * INSIGHTS_PER_PAGE < count ? page * INSIGHTS_PER_PAGE : count
+
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const columns: LemonTableColumns<QueryBasedInsightModel> = [
         {
@@ -759,14 +803,23 @@ export function SavedInsights(): JSX.Element {
     ]
 
     return (
-        <div className="saved-insights">
+        <SceneContent className={cn('saved-insights', !newSceneLayout && 'block')}>
             <PageHeader buttons={<NewInsightButton dataAttr="saved-insights-create-new-insight" />} />
+            <SceneTitleSection
+                name="Product analytics"
+                description="Track, analyze, and experiment with user behavior."
+                resourceType={{
+                    type: 'insight',
+                    typePlural: 'insights',
+                }}
+            />
+            <SceneDivider />
             <LemonTabs
                 activeKey={tab}
                 onChange={(tab) => setSavedInsightsFilters({ tab })}
                 tabs={[
                     { key: SavedInsightsTabs.All, label: 'All insights' },
-                    { key: SavedInsightsTabs.Yours, label: 'Your insights' },
+                    { key: SavedInsightsTabs.Yours, label: 'My insights' },
                     { key: SavedInsightsTabs.Favorites, label: 'Favorites' },
                     { key: SavedInsightsTabs.History, label: 'History' },
                     {
@@ -774,6 +827,7 @@ export function SavedInsights(): JSX.Element {
                         label: <div className="flex items-center gap-2">Alerts</div>,
                     },
                 ]}
+                sceneInset={newSceneLayout}
             />
 
             {tab === SavedInsightsTabs.History ? (
@@ -783,8 +837,13 @@ export function SavedInsights(): JSX.Element {
             ) : (
                 <>
                     <SavedInsightsFilters filters={filters} setFilters={setSavedInsightsFilters} />
-                    <LemonDivider className="my-4" />
-                    <div className="flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center">
+                    <LemonDivider className={cn('my-4', newSceneLayout && 'my-0')} />
+                    <div
+                        className={cn(
+                            'flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center',
+                            newSceneLayout && 'my-0'
+                        )}
+                    >
                         <span className="text-secondary">
                             {count
                                 ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} insight${
@@ -813,7 +872,7 @@ export function SavedInsights(): JSX.Element {
                         </div>
                     </div>
                     {!insightsLoading && insights.count < 1 ? (
-                        <SavedInsightsEmptyState />
+                        <SavedInsightsEmptyState filters={filters} usingFilters={usingFilters} />
                     ) : (
                         <>
                             <ReloadInsight />
@@ -843,6 +902,6 @@ export function SavedInsights(): JSX.Element {
                     )}
                 </>
             )}
-        </div>
+        </SceneContent>
     )
 }

@@ -1,4 +1,5 @@
-import { MaxContextShape } from 'scenes/max/maxTypes'
+import type { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
+import type { MaxUIContext } from 'scenes/max/maxTypes'
 
 import {
     AssistantFunnelsQuery,
@@ -6,6 +7,26 @@ import {
     AssistantRetentionQuery,
     AssistantTrendsQuery,
 } from './schema-assistant-queries'
+import { FunnelsQuery, HogQLQuery, RetentionQuery, TrendsQuery } from './schema-general'
+
+// re-export MaxBillingContext to make it available in the schema
+export type { MaxBillingContext }
+
+// Define ProsemirrorJSONContent locally to avoid exporting the TipTap type into schema.json
+// which leads to improper type naming
+// This matches the TipTap/Prosemirror JSONContent structure
+export interface ProsemirrorJSONContent {
+    type?: string
+    attrs?: Record<string, any>
+    content?: ProsemirrorJSONContent[]
+    marks?: {
+        type: string
+        attrs?: Record<string, any>
+        [key: string]: any
+    }[]
+    text?: string
+    [key: string]: any
+}
 
 export enum AssistantMessageType {
     Human = 'human',
@@ -14,6 +35,7 @@ export enum AssistantMessageType {
     Reasoning = 'ai/reasoning',
     Visualization = 'ai/viz',
     Failure = 'ai/failure',
+    Notebook = 'ai/notebook',
 }
 
 export interface BaseAssistantMessage {
@@ -23,7 +45,7 @@ export interface BaseAssistantMessage {
 export interface HumanMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Human
     content: string
-    ui_context?: MaxContextShape
+    ui_context?: MaxUIContext
 }
 
 export interface AssistantFormOption {
@@ -63,12 +85,26 @@ export interface ReasoningMessage extends BaseAssistantMessage {
     substeps?: string[]
 }
 
+/**
+ * The union type with all cleaned queries for the assistant. Only used for generating the schemas with an LLM.
+ */
+export type AnyAssistantGeneratedQuery =
+    | AssistantTrendsQuery
+    | AssistantFunnelsQuery
+    | AssistantRetentionQuery
+    | AssistantHogQLQuery
+
+/**
+ * The union type with all supported base queries for the assistant.
+ */
+export type AnyAssistantSupportedQuery = TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery
+
 export interface VisualizationMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Visualization
     /** @default '' */
     query: string
     plan?: string
-    answer: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
+    answer: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery
     initiator?: string
 }
 
@@ -77,18 +113,27 @@ export interface FailureMessage extends BaseAssistantMessage {
     content?: string
 }
 
+export interface NotebookUpdateMessage extends BaseAssistantMessage {
+    type: AssistantMessageType.Notebook
+    notebook_id: string
+    content: ProsemirrorJSONContent
+    tool_calls?: AssistantToolCall[]
+}
+
 export type RootAssistantMessage =
     | VisualizationMessage
     | ReasoningMessage
     | AssistantMessage
     | HumanMessage
     | FailureMessage
+    | NotebookUpdateMessage
     | (AssistantToolCallMessage & Required<Pick<AssistantToolCallMessage, 'ui_payload'>>)
 
 export enum AssistantEventType {
     Status = 'status',
     Message = 'message',
     Conversation = 'conversation',
+    Notebook = 'notebook',
 }
 
 export enum AssistantGenerationStatusType {
@@ -119,3 +164,59 @@ export type AssistantContextualTool =
     | 'analyze_user_interviews'
     | 'create_and_query_insight'
     | 'create_hog_transformation_function'
+    | 'create_hog_function_filters'
+    | 'create_hog_function_inputs'
+    | 'create_message_template'
+    | 'navigate'
+    | 'filter_error_tracking_issues'
+    | 'find_error_tracking_impactful_issue_event_list'
+    | 'experiment_results_summary'
+    | 'create_survey'
+    | 'search_docs'
+    | 'search_insights'
+    | 'session_summarization'
+
+/** Exact possible `urls` keys for the `navigate` tool. */
+// Extracted using the following Claude Code prompt, then tweaked manually:
+// "
+// List every key of objects `frontend/src/products.tsx::productUrls` and `frontend/src/scenes/urls.ts::urls`,
+// whose function takes either zero arguments, or only optional arguments. Exclude beta or alpha products.
+// Exclude scenes related to signup, login, onboarding, upsell or admin, as well as internal scenes, and ones about uploading files.
+// Your only output should be a list of those string keys in TypeScript union syntax.
+// Once done, verify whether indeed each item of the output satisfies the criteria.
+// "
+export type AssistantNavigateUrls =
+    | 'createAction'
+    | 'actions'
+    | 'cohorts'
+    | 'projectHomepage'
+    | 'max'
+    | 'settings'
+    | 'eventDefinitions'
+    | 'propertyDefinitions'
+    | 'database'
+    | 'activity'
+    | 'ingestionWarnings'
+    | 'insights'
+    | 'insightNew'
+    | 'savedInsights'
+    | 'webAnalytics'
+    | 'webAnalyticsWebVitals'
+    | 'alerts'
+    | 'dashboards'
+    | 'experiments'
+    | 'featureFlags'
+    | 'surveys'
+    | 'surveyTemplates'
+    | 'replay'
+    | 'replaySettings'
+    | 'pipeline'
+    | 'sqlEditor'
+    | 'annotations'
+    | 'heatmaps'
+    | 'earlyAccessFeatures'
+    | 'errorTracking'
+    | 'game368hedgehogs'
+    | 'notebooks'
+    | 'persons'
+    | 'toolbarLaunch'

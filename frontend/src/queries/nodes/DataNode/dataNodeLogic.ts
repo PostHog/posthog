@@ -15,6 +15,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
+
 import api, { ApiMethodOptions } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -23,10 +24,11 @@ import { shouldCancelQuery, uuid } from 'lib/utils'
 import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
 import { compareDataNodeQuery, haveVariablesOrFiltersChanged, validateQuery } from 'scenes/insights/utils/queryUtils'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { dataNodeCollectionLogic, DataNodeCollectionProps } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
+import { DataNodeCollectionProps, dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { performQuery } from '~/queries/query'
 import {
@@ -44,6 +46,8 @@ import {
     HogQLQueryModifiers,
     HogQLVariable,
     InsightVizNode,
+    MarketingAnalyticsTableQuery,
+    MarketingAnalyticsTableQueryResponse,
     NodeKind,
     PersonsNode,
     QueryStatus,
@@ -60,13 +64,13 @@ import {
     isHogQLQuery,
     isInsightActorsQuery,
     isInsightQueryNode,
+    isMarketingAnalyticsTableQuery,
     isPersonsNode,
     isTracesQuery,
 } from '~/queries/utils'
 import { TeamType } from '~/types'
 
 import type { dataNodeLogicType } from './dataNodeLogicType'
-import { sceneLogic } from 'scenes/sceneLogic'
 
 export interface DataNodeLogicProps {
     key: string
@@ -95,6 +99,8 @@ export interface DataNodeLogicProps {
 
     /** Whether to automatically load data when the query changes. Used for manual override in SQL editor */
     autoLoad?: boolean
+    /** Override the maximum pagination limit. */
+    maxPaginationLimit?: number
 }
 
 export const AUTOLOAD_INTERVAL = 30000
@@ -127,7 +133,7 @@ function addTags<T extends Record<string, any>>(query: DataNode<T>): DataNode<T>
     // find the currently mounted scene logic to get the active scene, but don't use the kea connect()
     // method to do this as we don't want to mount the sceneLogic if it isn't already mounted
     const mountedSceneLogic = sceneLogic.findMounted()
-    const activeScene = mountedSceneLogic?.values.activeScene
+    const activeScene = mountedSceneLogic?.values.activeSceneId
 
     const tags = query.tags ? { ...query.tags } : {}
     if (!tags.scene && activeScene) {
@@ -167,7 +173,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         if (oldProps.query?.kind && props.query.kind !== oldProps.query.kind) {
             actions.clearResponse()
         }
-        const hasQueryChanged = !compareDataNodeQuery(props.query, oldProps.query)
+        const hasQueryChanged = !compareDataNodeQuery(props.query, oldProps.query, {
+            ignoreVisualizationOnlyChanges: true,
+        })
         const queryVarsHaveChanged = haveVariablesOrFiltersChanged(props.query, oldProps.query)
 
         const queryStatus = (props.cachedResults?.query_status || null) as QueryStatus | null
@@ -381,7 +389,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         isActorsQuery(props.query) ||
                         isGroupsQuery(props.query) ||
                         isErrorTrackingQuery(props.query) ||
-                        isTracesQuery(props.query)
+                        isTracesQuery(props.query) ||
+                        isMarketingAnalyticsTableQuery(props.query)
                     ) {
                         const newResponse =
                             (await performQuery(
@@ -396,6 +405,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             | GroupsQueryResponse
                             | ErrorTrackingQueryResponse
                             | TracesQueryResponse
+                            | MarketingAnalyticsTableQueryResponse
                         return {
                             ...queryResponse,
                             results: [...(queryResponse?.results ?? []), ...(newResponse?.results ?? [])],
@@ -417,7 +427,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             ...values.response,
                             results: [
                                 ...(values.response && 'results' in values.response
-                                    ? values.response?.results ?? []
+                                    ? (values.response?.results ?? [])
                                     : []),
                                 ...(newResponse?.results ?? []),
                             ],
@@ -552,9 +562,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     return error ?? 'Error loading data'
                 },
                 loadDataSuccess: (_, { response }) =>
-                    response && 'error' in response ? response?.error ?? null : null,
+                    response && 'error' in response ? (response.error ?? null) : null,
                 loadNewDataSuccess: (_, { response }) =>
-                    response && 'error' in response ? response?.error ?? null : null,
+                    response && 'error' in response ? (response.error ?? null) : null,
             },
         ],
         elapsedTime: [
@@ -628,18 +638,34 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             (newQuery, isShowingCachedResults) => (isShowingCachedResults ? false : !!newQuery),
         ],
         nextQuery: [
-            (s, p) => [p.query, s.response, s.responseError, s.dataLoading, s.isShowingCachedResults],
-            (query, response, responseError, dataLoading, isShowingCachedResults): DataNode | null => {
+            (s, p) => [
+                p.query,
+                s.response,
+                s.responseError,
+                s.dataLoading,
+                s.isShowingCachedResults,
+                (_, props) => props.maxPaginationLimit,
+            ],
+            (
+                query,
+                response,
+                responseError,
+                dataLoading,
+                isShowingCachedResults,
+                maxPaginationLimit
+            ): DataNode | null => {
                 if (isShowingCachedResults) {
                     return null
                 }
 
+                const effectivePaginationLimit = maxPaginationLimit ?? LOAD_MORE_ROWS_LIMIT
                 if (
                     (isEventsQuery(query) ||
                         isActorsQuery(query) ||
                         isGroupsQuery(query) ||
                         isErrorTrackingQuery(query) ||
-                        isTracesQuery(query)) &&
+                        isTracesQuery(query) ||
+                        isMarketingAnalyticsTableQuery(query)) &&
                     !responseError &&
                     !dataLoading
                 ) {
@@ -651,9 +677,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                 | GroupsQueryResponse
                                 | ErrorTrackingQueryResponse
                                 | TracesQueryResponse
+                                | MarketingAnalyticsTableQueryResponse
                         )?.hasMore
                     ) {
-                        const sortKey = isTracesQuery(query) ? null : query.orderBy?.[0] ?? 'timestamp DESC'
+                        const sortKey = isTracesQuery(query) ? null : (query.orderBy?.[0] ?? 'timestamp DESC')
                         if (isEventsQuery(query) && sortKey === 'timestamp DESC') {
                             const typedResults = (response as EventsQueryResponse)?.results
                             const sortColumnIndex = query.select
@@ -667,7 +694,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                         before: lastTimestamp,
                                         limit: Math.max(
                                             100,
-                                            Math.min(2 * (typedResults?.length || 100), LOAD_MORE_ROWS_LIMIT)
+                                            Math.min(2 * (typedResults?.length || 100), effectivePaginationLimit)
                                         ),
                                     }
                                     return newQuery
@@ -681,12 +708,22 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                     | GroupsQueryResponse
                                     | ErrorTrackingQueryResponse
                                     | TracesQueryResponse
+                                    | MarketingAnalyticsTableQueryResponse
                             )?.results
                             return {
                                 ...query,
                                 offset: typedResults?.length || 0,
-                                limit: Math.max(100, Math.min(2 * (typedResults?.length || 100), LOAD_MORE_ROWS_LIMIT)),
-                            } as EventsQuery | ActorsQuery | GroupsQuery | ErrorTrackingQuery | TracesQuery
+                                limit: Math.max(
+                                    100,
+                                    Math.min(2 * (typedResults?.length || 100), effectivePaginationLimit)
+                                ),
+                            } as
+                                | EventsQuery
+                                | ActorsQuery
+                                | GroupsQuery
+                                | ErrorTrackingQuery
+                                | TracesQuery
+                                | MarketingAnalyticsTableQuery
                         }
                     }
                 }
@@ -716,7 +753,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             // get limit from response
             (s) => [s.response],
             (response): number | null => {
-                return response && 'limit' in response ? response.limit ?? null : null
+                return response && 'limit' in response ? (response.limit ?? null) : null
             },
         ],
         backToSourceQuery: [

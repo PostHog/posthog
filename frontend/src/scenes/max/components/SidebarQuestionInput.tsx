@@ -1,13 +1,13 @@
 import './QuestionInput.scss'
 
-import { LemonButton } from '@posthog/lemon-ui'
 import { ToggleGroup, ToggleGroupItem } from '@radix-ui/react-toggle-group'
-
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 import { CSSTransition } from 'react-transition-group'
 
-import { maxLogic, SuggestionGroup } from '../maxLogic'
+import { LemonButton } from '@posthog/lemon-ui'
+
+import { SuggestionGroup, maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { checkSuggestionRequiresUserInput, formatSuggestion, stripSuggestionPlaceholders } from '../utils'
 import { QuestionInput } from './QuestionInput'
@@ -36,6 +36,7 @@ export function SidebarQuestionInput({ isSticky = false }: { isSticky?: boolean 
             isSticky={isSticky}
             textAreaRef={textAreaRef}
             containerClassName="px-3 mx-auto self-center pb-1"
+            isFloating={threadVisible}
             isThreadVisible={threadVisible}
         >
             <SuggestionsList />

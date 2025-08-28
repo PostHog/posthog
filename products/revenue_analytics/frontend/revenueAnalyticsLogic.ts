@@ -1,10 +1,12 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+
 import { getDefaultInterval, objectsEqual } from 'lib/utils'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { isRevenueAnalyticsPropertyFilters } from '~/queries/schema-guards'
 import {
     DataTableNode,
     NodeKind,
@@ -13,17 +15,17 @@ import {
     RevenueAnalyticsPropertyFilters,
     RevenueAnalyticsTopCustomersGroupBy,
 } from '~/queries/schema/schema-general'
-import { isRevenueAnalyticsPropertyFilters } from '~/queries/schema-guards'
-import { Breadcrumb, InsightLogicProps } from '~/types'
+import { Breadcrumb, InsightLogicProps, SimpleIntervalType } from '~/types'
 
 import type { revenueAnalyticsLogicType } from './revenueAnalyticsLogicType'
 import { revenueAnalyticsSettingsLogic } from './settings/revenueAnalyticsSettingsLogic'
 
 export enum RevenueAnalyticsQuery {
     OVERVIEW,
-    REVENUE,
+    MRR,
     GROSS_REVENUE,
-    REVENUE_GROWTH_RATE,
+    METRICS,
+    GROWTH_RATE,
     TOP_CUSTOMERS,
 }
 
@@ -34,10 +36,15 @@ export const buildDashboardItemId = (queryType: RevenueAnalyticsQuery): InsightL
     return `new-AdHoc.revenue-analytics.${queryType}`
 }
 
+const getDefaultRevenueAnalyticsInterval = (dateFrom: string | null, dateTo: string | null): SimpleIntervalType => {
+    const interval = getDefaultInterval(dateFrom, dateTo)
+    return interval === 'day' ? 'day' : 'month'
+}
+
 const INITIAL_REVENUE_ANALYTICS_FILTER = [] as RevenueAnalyticsPropertyFilters
 const INITIAL_DATE_FROM = 'yStart' as string | null
 const INITIAL_DATE_TO = null as string | null
-const INITIAL_INTERVAL = getDefaultInterval(INITIAL_DATE_FROM, INITIAL_DATE_TO)
+const INITIAL_INTERVAL: SimpleIntervalType = getDefaultRevenueAnalyticsInterval(INITIAL_DATE_FROM, INITIAL_DATE_TO)
 const INITIAL_DATE_FILTER = {
     dateFrom: INITIAL_DATE_FROM,
     dateTo: INITIAL_DATE_TO,
@@ -76,6 +83,7 @@ const setQueryParams = (params: Record<string, string>): string => {
     return `${urls.revenueAnalytics()}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
 }
 
+export type MRRMode = 'mrr' | 'arr'
 export type DisplayMode = 'line' | 'area' | 'bar' | 'table'
 
 export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
@@ -94,6 +102,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
         setRevenueAnalyticsFilters: (revenueAnalyticsFilters: RevenueAnalyticsPropertyFilters) => ({
             revenueAnalyticsFilters,
         }),
+        setMRRMode: (mrrMode: MRRMode) => ({ mrrMode }),
         setInsightsDisplayMode: (displayMode: DisplayMode) => ({ displayMode }),
         setTopCustomersDisplayMode: (displayMode: DisplayMode) => ({ displayMode }),
         setGrowthRateDisplayMode: (displayMode: DisplayMode) => ({ displayMode }),
@@ -107,7 +116,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                 setDates: (_, { dateTo, dateFrom }) => ({
                     dateTo,
                     dateFrom,
-                    interval: getDefaultInterval(dateFrom, dateTo),
+                    interval: getDefaultRevenueAnalyticsInterval(dateFrom, dateTo),
                 }),
             },
         ],
@@ -123,6 +132,13 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                 setGroupBy: (_, { groupBy }) => groupBy,
             },
         ],
+        mrrMode: [
+            'mrr' as MRRMode,
+            persistConfig,
+            {
+                setMRRMode: (_, { mrrMode }) => mrrMode,
+            },
+        ],
         insightsDisplayMode: [
             'line' as DisplayMode,
             persistConfig,
@@ -136,7 +152,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             {
                 setGrowthRateDisplayMode: (_, { displayMode }) => displayMode,
                 setDates: (state, { dateTo, dateFrom }) => {
-                    const interval = getDefaultInterval(dateFrom, dateTo)
+                    const interval = getDefaultRevenueAnalyticsInterval(dateFrom, dateTo)
                     if (interval !== 'month') {
                         return 'table'
                     }
@@ -151,7 +167,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             {
                 setTopCustomersDisplayMode: (_, { displayMode }) => displayMode,
                 setDates: (state, { dateTo, dateFrom }) => {
-                    const interval = getDefaultInterval(dateFrom, dateTo)
+                    const interval = getDefaultRevenueAnalyticsInterval(dateFrom, dateTo)
                     if (interval !== 'month') {
                         return 'table'
                     }
@@ -230,8 +246,8 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                         properties: revenueAnalyticsFilter,
                         dateRange,
                     },
-                    [RevenueAnalyticsQuery.REVENUE]: {
-                        kind: NodeKind.RevenueAnalyticsRevenueQuery,
+                    [RevenueAnalyticsQuery.MRR]: {
+                        kind: NodeKind.RevenueAnalyticsMRRQuery,
                         properties: revenueAnalyticsFilter,
                         groupBy,
                         interval,
@@ -244,7 +260,14 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                         interval,
                         dateRange,
                     },
-                    [RevenueAnalyticsQuery.REVENUE_GROWTH_RATE]: wrapWithDataTableNodeIfNeeded(
+                    [RevenueAnalyticsQuery.METRICS]: {
+                        kind: NodeKind.RevenueAnalyticsMetricsQuery,
+                        properties: revenueAnalyticsFilter,
+                        groupBy,
+                        interval,
+                        dateRange,
+                    },
+                    [RevenueAnalyticsQuery.GROWTH_RATE]: wrapWithDataTableNodeIfNeeded(
                         {
                             kind: NodeKind.RevenueAnalyticsGrowthRateQuery,
                             properties: revenueAnalyticsFilter,

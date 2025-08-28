@@ -1,21 +1,32 @@
-from datetime import UTC, timedelta, datetime
-from typing import cast
+import time
 import uuid
+from datetime import UTC, datetime, timedelta
+from typing import cast
+
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
 from django.conf import settings
+from django.contrib.sessions.middleware import SessionMiddleware
 from django.core import mail
 from django.core.cache import cache
+from django.test import RequestFactory
 from django.utils import timezone
+
 from django_otp.oath import totp
+from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.util import random_hex
-from freezegun import freeze_time
 from rest_framework import status
+from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.parsers import JSONParser
+from rest_framework.request import Request
+from rest_framework.test import APIRequestFactory
 from social_django.models import UserSocialAuth
 from two_factor.utils import totp_digits
-import time
 
-from posthog.api.authentication import password_reset_token_generator
+from posthog.api.authentication import password_reset_token_generator, post_login, social_login_notification
+from posthog.auth import OAuthAccessTokenAuthentication, ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
 from posthog.models import User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -23,13 +34,6 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
-from posthog.test.base import APIBaseTest
-from django_otp.plugins.otp_static.models import StaticDevice
-from posthog.auth import OAuthAccessTokenAuthentication, ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
-from rest_framework.request import Request
-from rest_framework.test import APIRequestFactory
-from rest_framework.parsers import JSONParser
-
 
 VALID_TEST_PASSWORD = "mighty-strong-secure-1337!!"
 
@@ -96,8 +100,8 @@ class TestLoginAPI(APIBaseTest):
 
         # Assert the event was captured.
         mock_capture.assert_called_once_with(
-            self.user.distinct_id,
-            "user logged in",
+            distinct_id=self.user.distinct_id,
+            event="user logged in",
             properties={"social_provider": ""},
             groups={
                 "instance": ANY,
@@ -660,8 +664,8 @@ class TestPasswordResetAPI(APIBaseTest):
 
         # assert events were captured
         mock_capture.assert_any_call(
-            self.user.distinct_id,
-            "user logged in",
+            distinct_id=self.user.distinct_id,
+            event="user logged in",
             properties={"social_provider": ""},
             groups={
                 "instance": ANY,
@@ -670,8 +674,8 @@ class TestPasswordResetAPI(APIBaseTest):
             },
         )
         mock_capture.assert_any_call(
-            self.user.distinct_id,
-            "user password reset",
+            event="user password reset",
+            distinct_id=self.user.distinct_id,
             groups={
                 "instance": ANY,
                 "organization": str(self.team.organization_id),
@@ -1004,19 +1008,15 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         self.assertIsInstance(user, ProjectSecretAPIKeyUser)
         self.assertEqual(user.team, self.team)
 
-    def test_authenticate_with_valid_secret_api_key_in_query_string(self):
-        # Simulate a request with a valid secret API key
+    def test_authenticate_with_secret_api_key_in_query_string_not_supported(self):
+        # Query string authentication should not be supported for security reasons
         wsgi_request = self.factory.get(f"/?secret_api_key={self.team.secret_api_token}")
         request = Request(wsgi_request)  # Wrap the WSGIRequest in a DRF Request
 
         authenticator = ProjectSecretAPIKeyAuthentication()
         result = authenticator.authenticate(request)
-        assert result is not None
-        user, _ = result
 
-        self.assertIsNotNone(user)
-        self.assertIsInstance(user, ProjectSecretAPIKeyUser)
-        self.assertEqual(user.team, self.team)
+        self.assertIsNone(result)
 
     def test_authenticate_with_invalid_secret_api_key(self):
         # Simulate a request with an invalid secret API key
@@ -1037,6 +1037,44 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         result = authenticator.authenticate(request)
 
         self.assertIsNone(result)
+
+    def test_authenticate_with_matching_project_api_key_in_body(self):
+        # Test that when project API key in body matches the secret key's team, it passes
+        wsgi_request = self.factory.post(
+            "/",
+            data=f'{{"project_api_key": "{self.team.api_token}"}}',
+            content_type="application/json",
+            headers={"AUTHORIZATION": f"Bearer {self.team.secret_api_token}"},
+        )
+        request = Request(wsgi_request)
+        request.parsers = [JSONParser()]
+
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        result = authenticator.authenticate(request)
+
+        assert result is not None
+        user, _ = result
+        self.assertIsInstance(user, ProjectSecretAPIKeyUser)
+        self.assertEqual(user.team, self.team)
+
+    def test_authenticate_with_no_project_api_key_in_body_passes(self):
+        # Test that when there's no project API key in body, it still works normally
+        wsgi_request = self.factory.post(
+            "/",
+            data='{"some_other_field": "value"}',
+            content_type="application/json",
+            headers={"AUTHORIZATION": f"Bearer {self.team.secret_api_token}"},
+        )
+        request = Request(wsgi_request)
+        request.parsers = [JSONParser()]
+
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        result = authenticator.authenticate(request)
+
+        assert result is not None
+        user, _ = result
+        self.assertIsInstance(user, ProjectSecretAPIKeyUser)
+        self.assertEqual(user.team, self.team)
 
 
 class TestOAuthAccessTokenAuthentication(APIBaseTest):
@@ -1109,7 +1147,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
 
         authenticator = OAuthAccessTokenAuthentication()
 
-        with self.assertRaises(Exception) as context:
+        with self.assertRaises(AuthenticationFailed) as context:
             authenticator.authenticate(request)
 
         self.assertIn("Access token has expired", str(context.exception))
@@ -1126,7 +1164,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
 
         authenticator = OAuthAccessTokenAuthentication()
 
-        with self.assertRaises(Exception) as context:
+        with self.assertRaises(AuthenticationFailed) as context:
             authenticator.authenticate(request)
 
         self.assertIn("User associated with access token is disabled", str(context.exception))
@@ -1203,7 +1241,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
 
         authenticator = OAuthAccessTokenAuthentication()
 
-        with self.assertRaises(Exception) as context:
+        with self.assertRaises(AuthenticationFailed) as context:
             authenticator.authenticate(request)
 
         self.assertIn("Access token is not associated with a valid application", str(context.exception))
@@ -1228,7 +1266,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
 
         authenticator = OAuthAccessTokenAuthentication()
 
-        with self.assertRaises(Exception) as context:
+        with self.assertRaises(AuthenticationFailed) as context:
             authenticator.authenticate(request)
 
         self.assertIn("User associated with access token not found", str(context.exception))
@@ -1267,3 +1305,81 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
                 team_id=self.user.current_team_id,
                 access_method="oauth",
             )
+
+
+class TestOAuthLoginNotification(APIBaseTest):
+    CONFIG_AUTO_LOGIN = False
+
+    @staticmethod
+    def _build_strategy(rf: RequestFactory, user_agent: str, ip: str):
+        req = rf.get("/", HTTP_USER_AGENT=user_agent, REMOTE_ADDR=ip)
+
+        class Strategy:
+            def __init__(self, r):
+                self.request = r
+
+            def session_get(self, key, default=None):
+                return None
+
+        return Strategy(req)
+
+    def test_notification_sent_on_new_device_login(self):
+        user = User.objects.create(email="test@gmail.com", distinct_id=str(uuid.uuid4()))
+        rf = RequestFactory()
+        Backend = type("Backend", (), {"name": "google-oauth2"})
+        ua1, ip1 = "BrowserA/99.0 (X11; Linux x86_64)", "1.1.1.1"
+
+        # test SMTP email notification
+        set_instance_setting("EMAIL_HOST", "localhost")
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, CUSTOMER_IO_API_KEY=None):
+            social_login_notification(self._build_strategy(rf, ua1, ip1), Backend(), user)
+            assert len(mail.outbox) == 1
+
+    def test_notification_not_sent_on_same_device_second_login(self):
+        user = User.objects.create(email="test@gmail.com", distinct_id=str(uuid.uuid4()))
+        rf = RequestFactory()
+        Backend = type("Backend", (), {"name": "google-oauth2"})
+        ua1, ip1 = "BrowserA/99.0 (X11; Linux x86_64)", "1.1.1.1"
+
+        # test SMTP email notification
+        set_instance_setting("EMAIL_HOST", "localhost")
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, CUSTOMER_IO_API_KEY=None):
+            social_login_notification(self._build_strategy(rf, ua1, ip1), Backend(), user)
+            assert len(mail.outbox) == 1
+            social_login_notification(self._build_strategy(rf, ua1, ip1), Backend(), user)
+            assert len(mail.outbox) == 1
+
+    def test_notification_sent_on_second_distinct_device_login(self):
+        user = User.objects.create(email="test@gmail.com", distinct_id=str(uuid.uuid4()))
+        rf = RequestFactory()
+        Backend = type("Backend", (), {"name": "google-oauth2"})
+        ua1, ip1 = "BrowserA/99.0 (X11; Linux x86_64)", "1.1.1.1"
+        ua2, ip2 = "BrowserB/100.0 (Macintosh; Intel Mac OS X)", "2.2.2.2"
+
+        # test SMTP email notification
+        set_instance_setting("EMAIL_HOST", "localhost")
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, CUSTOMER_IO_API_KEY=None):
+            social_login_notification(self._build_strategy(rf, ua1, ip1), Backend(), user)
+            assert len(mail.outbox) == 1
+            social_login_notification(self._build_strategy(rf, ua2, ip2), Backend(), user)
+            assert len(mail.outbox) == 2
+
+    def test_signup_then_same_device_login_no_notification(self):
+        user = User.objects.create(email="test@gmail.com", distinct_id=str(uuid.uuid4()))
+        rf = RequestFactory()
+        Backend = type("Backend", (), {"name": "google-oauth2"})
+        ua1, ip1 = "BrowserA/99.0 (X11; Linux x86_64)", "1.1.1.1"
+
+        # test SMTP email notification
+        set_instance_setting("EMAIL_HOST", "localhost")
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, CUSTOMER_IO_API_KEY=None):
+            # simulating signup with post_login signal
+            req_signup = rf.get("/", HTTP_USER_AGENT=ua1, REMOTE_ADDR=ip1)
+            middleware = SessionMiddleware(lambda r: r)
+            middleware.process_request(req_signup)
+            req_signup.session.save()
+            post_login(None, user, req_signup)
+            assert len(mail.outbox) == 0
+
+            social_login_notification(self._build_strategy(rf, ua1, ip1), Backend(), user)
+            assert len(mail.outbox) == 0

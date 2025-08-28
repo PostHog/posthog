@@ -1,7 +1,9 @@
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { encodeParams } from 'kea-router'
 import { windowValues } from 'kea-window-values'
+
+import { DEFAULT_HEATMAP_FILTERS, calculateViewportRange } from 'lib/components/IframedToolbarBrowser/utils'
 import {
     CommonFilters,
     HeatmapFilters,
@@ -9,7 +11,6 @@ import {
     HeatmapJsData,
     HeatmapJsDataPoint,
 } from 'lib/components/heatmaps/types'
-import { calculateViewportRange, DEFAULT_HEATMAP_FILTERS } from 'lib/components/IframedToolbarBrowser/utils'
 import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 import { dateFilterToText } from 'lib/utils'
 
@@ -26,8 +27,14 @@ export const HEATMAP_COLOR_PALETTE_OPTIONS: LemonSelectOption<string>[] = [
     { value: 'blue', label: 'Blue (monocolor)' },
 ]
 
+export interface HeatmapDataLogicProps {
+    context: 'in-app' | 'toolbar'
+}
+
 export const heatmapDataLogic = kea<heatmapDataLogicType>([
-    path(['lib', 'components', 'heatmap', 'heatmapDataLogic']),
+    path((key) => ['lib', 'components', 'heatmap', 'heatmapDataLogic', key]),
+    props({ context: 'toolbar' } as HeatmapDataLogicProps),
+    key((props) => props.context),
     actions({
         loadHeatmap: true,
         setCommonFilters: (filters: CommonFilters) => ({ filters }),
@@ -37,7 +44,6 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         setHeatmapColorPalette: (Palette: string | null) => ({ Palette }),
         setHref: (href: string) => ({ href }),
         setHrefMatchType: (matchType: 'exact' | 'pattern') => ({ matchType }),
-        setFetchFn: (fetchFn: 'native' | 'toolbar') => ({ fetchFn }),
         setHeatmapScrollY: (scrollY: number) => ({ scrollY }),
         setWindowWidthOverride: (widthOverride: number | null) => ({ widthOverride }),
     }),
@@ -46,14 +52,6 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         windowHeight: (window: Window) => window.innerHeight,
     })),
     reducers({
-        // TODO with toolbar on the posthog page as well as the page itself, this will clash
-        // need to make a separate data logic for toolbar and page
-        fetchFn: [
-            'toolbar' as 'toolbar' | 'native',
-            {
-                setFetchFn: (_, { fetchFn }) => fetchFn,
-            },
-        ],
         hrefMatchType: [
             'exact' as 'exact' | 'pattern',
             {
@@ -108,7 +106,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             },
         ],
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, props }) => ({
         rawHeatmap: [
             null as HeatmapResponseType | null,
             {
@@ -141,10 +139,10 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                         '?'
                     )}`
 
-                    const response = await (values.fetchFn === 'toolbar' ? toolbarFetch(apiURL, 'GET') : fetch(apiURL))
+                    const response = await (props.context === 'toolbar' ? toolbarFetch(apiURL, 'GET') : fetch(apiURL))
                     breakpoint()
 
-                    if (response.status === 403) {
+                    if (props.context === 'toolbar' && response.status === 403) {
                         toolbarConfigLogic.actions.authenticate()
                     }
 

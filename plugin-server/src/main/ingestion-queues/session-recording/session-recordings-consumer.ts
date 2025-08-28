@@ -1,8 +1,10 @@
 import crypto from 'crypto'
 import { Redis } from 'ioredis'
+import { CODES, Message, TopicPartition, features, librdkafkaVersion } from 'node-rdkafka'
 import { mkdirSync, rmSync } from 'node:fs'
-import { CODES, features, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'
 import { Counter, Gauge, Histogram, Summary } from 'prom-client'
+
+import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { buildIntegerMatcher } from '../../../config/config'
 import {
@@ -11,14 +13,21 @@ import {
 } from '../../../config/kafka-topics'
 import { KafkaConsumer } from '../../../kafka/consumer'
 import { KafkaProducerWrapper } from '../../../kafka/producer'
-import { PluginServerService, PluginsServerConfig, RedisPool, TeamId, ValueMatcher } from '../../../types'
+import {
+    PluginServerService,
+    PluginsServerConfig,
+    RedisPool,
+    SessionRecordingV2MetadataSwitchoverDate,
+    TeamId,
+    ValueMatcher,
+} from '../../../types'
 import { BackgroundRefresher } from '../../../utils/background-refresher'
 import { PostgresRouter } from '../../../utils/db/postgres'
 import { createRedisPool } from '../../../utils/db/redis'
 import { logger } from '../../../utils/logger'
 import { ObjectStorage } from '../../../utils/object_storage'
 import { captureException } from '../../../utils/posthog'
-import { runInstrumentedFunction } from '../../utils'
+import { parseSessionRecordingV2MetadataSwitchoverDate } from '../../utils'
 import { eventDroppedCounter } from '../metrics'
 import { fetchTeamTokensWithRecordings } from '../session-recording-v2/teams/team-service'
 import { ConsoleLogsIngester } from './services/console-logs-ingester'
@@ -133,7 +142,7 @@ export class SessionRecordingIngester {
     consumerGroupId: string
     totalNumPartitions = 0
     isStopping = false
-    private metadataSwitchoverDate: Date | null = null
+    private metadataSwitchoverDate: SessionRecordingV2MetadataSwitchoverDate = null
 
     private promises: Set<Promise<any>> = new Set()
     private sharedClusterProducerWrapper: KafkaProducerWrapper | undefined = undefined
@@ -148,22 +157,9 @@ export class SessionRecordingIngester {
     ) {
         this.isDebugLoggingEnabled = buildIntegerMatcher(config.SESSION_RECORDING_DEBUG_PARTITION, true)
 
-        // Parse SESSION_RECORDING_V2_METADATA_SWITCHOVER as ISO datetime
-        if (config.SESSION_RECORDING_V2_METADATA_SWITCHOVER) {
-            const parsed = Date.parse(config.SESSION_RECORDING_V2_METADATA_SWITCHOVER)
-            if (!isNaN(parsed)) {
-                this.metadataSwitchoverDate = new Date(parsed)
-                logger.info('SESSION_RECORDING_V2_METADATA_SWITCHOVER enabled', {
-                    value: config.SESSION_RECORDING_V2_METADATA_SWITCHOVER,
-                    parsedDate: this.metadataSwitchoverDate.toISOString(),
-                })
-            } else {
-                throw new Error(
-                    'SESSION_RECORDING_V2_METADATA_SWITCHOVER is not a valid ISO datetime: ' +
-                        config.SESSION_RECORDING_V2_METADATA_SWITCHOVER
-                )
-            }
-        }
+        this.metadataSwitchoverDate = parseSessionRecordingV2MetadataSwitchoverDate(
+            config.SESSION_RECORDING_V2_METADATA_SWITCHOVER
+        )
 
         this.topic = consumeOverflow
             ? KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
@@ -213,7 +209,7 @@ export class SessionRecordingIngester {
         this.teamsRefresher = new BackgroundRefresher(async () => {
             try {
                 logger.info('🔁', 'blob_ingester_consumer - refreshing teams in the background')
-                return await fetchTeamTokensWithRecordings(this.postgres)
+                return (await fetchTeamTokensWithRecordings(this.postgres))[0]
             } catch (e) {
                 logger.error('🔥', 'blob_ingester_consumer - failed to refresh teams in the background', e)
                 captureException(e)
@@ -237,12 +233,15 @@ export class SessionRecordingIngester {
                 )
             )
 
-            return results.reduce((acc, [partition, highOffset]) => {
-                if (typeof partition === 'number' && typeof highOffset === 'number') {
-                    acc[partition] = highOffset
-                }
-                return acc
-            }, {} as Record<number, number>)
+            return results.reduce(
+                (acc, [partition, highOffset]) => {
+                    if (typeof partition === 'number' && typeof highOffset === 'number') {
+                        acc[partition] = highOffset
+                    }
+                    return acc
+                },
+                {} as Record<number, number>
+            )
         }, 10000)
     }
 
@@ -357,90 +356,70 @@ export class SessionRecordingIngester {
             })
         }
 
-        await runInstrumentedFunction({
-            statsKey: `recordingingester.handleEachBatch`,
-            sendException: false,
-            func: async () => {
-                histogramKafkaBatchSize.observe(messages.length)
-                histogramKafkaBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
+        await instrumentFn(`recordingingester.handleEachBatch`, async () => {
+            histogramKafkaBatchSize.observe(messages.length)
+            histogramKafkaBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
 
-                let recordingMessages: IncomingRecordingMessage[]
+            let recordingMessages: IncomingRecordingMessage[]
 
-                await runInstrumentedFunction({
-                    statsKey: `recordingingester.handleEachBatch.parseKafkaMessages`,
-                    func: async () => {
-                        const { sessions, partitionStats } = await parseKafkaBatch(
-                            messages,
-                            (token) =>
-                                this.teamsRefresher.get().then((teams) => ({
-                                    teamId: teams[token]?.teamId || null,
-                                    consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
-                                })),
-                            this.sharedClusterProducerWrapper
-                        )
-                        recordingMessages = sessions
-                        for (const partitionStat of partitionStats) {
-                            const metrics = this.partitionMetrics[partitionStat.partition] ?? {}
-                            metrics.lastMessageOffset = partitionStat.offset
-                            if (partitionStat.timestamp) {
-                                // Could be empty on Kafka versions before KIP-32
-                                metrics.lastMessageTimestamp = partitionStat.timestamp
-                            }
-                            this.partitionMetrics[partitionStat.partition] = metrics
-                        }
-                    },
+            await instrumentFn(`recordingingester.handleEachBatch.parseKafkaMessages`, async () => {
+                const { sessions, partitionStats } = await parseKafkaBatch(
+                    messages,
+                    (token) =>
+                        this.teamsRefresher.get().then((teams) => ({
+                            teamId: teams[token]?.teamId || null,
+                            consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
+                        })),
+                    this.sharedClusterProducerWrapper
+                )
+                recordingMessages = sessions
+                for (const partitionStat of partitionStats) {
+                    const metrics = this.partitionMetrics[partitionStat.partition] ?? {}
+                    metrics.lastMessageOffset = partitionStat.offset
+                    if (partitionStat.timestamp) {
+                        // Could be empty on Kafka versions before KIP-32
+                        metrics.lastMessageTimestamp = partitionStat.timestamp
+                    }
+                    this.partitionMetrics[partitionStat.partition] = metrics
+                }
+            })
+            this.kafkaConsumer.heartbeat()
+
+            await this.reportPartitionMetrics()
+
+            await instrumentFn(`recordingingester.handleEachBatch.consumeBatch`, async () => {
+                if (this.config.SESSION_RECORDING_PARALLEL_CONSUMPTION) {
+                    await Promise.all(recordingMessages.map((x) => this.consume(x)))
+                } else {
+                    for (const message of recordingMessages) {
+                        await this.consume(message)
+                    }
+                }
+            })
+
+            await instrumentFn(
+                `recordingingester.handleEachBatch.flushAllReadySessions`,
+                async () => await this.flushAllReadySessions()
+            )
+
+            await instrumentFn(
+                `recordingingester.handleEachBatch.commitAllOffsets`,
+                async () => await this.commitAllOffsets(this.partitionMetrics, Object.values(this.sessions))
+            )
+
+            if (this.replayEventsIngester) {
+                await instrumentFn(`recordingingester.handleEachBatch.consumeReplayEvents`, async () => {
+                    await this.replayEventsIngester!.consumeBatch(recordingMessages)
                 })
                 this.kafkaConsumer.heartbeat()
+            }
 
-                await this.reportPartitionMetrics()
-
-                await runInstrumentedFunction({
-                    statsKey: `recordingingester.handleEachBatch.consumeBatch`,
-                    func: async () => {
-                        if (this.config.SESSION_RECORDING_PARALLEL_CONSUMPTION) {
-                            await Promise.all(recordingMessages.map((x) => this.consume(x)))
-                        } else {
-                            for (const message of recordingMessages) {
-                                await this.consume(message)
-                            }
-                        }
-                    },
+            if (this.consoleLogsIngester) {
+                await instrumentFn(`recordingingester.handleEachBatch.consumeConsoleLogEvents`, async () => {
+                    await this.consoleLogsIngester!.consumeBatch(recordingMessages)
                 })
-
-                await runInstrumentedFunction({
-                    statsKey: `recordingingester.handleEachBatch.flushAllReadySessions`,
-                    func: async () => {
-                        await this.flushAllReadySessions()
-                    },
-                })
-
-                await runInstrumentedFunction({
-                    statsKey: `recordingingester.handleEachBatch.commitAllOffsets`,
-                    func: async () => {
-                        await this.commitAllOffsets(this.partitionMetrics, Object.values(this.sessions))
-                    },
-                })
-
-                if (this.replayEventsIngester) {
-                    await runInstrumentedFunction({
-                        statsKey: `recordingingester.handleEachBatch.consumeReplayEvents`,
-                        func: async () => {
-                            await this.replayEventsIngester!.consumeBatch(recordingMessages)
-                        },
-                    })
-                    this.kafkaConsumer.heartbeat()
-                }
-
-                if (this.consoleLogsIngester) {
-                    await runInstrumentedFunction({
-                        statsKey: `recordingingester.handleEachBatch.consumeConsoleLogEvents`,
-                        func: async () => {
-                            await this.consoleLogsIngester!.consumeBatch(recordingMessages)
-                        },
-                    })
-                    this.kafkaConsumer.heartbeat()
-                }
-            },
+                this.kafkaConsumer.heartbeat()
+            }
         })
     }
 
@@ -488,13 +467,10 @@ export class SessionRecordingIngester {
         }
 
         await this.kafkaConsumer.connect(async (messages) => {
-            return await runInstrumentedFunction({
-                statsKey: `recordingingester.handleEachBatch`,
-                sendException: false,
-                func: async () => {
-                    return await this.scheduleWork(this.handleEachBatch(messages))
-                },
-            })
+            return await instrumentFn(
+                `recordingingester.handleEachBatch`,
+                async () => await this.scheduleWork(this.handleEachBatch(messages))
+            )
         })
 
         this.totalNumPartitions = (await this.kafkaConsumer.getPartitionsForTopic(this.topic)).length
@@ -646,10 +622,12 @@ export class SessionRecordingIngester {
         gaugeSessionsHandled.remove()
 
         const startTime = Date.now()
-        await runInstrumentedFunction({
-            statsKey: `recordingingester.onRevokePartitions.revokeSessions`,
-            timeout: SHUTDOWN_FLUSH_TIMEOUT_MS, // same as the partition lock
-            func: async () => {
+        await instrumentFn(
+            {
+                key: `recordingingester.onRevokePartitions.revokeSessions`,
+                timeoutMs: SHUTDOWN_FLUSH_TIMEOUT_MS, // same as the partition lock
+            },
+            async () => {
                 if (this.config.SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION) {
                     // Extend our claim on these partitions to give us time to flush
                     logger.info(
@@ -676,8 +654,8 @@ export class SessionRecordingIngester {
                 }
 
                 await Promise.allSettled(sessionsToDrop.map((x) => x.destroy()))
-            },
-        })
+            }
+        )
     }
 
     async flushAllReadySessions(): Promise<void> {

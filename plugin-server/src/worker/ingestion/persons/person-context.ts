@@ -1,5 +1,6 @@
-import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
+
+import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 
 import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { Team } from '../../../types'
@@ -22,7 +23,7 @@ export class PersonContext {
         public readonly kafkaProducer: KafkaProducerWrapper,
         public readonly personStore: PersonsStoreForBatch,
         public readonly measurePersonJsonbSize: number = 0,
-        public readonly useOptimizedJSONBUpdates: number = 0.0
+        public readonly personMergeMoveDistinctIdLimit: number | undefined = undefined
     ) {
         this.eventProperties = event.properties!
     }

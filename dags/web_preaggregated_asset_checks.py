@@ -1,46 +1,40 @@
-import chdb
-import structlog
-from datetime import datetime, UTC, timedelta
+import time
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import chdb
 import dagster
-from dagster import (
-    Field,
-    MetadataValue,
-    AssetCheckResult,
-    AssetCheckSeverity,
-    asset_check,
-)
-from dags.common import JobOwners
-from dags.web_preaggregated_utils import TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED
+import structlog
+from dagster import AssetCheckExecutionContext, AssetCheckResult, AssetCheckSeverity, Field, MetadataValue, asset_check
 
-from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
-from posthog.schema import WebOverviewQuery, DateRange, HogQLQueryModifiers, WebOverviewItem
-from posthog.models import Team
-from posthog.clickhouse.client import sync_execute
-from posthog.settings.base_variables import DEBUG
+from posthog.schema import DateRange, HogQLQueryModifiers, WebOverviewItem, WebOverviewQuery
+
 from posthog.hogql.database.schema.web_analytics_s3 import (
-    get_s3_url,
-    get_s3_web_stats_structure,
-    get_s3_web_bounces_structure,
     get_s3_function_args,
+    get_s3_url,
+    get_s3_web_bounces_structure,
+    get_s3_web_stats_structure,
 )
+from posthog.hogql.query import HogQLQueryExecutor
 
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.escape import substitute_params
+from posthog.clickhouse.query_tagging import DagsterTags, get_query_tags, tags_context
+from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
+from posthog.models import Team
+from posthog.settings.base_variables import DEBUG
+
+from dags.common import JobOwners, dagster_tags
+from dags.web_preaggregated_utils import TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS
 
 logger = structlog.get_logger(__name__)
 
 DEFAULT_TOLERANCE_PCT = 1.0
 DEFAULT_DAYS_BACK = 7
-DEFAULT_ACCURACY_CHECK_TOLERANCE = 0.5
 MAX_TEAMS_PER_BATCH = 10
 CHDB_QUERY_TIMEOUT = 60
 
 WEB_DATA_QUALITY_CONFIG_SCHEMA = {
-    "team_ids": Field(
-        list,
-        default_value=TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED,
-        description="List of team IDs to validate data quality for",
-    ),
     "tolerance_pct": Field(
         float,
         default_value=DEFAULT_TOLERANCE_PCT,
@@ -54,9 +48,24 @@ WEB_DATA_QUALITY_CONFIG_SCHEMA = {
 }
 
 
-def table_has_data(table_name: str) -> AssetCheckResult:
+def table_has_data(
+    table_name: str, tags: DagsterTags = None, context: AssetCheckExecutionContext = None
+) -> AssetCheckResult:
+    # Skip simple data checks during backfill runs if context is provided
+    if context and hasattr(context.run, "tags") and context.run.tags and context.run.tags.get("dagster/backfill"):
+        return AssetCheckResult(
+            passed=True,
+            description=f"Skipped {table_name} data check during backfill run",
+            metadata={
+                "skipped": MetadataValue.bool(True),
+                "reason": MetadataValue.text("backfill_optimization"),
+                "table_name": MetadataValue.text(table_name),
+            },
+        )
+
     try:
-        result = sync_execute(f"SELECT COUNT(*) FROM {table_name} LIMIT 1")
+        with tags_context(kind="dagster", dagster=tags):
+            result = sync_execute(f"SELECT COUNT(*) FROM {table_name} LIMIT 1")
         row_count = result[0][0] if result and result[0] else 0
 
         passed = row_count > 0
@@ -77,8 +86,8 @@ def table_has_data(table_name: str) -> AssetCheckResult:
     name="bounces_daily_has_data",
     description="Check if web_bounces_daily table has data",
 )
-def bounces_daily_has_data() -> AssetCheckResult:
-    return table_has_data("web_bounces_daily")
+def bounces_daily_has_data(context: AssetCheckExecutionContext) -> AssetCheckResult:
+    return table_has_data("web_bounces_daily", dagster_tags(context), context)
 
 
 @asset_check(
@@ -86,8 +95,8 @@ def bounces_daily_has_data() -> AssetCheckResult:
     name="stats_daily_has_data",
     description="Check if web_stats_daily table has data",
 )
-def stats_daily_has_data() -> AssetCheckResult:
-    return table_has_data("web_stats_daily")
+def stats_daily_has_data(context: AssetCheckExecutionContext) -> AssetCheckResult:
+    return table_has_data("web_stats_daily", dagster_tags(context), context)
 
 
 @asset_check(
@@ -95,23 +104,23 @@ def stats_daily_has_data() -> AssetCheckResult:
     name="bounces_hourly_has_data",
     description="Check if web_bounces_hourly table has data",
 )
-def bounces_hourly_has_data() -> AssetCheckResult:
-    return table_has_data("web_bounces_hourly")
+def bounces_hourly_has_data(context: AssetCheckExecutionContext) -> AssetCheckResult:
+    return table_has_data("web_bounces_hourly", dagster_tags(context), context)
 
 
 @asset_check(
     asset="web_analytics_stats_table_hourly",
     name="stats_hourly_has_data",
-    description="Check if web_stats_daily table has data",
+    description="Check if web_stats_hourly table has data",
 )
-def stats_hourly_has_data() -> AssetCheckResult:
-    return table_has_data("web_stats_hourly")
+def stats_hourly_has_data(context: AssetCheckExecutionContext) -> AssetCheckResult:
+    return table_has_data("web_stats_hourly", dagster_tags(context), context)
 
 
 def check_export_chdb_queryable(export_type: str, log_event_name: str) -> AssetCheckResult:
     try:
-        export_filename = f"{export_type}_export.native"
-        export_path = get_s3_url(table_name=export_filename)
+        export_filename = f"{export_type}_export"
+        export_path = get_s3_url(table_name=export_filename, team_id=TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS)
 
         if export_type == "web_stats_daily":
             table_structure = get_s3_web_stats_structure().strip()
@@ -256,78 +265,132 @@ def bounces_export_chdb_queryable() -> AssetCheckResult:
     return check_export_chdb_queryable("web_bounces_daily", "bounces_export_chdb_check")
 
 
-def compare_web_overview_metrics(
-    team_id: int, date_from: str, date_to: str, tolerance_pct: float = 1.0
-) -> tuple[bool, dict[str, Any]]:
-    """
-    Compare pre-aggregated vs regular WebOverview metrics for accuracy.
-
-    Returns:
-        Tuple of (is_within_tolerance, comparison_data)
-    """
+def log_query_sql(
+    runner, query_name: str, context: AssetCheckExecutionContext, team: Team, use_pre_agg: bool = False
+) -> None:
     try:
-        team = Team.objects.get(id=team_id)
-    except Team.DoesNotExist:
-        raise ValueError(f"Team {team_id} does not exist")
+        if use_pre_agg:
+            query_ast = runner.preaggregated_query_builder.get_query()
+        else:
+            query_ast = runner.to_query()
 
-    # Query with pre-aggregated tables
-    query_pre_agg = WebOverviewQuery(
+        executor = HogQLQueryExecutor(query=query_ast, team=team, modifiers=runner.modifiers)
+        sql_with_placeholders, sql_context = executor.generate_clickhouse_sql()
+        raw_sql = substitute_params(sql_with_placeholders, sql_context.values)
+        context.log.info(f"{query_name}:\n {raw_sql}")
+    except Exception as e:
+        context.log.warning(f"Failed to log {query_name}: {e}")
+
+
+def setup_accuracy_check_config(
+    context: AssetCheckExecutionContext, check_name: str
+) -> tuple[float, int, int, str, str]:
+    run_config = context.run.run_config.get("ops", {}).get(check_name, {}).get("config", {})
+    tolerance_percentage = run_config.get("tolerance_pct", DEFAULT_TOLERANCE_PCT)
+    days_back = run_config.get("days_back", DEFAULT_DAYS_BACK)
+    team_id = TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS
+
+    end_date = (datetime.now(UTC) - timedelta(days=1)).replace(hour=23, minute=59, second=59, microsecond=999999).date()
+    start_date = end_date - timedelta(days=days_back)
+    date_from = start_date.strftime("%Y-%m-%d")
+    date_to = end_date.strftime("%Y-%m-%d")
+
+    return tolerance_percentage, days_back, team_id, date_from, date_to
+
+
+def create_runners_for_accuracy_check(
+    team: Team, date_from: str, date_to: str, use_v2_tables: bool = False
+) -> tuple[WebOverviewQueryRunner, WebOverviewQueryRunner]:
+    query_fn = lambda: WebOverviewQuery(
         dateRange=DateRange(date_from=date_from, date_to=date_to),
-        properties=[],  # Add required empty properties field
+        properties=[],
     )
 
-    modifiers_pre_agg = HogQLQueryModifiers(
-        useWebAnalyticsPreAggregatedTables=True,
-        convertToProjectTimezone=False,  # Pre-agg tables are in UTC
+    runner_pre_agg = WebOverviewQueryRunner(
+        query=query_fn(),
+        team=team,
+        use_v2_tables=use_v2_tables,
+        modifiers=HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True, convertToProjectTimezone=False),
+    )
+    runner_regular = WebOverviewQueryRunner(
+        query=query_fn(),
+        team=team,
+        modifiers=HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=False, convertToProjectTimezone=False),
     )
 
-    runner_pre_agg = WebOverviewQueryRunner(query=query_pre_agg, team=team, modifiers=modifiers_pre_agg)
+    return runner_pre_agg, runner_regular
 
-    # Query without pre-aggregated tables
-    modifiers_regular = HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=False)
 
-    runner_regular = WebOverviewQueryRunner(query=query_pre_agg, team=team, modifiers=modifiers_regular)
-
+def execute_accuracy_check(
+    runner_pre_agg: WebOverviewQueryRunner,
+    runner_regular: WebOverviewQueryRunner,
+    team_id: int,
+    date_from: str,
+    date_to: str,
+    context: AssetCheckExecutionContext,
+    tolerance_percentage: float,
+    table_version: str,
+) -> tuple[bool, dict[str, Any]]:
+    """Execute accuracy check between pre-aggregated and regular query runners."""
     try:
-        response_pre_agg = runner_pre_agg.calculate()
-        response_regular = runner_regular.calculate()
+        context.log.info(f"Running {table_version} accuracy check for team {team_id}")
+
+        log_query_sql(
+            runner_pre_agg, f"Pre-aggregated SQL ({table_version})", context, runner_pre_agg.team, use_pre_agg=True
+        )
+        log_query_sql(runner_regular, f"Regular SQL ({table_version})", context, runner_regular.team, use_pre_agg=False)
+
+        context.log.info(f"About to execute pre-aggregated query ({table_version})")
+        start_time = time.time()
+        pre_agg_response = runner_pre_agg.calculate()
+        pre_agg_execution_time = time.time() - start_time
+
+        context.log.info(f"About to execute regular query ({table_version})")
+        start_time = time.time()
+        regular_response = runner_regular.calculate()
+        regular_execution_time = time.time() - start_time
+
+        context.log.info(
+            f"Query execution completed for team {team_id} ({table_version}), pre-agg time: {pre_agg_execution_time}, regular time: {regular_execution_time}"
+        )
 
         # Convert results to dict for easier comparison
         def results_to_dict(results: list[WebOverviewItem]) -> dict[str, float]:
             return {item.key: item.value for item in results if item.value is not None}
 
-        pre_agg_metrics = results_to_dict(response_pre_agg.results)
-        regular_metrics = results_to_dict(response_regular.results)
+        pre_agg_metrics = results_to_dict(pre_agg_response.results)
+        regular_metrics = results_to_dict(regular_response.results)
 
         comparison_data = {
             "team_id": team_id,
             "date_from": date_from,
             "date_to": date_to,
-            "pre_aggregated_used": response_pre_agg.usedPreAggregatedTables,
+            "table_version": table_version,
             "metrics": {},
             "all_within_tolerance": True,
-            "tolerance_pct": tolerance_pct,
+            "tolerance_pct": tolerance_percentage,
+            "timing": {"pre_aggregated": pre_agg_execution_time, "regular": regular_execution_time},
         }
 
-        for metric_key in set(pre_agg_metrics.keys()) | set(regular_metrics.keys()):
-            pre_agg_val = pre_agg_metrics.get(metric_key, 0)
-            regular_val = regular_metrics.get(metric_key, 0)
+        for metric_name in set(pre_agg_metrics.keys()) | set(regular_metrics.keys()):
+            pre_agg_value = pre_agg_metrics.get(metric_name, 0)
+            regular_value = regular_metrics.get(metric_name, 0)
 
             # Calculate percentage difference
-            if regular_val == 0 and pre_agg_val == 0:
-                pct_diff = 0.0
+            if regular_value == 0 and pre_agg_value == 0:
+                percentage_difference = 0.0
                 within_tolerance = True
-            elif regular_val == 0:
-                pct_diff = 100.0 if pre_agg_val != 0 else 0.0
-                within_tolerance = pre_agg_val == 0
+            elif regular_value == 0:
+                percentage_difference = 100.0 if pre_agg_value != 0 else 0.0
+                within_tolerance = pre_agg_value == 0
             else:
-                pct_diff = abs(pre_agg_val - regular_val) / regular_val * 100
-                within_tolerance = pct_diff <= tolerance_pct
+                percentage_difference = abs(pre_agg_value - regular_value) / regular_value * 100
+                within_tolerance = percentage_difference <= tolerance_percentage
 
-            comparison_data["metrics"][metric_key] = {
-                "pre_aggregated": pre_agg_val,
-                "regular": regular_val,
-                "pct_difference": pct_diff,
+            comparison_data["metrics"][metric_name] = {
+                "pre_aggregated": pre_agg_value,
+                "regular": regular_value,
+                "pct_difference": percentage_difference,
                 "within_tolerance": within_tolerance,
             }
 
@@ -337,127 +400,243 @@ def compare_web_overview_metrics(
         return comparison_data["all_within_tolerance"], comparison_data
 
     except Exception as e:
-        logger.error("Error comparing web overview metrics", team_id=team_id, error=str(e), exc_info=True)
-        return False, {"team_id": team_id, "error": str(e), "date_from": date_from, "date_to": date_to}
-
-
-@asset_check(
-    asset="web_analytics_combined_views",
-    name="web_analytics_accuracy_check",
-    description="Validates that pre-aggregated web analytics data matches regular queries within tolerance",
-    blocking=False,  # Don't block asset materialization if check fails
-)
-def web_analytics_accuracy_check(context: dagster.AssetCheckExecutionContext) -> AssetCheckResult:
-    """
-    Data quality check: validates pre-aggregated tables match regular WebOverview queries within some % accuracy.
-    """
-    run_config = context.run.run_config.get("ops", {}).get("web_analytics_accuracy_check", {}).get("config", {})
-    team_ids = run_config.get("team_ids", TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED)
-    tolerance_pct = run_config.get("tolerance_pct", DEFAULT_TOLERANCE_PCT)
-    days_back = run_config.get("days_back", DEFAULT_DAYS_BACK)
-
-    # Validate inputs
-    if not team_ids:
-        return AssetCheckResult(
-            passed=False,
-            description="No team IDs provided for accuracy validation",
-            metadata={"error": MetadataValue.text("Empty team_ids list")},
+        logger.error(
+            f"Error comparing web overview metrics ({table_version})", team_id=team_id, error=str(e), exc_info=True
         )
+        return False, {
+            "team_id": team_id,
+            "error": str(e),
+            "date_from": date_from,
+            "date_to": date_to,
+            "table_version": table_version,
+            "metrics": {},
+            "all_within_tolerance": False,
+            "tolerance_pct": tolerance_percentage,
+            "timing": {"pre_aggregated": 0.0, "regular": 0.0},
+        }
 
-    if len(team_ids) > MAX_TEAMS_PER_BATCH:
-        context.log.warning(f"Large team batch ({len(team_ids)} teams), consider splitting for better performance")
 
-    end_date = (datetime.now(UTC) - timedelta(days=1)).replace(hour=23, minute=59, second=59, microsecond=999999).date()
-    start_date = end_date - timedelta(days=days_back)
-    date_from = start_date.strftime("%Y-%m-%d")
-    date_to = end_date.strftime("%Y-%m-%d")
-
-    validation_results = []
-    failed_teams = []
-    skipped_teams = []
-
-    context.log.info(f"Starting accuracy validation for {len(team_ids)} teams, tolerance: {tolerance_pct}%")
-
-    for team_id in team_ids:
-        try:
-            context.log.info(f"Validating data quality for team {team_id}")
-
-            is_valid, comparison_data = compare_web_overview_metrics(
-                team_id=team_id, date_from=date_from, date_to=date_to, tolerance_pct=tolerance_pct
-            )
-
-            validation_results.append(comparison_data)
-
-            if not is_valid:
-                failed_teams.append(team_id)
-
-                # Log specific metric failures
-                if "metrics" in comparison_data:
-                    for metric_key, metric_data in comparison_data["metrics"].items():
-                        if not metric_data.get("within_tolerance", True):
-                            context.log.error(
-                                f"Metric accuracy check failed for team {team_id}, metric {metric_key}: "
-                                f"pre_agg={metric_data.get('pre_aggregated')}, regular={metric_data.get('regular')}, "
-                                f"diff={metric_data.get('pct_difference'):.2f}%, tolerance={tolerance_pct}%"
-                            )
-        except Exception as e:
-            context.log.exception(f"Failed to validate team {team_id}: {str(e)}")
-            skipped_teams.append(team_id)
-            validation_results.append(
-                {"team_id": team_id, "error": str(e), "date_from": date_from, "date_to": date_to, "skipped": True}
-            )
-
-    total_metrics_checked = sum(
-        len(result.get("metrics", {})) for result in validation_results if not result.get("skipped")
-    )
+def create_accuracy_check_result(comparison_data: dict[str, Any], team_id: int, table_version: str) -> AssetCheckResult:
+    """Create AssetCheckResult from comparison data with individual metric metadata for Dagster plotting."""
+    total_metrics_checked = len(comparison_data.get("metrics", {}))
     failed_metrics = sum(
-        1
-        for result in validation_results
-        if not result.get("skipped")
-        for metric in result.get("metrics", {}).values()
-        if not metric.get("within_tolerance", True)
+        1 for metric in comparison_data.get("metrics", {}).values() if not metric.get("within_tolerance", True)
     )
 
     success_rate = (total_metrics_checked - failed_metrics) / max(total_metrics_checked, 1) * 100
-    processed_teams = len(team_ids) - len(skipped_teams)
 
-    if skipped_teams and len(skipped_teams) == len(team_ids):
-        passed = False
-        severity = AssetCheckSeverity.ERROR
-        description = f"All {len(team_ids)} teams failed validation due to errors"
-    elif not failed_teams and not skipped_teams:
-        passed = True
-        severity = None
-        description = f"All {len(team_ids)} teams passed accuracy validation within {tolerance_pct}% tolerance"
-    elif success_rate >= 95 and len(failed_teams) <= 1:
+    if success_rate >= 95:
         passed = True
         severity = AssetCheckSeverity.WARN
-        description = f"{processed_teams - len(failed_teams)}/{processed_teams} teams passed validation (success rate: {success_rate:.1f}%)"
+        description = f"Team {team_id} {table_version} tables passed validation (success rate: {success_rate:.1f}%)"
     else:
         passed = False
         severity = AssetCheckSeverity.ERROR
-        description = (
-            f"{len(failed_teams)} of {processed_teams} teams failed accuracy validation. Failed teams: {failed_teams}"
+        description = f"Team {team_id} {table_version} tables failed accuracy validation."
+
+    metadata = {
+        "success_rate": MetadataValue.float(success_rate),
+        "failed_metrics": MetadataValue.int(failed_metrics),
+        "total_metrics": MetadataValue.int(total_metrics_checked),
+        "tolerance_percentage": MetadataValue.float(comparison_data.get("tolerance_pct", 0.0)),
+        "date_range": MetadataValue.text(f"{comparison_data.get('date_from')} to {comparison_data.get('date_to')}"),
+        "table_version": MetadataValue.text(table_version),
+        "detailed_results": MetadataValue.json(comparison_data),
+    }
+
+    # Add individual metric metadata for Dagster plotting
+    metrics = comparison_data.get("metrics", {})
+    for metric_name, metric_values in metrics.items():
+        metadata.update(
+            {
+                f"{metric_name}_pre_aggregated": MetadataValue.float(metric_values.get("pre_aggregated", 0.0)),
+                f"{metric_name}_regular": MetadataValue.float(metric_values.get("regular", 0.0)),
+                f"{metric_name}_percentage_difference": MetadataValue.float(metric_values.get("pct_difference", 0.0)),
+                f"{metric_name}_within_tolerance": MetadataValue.bool(metric_values.get("within_tolerance", True)),
+            }
+        )
+
+    # Add timing metadata if available
+    if comparison_data and not comparison_data.get("skipped") and "timing" in comparison_data:
+        metadata.update(
+            {
+                "pre_agg_time": MetadataValue.float(round(comparison_data["timing"]["pre_aggregated"], 3)),
+                "regular_time": MetadataValue.float(round(comparison_data["timing"]["regular"], 3)),
+            }
         )
 
     return AssetCheckResult(
         passed=passed,
         severity=severity,
         description=description,
-        metadata={
-            "success_rate": MetadataValue.float(success_rate),
-            "teams_passed": MetadataValue.int(processed_teams - len(failed_teams)),
-            "total_teams": MetadataValue.int(len(team_ids)),
-            "processed_teams": MetadataValue.int(processed_teams),
-            "failed_metrics": MetadataValue.int(failed_metrics),
-            "total_metrics": MetadataValue.int(total_metrics_checked),
-            "tolerance_pct": MetadataValue.float(tolerance_pct),
-            "date_range": MetadataValue.text(f"{date_from} to {date_to}"),
-            "failed_teams": MetadataValue.json(failed_teams),
-            "skipped_teams": MetadataValue.json(skipped_teams),
-            "detailed_results": MetadataValue.json(validation_results),
-        },
+        metadata=metadata,
     )
+
+
+def run_accuracy_check_for_version(
+    context: AssetCheckExecutionContext, check_name: str, table_version: str, use_v2_tables: bool
+) -> AssetCheckResult:
+    """Generic accuracy check runner for both v1 and v2 tables."""
+    # Skip accuracy checks during backfill runs to improve performance
+    if hasattr(context.run, "tags") and context.run.tags and context.run.tags.get("dagster/backfill"):
+        return AssetCheckResult(
+            passed=True,
+            description=f"Skipped {table_version} accuracy check during backfill run",
+            metadata={
+                "skipped": MetadataValue.bool(True),
+                "reason": MetadataValue.text("backfill_optimization"),
+                "table_version": MetadataValue.text(table_version),
+            },
+        )
+
+    try:
+        tolerance_percentage, days_back, team_id, date_from, date_to = setup_accuracy_check_config(context, check_name)
+    except Exception as e:
+        context.log.exception(f"Failed to setup accuracy check config: {e}")
+        return AssetCheckResult(
+            passed=False,
+            description=f"Configuration error for {table_version} accuracy check",
+            metadata={"error": MetadataValue.text(str(e))},
+        )
+
+    get_query_tags().with_dagster(dagster_tags(context))
+
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        context.log.exception(f"Team {team_id} not found")
+        return AssetCheckResult(
+            passed=False,
+            description=f"Team {team_id} does not exist",
+            metadata={"error": MetadataValue.text(f"Team {team_id} not found")},
+        )
+    except Exception as e:
+        context.log.exception(f"Database error while fetching team {team_id}: {e}")
+        return AssetCheckResult(
+            passed=False,
+            description=f"Database error for team {team_id}",
+            metadata={"error": MetadataValue.text(str(e))},
+        )
+
+    try:
+        runner_pre_agg, runner_regular = create_runners_for_accuracy_check(
+            team, date_from, date_to, use_v2_tables=use_v2_tables
+        )
+    except Exception as e:
+        context.log.exception(f"Failed to create query runners for {table_version}: {e}")
+        return AssetCheckResult(
+            passed=False,
+            description=f"Query runner creation failed for {table_version}",
+            metadata={"error": MetadataValue.text(str(e))},
+        )
+
+    try:
+        is_valid, comparison_data = execute_accuracy_check(
+            runner_pre_agg, runner_regular, team_id, date_from, date_to, context, tolerance_percentage, table_version
+        )
+        timing = comparison_data.get("timing", {})
+        context.log.info(
+            f"{table_version.upper()} check - Valid?: {is_valid}. Pre-agg: {timing.get('pre_aggregated', 0):.2f}s, Regular: {timing.get('regular', 0):.2f}s"
+        )
+    except Exception as e:
+        context.log.exception(f"Failed to run {table_version} accuracy check for team {team_id}: {str(e)}")
+        comparison_data = {
+            "team_id": team_id,
+            "error": str(e),
+            "date_from": date_from,
+            "date_to": date_to,
+            "table_version": table_version,
+            "skipped": True,
+            "tolerance_pct": tolerance_percentage,
+            "all_within_tolerance": False,
+            "metrics": {},
+        }
+
+    return create_accuracy_check_result(comparison_data, team_id, table_version)
+
+
+@asset_check(
+    asset="web_analytics_bounces_daily",
+    name="web_analytics_accuracy_check",
+    description="Validates that pre-aggregated web analytics data matches regular queries within tolerance",
+    blocking=False,
+)
+def web_analytics_accuracy_check(context: AssetCheckExecutionContext) -> AssetCheckResult:
+    """Data quality check: validates v1 pre-aggregated tables match regular WebOverview queries within tolerance."""
+    return run_accuracy_check_for_version(context, "web_analytics_accuracy_check", "v1", use_v2_tables=False)
+
+
+# V2 Table Checks for web_pre_aggregated_* tables
+@asset_check(
+    asset="web_analytics_team_selection_v2",
+    name="web_analytics_team_selection_v2_has_data",
+    description="Check if web analytics v2 team selection has teams configured",
+)
+def web_analytics_team_selection_v2_has_data(context: AssetCheckExecutionContext) -> AssetCheckResult:
+    """Verify that v2 team selection has configured teams."""
+    # Skip team selection checks during backfill runs
+    if hasattr(context.run, "tags") and context.run.tags and context.run.tags.get("dagster/backfill"):
+        return AssetCheckResult(
+            passed=True,
+            description="Skipped team selection check during backfill run",
+            metadata={
+                "skipped": MetadataValue.bool(True),
+                "reason": MetadataValue.text("backfill_optimization"),
+            },
+        )
+
+    try:
+        query = "SELECT COUNT(*) as team_count FROM web_pre_aggregated_teams FINAL WHERE version = (SELECT MAX(version) FROM web_pre_aggregated_teams)"
+        result = sync_execute(query)
+        team_count = result[0][0] if result and result[0] else 0
+
+        if team_count > 0:
+            return AssetCheckResult(
+                passed=True,
+                description=f"V2 team selection has {team_count} teams configured",
+                metadata={"team_count": MetadataValue.int(team_count)},
+            )
+        else:
+            return AssetCheckResult(
+                passed=False,
+                description="V2 team selection has no teams configured",
+                metadata={"team_count": MetadataValue.int(0)},
+            )
+    except Exception as e:
+        return AssetCheckResult(
+            passed=False,
+            description=f"Failed to check v2 team selection: {str(e)}",
+            metadata={"error": MetadataValue.text(str(e))},
+        )
+
+
+@asset_check(
+    asset="web_pre_aggregated_bounces",
+    name="web_pre_aggregated_bounces_has_data",
+    description="Check if web_pre_aggregated_bounces table has data",
+)
+def web_pre_aggregated_bounces_has_data(context: AssetCheckExecutionContext) -> AssetCheckResult:
+    return table_has_data("web_pre_aggregated_bounces", dagster_tags(context), context)
+
+
+@asset_check(
+    asset="web_pre_aggregated_stats",
+    name="web_pre_aggregated_stats_has_data",
+    description="Check if web_pre_aggregated_stats table has data",
+)
+def web_pre_aggregated_stats_has_data(context: AssetCheckExecutionContext) -> AssetCheckResult:
+    return table_has_data("web_pre_aggregated_stats", dagster_tags(context), context)
+
+
+@asset_check(
+    asset="web_pre_aggregated_bounces",
+    name="web_analytics_v2_accuracy_check",
+    description="Validates that v2 pre-aggregated web analytics data matches regular queries within tolerance",
+    blocking=False,
+)
+def web_analytics_v2_accuracy_check(context: AssetCheckExecutionContext) -> AssetCheckResult:
+    """Data quality check: validates v2 pre-aggregated tables match regular WebOverview queries within tolerance."""
+    return run_accuracy_check_for_version(context, "web_analytics_v2_accuracy_check", "v2", use_v2_tables=True)
 
 
 web_analytics_data_quality_job = dagster.define_asset_job(
@@ -468,6 +647,19 @@ web_analytics_data_quality_job = dagster.define_asset_job(
             "web_analytics_stats_table_hourly",
             "web_analytics_bounces_daily",
             "web_analytics_stats_table_daily",
+        ]
+    ),
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+)
+
+
+web_analytics_v2_data_quality_job = dagster.define_asset_job(
+    name="web_analytics_v2_data_quality_job",
+    selection=dagster.AssetSelection.checks_for_assets(
+        [
+            "web_analytics_team_selection_v2",
+            "web_pre_aggregated_bounces",
+            "web_pre_aggregated_stats",
         ]
     ),
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
@@ -486,14 +678,35 @@ def web_analytics_weekly_data_quality_schedule(context: dagster.ScheduleEvaluati
             "ops": {
                 "web_analytics_accuracy_check": {
                     "config": {
-                        "team_ids": TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED,
-                        "tolerance_pct": DEFAULT_ACCURACY_CHECK_TOLERANCE,
+                        "tolerance_pct": DEFAULT_TOLERANCE_PCT,
                         "days_back": DEFAULT_DAYS_BACK,
                     }
                 }
             }
         },
         tags={"trigger": "weekly_schedule"},
+    )
+
+
+@dagster.schedule(
+    cron_schedule="0 3 * * 0",
+    job=web_analytics_v2_data_quality_job,
+    execution_timezone="UTC",
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+)
+def web_analytics_v2_weekly_data_quality_schedule(context: dagster.ScheduleEvaluationContext):
+    return dagster.RunRequest(
+        run_config={
+            "ops": {
+                "web_analytics_v2_accuracy_check": {
+                    "config": {
+                        "tolerance_pct": DEFAULT_TOLERANCE_PCT,
+                        "days_back": DEFAULT_DAYS_BACK,
+                    }
+                }
+            }
+        },
+        tags={"trigger": "weekly_schedule_v2"},
     )
 
 

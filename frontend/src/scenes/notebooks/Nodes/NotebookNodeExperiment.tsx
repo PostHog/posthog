@@ -1,17 +1,20 @@
+import { BindLogic, useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
 import { IconFlag, IconFlask } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
+
 import { NotFound } from 'lib/components/NotFound'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { useEffect } from 'react'
-import { experimentLogic } from 'scenes/experiments/experimentLogic'
-import { LegacyResultsQuery, ResultsTag, StatusTag } from 'scenes/experiments/ExperimentView/components'
 import { Info } from 'scenes/experiments/ExperimentView/Info'
 import { SummaryTable } from 'scenes/experiments/ExperimentView/SummaryTable'
+import { LegacyResultsQuery, ResultsTag, StatusTag } from 'scenes/experiments/ExperimentView/components'
+import { experimentLogic } from 'scenes/experiments/experimentLogic'
+import { getExperimentStatus } from 'scenes/experiments/experimentsLogic'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { urls } from 'scenes/urls'
-import { NotebookNodeType } from '~/types'
-import { NotebookNodeProps } from '../Notebook/utils'
+
+import { NotebookNodeProps, NotebookNodeType } from '../types'
 import { buildFlagContent } from './NotebookNodeFlag'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { INTEGER_REGEX_MATCH_GROUPS } from './utils'
@@ -34,6 +37,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttri
         ])
 
         loadExperiment()
+
+        // oxlint-disable-next-line exhaustive-deps
     }, [id])
 
     if (experimentMissing) {
@@ -54,7 +59,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttri
                     ) : (
                         <>
                             <span className="flex-1 font-semibold truncate">{experiment.name}</span>
-                            <StatusTag experiment={experiment} />
+                            <StatusTag status={getExperimentStatus(experiment)} />
                             <ResultsTag />
                         </>
                     )}

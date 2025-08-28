@@ -1,7 +1,7 @@
 import { Meta } from '@storybook/react'
 import { useActions } from 'kea'
-import { router } from 'kea-router'
 import { useEffect } from 'react'
+
 import { App } from 'scenes/App'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -38,12 +38,14 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
+        pageUrl: urls.projectHomepage(),
     },
 }
 export default meta
 
 export const AccessRevoked = (): JSX.Element => {
     const { loadCurrentTeamSuccess } = useActions(teamLogic)
+
     useStorybookMocks({
         get: {
             '/api/users/@me/': () => [
@@ -73,14 +75,17 @@ export const AccessRevoked = (): JSX.Element => {
             ],
         },
     })
+
     useEffect(() => {
         loadCurrentTeamSuccess(null)
-        router.actions.push(urls.projectHomepage())
-    }, [])
+    }, [loadCurrentTeamSuccess])
+
     return <App />
 }
+
 export const NoSelectableProjects = (): JSX.Element => {
     const { loadCurrentTeamSuccess } = useActions(teamLogic)
+
     useStorybookMocks({
         get: {
             '/api/users/@me/': () => [
@@ -107,9 +112,10 @@ export const NoSelectableProjects = (): JSX.Element => {
             ],
         },
     })
+
     useEffect(() => {
         loadCurrentTeamSuccess(null)
-        router.actions.push(urls.projectHomepage())
-    }, [])
+    }, [loadCurrentTeamSuccess])
+
     return <App />
 }

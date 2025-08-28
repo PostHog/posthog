@@ -1,12 +1,10 @@
-// eslint-disable-next-line eslint-comments/disable-enable-pair
-/* eslint-disable no-useless-escape */
-
+/* oxlint-disable no-useless-escape */
 // Adapted from: https://raw.githubusercontent.com/microsoft/monaco-editor/main/src/basic-languages/typescript/typescript.ts
-
 import { Monaco } from '@monaco-editor/react'
+import { languages } from 'monaco-editor'
+
 import { hogQLAutocompleteProvider } from 'lib/monaco/hogQLAutocompleteProvider'
 import { hogQLMetadataProvider } from 'lib/monaco/hogQLMetadataProvider'
-import { languages } from 'monaco-editor'
 
 import { HogLanguage } from '~/queries/schema/schema-general'
 
@@ -259,3 +257,5 @@ export function initHogLanguage(monaco: Monaco): void {
         monaco.languages.registerCodeActionProvider('hog', hogQLMetadataProvider())
     }
 }
+
+/* oxlint-enable no-useless-escape */

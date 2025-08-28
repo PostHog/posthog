@@ -23,29 +23,31 @@ where
 {
     // Create separate Redis clients for reading and writing
     // NB: if either of these URLs don't exist in the config, we default to the writer
-    let redis_reader_client = match RedisClient::new(config.get_redis_reader_url().to_string()) {
-        Ok(client) => Arc::new(client),
-        Err(e) => {
-            tracing::error!(
-                "Failed to create Redis reader client for URL {}: {}",
-                config.get_redis_reader_url(),
-                e
-            );
-            return;
-        }
-    };
+    let redis_reader_client =
+        match RedisClient::new(config.get_redis_reader_url().to_string()).await {
+            Ok(client) => Arc::new(client),
+            Err(e) => {
+                tracing::error!(
+                    "Failed to create Redis reader client for URL {}: {}",
+                    config.get_redis_reader_url(),
+                    e
+                );
+                return;
+            }
+        };
 
-    let redis_writer_client = match RedisClient::new(config.get_redis_writer_url().to_string()) {
-        Ok(client) => Arc::new(client),
-        Err(e) => {
-            tracing::error!(
-                "Failed to create Redis writer client for URL {}: {}",
-                config.get_redis_writer_url(),
-                e
-            );
-            return;
-        }
-    };
+    let redis_writer_client =
+        match RedisClient::new(config.get_redis_writer_url().to_string()).await {
+            Ok(client) => Arc::new(client),
+            Err(e) => {
+                tracing::error!(
+                    "Failed to create Redis writer client for URL {}: {}",
+                    config.get_redis_writer_url(),
+                    e
+                );
+                return;
+            }
+        };
 
     let reader = match get_pool(&config.read_database_url, config.max_pg_connections).await {
         Ok(client) => {
@@ -140,9 +142,22 @@ where
         }
     };
 
+    let redis_cookieless_client =
+        match RedisClient::new(config.get_redis_cookieless_url().to_string()).await {
+            Ok(client) => Arc::new(client),
+            Err(e) => {
+                tracing::error!(
+                    "Failed to create Redis cookieless client for URL {}: {}",
+                    config.get_redis_cookieless_url(),
+                    e
+                );
+                return;
+            }
+        };
+
     let cookieless_manager = Arc::new(CookielessManager::new(
         config.get_cookieless_config(),
-        redis_reader_client.clone(), // NB: the cookieless manager only reads from redis, so it's safe to just use the reader client
+        redis_cookieless_client.clone(),
     ));
 
     let app = router::router(

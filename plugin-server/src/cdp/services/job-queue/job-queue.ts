@@ -3,7 +3,7 @@
  * To make this easier this class is designed to abstract the queue as much as possible from
  * the underlying implementation.
  */
-
+import { DateTime } from 'luxon'
 import { Counter, Gauge } from 'prom-client'
 
 import { PluginsServerConfig } from '../../../types'
@@ -30,6 +30,8 @@ const counterJobsProcessed = new Counter({
     help: 'The number of jobs we are managing to process',
     labelNames: ['queue', 'source'],
 })
+
+export const JOB_SCHEDULED_AT_FUTURE_THRESHOLD_MS = 10 * 1000 // Any scheduled jobs need to be scheduled this much in the future to be considered for postgres
 
 export type CyclotronJobQueueRouting = {
     [key: string]: {
@@ -80,7 +82,7 @@ export class CyclotronJobQueue {
     ): Promise<{ backgroundTask: Promise<any> }> {
         cyclotronBatchUtilizationGauge
             .labels({ queue: this.queue, source })
-            .set(invocations.length / this.config.CDP_CYCLOTRON_BATCH_SIZE)
+            .set(invocations.length / this.config.CONSUMER_BATCH_SIZE)
 
         const result = await this._consumeBatch!(invocations)
         counterJobsProcessed.inc({ queue: this.queue, source }, invocations.length)
@@ -155,7 +157,12 @@ export class CyclotronJobQueue {
     }
 
     private getTarget(invocation: CyclotronJobInvocation): CyclotronJobQueueSource {
-        if (this.producerForceScheduledToPostgres && invocation.queueScheduledAt) {
+        if (
+            this.producerForceScheduledToPostgres &&
+            invocation.queueScheduledAt &&
+            invocation.queueScheduledAt > DateTime.now().plus({ milliseconds: JOB_SCHEDULED_AT_FUTURE_THRESHOLD_MS }) &&
+            invocation.queue !== 'hog_overflow' // overflow is always sent to kafka
+        ) {
             // Kafka doesn't support delays so if enabled we should force scheduled jobs to postgres
             return 'postgres'
         }

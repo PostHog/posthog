@@ -1,8 +1,9 @@
-import { actions, afterMount, connect, kea, key, path, props, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { match, P } from 'ts-pattern'
+import { P, match } from 'ts-pattern'
+
+import { FunnelLayout } from 'lib/constants'
+import { experimentLogic } from 'scenes/experiments/experimentLogic'
 
 import { performQuery } from '~/queries/query'
 import type {
@@ -12,7 +13,7 @@ import type {
     InsightVizNode,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { ExperimentMetricType, isExperimentFunnelMetric, NodeKind } from '~/queries/schema/schema-general'
+import { ExperimentMetricType, NodeKind, isExperimentFunnelMetric } from '~/queries/schema/schema-general'
 import {
     addExposureToMetric,
     compose,
@@ -61,12 +62,13 @@ export const resultsBreakdownLogic = kea<resultsBreakdownLogicType>([
 
     path((key) => ['scenes', 'experiment', 'experimentResultBreakdownLogic', key]),
 
-    connect(() => ({
-        values: [featureFlagLogic, ['featureFlags']],
+    connect((props: ResultBreakdownLogicProps) => ({
+        actions: [experimentLogic({ experimentId: props.experiment.id }), ['refreshExperimentResults']],
     })),
 
     actions({
-        loadBreakdownResults: true,
+        loadBreakdownResults: (refresh?: boolean) => ({ refresh }),
+        setBreakdownLastRefresh: (lastRefresh: string | null) => ({ lastRefresh }),
     }),
 
     selectors({
@@ -111,7 +113,10 @@ export const resultsBreakdownLogic = kea<resultsBreakdownLogicType>([
                         },
                         funnelsFilter: {
                             layout: FunnelLayout.vertical,
-                            breakdownAttributionType: BreakdownAttributionType.FirstTouch,
+                            /* We want to break down results by the flag value from the _first_ step
+                            which is the expsoure criteria */
+                            breakdownAttributionType: BreakdownAttributionType.Step,
+                            breakdownAttributionValue: 0,
                             funnelOrderType:
                                 (isExperimentFunnelMetric(metric) && metric.funnel_order_type) ||
                                 StepOrderValue.ORDERED,
@@ -137,11 +142,21 @@ export const resultsBreakdownLogic = kea<resultsBreakdownLogicType>([
         ],
     }),
 
-    loaders(({ props, values }) => ({
+    reducers({
+        breakdownLastRefresh: [
+            null as string | null,
+            {
+                setBreakdownLastRefresh: (_, { lastRefresh }) => lastRefresh,
+                loadBreakdownResults: () => null, // Clear when loading starts
+            },
+        ],
+    }),
+
+    loaders(({ props, values, actions }) => ({
         breakdownResults: [
             null as FunnelStep[] | FunnelStep[][] | null,
             {
-                loadBreakdownResults: async (): Promise<FunnelStep[] | FunnelStep[][]> => {
+                loadBreakdownResults: async ({ refresh }): Promise<FunnelStep[] | FunnelStep[][]> => {
                     try {
                         const { experiment } = props
                         const query = values.query
@@ -155,14 +170,20 @@ export const resultsBreakdownLogic = kea<resultsBreakdownLogicType>([
                         }
 
                         /**
-                         * perform the query
+                         * perform the query - use cache on normal load, force refresh when explicitly requested
                          */
-                        const response = (await performQuery(query)) as {
+                        const response = (await performQuery(query, undefined, refresh ? 'force_async' : 'async')) as {
                             results: FunnelStep[] | FunnelStep[][]
+                            last_refresh?: string
                         }
 
                         if (!response?.results) {
                             throw new Error('No results returned from query')
+                        }
+
+                        // Capture the last_refresh timestamp for use in cachedInsight
+                        if (response.last_refresh) {
+                            actions.setBreakdownLastRefresh(response.last_refresh)
                         }
 
                         let results = response.results
@@ -203,13 +224,26 @@ export const resultsBreakdownLogic = kea<resultsBreakdownLogicType>([
         ],
     })),
 
-    afterMount(({ actions, props, values }) => {
-        const isEnabled = values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_RUNNER_RESULTS_BREAKDOWN]
+    listeners(({ actions, props }) => ({
+        refreshExperimentResults: () => {
+            const { metric, experiment } = props
 
-        if (!isEnabled) {
-            return
-        }
+            // bail if no valid props
+            if (!experiment || !metric) {
+                return
+            }
 
+            // bail if unsupported metric type
+            if (metric.kind !== NodeKind.ExperimentMetric || metric.metric_type !== ExperimentMetricType.FUNNEL) {
+                return
+            }
+
+            // Refresh the breakdown results when experiment results are refreshed
+            actions.loadBreakdownResults(true)
+        },
+    })),
+
+    afterMount(({ actions, props }) => {
         const { metric, experiment } = props
 
         // bail if no valid props

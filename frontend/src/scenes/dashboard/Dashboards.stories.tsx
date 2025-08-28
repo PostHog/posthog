@@ -1,7 +1,7 @@
-import { Meta } from '@storybook/react'
-import { router } from 'kea-router'
+import { Meta, StoryObj } from '@storybook/react'
+
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
-import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
@@ -14,6 +14,7 @@ import { BaseMathType, DashboardMode, EntityTypes } from '~/types'
 import { dashboardTemplatesLogic } from './dashboards/templates/dashboardTemplatesLogic'
 
 const dashboardRaw = require('./__mocks__/dashboard1.json')
+
 // Mark all tiles as cached to prevent refresh attempts in storybook
 const dashboard = {
     ...dashboardRaw,
@@ -63,17 +64,25 @@ const insightFetchMock = (req: any): [number, any] => {
     return [404, { detail: 'Insight not found' }]
 }
 
+const BASE_DASHBOARD_ID = 1
+const SERVER_ERROR_DASHBOARD_ID = 2
+const NOT_FOUND_DASHBOARD_ID = 1000
+
 const meta: Meta = {
+    component: App,
     title: 'Scenes-App/Dashboards',
     decorators: [
         mswDecorator({
             get: {
                 '/api/environments/:team_id/dashboards/': require('./__mocks__/dashboards.json'),
-                '/api/environments/:team_id/dashboards/1/': dashboard,
+                [`/api/environments/:team_id/dashboards/${BASE_DASHBOARD_ID}/`]: dashboard,
                 ...insightMocks,
                 '/api/environments/:team_id/insights/:id/': insightFetchMock,
-                '/api/environments/:team_id/dashboards/1/collaborators/': [],
-                '/api/environments/:team_id/dashboards/2/': [500, { detail: 'Server error' }],
+                [`/api/environments/:team_id/dashboards/${BASE_DASHBOARD_ID}/collaborators/`]: [],
+                [`/api/environments/:team_id/dashboards/${SERVER_ERROR_DASHBOARD_ID}/`]: [
+                    500,
+                    { detail: 'Server error' },
+                ],
                 '/api/projects/:team_id/dashboard_templates/': require('./__mocks__/dashboard_templates.json'),
                 '/api/projects/:team_id/dashboard_templates/json_schema/': require('./__mocks__/dashboard_template_schema.json'),
                 '/api/environments/:team_id/dashboards/:dash_id/sharing/': {
@@ -84,7 +93,7 @@ const meta: Meta = {
                 // Add variable data mock to prevent loading issues
                 '/api/environments/:team_id/warehouse/variables/': [],
                 // Add team endpoint
-                '/api/environments/:team_id/': { id: 1, name: 'Test Team' },
+                '/api/environments/:team_id/': { id: BASE_DASHBOARD_ID, name: 'Test Team' },
             },
             post: {
                 '/api/environments/:team_id/insights/cancel/': [201],
@@ -95,35 +104,32 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
+        pageUrl: urls.dashboards(),
     },
 }
 export default meta
-export const List = (): JSX.Element => {
-    useEffect(() => {
-        router.actions.push(urls.dashboards())
-    }, [])
-    return <App />
-}
+
+type Story = StoryObj<typeof meta>
+export const List: Story = {}
 
 export const New = (): JSX.Element => {
     useAvailableFeatures([])
-    useEffect(() => {
-        router.actions.push(urls.dashboards())
+    useDelayedOnMountEffect(() => {
         newDashboardLogic.mount()
         newDashboardLogic.actions.showNewDashboardModal()
         dashboardTemplatesLogic.mount()
-    }, [])
+    })
+
     return <App />
 }
 
 export const NewSelectVariables = (): JSX.Element => {
     useAvailableFeatures([])
-    useEffect(() => {
-        router.actions.push(urls.dashboards())
+    useDelayedOnMountEffect(() => {
         newDashboardLogic.mount()
         newDashboardLogic.actions.showNewDashboardModal()
         newDashboardLogic.actions.setActiveDashboardTemplate({
-            id: '1',
+            id: BASE_DASHBOARD_ID.toString(),
             template_name: 'Dashboard name',
             dashboard_description: 'The dashboard description',
             dashboard_filters: {},
@@ -170,38 +176,38 @@ export const NewSelectVariables = (): JSX.Element => {
             tags: [],
             image_url: 'https://posthog.com/static/5e5cf65347bfb25f1dfc9792b18e87cb/6b063/posthog-bye-kubernetes.png',
         })
-    }, [])
+    })
+
     return <App />
 }
 
-export const Show = (): JSX.Element => {
-    useEffect(() => {
-        router.actions.push(urls.dashboard(1))
-    }, [])
-    return <App />
+export const Show: Story = {
+    parameters: {
+        pageUrl: urls.dashboard(BASE_DASHBOARD_ID),
+    },
 }
-Show.parameters = {}
 
 export const Edit = (): JSX.Element => {
-    useEffect(() => {
-        router.actions.push(urls.dashboard(1))
-        dashboardLogic({ id: 1 }).mount()
-        dashboardLogic({ id: 1 }).actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.Browser)
-    }, [])
-    return <App />
-}
-Edit.parameters = {}
-
-export const NotFound = (): JSX.Element => {
-    useEffect(() => {
-        router.actions.push(urls.dashboard(1000))
-    }, [])
-    return <App />
-}
-
-export const Erroring = (): JSX.Element => {
-    useEffect(() => {
-        router.actions.push(urls.dashboard(2))
+    useDelayedOnMountEffect(() => {
+        dashboardLogic({ id: BASE_DASHBOARD_ID }).mount()
+        dashboardLogic({ id: BASE_DASHBOARD_ID }).actions.setDashboardMode(
+            DashboardMode.Edit,
+            DashboardEventSource.Browser
+        )
     })
+
     return <App />
+}
+Edit.parameters = { pageUrl: urls.dashboard(BASE_DASHBOARD_ID) }
+
+export const NotFound: Story = {
+    parameters: {
+        pageUrl: urls.dashboard(NOT_FOUND_DASHBOARD_ID),
+    },
+}
+
+export const Erroring: Story = {
+    parameters: {
+        pageUrl: urls.dashboard(SERVER_ERROR_DASHBOARD_ID),
+    },
 }
