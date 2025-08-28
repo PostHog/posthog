@@ -38,55 +38,81 @@ export const DisplayTab = (): JSX.Element => {
                         updateChartSettings({ showTotalRow: value })
                     }}
                 />
-            </div>
-
-            <div className="mt-1 mb-2 flex flex-col">
-                <h3>Left Y-axis</h3>
-                <LemonField.Pure label="Scale" className="gap-0 mb-3">
-                    <LemonSelect
-                        value={chartSettings.leftYAxisSettings?.scale ?? 'linear'}
-                        options={[
-                            { value: 'linear', label: 'Linear' },
-                            { value: 'logarithmic', label: 'Logarithmic' },
-                        ]}
-                        onChange={(value) => {
-                            updateChartSettings({ leftYAxisSettings: { scale: value } })
-                        }}
-                    />
-                </LemonField.Pure>
                 <LemonSwitch
                     className="flex-1 mb-3 w-full"
-                    label="Begin Y-axis at zero"
-                    checked={chartSettings.leftYAxisSettings?.startAtZero ?? chartSettings.yAxisAtZero ?? true}
+                    label="Show X-axis labels"
+                    checked={chartSettings.showXAxisTicks ?? true}
                     onChange={(value) => {
-                        updateChartSettings({ leftYAxisSettings: { startAtZero: value } })
+                        updateChartSettings({ showXAxisTicks: value })
+                    }}
+                />
+                <LemonSwitch
+                    className="flex-1 mb-3 w-full"
+                    label="Show X-axis border"
+                    checked={chartSettings.showXAxisBorder ?? true}
+                    onChange={(value) => {
+                        updateChartSettings({ showXAxisBorder: value })
+                    }}
+                />
+                <LemonSwitch
+                    className="flex-1 mb-3 w-full"
+                    label="Show Y-axis border"
+                    checked={chartSettings.showYAxisBorder ?? true}
+                    onChange={(value) => {
+                        updateChartSettings({ showYAxisBorder: value })
                     }}
                 />
             </div>
 
-            <div className="mt-1 mb-2 flex flex-col">
-                <h3>Right Y-axis</h3>
-                <LemonField.Pure label="Scale" className="gap-0 mb-3">
-                    <LemonSelect
-                        value={chartSettings.rightYAxisSettings?.scale ?? 'linear'}
-                        options={[
-                            { value: 'linear', label: 'Linear' },
-                            { value: 'logarithmic', label: 'Logarithmic' },
-                        ]}
+            {(['leftYAxisSettings', 'rightYAxisSettings'] as const).map((name) => (
+                <div key={name} className="mt-1 mb-2 flex flex-col">
+                    <h3>{name.includes('left') ? 'Left' : 'Right'} Y-axis</h3>
+                    <LemonSwitch
+                        className="flex-1 mb-3 w-full"
+                        label="Show labels"
+                        checked={chartSettings[name]?.showTicks ?? true}
                         onChange={(value) => {
-                            updateChartSettings({ rightYAxisSettings: { scale: value } })
+                            updateChartSettings({ [name]: { showTicks: value } })
                         }}
                     />
-                </LemonField.Pure>
-                <LemonSwitch
-                    className="flex-1 mb-3 w-full"
-                    label="Begin Y-axis at zero"
-                    checked={chartSettings.rightYAxisSettings?.startAtZero ?? chartSettings.yAxisAtZero ?? true}
-                    onChange={(value) => {
-                        updateChartSettings({ rightYAxisSettings: { startAtZero: value } })
-                    }}
-                />
-            </div>
+                    <LemonField.Pure label="Scale" className="gap-0 mb-3">
+                        <LemonSelect
+                            value={chartSettings[name]?.scale ?? 'linear'}
+                            options={[
+                                { value: 'linear', label: 'Linear' },
+                                { value: 'logarithmic', label: 'Logarithmic' },
+                            ]}
+                            onChange={(value) => {
+                                updateChartSettings({ [name]: { scale: value } })
+                            }}
+                        />
+                    </LemonField.Pure>
+                    <LemonSwitch
+                        className="flex-1 mb-3 w-full"
+                        label="Show labels"
+                        checked={chartSettings[name]?.showTicks ?? true}
+                        onChange={(value) => {
+                            updateChartSettings({ [name]: { showTicks: value } })
+                        }}
+                    />
+                    <LemonSwitch
+                        className="flex-1 mb-3 w-full"
+                        label="Begin at zero"
+                        checked={chartSettings[name]?.startAtZero ?? chartSettings.yAxisAtZero ?? true}
+                        onChange={(value) => {
+                            updateChartSettings({ [name]: { startAtZero: value } })
+                        }}
+                    />
+                    <LemonSwitch
+                        className="flex-1 mb-3 w-full"
+                        label="Show grid lines"
+                        checked={chartSettings[name]?.showGridLines ?? true}
+                        onChange={(value) => {
+                            updateChartSettings({ [name]: { showGridLines: value } })
+                        }}
+                    />
+                </div>
+            ))}
 
             {isStackedBarChart && (
                 <div className="mt-1 mb-2 flex">

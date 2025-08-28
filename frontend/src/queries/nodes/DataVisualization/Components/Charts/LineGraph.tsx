@@ -62,30 +62,39 @@ const getYAxisSettings = (
     tickOptions: Partial<TickOptions>,
     gridOptions: Partial<GridLineOptions>
 ): ScaleOptionsByType<ChartTypeRegistry['line']['scales']> => {
+    const mixedGridOptions = {
+        ...gridOptions,
+        display: settings?.showGridLines ?? true,
+    }
+
+    const commonOptions = {
+        display: true,
+        stacked: stacked,
+        grid: mixedGridOptions,
+        position,
+        border: {
+            display: chartSettings.showYAxisBorder ?? true,
+        },
+    }
+
     if (settings?.scale === 'logarithmic') {
         // @ts-expect-error - needless complaining from chart.js types
         return {
-            display: true,
-            stacked: stacked,
+            ...commonOptions,
             type: 'logarithmic',
-            grid: gridOptions,
-            position,
         }
     }
 
     return {
-        display: true,
+        ...commonOptions,
         beginAtZero: settings?.startAtZero ?? chartSettings.yAxisAtZero ?? true,
-        stacked: stacked,
         type: 'linear',
         // @ts-expect-error - needless complaining from chart.js types
         ticks: {
-            display: true,
+            display: settings?.showTicks ?? true,
             ...tickOptions,
             precision: 1,
         },
-        grid: gridOptions,
-        position,
     }
 }
 
@@ -489,11 +498,18 @@ export const LineGraph = ({
                     display: true,
                     beginAtZero: true,
                     stacked: isStackedBarChart,
-                    ticks: tickOptions,
+                    ticks: {
+                        ...tickOptions,
+                        display: chartSettings.showXAxisTicks ?? true,
+                    },
                     grid: {
                         ...gridOptions,
                         drawOnChartArea: false,
                         tickLength: 12,
+                        display: chartSettings.showXAxisTicks ?? true,
+                    },
+                    border: {
+                        display: chartSettings.showXAxisBorder ?? true,
                     },
                 },
                 ...(hasLeftYAxis
