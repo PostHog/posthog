@@ -10,7 +10,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.paths_v2.utils import interval_unit_to_sql
 from posthog.hogql_queries.insights.utils.entities import entity_to_expr
-from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
 from posthog.schema import (
@@ -27,9 +27,8 @@ POSTHOG_OTHER = "$$__posthog_other__$$"
 POSTHOG_DROPOFF = "$$__posthog_dropoff__$$"
 
 
-class PathsV2QueryRunner(QueryRunner):
+class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
     query: PathsV2Query
-    response: PathsV2QueryResponse
     cached_response: CachedPathsV2QueryResponse
 
     def __init__(
@@ -80,7 +79,7 @@ class PathsV2QueryRunner(QueryRunner):
             now=datetime.now(),
         )
 
-    def calculate(self) -> PathsV2QueryResponse:
+    def _calculate(self) -> PathsV2QueryResponse:
         response = execute_hogql_query(
             query_type="PathsV2Query",
             query=self.to_query(),
