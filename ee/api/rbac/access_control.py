@@ -179,8 +179,14 @@ class AccessControlViewSetMixin(_GenericViewSet):
         user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
         team = cast(Team, self.team)  # type: ignore
 
-        if is_resource_level and resource != "project" or not resource or resource == "INTERNAL":
-            raise exceptions.NotFound("Role based access controls are only available for projects.")
+        if not resource:
+            raise exceptions.NotFound("Access controls are not available for this resource type.")
+
+        if resource == "INTERNAL":
+            raise exceptions.NotFound("Access controls are not available for internal resources.")
+
+        if is_resource_level and resource != "project":
+            raise exceptions.ValidationError("Resource-level access controls can only be configured for projects.")
 
         obj = self.get_object()
         resource_id = obj.id
