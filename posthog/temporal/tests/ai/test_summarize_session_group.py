@@ -18,7 +18,10 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog import constants
+from posthog.caching.test.test_stale_utils import Team
+from posthog.models.user import User
 from posthog.redis import get_async_client
+from posthog.sync import database_sync_to_async
 from posthog.temporal.ai import WORKFLOWS
 from posthog.temporal.ai.session_summary.activities.patterns import (
     assign_events_to_patterns_activity,
@@ -59,6 +62,7 @@ from ee.hogai.session_summaries.session_group.patterns import (
     EnrichedSessionGroupSummaryPatternStats,
     RawSessionGroupSummaryPatternsList,
 )
+from ee.models.session_summaries import SingleSessionSummary
 
 pytestmark = pytest.mark.django_db
 
@@ -93,12 +97,13 @@ async def test_get_llm_single_session_summary_activity_standalone(
     mock_single_session_summary_inputs: Callable,
     mock_call_llm: Callable,
     redis_test_setup: AsyncRedisTestContext,
+    auser: User,
+    ateam: Team,
 ):
     # Prepare input data
-    llm_input = mock_single_session_summary_llm_inputs(mock_session_id)
+    llm_input = mock_single_session_summary_llm_inputs(mock_session_id, auser.id)
     compressed_llm_input_data = _compress_redis_data(json.dumps(dataclasses.asdict(llm_input)))
-    input_data = mock_single_session_summary_inputs(mock_session_id)
-
+    input_data = mock_single_session_summary_inputs(mock_session_id, ateam.id, auser.id)
     # Generate Redis keys manually
     _, redis_input_key, redis_output_key = get_redis_state_client(
         key_base=input_data.redis_key_base,
@@ -106,7 +111,6 @@ async def test_get_llm_single_session_summary_activity_standalone(
         output_label=StateActivitiesEnum.SESSION_SUMMARY,
         state_id=input_data.session_id,
     )
-
     # Set up spies to track Redis operations
     spy_get = mocker.spy(redis_test_setup.redis_client, "get")
     spy_setex = mocker.spy(redis_test_setup.redis_client, "setex")
@@ -118,6 +122,13 @@ async def test_get_llm_single_session_summary_activity_standalone(
         redis_input_key,
         redis_output_key,
     )
+    # Verify summary doesn't exist in DB before the activity
+    summary_before = await database_sync_to_async(SingleSessionSummary.objects.get_summary)(
+        team_id=ateam.id,
+        session_id=mock_session_id,
+        extra_summary_context=input_data.extra_summary_context,
+    )
+    assert summary_before is None, "Summary should not exist in DB before the activity"
     # Execute the activity and verify results
     with (
         patch("ee.hogai.session_summaries.llm.consume.call_llm", new=AsyncMock(return_value=mock_call_llm())),
@@ -127,8 +138,18 @@ async def test_get_llm_single_session_summary_activity_standalone(
         # If no exception is raised, the activity completed successfully
         await get_llm_single_session_summary_activity(input_data)
         # Verify Redis operations count
-        assert spy_get.call_count == 2  # Get output data (not found) + get input data
-        assert spy_setex.call_count == 2  # Initial setup + store generated summary
+        # The new flow checks DB first, then gets input from Redis, no output storage to Redis
+        assert spy_get.call_count == 1  # Get input data from Redis
+        assert spy_setex.call_count == 1  # Only initial setup, output goes to the DB
+        # Verify summary was stored in DB after the activity
+        summary_after = await database_sync_to_async(SingleSessionSummary.objects.get_summary)(
+            team_id=ateam.id,
+            session_id=mock_session_id,
+            extra_summary_context=input_data.extra_summary_context,
+        )
+        assert summary_after is not None, "Summary should exist in DB after the activity"
+        assert summary_after.session_id == mock_session_id
+        assert summary_after.team_id == ateam.id
 
 
 @pytest.mark.asyncio

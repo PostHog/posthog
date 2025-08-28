@@ -27,17 +27,19 @@ from ee.models.session_summaries import SessionSummaryPage, SessionSummaryRunMet
 
 
 @pytest.fixture
-def mock_single_session_summary_inputs(
-    mock_user: MagicMock,
-    mock_team: MagicMock,
-) -> Callable:
+def mock_single_session_summary_inputs() -> Callable:
     """Factory to produce inputs for single-session-summary related workflows/activities"""
 
-    def _create_inputs(session_id: str, redis_key_base: str = "test_key_base") -> SingleSessionSummaryInputs:
+    def _create_inputs(
+        session_id: str,
+        team_id: int,
+        user_id: int,
+        redis_key_base: str = "test_key_base",
+    ) -> SingleSessionSummaryInputs:
         return SingleSessionSummaryInputs(
             session_id=session_id,
-            user_id=mock_user.id,
-            team_id=mock_team.id,
+            user_id=user_id,
+            team_id=team_id,
             redis_key_base=redis_key_base,
             model_to_use=SESSION_SUMMARIES_STREAMING_MODEL,
         )
@@ -47,7 +49,6 @@ def mock_single_session_summary_inputs(
 
 @pytest.fixture
 def mock_single_session_summary_llm_inputs(
-    mock_user: MagicMock,
     mock_events_mapping: dict[str, list[Any]],
     mock_event_ids_mapping: dict[str, str],
     mock_events_columns: list[str],
@@ -56,10 +57,13 @@ def mock_single_session_summary_llm_inputs(
 ) -> Callable:
     """Factory to produce inputs for single-session summarization LLM calls, usually stored in Redis"""
 
-    def _create_inputs(session_id: str) -> SingleSessionSummaryLlmInputs:
+    def _create_inputs(
+        session_id: str,
+        user_id: int,
+    ) -> SingleSessionSummaryLlmInputs:
         return SingleSessionSummaryLlmInputs(
             session_id=session_id,
-            user_id=mock_user.id,
+            user_id=user_id,
             summary_prompt="Generate a summary for this session",
             system_prompt="You are a helpful assistant that summarizes user sessions",
             simplified_events_mapping=mock_events_mapping,
@@ -76,17 +80,19 @@ def mock_single_session_summary_llm_inputs(
 
 
 @pytest.fixture
-def mock_session_group_summary_inputs(
-    mock_user: MagicMock,
-    mock_team: MagicMock,
-) -> Callable:
+def mock_session_group_summary_inputs() -> Callable:
     """Factory to produce inputs for session-group-summary related workflows/activities"""
 
-    def _create_inputs(session_ids: list[str], redis_key_base: str = "test_input_base") -> SessionGroupSummaryInputs:
+    def _create_inputs(
+        session_ids: list[str],
+        team_id: int,
+        user_id: int,
+        redis_key_base: str = "test_input_base",
+    ) -> SessionGroupSummaryInputs:
         return SessionGroupSummaryInputs(
             session_ids=session_ids,
-            user_id=mock_user.id,
-            team_id=mock_team.id,
+            user_id=user_id,
+            team_id=team_id,
             redis_key_base=redis_key_base,
             min_timestamp_str="2025-03-30T00:00:00.000000+00:00",
             max_timestamp_str="2025-04-01T23:59:59.999999+00:00",
@@ -97,18 +103,19 @@ def mock_session_group_summary_inputs(
 
 
 @pytest.fixture
-def mock_session_group_summary_of_summaries_inputs(
-    mock_user: MagicMock,
-) -> Callable:
+def mock_session_group_summary_of_summaries_inputs() -> Callable:
     """Factory to produce inputs for session-group-summary-of-summaries related activities"""
 
     def _create_inputs(
         single_session_summaries_inputs: list[SingleSessionSummaryInputs],
+        user_id: int,
+        team_id: int,
         redis_key_base: str = "test_input_base",
     ) -> SessionGroupSummaryOfSummariesInputs:
         return SessionGroupSummaryOfSummariesInputs(
             single_session_summaries_inputs=single_session_summaries_inputs,
-            user_id=mock_user.id,
+            user_id=user_id,
+            team_id=team_id,
             redis_key_base=redis_key_base,
             model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
         )
