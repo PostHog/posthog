@@ -157,6 +157,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         loadDashboardMetadataSuccess: (dashboard: DashboardType<QueryBasedInsightModel> | null) => ({ dashboard }),
         /** Single tile received from stream. */
         receiveTileFromStream: (data: { tile: any; order: number }) => data,
+        /** Bulk add tiles from buffer to dashboard. */
+        addTilesFromBuffer: (tiles: Array<{ tile: any; order: number }>) => ({ tiles }),
         /** Tile streaming completed. */
         tileStreamingComplete: true,
         /** Tile streaming failed. */
@@ -461,6 +463,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 tileStreamingFailure: () => false,
             },
         ],
+        tileBuffer: [
+            [] as Array<{ tile: any; order: number }>,
+            {
+                receiveTileFromStream: (state, { tile, order }) => [...state, { tile, order }],
+                addTilesFromBuffer: () => [],
+                loadDashboardStreaming: () => [],
+                loadDashboardMetadataSuccess: () => [],
+            },
+        ],
         loadingPreview: [
             false,
             {
@@ -628,17 +639,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
                     return dashboard
                 },
-                receiveTileFromStream: (state, { tile }) => {
-                    if (!state || !state.tiles) {
+                addTilesFromBuffer: (state, { tiles }) => {
+                    if (!state || !state.tiles || tiles.length === 0) {
                         return state
                     }
 
-                    const transformedTile = {
+                    // Transform tiles and add them to the dashboard
+                    const transformedTiles = tiles.map(({ tile }) => ({
                         ...tile,
                         ...(tile.insight != null ? { insight: getQueryBasedInsightModel(tile.insight) } : {}),
-                    }
+                    }))
 
-                    let newTiles = [...state.tiles, transformedTile]
+                    const newTiles = [...state.tiles, ...transformedTiles]
 
                     return {
                         ...state,
@@ -1623,10 +1635,24 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.reportDashboardViewed()
             }
         },
-        loadDashboardMetadataSuccess: ({ dashboard }) => {
+        loadDashboardMetadataSuccess: async ({ dashboard }, breakpoint) => {
             if (!dashboard) {
                 actions.dashboardNotFound()
                 return // We hit a 404
+            }
+
+            // Add a small pause to allow the dashboard metadata to render
+            // before tiles start appearing from the stream
+            await breakpoint(50)
+        },
+        receiveTileFromStream: async (_, breakpoint) => {
+            // Debounce tile processing with a 50ms breakpoint
+            await breakpoint(50)
+
+            // When the breakpoint expires, process all buffered tiles
+            const tilesToAdd = [...values.tileBuffer]
+            if (tilesToAdd.length > 0) {
+                actions.addTilesFromBuffer(tilesToAdd)
             }
         },
         reportDashboardViewed: async (_, breakpoint) => {
