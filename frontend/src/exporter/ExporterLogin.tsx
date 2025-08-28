@@ -58,10 +58,7 @@ export const loginLogic = kea([
                     },
                     body: JSON.stringify({ password }),
                 })
-                if (response.status == 200) {
-                    const data = await response.json()
-                    // Store token in sessionStorage for API calls
-                    sessionStorage.setItem('posthog_share_token', data.shareToken)
+                if (response.status === 200) {
                     actions.setSuccess()
                     window.location.reload()
                 } else {
@@ -115,14 +112,13 @@ export function ExporterLogin(props: ExporterLoginProps): JSX.Element {
 
                 <LemonButton
                     type="primary"
-                    status={isSuccess ? 'success' : 'alt'}
+                    status={isSuccess ? 'default' : 'alt'}
                     htmlType="submit"
                     data-attr="password-login"
                     fullWidth
                     center
                     loading={isLoginSubmitting && !isSuccess}
                     size="large"
-                    disabled={isSuccess}
                 >
                     {isSuccess ? 'Access granted!' : 'Unlock'}
                 </LemonButton>

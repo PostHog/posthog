@@ -1440,8 +1440,6 @@ const prepareUrl = (url: string): string => {
             encodeParams({
                 sharing_access_token: exporterContext.accessToken,
             })
-    } else if (exporterContext && exporterContext.shareToken) {
-        // JWT token will be sent in Authorization header, not query params
     }
 
     return output

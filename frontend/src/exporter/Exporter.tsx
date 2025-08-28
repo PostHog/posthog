@@ -26,7 +26,6 @@ import { exporterViewLogic } from './exporterViewLogic'
 export function Exporter(props: ExportedData): JSX.Element {
     // NOTE: Mounting the logic is important as it is used by sub-logics
     const { exportedData } = useValues(exporterViewLogic(props))
-
     const { type, dashboard, insight, recording, themes, accessToken, exportToken, ...exportOptions } = exportedData
     const { whitelabel, showInspector = false } = exportOptions
 
