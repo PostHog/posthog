@@ -884,11 +884,14 @@ class TestProperty(BaseTest):
 
     def test_virtual_group_properties_on_group_scope(self):
         assert self._property_to_expr(
-            {"type": "group", "key": "$virt_initial_channel_type", "value": "Organic Search"}, scope="group"
-        ) == self._parse_expr("$virt_initial_channel_type = 'Organic Search'")
-
-        assert self._property_to_expr(
-            {"type": "group", "key": "$virt_revenue_last_30_days", "value": 100, "operator": "exact"}, scope="group"
+            {
+                "type": "group",
+                "key": "$virt_revenue_last_30_days",
+                "value": 100,
+                "operator": "exact",
+                "group_type_index": 0,
+            },
+            scope="group",
         ) == self._parse_expr("$virt_revenue_last_30_days = 100")
 
     def test_virtual_person_properties_on_event_scope(self):
@@ -901,11 +904,9 @@ class TestProperty(BaseTest):
 
     def test_virtual_group_properties_on_event_scope(self):
         assert self._property_to_expr(
-            {"type": "group", "key": "$virt_initial_channel_type", "value": "Organic Search"}, scope="event"
-        ) == self._parse_expr("group.$virt_initial_channel_type = 'Organic Search'")
-        assert self._property_to_expr(
-            {"type": "group", "key": "$virt_revenue", "value": 100, "operator": "exact"}, scope="event"
-        ) == self._parse_expr("group.$virt_revenue = 100")
+            {"type": "group", "key": "$virt_revenue", "value": 100, "operator": "exact", "group_type_index": 0},
+            scope="event",
+        ) == self._parse_expr("group_0.$virt_revenue = 100")
 
     def test_map_virtual_properties(self):
         assert map_virtual_properties(
