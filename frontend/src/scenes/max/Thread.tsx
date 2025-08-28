@@ -147,10 +147,9 @@ interface MessageGroupProps {
 
 function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): JSX.Element {
     const { user } = useValues(userLogic)
-    const { tools } = useValues(maxGlobalLogic)
+    const { editInsightToolRegistered } = useValues(maxGlobalLogic)
 
     const groupType = messages[0].type === 'human' ? 'human' : 'ai'
-    const isEditingInsight = tools?.some((tool) => tool.identifier === 'create_and_query_insight')
 
     return (
         <MessageGroupContainer groupType={groupType}>
@@ -235,7 +234,7 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                                 key={messageIndex}
                                 message={message}
                                 status={message.status}
-                                isEditingInsight={isEditingInsight}
+                                isEditingInsight={editInsightToolRegistered}
                             />
                         )
                     } else if (isReasoningMessage(message)) {
@@ -339,7 +338,7 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
     const retriable = !!(interactable && isFinalGroup)
 
     const action = (() => {
-        if (message.status !== 'completed') {
+        if (message.status !== 'completed' && !isFailureMessage(message)) {
             return null
         }
 
@@ -591,7 +590,7 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
             message: [
                 feedback,
                 '\nℹ️ This ticket was created automatically when a user gave thumbs down feedback to Max AI.',
-                `Trace: https://us.posthog.com/project/2/llm-observability/traces/${traceId}`,
+                `Trace: https://us.posthog.com/project/2/llm-analytics/traces/${traceId}`,
             ].join('\n'),
         })
     }
@@ -629,12 +628,14 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
                 {(user?.is_staff || location.hostname === 'localhost') && traceId && (
                     <LemonButton
                         to={`${
-                            location.hostname !== 'localhost' ? 'https://us.posthog.com/project/2' : ''
-                        }${urls.llmObservabilityTrace(traceId)}`}
+                            location.hostname !== 'localhost'
+                                ? 'https://us.posthog.com/project/2'
+                                : `${window.location.origin}/project/2`
+                        }${urls.llmAnalyticsTrace(traceId)}`}
                         icon={<IconEye />}
                         type="tertiary"
                         size="xsmall"
-                        tooltip="View trace in LLM observability"
+                        tooltip="View trace in LLM analytics"
                         targetBlank
                     />
                 )}

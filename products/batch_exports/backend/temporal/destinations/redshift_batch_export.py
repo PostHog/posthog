@@ -1,29 +1,24 @@
-import contextlib
-import dataclasses
-import datetime as dt
 import json
 import typing
+import datetime as dt
+import contextlib
+import dataclasses
+
+from django.conf import settings
 
 import psycopg
 import pyarrow as pa
-from django.conf import settings
 from psycopg import sql
+from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.models import BatchExportRun
-from posthog.batch_exports.service import (
-    BatchExportField,
-    BatchExportModel,
-    RedshiftBatchExportInputs,
-)
+from posthog.batch_exports.service import BatchExportField, BatchExportModel, RedshiftBatchExportInputs
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import (
-    bind_contextvars,
-    get_external_logger,
-    get_logger,
-)
+from posthog.temporal.common.logger import get_produce_only_logger, get_write_only_logger
+
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
     StartBatchExportRunInputs,
@@ -52,18 +47,15 @@ from products.batch_exports.backend.temporal.spmc import (
     run_consumer,
     wait_for_schema_or_producer,
 )
-from products.batch_exports.backend.temporal.temporary_file import (
-    BatchExportTemporaryFile,
-    WriterFormat,
-)
+from products.batch_exports.backend.temporal.temporary_file import BatchExportTemporaryFile, WriterFormat
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
     handle_non_retryable_errors,
     set_status_to_running_task,
 )
 
-LOGGER = get_logger(__name__)
-EXTERNAL_LOGGER = get_external_logger()
+LOGGER = get_write_only_logger(__name__)
+EXTERNAL_LOGGER = get_produce_only_logger()
 
 
 NON_RETRYABLE_ERROR_TYPES = (

@@ -2,9 +2,10 @@ import { Counter, Histogram } from 'prom-client'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
+import { instrumentFn } from '~/common/tracing/tracing-utils'
+
 import { CyclotronJobInvocationResult, HogFunctionInvocationGlobals, HogFunctionType } from '../../cdp/types'
 import { isLegacyPluginHogFunction } from '../../cdp/utils'
-import { runInstrumentedFunction } from '../../main/utils'
 import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
 import { CdpRedis, createCdpRedisPool } from '../redis'
@@ -129,204 +130,198 @@ export class HogTransformerService {
     }
 
     public transformEventAndProduceMessages(event: PluginEvent): Promise<TransformationResult> {
-        return runInstrumentedFunction({
-            statsKey: `hogTransformer.transformEventAndProduceMessages`,
-            func: async () => {
-                hogTransformationAttempts.inc({ type: 'with_messages' })
+        return instrumentFn(`hogTransformer.transformEventAndProduceMessages`, async () => {
+            hogTransformationAttempts.inc({ type: 'with_messages' })
 
-                const teamHogFunctions = await this.hogFunctionManager.getHogFunctionsForTeam(event.team_id, [
-                    'transformation',
-                ])
+            const teamHogFunctions = await this.hogFunctionManager.getHogFunctionsForTeam(event.team_id, [
+                'transformation',
+            ])
 
-                const transformationResult = await this.transformEvent(event, teamHogFunctions)
+            const transformationResult = await this.transformEvent(event, teamHogFunctions)
 
-                for (const result of transformationResult.invocationResults) {
-                    this.invocationResults.push(result)
-                }
+            for (const result of transformationResult.invocationResults) {
+                this.invocationResults.push(result)
+            }
 
-                hogTransformationCompleted.inc({ type: 'with_messages' })
-                return {
-                    ...transformationResult,
-                }
-            },
+            hogTransformationCompleted.inc({ type: 'with_messages' })
+            return {
+                ...transformationResult,
+            }
         })
     }
 
     public transformEvent(event: PluginEvent, teamHogFunctions: HogFunctionType[]): Promise<TransformationResult> {
-        return runInstrumentedFunction({
-            statsKey: `hogTransformer.transformEvent`,
-            func: async () => {
-                hogTransformationInvocations.inc()
-                const results: CyclotronJobInvocationResult[] = []
-                const transformationsSucceeded: string[] = event.properties?.$transformations_succeeded || []
-                const transformationsFailed: string[] = event.properties?.$transformations_failed || []
-                const transformationsSkipped: string[] = event.properties?.$transformations_skipped || []
+        return instrumentFn(`hogTransformer.transformEvent`, async () => {
+            hogTransformationInvocations.inc()
+            const results: CyclotronJobInvocationResult[] = []
+            const transformationsSucceeded: string[] = event.properties?.$transformations_succeeded || []
+            const transformationsFailed: string[] = event.properties?.$transformations_failed || []
+            const transformationsSkipped: string[] = event.properties?.$transformations_skipped || []
 
-                const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
+            const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
 
-                for (const hogFunction of teamHogFunctions) {
-                    const transformationIdentifier = `${hogFunction.name} (${hogFunction.id})`
+            for (const hogFunction of teamHogFunctions) {
+                const transformationIdentifier = `${hogFunction.name} (${hogFunction.id})`
 
-                    // Check if function is in a degraded state, but only if hogwatcher is enabled
-                    if (shouldRunHogWatcher) {
-                        const functionState = this.cachedStates[hogFunction.id]
+                // Check if function is in a degraded state, but only if hogwatcher is enabled
+                if (shouldRunHogWatcher) {
+                    const functionState = this.cachedStates[hogFunction.id]
 
-                        // If the function is in a degraded state, skip it
-                        if (functionState && functionState === HogWatcherState.disabled) {
-                            this.hogFunctionMonitoringService.queueAppMetric(
-                                {
-                                    team_id: event.team_id,
-                                    app_source_id: hogFunction.id,
-                                    metric_kind: 'failure',
-                                    metric_name: 'disabled_permanently',
-                                    count: 1,
-                                },
-                                'hog_function'
-                            )
-                            continue
-                        }
-                    }
-
-                    const globals = this.createInvocationGlobals(event)
-                    const filterGlobals = convertToHogFunctionFilterGlobal(globals)
-
-                    // Check if function has filters - if not, always apply
-                    if (hogFunction.filters?.bytecode) {
-                        const filterResults = await filterFunctionInstrumented({
-                            fn: hogFunction,
-                            filters: hogFunction.filters,
-                            filterGlobals,
-                            eventUuid: globals.event?.uuid,
-                        })
-
-                        // If filter didn't pass skip the actual transformation and add logs and errors from the filterResult
-                        if (!filterResults.match) {
-                            transformationsSkipped.push(transformationIdentifier)
-                            results.push(
-                                createInvocationResult(
-                                    createInvocation(
-                                        {
-                                            ...globals,
-                                            inputs: {}, // Not needed as this is only for a valid return type
-                                        },
-                                        hogFunction
-                                    ),
-                                    {},
-                                    {
-                                        metrics: filterResults.metrics,
-                                        logs: filterResults.logs,
-                                        error: filterResults.error,
-                                        finished: true,
-                                    }
-                                )
-                            )
-                            continue
-                        }
-                    }
-
-                    const result = await this.executeHogFunction(hogFunction, this.createInvocationGlobals(event))
-
-                    results.push(result)
-
-                    if (result.error) {
-                        transformationsFailed.push(transformationIdentifier)
-                        continue
-                    }
-
-                    if (!result.execResult) {
-                        hogTransformationDroppedEvents.inc()
+                    // If the function is in a degraded state, skip it
+                    if (functionState && functionState === HogWatcherState.disabled) {
                         this.hogFunctionMonitoringService.queueAppMetric(
                             {
                                 team_id: event.team_id,
                                 app_source_id: hogFunction.id,
-                                metric_kind: 'other',
-                                metric_name: 'dropped',
+                                metric_kind: 'failure',
+                                metric_name: 'disabled_permanently',
                                 count: 1,
                             },
                             'hog_function'
                         )
-                        transformationsFailed.push(transformationIdentifier)
-                        return {
-                            event: null,
-                            invocationResults: results,
-                        }
+                        continue
                     }
+                }
 
-                    const transformedEvent: unknown = result.execResult
+                const globals = this.createInvocationGlobals(event)
+                const filterGlobals = convertToHogFunctionFilterGlobal(globals)
 
-                    if (
-                        !transformedEvent ||
-                        typeof transformedEvent !== 'object' ||
-                        !('properties' in transformedEvent) ||
-                        !transformedEvent.properties ||
-                        typeof transformedEvent.properties !== 'object'
-                    ) {
-                        logger.error('⚠️', 'Invalid transformation result - missing or invalid properties', {
+                // Check if function has filters - if not, always apply
+                if (hogFunction.filters?.bytecode) {
+                    const filterResults = await filterFunctionInstrumented({
+                        fn: hogFunction,
+                        filters: hogFunction.filters,
+                        filterGlobals,
+                        eventUuid: globals.event?.uuid,
+                    })
+
+                    // If filter didn't pass skip the actual transformation and add logs and errors from the filterResult
+                    if (!filterResults.match) {
+                        transformationsSkipped.push(transformationIdentifier)
+                        results.push(
+                            createInvocationResult(
+                                createInvocation(
+                                    {
+                                        ...globals,
+                                        inputs: {}, // Not needed as this is only for a valid return type
+                                    },
+                                    hogFunction
+                                ),
+                                {},
+                                {
+                                    metrics: filterResults.metrics,
+                                    logs: filterResults.logs,
+                                    error: filterResults.error,
+                                    finished: true,
+                                }
+                            )
+                        )
+                        continue
+                    }
+                }
+
+                const result = await this.executeHogFunction(hogFunction, this.createInvocationGlobals(event))
+
+                results.push(result)
+
+                if (result.error) {
+                    transformationsFailed.push(transformationIdentifier)
+                    continue
+                }
+
+                if (!result.execResult) {
+                    hogTransformationDroppedEvents.inc()
+                    this.hogFunctionMonitoringService.queueAppMetric(
+                        {
+                            team_id: event.team_id,
+                            app_source_id: hogFunction.id,
+                            metric_kind: 'other',
+                            metric_name: 'dropped',
+                            count: 1,
+                        },
+                        'hog_function'
+                    )
+                    transformationsFailed.push(transformationIdentifier)
+                    return {
+                        event: null,
+                        invocationResults: results,
+                    }
+                }
+
+                const transformedEvent: unknown = result.execResult
+
+                if (
+                    !transformedEvent ||
+                    typeof transformedEvent !== 'object' ||
+                    !('properties' in transformedEvent) ||
+                    !transformedEvent.properties ||
+                    typeof transformedEvent.properties !== 'object'
+                ) {
+                    logger.error('⚠️', 'Invalid transformation result - missing or invalid properties', {
+                        function_id: hogFunction.id,
+                    })
+                    transformationsFailed.push(transformationIdentifier)
+                    continue
+                }
+
+                event.properties = {
+                    ...transformedEvent.properties,
+                }
+
+                event.ip = event.properties.$ip ?? null
+
+                if ('event' in transformedEvent) {
+                    if (typeof transformedEvent.event !== 'string') {
+                        logger.error('⚠️', 'Invalid transformation result - event name must be a string', {
                             function_id: hogFunction.id,
+                            event: transformedEvent.event,
                         })
                         transformationsFailed.push(transformationIdentifier)
                         continue
                     }
-
-                    event.properties = {
-                        ...transformedEvent.properties,
-                    }
-
-                    event.ip = event.properties.$ip ?? null
-
-                    if ('event' in transformedEvent) {
-                        if (typeof transformedEvent.event !== 'string') {
-                            logger.error('⚠️', 'Invalid transformation result - event name must be a string', {
-                                function_id: hogFunction.id,
-                                event: transformedEvent.event,
-                            })
-                            transformationsFailed.push(transformationIdentifier)
-                            continue
-                        }
-                        event.event = transformedEvent.event
-                    }
-
-                    if ('distinct_id' in transformedEvent) {
-                        if (typeof transformedEvent.distinct_id !== 'string') {
-                            logger.error('⚠️', 'Invalid transformation result - distinct_id must be a string', {
-                                function_id: hogFunction.id,
-                                distinct_id: transformedEvent.distinct_id,
-                            })
-                            transformationsFailed.push(transformationIdentifier)
-                            continue
-                        }
-                        event.distinct_id = transformedEvent.distinct_id
-                    }
-
-                    transformationsSucceeded.push(transformationIdentifier)
+                    event.event = transformedEvent.event
                 }
 
-                if (transformationsFailed.length > 0) {
-                    event.properties = {
-                        ...event.properties,
-                        $transformations_failed: transformationsFailed,
+                if ('distinct_id' in transformedEvent) {
+                    if (typeof transformedEvent.distinct_id !== 'string') {
+                        logger.error('⚠️', 'Invalid transformation result - distinct_id must be a string', {
+                            function_id: hogFunction.id,
+                            distinct_id: transformedEvent.distinct_id,
+                        })
+                        transformationsFailed.push(transformationIdentifier)
+                        continue
                     }
+                    event.distinct_id = transformedEvent.distinct_id
                 }
 
-                if (transformationsSkipped.length > 0) {
-                    event.properties = {
-                        ...event.properties,
-                        $transformations_skipped: transformationsSkipped,
-                    }
-                }
+                transformationsSucceeded.push(transformationIdentifier)
+            }
 
-                if (transformationsSucceeded.length > 0) {
-                    event.properties = {
-                        ...event.properties,
-                        $transformations_succeeded: transformationsSucceeded,
-                    }
+            if (transformationsFailed.length > 0) {
+                event.properties = {
+                    ...event.properties,
+                    $transformations_failed: transformationsFailed,
                 }
+            }
 
-                return {
-                    event,
-                    invocationResults: results,
+            if (transformationsSkipped.length > 0) {
+                event.properties = {
+                    ...event.properties,
+                    $transformations_skipped: transformationsSkipped,
                 }
-            },
+            }
+
+            if (transformationsSucceeded.length > 0) {
+                event.properties = {
+                    ...event.properties,
+                    $transformations_succeeded: transformationsSucceeded,
+                }
+            }
+
+            return {
+                event,
+                invocationResults: results,
+            }
         })
     }
 

@@ -6,12 +6,17 @@ import { LemonBanner, LemonButton, LemonDivider, Link, Tooltip } from '@posthog/
 
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyLargeNumber } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
@@ -23,7 +28,8 @@ import { OccurrenceSparkline } from './OccurrenceSparkline'
 import { ErrorFilters } from './components/ErrorFilters'
 import { ErrorTrackingSetupPrompt } from './components/ErrorTrackingSetupPrompt/ErrorTrackingSetupPrompt'
 import { errorIngestionLogic } from './components/ErrorTrackingSetupPrompt/errorIngestionLogic'
-import { ErrorTrackingSceneTool } from './components/SceneTool'
+import { ErrorTrackingIssueFilteringTool } from './components/IssueFilteringTool'
+import { ErrorTrackingIssueImpactTool } from './components/IssueImpactTool'
 import { IssueListTitleColumn, IssueListTitleHeader } from './components/TableColumns'
 import { errorTrackingDataNodeLogic } from './errorTrackingDataNodeLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
@@ -64,21 +70,24 @@ export function ErrorTrackingScene(): JSX.Element {
     // TODO - fix feature flag check once the feature flag is created etc
     return (
         <ErrorTrackingSetupPrompt>
-            {featureFlags[FEATURE_FLAGS.ERROR_TRACKING_SCENE_TOOL] && <ErrorTrackingSceneTool />}
-            <div className="ErrorTracking">
+            <ErrorTrackingIssueFilteringTool />
+            {featureFlags[FEATURE_FLAGS.ERROR_TRACKING_IMPACT_MAX_TOOL] && <ErrorTrackingIssueImpactTool />}
+            <SceneContent className="ErrorTracking">
                 <BindLogic logic={errorTrackingDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
                     <Header />
                     {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
-                    <ErrorFilters.Root>
-                        <ErrorFilters.DateRange />
-                        <ErrorFilters.FilterGroup />
-                        <ErrorFilters.InternalAccounts />
-                    </ErrorFilters.Root>
-                    <LemonDivider className="mt-2" />
-                    <ErrorTrackingListOptions />
-                    <Query query={query} context={context} />
+                    <div>
+                        <ErrorFilters.Root>
+                            <ErrorFilters.DateRange />
+                            <ErrorFilters.FilterGroup />
+                            <ErrorFilters.InternalAccounts />
+                        </ErrorFilters.Root>
+                        <LemonDivider className="mt-2" />
+                        <ErrorTrackingListOptions />
+                        <Query query={query} context={context} />
+                    </div>
                 </BindLogic>
-            </div>
+            </SceneContent>
         </ErrorTrackingSetupPrompt>
     )
 }
@@ -104,9 +113,9 @@ const VolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName }) =>
     )
 }
 
-const TitleHeader: QueryContextColumnTitleComponent = (props): JSX.Element => {
+const TitleHeader: QueryContextColumnTitleComponent = (): JSX.Element => {
     const { results } = useValues(errorTrackingDataNodeLogic)
-    return <IssueListTitleHeader results={results} {...props} />
+    return <IssueListTitleHeader results={results} />
 }
 
 const TitleColumn: QueryContextColumnComponent = (props): JSX.Element => {
@@ -142,36 +151,48 @@ const Header = (): JSX.Element => {
     }
 
     return (
-        <PageHeader
-            buttons={
-                <>
-                    {isDev ? (
-                        <>
-                            <LemonButton
-                                onClick={() => {
-                                    posthog.captureException(new Error('Kaboom !'))
-                                }}
-                            >
-                                Send an exception
-                            </LemonButton>
-                            <LemonButton onClick={onClick}>Start exception loop</LemonButton>
-                        </>
-                    ) : null}
-                    <LemonButton to="https://posthog.com/docs/error-tracking" type="secondary" targetBlank>
-                        Documentation
-                    </LemonButton>
-                    <LemonButton to={urls.errorTrackingConfiguration()} type="secondary" icon={<IconGear />}>
-                        Configure
-                    </LemonButton>
-                </>
-            }
-        />
+        <>
+            <PageHeader
+                buttons={
+                    <>
+                        {isDev ? (
+                            <>
+                                <LemonButton
+                                    onClick={() => {
+                                        posthog.captureException(new Error('Kaboom !'))
+                                    }}
+                                >
+                                    Send an exception
+                                </LemonButton>
+                                <LemonButton onClick={onClick}>Start exception loop</LemonButton>
+                            </>
+                        ) : null}
+                        <LemonButton to="https://posthog.com/docs/error-tracking" type="secondary" targetBlank>
+                            Documentation
+                        </LemonButton>
+                        <LemonButton to={urls.errorTrackingConfiguration()} type="secondary" icon={<IconGear />}>
+                            Configure
+                        </LemonButton>
+                    </>
+                }
+            />
+            <SceneTitleSection
+                name="Error tracking"
+                description="Track and analyze errors in your website or application to understand and fix issues."
+                resourceType={{
+                    type: 'errorTracking',
+                    typePlural: 'Error Tracking',
+                }}
+            />
+            <SceneDivider />
+        </>
     )
 }
 
 const IngestionStatusCheck = (): JSX.Element | null => {
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     return (
-        <LemonBanner type="warning" className="my-4">
+        <LemonBanner type="warning" className={cn(!newSceneLayout && 'mb-4')}>
             <p>
                 <strong>No Exception events have been detected!</strong>
             </p>

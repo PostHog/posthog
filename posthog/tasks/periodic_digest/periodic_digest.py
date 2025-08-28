@@ -1,36 +1,32 @@
 import dataclasses
+from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
-from collections import defaultdict
+
+from django.db.models import Q, QuerySet
+from django.utils import timezone
 
 import structlog
 from celery import shared_task
 from dateutil import parser
-from django.db.models import QuerySet, Q
-from django.utils import timezone
+
 from posthog.exceptions_capture import capture_exception
 from posthog.models.dashboard import Dashboard
 from posthog.models.event_definition import EventDefinition
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
-from posthog.models.surveys.survey import Survey
 from posthog.models.messaging import MessagingRecord
 from posthog.models.organization import OrganizationMembership
+from posthog.models.surveys.survey import Survey
 from posthog.models.team.team import Team
-
 from posthog.tasks.email import NotificationSetting, NotificationSettingType
 from posthog.tasks.periodic_digest.playlist_digests import (
     CountedPlaylist,
-    get_teams_with_new_playlists,
     get_teams_with_interesting_playlists,
+    get_teams_with_new_playlists,
 )
-from posthog.tasks.report_utils import (
-    OrgDigestReport,
-    TeamDigestReport,
-    capture_event,
-    get_user_team_lookup,
-)
+from posthog.tasks.report_utils import OrgDigestReport, TeamDigestReport, capture_event, get_user_team_lookup
 from posthog.tasks.usage_report import USAGE_REPORT_TASK_KWARGS, get_instance_metadata, get_ph_client
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 

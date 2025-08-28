@@ -1,31 +1,37 @@
+import os
+import uuid
 import asyncio
 import datetime as dt
 import functools
-import unittest.mock
-import uuid
-import os
 
-import aioboto3
-import deltalake
 import pytest
-import pytest_asyncio
-from asgiref.sync import sync_to_async
-import temporalio.common
-import temporalio.worker
-from django.conf import settings
-from django.test import override_settings
+import unittest.mock
 from freezegun.api import freeze_time
-import pyarrow as pa
 from unittest.mock import patch
 
-from posthog import constants
+from django.conf import settings
+from django.test import override_settings
+
+import pyarrow as pa
+import aioboto3
+import deltalake
+import pytest_asyncio
+import temporalio.common
+import temporalio.worker
+from asgiref.sync import sync_to_async
+from structlog.testing import capture_logs
+
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.query import execute_hogql_query
+
+from posthog import constants
 from posthog.models import Team
 from posthog.models.event.util import bulk_create_events
-from posthog.warehouse.models.data_modeling_job import DataModelingJob
+from posthog.sync import database_sync_to_async
 from posthog.temporal.data_modeling.run_workflow import (
     BuildDagActivityInputs,
+    CleanupRunningJobsActivityInputs,
+    CreateJobModelInputs,
     CreateTableActivityInputs,
     ModelNode,
     RunDagActivityInputs,
@@ -33,22 +39,20 @@ from posthog.temporal.data_modeling.run_workflow import (
     RunWorkflowInputs,
     Selector,
     build_dag_activity,
+    cleanup_running_jobs_activity,
+    create_job_model_activity,
     create_table_activity,
+    fail_jobs_activity,
     finish_run_activity,
     materialize_model,
     run_dag_activity,
     start_run_activity,
-    create_job_model_activity,
-    fail_jobs_activity,
-    cleanup_running_jobs_activity,
-    CleanupRunningJobsActivityInputs,
-    CreateJobModelInputs,
 )
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
+from posthog.warehouse.models.data_modeling_job import DataModelingJob
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from posthog.warehouse.models.modeling import DataWarehouseModelPath
 from posthog.warehouse.models.table import DataWarehouseTable
-from posthog.sync import database_sync_to_async
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -392,6 +396,51 @@ async def test_materialize_model(ateam, bucket_name, minio_client, pageview_even
 
     # Ensure we can query the table
     await sync_to_async(execute_hogql_query)(f"SELECT * FROM {saved_query.name}", ateam)
+
+
+async def test_materialize_model_timestamps(ateam, bucket_name, minio_client, pageview_events):
+    query = """\
+    select toDateTime64(toDateTime('2025-01-01T00:00:00.000'), 3, 'Asia/Istanbul') as now_converted, toDateTime('2025-01-01T00:00:00.000') as now
+    """
+    saved_query = await DataWarehouseSavedQuery.objects.acreate(
+        team=ateam,
+        name="my_model",
+        query={"query": query, "kind": "HogQLQuery"},
+    )
+    with override_settings(
+        BUCKET_URL=f"s3://{bucket_name}",
+        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        AIRBYTE_BUCKET_REGION="us-east-1",
+        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+    ):
+        job = await database_sync_to_async(DataModelingJob.objects.create)(
+            team=ateam,
+            status=DataModelingJob.Status.RUNNING,
+            workflow_id="test_workflow",
+        )
+
+        _, delta_table, _ = await materialize_model(
+            saved_query.id.hex,
+            ateam,
+            saved_query,
+            job,
+            unittest.mock.AsyncMock(),
+            unittest.mock.AsyncMock(),
+        )
+
+    table = delta_table.to_pyarrow_table(columns=["now_converted", "now"])
+    assert table.num_rows == 1
+    assert table.num_columns == 2
+    assert table.column_names == ["now_converted", "now"]
+    assert table.column(0).type == pa.timestamp("us", tz="UTC")
+    assert table.column(1).type == pa.timestamp("us", tz="UTC")
+
+    # replace microsecond because they won't match exactly
+    row = table.to_pylist()[0]
+    now_converted = row["now_converted"]
+    now = row["now"]
+    assert now_converted == now
 
 
 async def test_materialize_model_with_pascal_cased_name(ateam, bucket_name, minio_client, pageview_events):
@@ -1219,7 +1268,7 @@ async def test_create_table_activity_row_count_functionality(minio_client, activ
         query={"query": "SELECT 1 as id, 'test' as name UNION ALL SELECT 2 as id, 'test2' as name"},
     )
 
-    from posthog.warehouse.models import DataWarehouseTable, DataWarehouseCredential
+    from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
 
     credential = await DataWarehouseCredential.objects.acreate(
         team=ateam,
@@ -1268,18 +1317,14 @@ async def test_create_table_activity_invalid_uuid_fails(activity_environment, at
 
     with (
         patch("posthog.temporal.data_modeling.run_workflow.create_table_from_saved_query") as mock_create_table,
-        patch("posthog.temporal.data_modeling.run_workflow.bind_temporal_worker_logger") as mock_logger,
+        capture_logs() as cap_logs,
     ):
-        mock_logger.return_value.aerror = unittest.mock.AsyncMock()
-
         async with asyncio.timeout(10):
             await activity_environment.run(create_table_activity, create_table_activity_inputs)
 
     mock_create_table.assert_not_called()
 
-    mock_logger.return_value.aerror.assert_called_once()
-    error_message = mock_logger.return_value.aerror.call_args[0][0]
-    assert "Invalid model identifier 'invalid_model_name': expected UUID format" in error_message
+    assert "Invalid model identifier 'invalid_model_name': expected UUID format" in cap_logs[0]["event"]
 
 
 async def test_materialize_model_with_non_utc_timestamp(ateam, bucket_name, minio_client):
@@ -1472,7 +1517,7 @@ async def test_materialize_model_with_plain_datetime(ateam, bucket_name, minio_c
         timestamp_column = table.column("timestamp")
         assert pa.types.is_timestamp(timestamp_column.type)
 
-        assert timestamp_column[0].as_py() == dt.datetime(2022, 1, 1, 12, 0)
+        assert timestamp_column[0].as_py() == dt.datetime(2022, 1, 1, 12, 0, tzinfo=dt.UTC)
 
         await database_sync_to_async(job.refresh_from_db)()
         assert job.status == DataModelingJob.Status.COMPLETED

@@ -1,18 +1,21 @@
 import concurrent.futures
 from datetime import datetime
 from typing import cast
+
+import pytest
+from freezegun import freeze_time
+from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries, snapshot_postgres_queries_context
 from unittest.mock import patch
 
 from django.core.cache import cache
 from django.db import IntegrityError, connection
 from django.test import TransactionTestCase
 from django.utils import timezone
-from freezegun import freeze_time
-from parameterized import parameterized
-import pytest
-from flaky import flaky
 
-from posthog.models import Cohort, FeatureFlag, GroupTypeMapping, Person
+from flaky import flaky
+from parameterized import parameterized
+
+from posthog.models import Cohort, FeatureFlag, Person
 from posthog.models.feature_flag import get_feature_flags_for_team_in_cache
 from posthog.models.feature_flag.flag_matching import (
     FeatureFlagHashKeyOverride,
@@ -28,12 +31,7 @@ from posthog.models.group import Group
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.test.base import (
-    BaseTest,
-    QueryMatchingTest,
-    snapshot_postgres_queries,
-    snapshot_postgres_queries_context,
-)
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
 class TestFeatureFlagCohortExpansion(BaseTest):
@@ -4902,10 +4900,10 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
     def create_groups(self):
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="project", group_type_index=1
         )
 
@@ -5155,10 +5153,10 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             distinct_ids=["307"],
             properties={"number": 30, "string_number": "30", "version": "1.24"},
         )
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="project", group_type_index=1
         )
 

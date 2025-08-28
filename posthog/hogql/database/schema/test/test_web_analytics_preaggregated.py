@@ -1,20 +1,21 @@
 from parameterized import parameterized
+
 from posthog.hogql.database.models import Table
 from posthog.hogql.database.schema.web_analytics_preaggregated import (
     ATTRIBUTION_FIELDS,
-    WebStatsDailyTable,
-    WebBouncesDailyTable,
-    WebStatsHourlyTable,
-    WebBouncesHourlyTable,
-    WebStatsCombinedTable,
-    WebBouncesCombinedTable,
-    SHARED_SCHEMA_FIELDS,
     DEVICE_BROWSER_FIELDS,
     GEOIP_FIELDS,
-    UTM_FIELDS,
     PATH_FIELDS,
-    WEB_STATS_SPECIFIC_FIELDS,
+    SHARED_SCHEMA_FIELDS,
+    UTM_FIELDS,
     WEB_BOUNCES_SPECIFIC_FIELDS,
+    WEB_STATS_SPECIFIC_FIELDS,
+    WebBouncesCombinedTable,
+    WebBouncesDailyTable,
+    WebBouncesHourlyTable,
+    WebStatsCombinedTable,
+    WebStatsDailyTable,
+    WebStatsHourlyTable,
 )
 
 

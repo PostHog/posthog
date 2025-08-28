@@ -1,6 +1,7 @@
 from django.core.exceptions import ValidationError
 from django.db import models
-from posthog.models.utils import UUIDTModel, build_unique_relationship_check, build_partial_uniqueness_constraint
+
+from posthog.models.utils import UUIDTModel, build_partial_uniqueness_constraint, build_unique_relationship_check
 
 RELATED_OBJECTS = ("group",)
 

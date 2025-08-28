@@ -1,4 +1,4 @@
-from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions, NodeRole
+from posthog.clickhouse.client.migration_tools import NodeRole, run_sql_with_exceptions
 from posthog.clickhouse.custom_metrics import (
     CREATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
     CREATE_CUSTOM_METRICS_COUNTERS_VIEW,

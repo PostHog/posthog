@@ -1,9 +1,9 @@
 # TODO: move this module out of temporal folder
 import abc
-import asyncio
-import collections.abc
-import dataclasses
 import enum
+import asyncio
+import dataclasses
+import collections.abc
 
 from asgiref.sync import async_to_sync
 
@@ -316,9 +316,7 @@ class BigQueryProjectTestStep(DestinationTestStep):
 
     async def _run_step(self) -> DestinationTestStepResult:
         """Run this test step."""
-        from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
-            BigQueryClient,
-        )
+        from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import BigQueryClient
 
         # This method should be called by `run()` which ensures this test step is configured
         # with non-`None` values.
@@ -390,9 +388,7 @@ class BigQueryDatasetTestStep(DestinationTestStep):
         """Run this test step."""
         from google.cloud.exceptions import NotFound
 
-        from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
-            BigQueryClient,
-        )
+        from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import BigQueryClient
 
         # This method should be called by `run()` which ensures this test step is configured
         # with non-`None` values.
@@ -471,9 +467,7 @@ class BigQueryTableTestStep(DestinationTestStep):
         from google.cloud import bigquery
         from google.cloud.exceptions import NotFound
 
-        from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
-            BigQueryClient,
-        )
+        from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import BigQueryClient
 
         # This method should be called by `run()` which ensures this test step is configured
         # with non-`None` values.
@@ -627,11 +621,7 @@ class SnowflakeEstablishConnectionTestStep(DestinationTestStep):
     async def _run_step(self) -> DestinationTestStepResult:
         """Run this test step."""
         import snowflake.connector
-        from snowflake.connector.errors import (
-            DatabaseError,
-            InterfaceError,
-            OperationalError,
-        )
+        from snowflake.connector.errors import DatabaseError, InterfaceError, OperationalError
 
         private_key, result = try_load_private_key(self.private_key, self.private_key_passphrase)
         if result is not None:
