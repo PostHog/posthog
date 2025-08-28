@@ -14,7 +14,6 @@ ADD COLUMN IF NOT EXISTS $session_id_uuid Nullable(UInt128)
 
 operations = [
     run_sql_with_exceptions(ADD_COLUMNS_SHARDED_EVENTS.format(table="sharded_events"), sharded=True),
-    run_sql_with_exceptions(
-        ADD_COLUMNS_EVENTS.format(table="events"), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]
-    ),
+    run_sql_with_exceptions(ADD_COLUMNS_EVENTS.format(table="events"), node_role=NodeRole.DATA),
+    run_sql_with_exceptions(ADD_COLUMNS_EVENTS.format(table="events"), node_role=NodeRole.COORDINATOR),
 ]

@@ -11,36 +11,54 @@ from posthog.clickhouse.query_log_archive import (
 
 operations = [
     # Step 1: Create new table with team_id in ordering key
-    run_sql_with_exceptions(
-        QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]
-    ),
+    run_sql_with_exceptions(QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(on_cluster=False), node_role=NodeRole.DATA),
+    run_sql_with_exceptions(QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(on_cluster=False), node_role=NodeRole.COORDINATOR),
     # Step 2: Create new materialized view to populate the new table
-    run_sql_with_exceptions(
-        QUERY_LOG_ARCHIVE_NEW_MV_SQL(on_cluster=False), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]
-    ),
+    run_sql_with_exceptions(QUERY_LOG_ARCHIVE_NEW_MV_SQL(on_cluster=False), node_role=NodeRole.DATA),
+    run_sql_with_exceptions(QUERY_LOG_ARCHIVE_NEW_MV_SQL(on_cluster=False), node_role=NodeRole.COORDINATOR),
     # Here was step 3&4 that were executed manually.
     # Step 5: Drop the old materialized view
     run_sql_with_exceptions(
         DROP_QUERY_LOG_ARCHIVE_MV(on_cluster=False),
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_role=NodeRole.DATA,
+        is_alter_on_replicated_table=True,
+    ),
+    run_sql_with_exceptions(
+        DROP_QUERY_LOG_ARCHIVE_MV(on_cluster=False),
+        node_role=NodeRole.COORDINATOR,
         is_alter_on_replicated_table=True,
     ),
     # Step 6: Rename tables (atomic swap)
     run_sql_with_exceptions(
         EXCHANGE_QUERY_LOG_ARCHIVE_TABLES(on_cluster=False),
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_role=NodeRole.DATA,
+        is_alter_on_replicated_table=True,
+    ),
+    run_sql_with_exceptions(
+        EXCHANGE_QUERY_LOG_ARCHIVE_TABLES(on_cluster=False),
+        node_role=NodeRole.COORDINATOR,
         is_alter_on_replicated_table=True,
     ),
     # Step 7: Rename the new materialized view
     run_sql_with_exceptions(
         RENAME_QUERY_LOG_ARCHIVE_MV(on_cluster=False),
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_role=NodeRole.DATA,
+        is_alter_on_replicated_table=True,
+    ),
+    run_sql_with_exceptions(
+        RENAME_QUERY_LOG_ARCHIVE_MV(on_cluster=False),
+        node_role=NodeRole.COORDINATOR,
         is_alter_on_replicated_table=True,
     ),
     # Step 8: Drop the old table
     run_sql_with_exceptions(
         DROP_QUERY_LOG_ARCHIVE_OLD_TABLE(on_cluster=False),
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_role=NodeRole.DATA,
+        is_alter_on_replicated_table=True,
+    ),
+    run_sql_with_exceptions(
+        DROP_QUERY_LOG_ARCHIVE_OLD_TABLE(on_cluster=False),
+        node_role=NodeRole.COORDINATOR,
         is_alter_on_replicated_table=True,
     ),
 ]

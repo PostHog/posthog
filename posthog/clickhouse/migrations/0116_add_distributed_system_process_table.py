@@ -4,6 +4,10 @@ from posthog.clickhouse.distributed_system_processes import DISTRIBUTED_SYSTEM_P
 operations = [
     run_sql_with_exceptions(
         DISTRIBUTED_SYSTEM_PROCESSES_TABLE_SQL(on_cluster=False),
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_role=NodeRole.DATA,
+    ),
+    run_sql_with_exceptions(
+        DISTRIBUTED_SYSTEM_PROCESSES_TABLE_SQL(on_cluster=False),
+        node_role=NodeRole.COORDINATOR,
     ),
 ]

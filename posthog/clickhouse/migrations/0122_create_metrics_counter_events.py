@@ -6,11 +6,10 @@ from posthog.clickhouse.custom_metrics import (
 )
 
 operations = [
-    run_sql_with_exceptions(
-        CREATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE, node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]
-    ),
-    run_sql_with_exceptions(CREATE_CUSTOM_METRICS_COUNTERS_VIEW, node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]),
-    run_sql_with_exceptions(
-        CUSTOM_METRICS_VIEW(include_counters=True), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]
-    ),
+    run_sql_with_exceptions(CREATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE, node_role=NodeRole.DATA),
+    run_sql_with_exceptions(CREATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE, node_role=NodeRole.COORDINATOR),
+    run_sql_with_exceptions(CREATE_CUSTOM_METRICS_COUNTERS_VIEW, node_role=NodeRole.DATA),
+    run_sql_with_exceptions(CREATE_CUSTOM_METRICS_COUNTERS_VIEW, node_role=NodeRole.COORDINATOR),
+    run_sql_with_exceptions(CUSTOM_METRICS_VIEW(include_counters=True), node_role=NodeRole.DATA),
+    run_sql_with_exceptions(CUSTOM_METRICS_VIEW(include_counters=True), node_role=NodeRole.COORDINATOR),
 ]

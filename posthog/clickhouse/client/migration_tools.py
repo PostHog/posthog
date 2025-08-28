@@ -17,7 +17,7 @@ def get_migrations_cluster():
 
 def run_sql_with_exceptions(
     sql: str,
-    node_roles: list[NodeRole] | None = None,
+    node_role: NodeRole = NodeRole.DATA,
     sharded: bool = False,
     is_alter_on_replicated_table: bool = False,
 ):
@@ -52,8 +52,6 @@ def run_sql_with_exceptions(
         configuration, such as when the sharded flag is set for roles other than DATA.
     """
 
-    node_roles = node_roles or [NodeRole.DATA]
-
     def run_migration():
         if "ON CLUSTER" in sql:
             logger.error("ON CLUSTER is not supposed to used in migration, query: %s", sql)
@@ -63,13 +61,13 @@ def run_sql_with_exceptions(
         query = Query(sql)
         if sharded:
             assert (
-                NodeRole.DATA in node_roles and len(node_roles) == 1
+                node_role == NodeRole.DATA
             ), "When running migrations on sharded tables, the node_role must be NodeRole.DATA"
             return cluster.map_one_host_per_shard(query).result()
         elif is_alter_on_replicated_table:
             logger.info("       Running ALTER on replicated table on just one host")
-            return cluster.any_host_by_roles(query, node_roles=node_roles).result()
+            return cluster.any_host(query, node_role=node_role).result()
         else:
-            return cluster.map_hosts_by_roles(query, node_roles=node_roles).result()
+            return cluster.map_hosts_by_role(query, node_role=node_role).result()
 
     return migrations.RunPython(lambda _: run_migration())
