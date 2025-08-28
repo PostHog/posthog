@@ -61,7 +61,6 @@
         "typescript:check": "tsc --noEmit -p .",
         "storybook": "storybook dev -p 6006",
         "build-storybook": "storybook build",
-        "deploy-storybook": "storybook-to-ghpages",
         "prettier": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css,md}\"",
         "prettier:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,json,css,md}\"",
         "test:visual": "playwright test",
