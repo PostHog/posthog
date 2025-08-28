@@ -77,6 +77,7 @@ class SingleSessionSummaryManager(models.Manager["SingleSessionSummary"]):
         run_metadata_dict = asdict(run_metadata) if run_metadata else None
         # No constraints of adding the summary for the same session.
         # It should be impossible, but we get the latest version anyways, even if it happens miracously.
+        # I also see value later in storing summaries with/without visual confirmation, different models, etc.
         self.create(
             team_id=team_id,
             session_id=session_id,
@@ -116,6 +117,8 @@ class SingleSessionSummaryManager(models.Manager["SingleSessionSummary"]):
         db_results = db_results[:limit]
         # Filter by the context in Python to ensure the proper match
         if extra_summary_context is not None:
+            # Post-filtering could return 0 summaries (if context not matched),
+            # but has_next is calculated on DB-level-results, so the pagination would work properly
             extra_summary_context_dict = asdict(extra_summary_context)
             filtered_summaries = [s for s in db_results if s.extra_summary_context == extra_summary_context_dict]
         else:
