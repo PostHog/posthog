@@ -33,6 +33,7 @@ export function MaxTool({
     context,
     introOverride,
     callback,
+    suggestions,
     children: Children,
     active = true,
     initialMaxPrompt,
@@ -59,6 +60,7 @@ export function MaxTool({
                 icon,
                 context,
                 introOverride,
+                suggestions,
                 callback,
             })
             return (): void => {
@@ -73,6 +75,7 @@ export function MaxTool({
         icon,
         JSON.stringify(context),
         introOverride,
+        JSON.stringify(suggestions),
         callback,
         registerTool,
         deregisterTool,
@@ -113,7 +116,15 @@ export function MaxTool({
                         )}
                         type="button"
                         onClick={() => {
-                            openSidePanel(SidePanelTab.Max, initialMaxPrompt)
+                            // Include both initial prompt and suggestions
+                            let options = initialMaxPrompt
+                            if (suggestions && suggestions.length > 0) {
+                                options = JSON.stringify({
+                                    prompt: initialMaxPrompt,
+                                    suggestions: suggestions,
+                                })
+                            }
+                            openSidePanel(SidePanelTab.Max, options)
                             onMaxOpen?.()
                         }}
                     >

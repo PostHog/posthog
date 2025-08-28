@@ -49,12 +49,44 @@ const HEADLINES = [
 ]
 
 /**
- * Setting the initial prompt from side panel options.
+ * Setting the initial prompt from side panel options when clicking the MaxTool button.
  */
 function handleInitialPrompt(
-    actions: { setQuestion: (question: string) => void; setAutoRun: (autoRun: boolean) => void },
-    options: string
+    actions: {
+        setQuestion: (question: string) => void
+        setAutoRun: (autoRun: boolean) => void
+        setActiveGroup: (group: SuggestionGroup | null) => void
+    },
+    options: string,
+    allSuggestions: readonly SuggestionGroup[]
 ): void {
+    try {
+        const parsed = JSON.parse(options)
+        if (parsed.prompt !== undefined) {
+            const cleanedQuestion = parsed.prompt.replace(/^!/, '')
+            actions.setQuestion(cleanedQuestion)
+            if (parsed.prompt.startsWith('!')) {
+                actions.setAutoRun(true)
+            }
+
+            // Handle suggestions (if provided)
+            if (parsed.suggestions && parsed.suggestions.length > 0) {
+                const matchingGroup = allSuggestions.find((group) =>
+                    parsed.suggestions.some((suggestion: string) =>
+                        group.suggestions?.some((groupSuggestion) => groupSuggestion.content === suggestion)
+                    )
+                )
+                if (matchingGroup) {
+                    actions.setActiveGroup(matchingGroup)
+                }
+            }
+            return
+        }
+    } catch {
+        // Fallback
+    }
+
+    // Legacy handling for simple string options
     const cleanedQuestion = options.replace(/^!/, '')
     actions.setQuestion(cleanedQuestion)
     if (options.startsWith('!')) {
@@ -68,7 +100,7 @@ export const maxLogic = kea<maxLogicType>([
     connect(() => ({
         values: [
             maxGlobalLogic,
-            ['dataProcessingAccepted', 'tools'],
+            ['dataProcessingAccepted', 'tools', 'toolSuggestions'],
             maxSettingsLogic,
             ['coreMemory'],
             // Actions are lazy-loaded. In order to display their names in the UI, we're loading them here.
@@ -301,13 +333,30 @@ export const maxLogic = kea<maxLogicType>([
                 return frontendConversationId
             },
         ],
+        allSuggestions: [
+            (s) => [s.toolSuggestions],
+            (toolSuggestions: string[]): readonly SuggestionGroup[] => {
+                // If we have MaxTool suggestions, show only those
+                if (toolSuggestions && toolSuggestions.length > 0) {
+                    return [
+                        {
+                            label: 'Suggestions',
+                            icon: <IconGraph />,
+                            suggestions: toolSuggestions.map((content: string) => ({ content })),
+                        },
+                    ]
+                }
+
+                return QUESTION_SUGGESTIONS_DATA
+            },
+        ],
     }),
 
     listeners(({ actions, values }) => ({
-        // Listen for when the side panel state changes and check for initial prompt
+        // Listen for when the side panel state changes and check for initial prompt and suggestions
         [sidePanelStateLogic.actionTypes.openSidePanel]: ({ tab, options }) => {
             if (tab === SidePanelTab.Max && options && typeof options === 'string') {
-                handleInitialPrompt(actions, options)
+                handleInitialPrompt(actions, options, values.allSuggestions)
             }
         },
         scrollThreadToBottom: ({ behavior }) => {
@@ -423,7 +472,7 @@ export const maxLogic = kea<maxLogicType>([
             sidePanelStateLogic.values.selectedTabOptions &&
             typeof sidePanelStateLogic.values.selectedTabOptions === 'string'
         ) {
-            handleInitialPrompt(actions, sidePanelStateLogic.values.selectedTabOptions)
+            handleInitialPrompt(actions, sidePanelStateLogic.values.selectedTabOptions, values.allSuggestions)
         }
 
         // Load conversation history on mount
