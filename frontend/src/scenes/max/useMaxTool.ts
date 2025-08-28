@@ -19,45 +19,15 @@ export interface UseMaxToolOptions extends Omit<ToolRegistration, 'name' | 'desc
 }
 
 export interface UseMaxToolReturn {
-    /** Whether Max feature is available and tool is active */
-    isMaxAvailable: boolean
-    /** Whether Max panel is currently open */
+    /** Tool definition - null if the tool is inactive (i.e. `active` is false or Max is not available) */
+    definition: (typeof TOOL_DEFINITIONS)[keyof typeof TOOL_DEFINITIONS] | null
+    /** Whether the Max side panel is currently open */
     isMaxOpen: boolean
-    /** Function to open Max with optional prompt and suggestions */
-    openMax: () => void
-    /** Tool definition from constants */
-    definition: (typeof TOOL_DEFINITIONS)[keyof typeof TOOL_DEFINITIONS]
+    /** Function to open Max with the optional initial initialMaxPrompt and suggestions - null if the tool is inactive */
+    openMax: (() => void) | null
 }
 
-/**
- * Hook for registering a MaxTool and handling Max interactions without UI components.
- * This allows components to register tools programmatically without needing the full MaxTool wrapper.
- * 
- * Use this hook when you want to:
- * - Register a Max tool from components that can't wrap content with MaxTool
- * - Add Max functionality to dropdown menus or other non-wrappable UI elements
- * - Programmatically control Max tool registration based on complex conditions
- * 
- * The hook handles tool registration/deregistration automatically and provides
- * utilities to open Max with the appropriate context.
- * 
- * @example
- * ```tsx
- * function MyComponent() {
- *   const { isMaxAvailable, openMax } = useMaxTool({
- *     identifier: 'my_tool',
- *     context: { someData: 'value' },
- *     suggestions: ['Ask Max to help with this feature'],
- *   })
- * 
- *   return (
- *     <button onClick={openMax} disabled={!isMaxAvailable}>
- *       Get Max Help
- *     </button>
- *   )
- * }
- * ```
- */
+/** Hook for registering a MaxTool and handling Max interactions programmatically, without the full MaxTool wrapper. */
 export function useMaxTool({
     identifier,
     icon,
@@ -74,11 +44,15 @@ export function useMaxTool({
     const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
 
     const definition = TOOL_DEFINITIONS[identifier as keyof typeof TOOL_DEFINITIONS]
-    const isMaxAvailable = useFeatureFlag('ARTIFICIAL_HOG') && active
+    const isMaxAvailable = useFeatureFlag('ARTIFICIAL_HOG')
     const isMaxOpen = isMaxAvailable && sidePanelOpen && selectedTab === SidePanelTab.Max
 
-    // Register/deregister tool effect
+    if (!isMaxAvailable) {
+        active = false
+    }
+
     useEffect(() => {
+        // Register/deregister tool
         if (active) {
             registerTool({
                 identifier,
@@ -90,9 +64,7 @@ export function useMaxTool({
                 suggestions,
                 callback,
             })
-            return (): void => {
-                deregisterTool(identifier)
-            }
+            return (): void => deregisterTool(identifier)
         }
     }, [
         active,
@@ -100,33 +72,30 @@ export function useMaxTool({
         definition.name,
         definition.description,
         icon,
-        JSON.stringify(context),
+        JSON.stringify(context), // oxlint-disable-line react-hooks/exhaustive-deps
         introOverride,
-        JSON.stringify(suggestions),
+        JSON.stringify(suggestions), // oxlint-disable-line react-hooks/exhaustive-deps
         callback,
         registerTool,
         deregisterTool,
-    ]) // oxlint-disable-line react-hooks/exhaustive-deps
-
-    const openMax = (): void => {
-        if (!isMaxAvailable) return
-
-        // Include both initial prompt and suggestions
-        let options = initialMaxPrompt
-        if (suggestions && suggestions.length > 0) {
-            options = JSON.stringify({
-                prompt: initialMaxPrompt,
-                suggestions: suggestions,
-            })
-        }
-        openSidePanel(SidePanelTab.Max, options)
-        onMaxOpen?.()
-    }
+    ])
 
     return {
-        isMaxAvailable,
+        definition: active ? definition : null,
         isMaxOpen,
-        openMax,
-        definition,
+        openMax: !active
+            ? null
+            : (): void => {
+                  // Include both initial prompt and suggestions
+                  let options = initialMaxPrompt
+                  if (suggestions && suggestions.length > 0) {
+                      options = JSON.stringify({
+                          prompt: initialMaxPrompt,
+                          suggestions: suggestions,
+                      })
+                  }
+                  openSidePanel(SidePanelTab.Max, options)
+                  onMaxOpen?.()
+              },
     }
 }

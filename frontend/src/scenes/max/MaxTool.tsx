@@ -38,8 +38,8 @@ export function MaxTool({
     position = 'top-right',
 }: MaxToolProps): JSX.Element {
     const { user } = useValues(userLogic)
-    
-    const { isMaxAvailable, isMaxOpen, openMax, definition } = useMaxTool({
+
+    const { definition, isMaxOpen, openMax } = useMaxTool({
         identifier,
         icon,
         context,
@@ -52,7 +52,7 @@ export function MaxTool({
     })
 
     let content: JSX.Element
-    if (!isMaxAvailable) {
+    if (!definition) {
         content = <>{typeof Children === 'function' ? <Children toolAvailable={false} /> : Children}</>
     } else {
         content = (
@@ -85,7 +85,7 @@ export function MaxTool({
                             position === 'bottom-left' && '-bottom-2 -left-2'
                         )}
                         type="button"
-                        onClick={openMax}
+                        onClick={openMax || undefined}
                     >
                         {/* Burst border - the inset and size vals are very specific just bc these look nice */}
                         <svg className={clsx('absolute -inset-1 size-8')} viewBox="0 0 100 100">
@@ -115,6 +115,3 @@ export function MaxTool({
         </div>
     )
 }
-
-export default MaxTool
-export { useMaxTool } from './useMaxTool'
