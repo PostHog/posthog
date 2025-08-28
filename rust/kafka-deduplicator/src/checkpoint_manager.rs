@@ -6,8 +6,8 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
-use crate::rocksdb::deduplication_store::DeduplicationStore;
 use crate::kafka::types::Partition;
+use crate::rocksdb::deduplication_store::DeduplicationStore;
 
 /// Manages checkpointing and periodic flushing for all deduplication stores
 pub struct CheckpointManager {
@@ -139,7 +139,11 @@ impl CheckpointManager {
             .collect();
 
         for (partition, store) in snapshot {
-            debug!("Flushing store {}:{}", partition.topic(), partition.partition_number());
+            debug!(
+                "Flushing store {}:{}",
+                partition.topic(),
+                partition.partition_number()
+            );
             store.flush()?;
             store.update_metrics()?;
         }
@@ -161,7 +165,9 @@ impl CheckpointManager {
                 let store = entry.value();
                 info!(
                     "Creating checkpoint for {}:{} at {:?}",
-                    key.topic(), key.partition_number(), checkpoint_path
+                    key.topic(),
+                    key.partition_number(),
+                    checkpoint_path
                 );
                 store.create_checkpoint_with_metadata(checkpoint_path)
             }

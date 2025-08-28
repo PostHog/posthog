@@ -244,14 +244,19 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
             Ok(_) => {
                 debug!(
                     "Successfully processed message from topic {} partition {} offset {}",
-                    partition.topic(), partition.partition_number(), offset
+                    partition.topic(),
+                    partition.partition_number(),
+                    offset
                 );
                 // Note: AckableMessage handles the actual acking
             }
             Err(e) => {
                 error!(
                     "Failed to process message from topic {} partition {} offset {}: {}",
-                    partition.topic(), partition.partition_number(), offset, e
+                    partition.topic(),
+                    partition.partition_number(),
+                    offset,
+                    e
                 );
                 // Note: AckableMessage should handle nacking in this case
             }

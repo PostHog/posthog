@@ -364,7 +364,8 @@ impl DeduplicationProcessor {
             if let Some(_store) = self.stores.remove(partition) {
                 info!(
                     "Cleaned up deduplication store for revoked partition {}:{}",
-                    partition.topic(), partition.partition_number()
+                    partition.topic(),
+                    partition.partition_number()
                 );
                 // Store will be dropped when Arc goes out of scope
             }

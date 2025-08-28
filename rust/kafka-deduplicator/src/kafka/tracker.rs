@@ -1091,7 +1091,9 @@ mod tests {
             Partition::new("topic1".to_string(), 1),
             Partition::new("topic2".to_string(), 0),
         ];
-        tracker.mark_partitions_active(&partitions_to_activate).await;
+        tracker
+            .mark_partitions_active(&partitions_to_activate)
+            .await;
 
         // Now they should be active
         assert!(
