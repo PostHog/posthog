@@ -197,7 +197,7 @@ def load_pattern_assignments_from_llm_content(
 def create_event_ids_mapping_from_ready_summaries(
     session_summaries: list[SessionSummarySerializer],
 ) -> dict[str, tuple[str, str]]:
-    """Create event_id to event_uuid/session_id mapping from ready summaries"""
+    """Create event_id to (event_uuid, session_id) tuple mapping from ready summaries"""
     combined_event_ids_mapping: dict[str, tuple[str, str]] = {}
     for summary in session_summaries:
         if "key_actions" not in summary.data:
