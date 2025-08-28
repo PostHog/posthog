@@ -100,7 +100,6 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                                     metric: metrics[0] as ExperimentMetric,
                                 }}
                                 experiment={experiment}
-                                metricIndex={0}
                                 isSecondary={!!isSecondary}
                             />
                         </div>
