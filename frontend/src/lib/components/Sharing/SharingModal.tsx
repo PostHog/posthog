@@ -189,15 +189,7 @@ export function SharingModalContent({
                                             fullWidth
                                             label={
                                                 <div className="flex items-center">
-                                                    <TitleWithIcon
-                                                        icon={
-                                                            <Tooltip title="The password is saved in plain-text on our server and, while the shared resource cannot be viewed without it, is best used for secondary auth only. For optimal security, do not circulate the shared link around broadly!">
-                                                                <IconInfo />
-                                                            </Tooltip>
-                                                        }
-                                                    >
-                                                        Password protect
-                                                    </TitleWithIcon>
+                                                    Password protect
                                                     {!advancedPermissionsAvailable && (
                                                         <Tooltip title="This is a premium feature, click to learn more.">
                                                             <IconLock className="ml-1.5 text-muted text-lg" />

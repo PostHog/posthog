@@ -134,7 +134,7 @@ class SharingConfigurationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SharingConfiguration
-        fields = ["created_at", "enabled", "access_token", "password", "password_required", "share_passwords"]
+        fields = ["created_at", "enabled", "access_token", "password_required", "share_passwords"]
         read_only_fields = ["created_at", "access_token", "share_passwords"]
 
     def get_share_passwords(self, obj):
@@ -349,8 +349,22 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
     4. Export downloading - used to download the actual content of an export if requested with the correct extension
     """
 
+    # Only use sharing-specific authentication, ignore regular PostHog auth
     authentication_classes = [SharingPasswordProtectedAuthentication, SharingAccessTokenAuthentication]
     permission_classes = []
+    serializer_class = SharingConfigurationSerializer  # Required by DRF but not used in practice
+
+    def initial(self, request, *args, **kwargs):
+        """Override to ensure we don't apply any session authentication."""
+        # Save and clear any existing user to ensure we start fresh
+        self._original_user = getattr(request, "user", None)
+        request.user = None
+        super().initial(request, *args, **kwargs)
+        # If no sharing auth succeeded, ensure user is anonymous
+        if not request.user:
+            from django.contrib.auth.models import AnonymousUser
+
+            request.user = AnonymousUser()
 
     def get_object(self) -> Optional[SharingConfiguration | ExportedAsset]:
         # JWT based access (ExportedAsset)

@@ -334,18 +334,21 @@ class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, Any]]:
         if sharing_access_token := request.GET.get("sharing_access_token"):
             if request.method not in ["GET", "HEAD"]:
-                raise AuthenticationFailed(detail="Sharing access token can only be used for GET requests.")
+                # Don't raise an exception, just don't authenticate
+                return None
             try:
                 sharing_configuration = SharingConfiguration.objects.get(
                     access_token=sharing_access_token, enabled=True
                 )
 
-                # If password is required, deny access via direct access_token
+                # If password is required, don't authenticate via direct access_token
+                # Let the view handle showing the unlock page
                 if sharing_configuration.password_required:
-                    raise AuthenticationFailed(detail="Password-protected shares require JWT token authentication.")
+                    return None
 
             except SharingConfiguration.DoesNotExist:
-                raise AuthenticationFailed(detail="Sharing access token is invalid.")
+                # Don't raise an exception, just don't authenticate
+                return None
             else:
                 self.sharing_configuration = sharing_configuration
                 return (AnonymousUser(), None)
@@ -364,7 +367,10 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
         # Look for JWT token in Authorization header first (for API calls)
         sharing_jwt_token = None
         auth_header = request.META.get("HTTP_AUTHORIZATION", "")
-        if auth_header.startswith("Bearer "):
+
+        # Only process Bearer tokens that look like our sharing JWT tokens
+        # This prevents interference with other Bearer tokens (e.g., personal API keys)
+        if auth_header.startswith("Bearer ") and "sharing_config_id" in auth_header:
             sharing_jwt_token = auth_header[7:]  # Remove 'Bearer ' prefix
         # If no Bearer token, check for JWT in cookie (for rendering decisions)
         elif hasattr(request, "COOKIES") and request.COOKIES.get("posthog_sharing_token"):
@@ -374,7 +380,8 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
             return None
 
         if request.method not in ["GET", "HEAD"]:
-            raise AuthenticationFailed(detail="Sharing JWT token can only be used for GET requests.")
+            # Don't raise an exception, just don't authenticate
+            return None
 
         try:
             payload = decode_jwt(sharing_jwt_token, PosthogJwtAudience.SHARING_PASSWORD_PROTECTED)
@@ -385,13 +392,16 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
 
             # Verify the access token matches (prevents token reuse across different shares)
             if sharing_configuration.access_token != payload.get("access_token"):
-                raise AuthenticationFailed(detail="Invalid sharing token.")
+                # Don't raise an exception, just don't authenticate
+                return None
 
             # Note: URL-specific validation (ensuring JWT matches the specific share in the URL)
             # is handled in SharingViewerPageViewSet.get_object() where we already parse the URL
 
         except (jwt.InvalidTokenError, SharingConfiguration.DoesNotExist, KeyError):
-            raise AuthenticationFailed(detail="Invalid or expired sharing token.")
+            # Don't raise an exception, just don't authenticate
+            # This allows the view to show the unlock page
+            return None
         else:
             self.sharing_configuration = sharing_configuration
             return (AnonymousUser(), None)

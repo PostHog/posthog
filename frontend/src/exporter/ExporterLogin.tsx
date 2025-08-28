@@ -12,13 +12,15 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { ERROR_MESSAGES } from 'scenes/authentication/Login'
 import { SupportModalButton } from 'scenes/authentication/SupportModalButton'
 
+import type { loginLogicType } from './ExporterLoginType'
+
 // No separate type file needed - TypeScript will infer types
 
 export interface LoginForm {
     password: string
 }
 
-export const loginLogic = kea([
+export const loginLogic = kea<loginLogicType>([
     path(['exporter', 'ExporterLogin']),
     actions({
         setGeneralError: (code: string, detail: string) => ({ code, detail }),

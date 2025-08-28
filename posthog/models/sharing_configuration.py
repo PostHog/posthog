@@ -50,7 +50,6 @@ class SharingConfiguration(models.Model):
     settings = models.JSONField(null=True, blank=True, help_text="JSON settings for storing configuration options")
 
     password_required = models.BooleanField(default=False, null=True, blank=True)
-    password = models.CharField(max_length=256, null=True, blank=True, unique=False)
 
     def rotate_access_token(self) -> "SharingConfiguration":
         """Create a new sharing configuration and expire the current one"""
