@@ -34,6 +34,7 @@ from posthog.hogql_queries.web_analytics.pre_aggregated.properties import (
     EVENT_PROPERTY_TO_FIELD,
     SESSION_PROPERTY_TO_FIELD,
 )
+from posthog.hogql_queries.web_analytics.pre_aggregated.query_builder import get_stats_table
 
 _T_AST = TypeVar("_T_AST", bound=AST)
 
@@ -61,9 +62,7 @@ def flatten_and(node: Optional[ast.Expr]) -> list[ast.Expr]:
 
 def is_event_field(field: ast.Field) -> bool:
     """Check if a field represents an event property."""
-    return (
-        field.chain == ["event"] or (len(field.chain) == 2 and field.chain[1] == "event")  # table_alias.event
-    )
+    return field.chain == ["event"] or (len(field.chain) == 2 and field.chain[1] == "event")  # table_alias.event
 
 
 def is_pageview_filter(expr: ast.Expr) -> bool:
@@ -352,7 +351,7 @@ def _shallow_transform_select(node: ast.SelectQuery, context: HogQLContext) -> a
 
     # TODO right now we only have the one preaggregated table that is supported, but in the future could support more.
     # We could even make them unique per team (depending on what the team queries) or allow them to be user-defined.
-    table_name = "web_stats_daily"
+    table_name = get_stats_table(True)
 
     # Bail if any unsupported part of the SELECT query exist
     # Some of these could be supported in the future, if you add them, make sure you add some tests!
