@@ -50,7 +50,7 @@ class SQLFunctionCorrectness(Scorer):
     def _name(self):
         return "sql_function_correctness"
 
-    def _extract_functions_from_sql(self, sql_query: ast.SelectQuery) -> set[str]:
+    def _extract_functions_from_sql(self, sql_query: ast.SelectQuery | ast.SelectSetQuery) -> set[str]:
         """Extract all function names from SQL query using AST parsing."""
 
         class FunctionNameCollector(TraversingVisitor):
