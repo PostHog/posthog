@@ -1,12 +1,17 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { LemonSelect } from '@posthog/lemon-ui'
+
 import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 
 import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
 import { ChartDisplayType } from '~/types'
+
+import { campaignLogic } from './campaignLogic'
+import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
 
 const METRICS_INFO = {
     succeeded: 'Total number of events processed successfully',
@@ -25,6 +30,7 @@ export type CampaignMetricsProps = {
 
 export function CampaignMetrics({ id }: CampaignMetricsProps): JSX.Element {
     const logicKey = `hog-flow-metrics-${id}`
+
     const logic = appMetricsLogic({
         logicKey,
         loadOnChanges: true,
@@ -36,8 +42,10 @@ export function CampaignMetrics({ id }: CampaignMetricsProps): JSX.Element {
         },
     })
 
-    const { appMetricsTrendsLoading, getSingleTrendSeries, appMetricsTrends } = useValues(logic)
-    const { loadAppMetricsTrends, loadAppMetricsTrendsPreviousPeriod } = useActions(logic)
+    const { campaign } = useValues(campaignLogic({ id }))
+
+    const { appMetricsTrendsLoading, getSingleTrendSeries, appMetricsTrends, params } = useValues(logic)
+    const { loadAppMetricsTrends, loadAppMetricsTrendsPreviousPeriod, setParams } = useActions(logic)
 
     useEffect(() => {
         loadAppMetricsTrends()
@@ -46,7 +54,38 @@ export function CampaignMetrics({ id }: CampaignMetricsProps): JSX.Element {
 
     return (
         <div>
-            <AppMetricsFilters logicKey={logicKey} />
+            <div className="flex flex-row gap-2 mb-2 flex-wrap justify-between">
+                <div className="flex flex-row gap-2 flex-wrap justify-center">
+                    <LemonSelect
+                        size="small"
+                        options={[
+                            {
+                                title: 'Workflow',
+                                options: [
+                                    {
+                                        label: 'Overview',
+                                        value: null,
+                                    },
+                                ],
+                            },
+                            {
+                                title: 'Workflow steps',
+                                options: campaign.actions.map((action) => ({
+                                    label: (
+                                        <span className="flex items-center gap-1">
+                                            {getHogFlowStep(action.type)?.icon} {getHogFlowStep(action.type)?.name}
+                                        </span>
+                                    ),
+                                    value: action.id,
+                                })),
+                            },
+                        ]}
+                        value={params.instanceId ?? null}
+                        onChange={(value) => setParams({ ...params, instanceId: value ?? undefined })}
+                    />
+                </div>
+                <AppMetricsFilters logicKey={logicKey} />
+            </div>
 
             <div className="flex flex-row gap-2 mb-2 flex-wrap justify-center">
                 <AppMetricSummary
