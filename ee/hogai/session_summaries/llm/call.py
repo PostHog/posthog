@@ -15,6 +15,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.utils import get_instance_region
 
 from ee.hogai.session_summaries.constants import (
+    BASE_LLM_CALL_TIMEOUT_S,
     SESSION_SUMMARIES_REASONING_EFFORT,
     SESSION_SUMMARIES_SUPPORTED_REASONING_MODELS,
     SESSION_SUMMARIES_SUPPORTED_STREAMING_MODELS,
@@ -107,6 +108,7 @@ async def stream_llm(
         user=user_param,
         stream=True,
         posthog_trace_id=trace_id,
+        timeout=BASE_LLM_CALL_TIMEOUT_S,
     )
     return stream
 
@@ -133,6 +135,7 @@ async def call_llm(
             temperature=SESSION_SUMMARIES_TEMPERATURE,
             user=user_param,
             posthog_trace_id=trace_id,
+            timeout=BASE_LLM_CALL_TIMEOUT_S,
         )
     elif model in SESSION_SUMMARIES_SUPPORTED_REASONING_MODELS:
         result = await client.chat.completions.create(  # type: ignore[call-overload]
@@ -141,6 +144,7 @@ async def call_llm(
             reasoning_effort=SESSION_SUMMARIES_REASONING_EFFORT,
             user=user_param,
             posthog_trace_id=trace_id,
+            timeout=BASE_LLM_CALL_TIMEOUT_S,
         )
     else:
         raise ValueError(
