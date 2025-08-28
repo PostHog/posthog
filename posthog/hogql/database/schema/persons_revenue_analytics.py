@@ -74,7 +74,7 @@ def select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.Se
         # Otherwise, we need to join with the persons table by checking whether it exists
         person_id_chain: list[str | int] | None = None
         if customer_view.is_event_view():
-            person_id_chain = [RevenueAnalyticsCustomerView.get_generic_view_alias(), "person_id"]
+            person_id_chain = [RevenueAnalyticsCustomerView.get_generic_view_alias(), "id"]
         else:
             persons_lazy_join = customer_view.fields.get("persons")
             if persons_lazy_join is not None and isinstance(persons_lazy_join, ast.LazyJoin):
