@@ -85,13 +85,11 @@ class VercelInstallationViewSet(VercelErrorResponseMixin, viewsets.GenericViewSe
         """
         Implements: https://vercel.com/docs/integrations/create-integration/marketplace-api#upsert-installation
         """
-        serializer = UpdateInstallationPayloadSerializer(data=request.data)
+        serializer = UpsertInstallationPayloadSerializer(data=request.data)
         if not serializer.is_valid():
             raise exceptions.ValidationError(detail=serializer.errors)
 
-        VercelIntegration.upsert_installation(
-            self.kwargs["installation_id"], serializer.validated_data.get("billingPlanId")
-        )
+        VercelIntegration.upsert_installation(self.kwargs["installation_id"], serializer.validated_data)
         return Response(status=204)
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:

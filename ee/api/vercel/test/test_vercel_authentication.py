@@ -127,8 +127,8 @@ class TestVercelAuthentication(SimpleTestCase):
 
     def test_missing_authorization_header(self, mock_get_jwks):
         request = self.factory.get("/", HTTP_X_VERCEL_AUTH="user")
-        result = self.auth.authenticate(request)
-        assert result is None
+        self.auth.authenticate(request)
+        assert "Missing Token for Vercel request"
 
     def test_missing_vercel_auth_header(self, mock_get_jwks):
         token = self._token()

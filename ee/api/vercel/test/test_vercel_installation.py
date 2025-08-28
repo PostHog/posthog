@@ -42,8 +42,8 @@ class TestVercelInstallationAPI(VercelTestBase):
             kwargs.update(content_type="application/json", data=json.dumps(data))
         return getattr(self.client, method)(url, **headers, **kwargs)
 
-    @patch("ee.vercel.integration.VercelIntegration.get_installation")
-    def test_retrieve_calls_get_installation(self, mock_get):
+    @patch("ee.vercel.integration.VercelIntegration.get_installation_billing_plan")
+    def test_retrieve_calls_get_installation_billing_plan(self, mock_get):
         mock_get.return_value = {"billingplan": {"id": "free"}}
         response = self._request("get", auth_type="system")
 
@@ -58,12 +58,12 @@ class TestVercelInstallationAPI(VercelTestBase):
         assert response.status_code == status.HTTP_200_OK
         mock_plans.assert_called_once()
 
-    @patch("ee.vercel.integration.VercelIntegration.upsert_installation")
-    def test_update_calls_upsert_installation(self, mock_upsert):
-        response = self._request("put", data=self.update_payload)
+    @patch("ee.vercel.integration.VercelIntegration.update_installation")
+    def test_update_calls_upsert_installation(self, mock_update):
+        response = self._request("patch", data=self.update_payload)
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
-        mock_upsert.assert_called_once_with(self.installation_id, "pro200")
+        mock_update.assert_called_once_with(self.installation_id, "pro200")
 
     @patch("ee.vercel.integration.VercelIntegration.update_installation")
     def test_partial_update_calls_update_installation(self, mock_update):
@@ -74,16 +74,10 @@ class TestVercelInstallationAPI(VercelTestBase):
 
     @patch("ee.vercel.integration.VercelIntegration.upsert_installation")
     def test_create_calls_upsert_installation(self, mock_upsert):
-        response = self._request("post", data=self.upsert_payload)
+        response = self._request("put", data=self.upsert_payload)
 
-        assert response.status_code == status.HTTP_201_CREATED
-        mock_upsert.assert_called_once_with(
-            self.installation_id,
-            self.upsert_payload["scopes"],
-            self.upsert_payload["acceptedPolicies"],
-            self.upsert_payload["credentials"],
-            self.upsert_payload["account"],
-        )
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        mock_upsert.assert_called_once_with(self.installation_id, self.upsert_payload)
 
     @patch("ee.vercel.integration.VercelIntegration.delete_installation")
     def test_destroy_calls_delete_installation(self, mock_delete):
