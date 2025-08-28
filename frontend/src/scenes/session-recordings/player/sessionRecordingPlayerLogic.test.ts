@@ -166,6 +166,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 ])
                 .toFinishAllListeners()
                 .toDispatchActions(['setPlayerError'])
+                .toNotHaveDispatchedActions(['markViewed'])
 
             expect(logic.values).toMatchObject({
                 sessionPlayerData: {

@@ -668,10 +668,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     case isScrubbing:
                         // If scrubbing, playingState takes precedence
                         return playingState
-                    case !snapshotsLoaded && !snapshotsLoading:
-                        return SessionPlayerState.READY
                     case !!playerError?.trim().length:
                         return SessionPlayerState.ERROR
+                    case !snapshotsLoaded && !snapshotsLoading:
+                        return SessionPlayerState.READY
                     case isSkippingInactivity && playingState !== SessionPlayerState.PAUSE:
                         return SessionPlayerState.SKIP
                     case isBuffering:
@@ -1117,10 +1117,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (nextTimestamp !== undefined) {
                 actions.seekToTimestamp(nextTimestamp, true)
             }
-
-            if (!values.wasMarkedViewed) {
-                actions.markViewed(0)
-            }
         },
         markViewed: async ({ delay }, breakpoint) => {
             // Triggered on first paint
@@ -1537,6 +1533,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     currentPlayerTime: values.currentPlayerTime,
                     error: next,
                 })
+            }
+        },
+        currentPlayerState: (next) => {
+            if (next === SessionPlayerState.PLAY && !values.wasMarkedViewed) {
+                actions.markViewed(0)
             }
         },
     })),
