@@ -80,7 +80,7 @@ jobs:
                   restore-keys: ${{ runner.os }}-pnpm-embedded-
 
             - name: Install package.json dependencies with pnpm
-              if: needs.changes.outputs.frontend == 'true'
+              if: needs.changes.outputs.Embedded-Analytics-UI == 'true'
               run: |
                   pnpm --filter=@posthog/embedded-analytics-ui install --frozen-lockfile
 
