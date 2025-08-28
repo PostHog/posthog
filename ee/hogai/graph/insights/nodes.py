@@ -1,4 +1,5 @@
 import re
+import time
 import warnings
 from datetime import timedelta
 from typing import Literal
@@ -276,15 +277,44 @@ class InsightSearchNode(AssistantNode):
         end_idx = start_idx + self._page_size
 
         insights_qs = self._get_insights_queryset()[start_idx:end_idx]
-        logger.warning(f"Executing async query for page {page_number}")
-
-        import time
+        logger.warning(f"Executing async query for page {page_number} (range: {start_idx}-{end_idx})")
 
         db_start = time.time()
         page_insights = []
-        async for i in insights_qs:
-            page_insights.append(i)
-            logger.debug(f"Loaded insight {i.id}: {i.name or i.derived_name}")
+        insight_count = 0
+        try:
+            logger.warning(f"Starting async iteration for page {page_number}")
+
+            last_progress_time = time.time()
+
+            async for i in insights_qs:
+                insight_count += 1
+                page_insights.append(i)
+                current_time = time.time()
+
+                # Log progress every 100 insights or every 10 seconds in order to understand why we are getting stuck
+                if insight_count % 100 == 0 or (current_time - last_progress_time) > 10:
+                    elapsed_so_far = current_time - db_start
+                    logger.warning(
+                        f"Progress: loaded {insight_count} insights for page {page_number} in {elapsed_so_far:.2f}s"
+                    )
+                    last_progress_time = current_time
+
+                # Certain insights may take too long
+                # Certain insights may take too long - check against db_start instead of last_progress_time
+                if (current_time - db_start) > 5 and insight_count == 1:
+                    logger.warning(f"Slow insight processing detected for page {page_number}, insight #{insight_count}")
+
+            logger.warning(f"Async iteration completed for page {page_number}, total insights: {insight_count}")
+
+        except Exception as e:
+            elapsed_on_error = time.time() - db_start
+            logger.error(
+                f"Exception during async iteration for page {page_number} after {elapsed_on_error:.2f}s, loaded {insight_count} insights: {e}",
+                exc_info=True,
+            )
+            raise
+
         db_elapsed = time.time() - db_start
 
         logger.warning(

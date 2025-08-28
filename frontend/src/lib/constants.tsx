@@ -247,6 +247,7 @@ export const FEATURE_FLAGS = {
     ALWAYS_QUERY_BLOCKING: 'always-query-blocking', // owner: @timgl
     GET_HOG_TEMPLATES_FROM_DB: 'get-hog-templates-from-db', // owner: @meikel #team-
     BLOCKING_EXPORTS: 'blocking-exports', // owner: @aspicer #team-product-analytics
+    SSE_DASHBOARDS: 'sse-dashboards', // owner: @aspicer #team-product-analytics
     LINKS: 'links', // owner: @marconlp #team-link
     GAME_CENTER: 'game-center', // owner: everybody
     USER_INTERVIEWS: 'user-interviews', // owner: @Twixes @jurajmajerik
@@ -287,6 +288,7 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_RATIO_METRIC: 'experiments-ratio-metric', // owner: @andehen #team-experiments
     CDP_NEW_PRICING: 'cdp-new-pricing', // owner: #team-messaging
     COMMENT_TEXT_FILTERING: 'comment-text-filtering', // owner: @pauldambra #team-replay
+    IMPROVED_COOKIELESS_MODE: 'improved-cookieless-mode', // owner: @robbie-c #team-web-analytics
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

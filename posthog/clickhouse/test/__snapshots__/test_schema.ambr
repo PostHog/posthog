@@ -2116,6 +2116,8 @@
       lc_id String,
       lc_route_id String,
       lc_access_method LowCardinality(String),
+      lc_api_key_label String,
+      lc_api_key_mask String,
   
       lc_query_type LowCardinality(String),
       lc_product LowCardinality(String),
@@ -4642,6 +4644,8 @@
       lc_id String,
       lc_route_id String,
       lc_access_method LowCardinality(String),
+      lc_api_key_label String,
+      lc_api_key_mask String,
   
       lc_query_type LowCardinality(String),
       lc_product LowCardinality(String),
