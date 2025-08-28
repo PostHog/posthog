@@ -3,7 +3,7 @@ from typing import cast
 
 from langchain_core.prompts import ChatPromptTemplate
 
-from posthog.schema import AssistantHogQLQuery, HogQLQueryModifiers
+from posthog.schema import AssistantHogQLQuery
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -14,7 +14,7 @@ from posthog.hogql.errors import (
     ResolutionError,
 )
 from posthog.hogql.parser import parse_select
-from posthog.hogql.placeholders import find_placeholders, replace_placeholders
+from posthog.hogql.placeholders import FindPlaceholders, find_placeholders, replace_placeholders
 from posthog.hogql.printer import print_ast, print_prepared_ast
 
 from posthog.sync import database_sync_to_async
@@ -49,7 +49,7 @@ class HogQLGeneratorMixin(AssistantContextMixin):
             database=database,
             enable_select_queries=True,
             limit_top_select=False,
-            modifiers=HogQLQueryModifiers(looseSyntax=True),
+            loose_syntax=True,
         )
         return hogql_context
 
@@ -82,6 +82,19 @@ class HogQLGeneratorMixin(AssistantContextMixin):
         cleaned_query = result.query.rstrip(";").strip() if result.query else ""
         return SQLSchemaGeneratorOutput(query=AssistantHogQLQuery(query=cleaned_query))
 
+    def _handle_placeholders_query(
+        self, finder: FindPlaceholders, parsed_query: ast.SelectQuery | ast.SelectSetQuery, hogql_context: HogQLContext
+    ) -> str:
+        dummy_placeholders: dict[str, ast.Expr] = {
+            str(field[0]): ast.Constant(value=1) for field in finder.placeholder_fields
+        }
+        if finder.has_filters:
+            dummy_placeholders["filters"] = ast.Constant(value=1)
+        validated_query = cast(ast.SelectQuery, replace_placeholders(parsed_query, dummy_placeholders))
+        print_ast(validated_query, context=hogql_context, dialect="hogql")
+
+        return print_prepared_ast(parsed_query, context=hogql_context, dialect="hogql")
+
     @database_sync_to_async(thread_sensitive=False)
     def _quality_check_output(self, output: SQLSchemaGeneratorOutput):
         database = self._get_database()
@@ -95,15 +108,7 @@ class HogQLGeneratorMixin(AssistantContextMixin):
             # Replace placeholders with dummy values to compile the generated query.
             finder = find_placeholders(parsed_query)
             if finder.placeholder_fields or finder.has_filters:
-                dummy_placeholders: dict[str, ast.Expr] = {
-                    str(field[0]): ast.Constant(value=1) for field in finder.placeholder_fields
-                }
-                if finder.has_filters:
-                    dummy_placeholders["filters"] = ast.Constant(value=1)
-                validated_query = cast(ast.SelectQuery, replace_placeholders(parsed_query, dummy_placeholders))
-                print_ast(validated_query, context=hogql_context, dialect="hogql")
-
-                return print_prepared_ast(parsed_query, context=hogql_context, dialect="hogql")
+                return self._handle_placeholders_query(finder, parsed_query, hogql_context)
 
             return print_ast(parsed_query, context=hogql_context, dialect="hogql")
         except (ExposedHogQLError, HogQLNotImplementedError, ResolutionError) as err:

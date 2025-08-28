@@ -63,6 +63,9 @@ class HogQLContext:
 
     property_swapper: Optional["PropertySwapper"] = None
 
+    # Whether to use loose syntax for the query
+    loose_syntax: bool = False
+
     def __post_init__(self):
         if self.team:
             self.team_id = self.team.id

@@ -16,7 +16,9 @@ def test_get_schema_description(snapshot):
 
     query = "select * from events"
     database = create_hogql_database(team.id)
-    hogql_context = HogQLContext(team_id=team.id, enable_select_queries=True, database=database)
+    hogql_context = HogQLContext(
+        team_id=team.id, enable_select_queries=True, database=database, loose_syntax=True, limit_top_select=False
+    )
 
     res = _get_schema_description({"hogql_query": query}, hogql_context, database)
 
@@ -43,7 +45,9 @@ def test_get_user_prompt(snapshot):
 
     query = "select * from events"
     database = create_hogql_database(team.id)
-    hogql_context = HogQLContext(team_id=team.id, enable_select_queries=True, database=database)
+    hogql_context = HogQLContext(
+        team_id=team.id, enable_select_queries=True, database=database, loose_syntax=True, limit_top_select=False
+    )
 
     schema_description = _get_schema_description({"hogql_query": query}, hogql_context, database)
 

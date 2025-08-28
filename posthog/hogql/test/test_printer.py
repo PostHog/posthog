@@ -2566,12 +2566,8 @@ class TestPrinter(BaseTest):
 
     def test_loose_syntax_function_normalization(self):
         """Test function name normalization with loose_syntax parameter."""
-        loose_context = HogQLContext(
-            team_id=self.team.pk, enable_select_queries=True, modifiers=HogQLQueryModifiers(looseSyntax=True)
-        )
-        strict_context = HogQLContext(
-            team_id=self.team.pk, enable_select_queries=True, modifiers=HogQLQueryModifiers(looseSyntax=False)
-        )
+        loose_context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, loose_syntax=True)
+        strict_context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, loose_syntax=False)
 
         # Test basic function normalization - aggregation functions
         query_ast = parse_select("SELECT COUNT() FROM events")

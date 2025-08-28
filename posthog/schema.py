@@ -3866,7 +3866,6 @@ class HogQLQueryModifiers(BaseModel):
     debug: Optional[bool] = None
     formatCsvAllowDoubleQuotes: Optional[bool] = None
     inCohortVia: Optional[InCohortVia] = None
-    looseSyntax: Optional[bool] = None
     materializationMode: Optional[MaterializationMode] = None
     optimizeJoinedFilters: Optional[bool] = None
     personsArgMaxVersion: Optional[PersonsArgMaxVersion] = None
