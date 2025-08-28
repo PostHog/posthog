@@ -336,7 +336,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
         return self._get_access_controls(request, is_resource_level=True)
 
     @extend_schema(exclude=True)
-    @action(methods=["GET"], detail=True)
+    @action(methods=["GET", "PUT"], detail=True)
     def global_access_controls(self, request: Request, *args, **kwargs):
         """
         DEPRECATED - use resource_access_controls instead.
