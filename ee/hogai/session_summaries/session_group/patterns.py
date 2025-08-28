@@ -353,14 +353,15 @@ def combine_patterns_ids_with_events_context(
     for pattern_id, event_ids in combined_patterns_assignments.items():
         for event_id in event_ids:
             # Find full session id and event uuid for the event id
-            event_uuid, session_id = combined_event_ids_mappings.get(event_id)
-            if not event_uuid or not session_id:
+            ids_tuple = combined_event_ids_mappings.get(event_id)
+            if not ids_tuple:
                 logger.exception(
-                    f"Event uuid or session id not found for event_id {event_id} when combining patterns with event ids "
+                    f"Event uuid and session id not found for event_id {event_id} when combining patterns with event ids "
                     f"for pattern_id {pattern_id}"
                 )
                 # Skip the event
                 continue
+            event_uuid, session_id = ids_tuple
             pattern_assigned_event = PatternAssignedEvent(
                 event_id=event_id, event_uuid=event_uuid, session_id=session_id
             )

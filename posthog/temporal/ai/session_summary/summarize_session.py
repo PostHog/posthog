@@ -56,15 +56,23 @@ SESSION_SUMMARIES_STREAM_INTERVAL = 0.1  # 100ms
 
 
 @temporalio.activity.defn
-async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> str | None:
+async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> None:
     """Fetch data from DB for a single session and store/cache in Redis (to avoid hitting Temporal memory limits)"""
+    # Check if the summary is already in the DB, so no need to fetch data from DB
+    summary_exists = await database_sync_to_async(SingleSessionSummary.objects.summaries_exist)(
+        team_id=inputs.team_id,
+        session_ids=[inputs.session_id],
+        extra_summary_context=inputs.extra_summary_context,
+    )
+    if summary_exists.get(inputs.session_id):
+        # Skip data fetching as the ready summary will be returned in the next activity
+        return None
+    # If not - check if DB data is already in Redis. If it is and matched the target class - it's within TTL, so no need to re-fetch it from DB
     redis_client, redis_input_key, _ = get_redis_state_client(
         key_base=inputs.redis_key_base,
         input_label=StateActivitiesEnum.SESSION_DB_DATA,
         state_id=inputs.session_id,
     )
-    # Check if DB data is already in Redis. If it is and matched the target class - it's within TTL, so no need to re-fetch it from DB
-    # TODO: Think about edge-cases like stale data for still-running sessions
     success = await get_data_class_from_redis(
         redis_client=redis_client,
         redis_key=redis_input_key,
@@ -185,6 +193,16 @@ async def get_llm_single_session_summary_activity(
 @temporalio.activity.defn
 async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummaryInputs) -> str:
     """Summarize a single session and stream the summary state as it becomes available"""
+    # Check if summary is already in the DB, so no need to summarize again
+    ready_summary = await database_sync_to_async(SingleSessionSummary.objects.get_summary)(
+        team_id=inputs.team_id,
+        session_id=inputs.session_id,
+        extra_summary_context=inputs.extra_summary_context,
+    )
+    if ready_summary is not None:
+        # Return the ready summary straight away
+        return json.dumps(ready_summary.summary)
+    # If not - summarize and stream through Redis
     if not inputs.redis_key_base:
         raise ApplicationError(
             f"Redis key base was not provided when summarizing session {inputs.session_id}: {inputs}",
@@ -377,7 +395,6 @@ def _prepare_execution(
     shared_id = session_id
     # Prepare the input data
     redis_key_base = f"session-summary:single:{user_id}-{team.id}:{shared_id}"
-    # TODO: Write sync state client to use outside of asyncio
     redis_client = get_client()
     redis_input_key = generate_state_key(
         key_base=redis_key_base, label=StateActivitiesEnum.SESSION_DB_DATA, state_id=session_id
@@ -417,7 +434,7 @@ async def execute_summarize_session(
     Start the direct summarization workflow (no streaming) and return the summary.
     Intended to use as a part of other tools or workflows to get more context on summary, so implemented async.
     """
-    _, redis_input_key, redis_output_key, session_input, workflow_id = _prepare_execution(
+    _, _, redis_output_key, session_input, workflow_id = _prepare_execution(
         session_id=session_id,
         user_id=user_id,
         team=team,
@@ -426,7 +443,6 @@ async def execute_summarize_session(
         extra_summary_context=extra_summary_context,
         local_reads_prod=local_reads_prod,
     )
-    # Using async client to avoid blocking
     redis_client = get_async_client()
     # Wait for the workflow to complete
     await _execute_single_session_summary_workflow(inputs=session_input, workflow_id=workflow_id)
