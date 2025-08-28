@@ -73,8 +73,8 @@ export function KanbanView(): JSX.Element {
         index: null,
     })
     const sensors = useSensors(
-        useSensor(MouseSensor),
-        useSensor(TouchSensor),
+        useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
+        useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
         useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
     )
     const findContainer = (item: Active | Over): UniqueIdentifier => {
@@ -236,7 +236,18 @@ export function KanbanView(): JSX.Element {
                                     </div>
                                 )}
                                 <div className="flex justify-between items-center mb-3">
-                                    <h3 className="font-medium text-sm">Column Title</h3>
+                                    <h3 className="font-medium text-sm">
+                                        {(() => {
+                                            const labels: Record<TaskStatus, string> = {
+                                                [TaskStatus.BACKLOG]: 'backlog',
+                                                [TaskStatus.TODO]: 'todo',
+                                                [TaskStatus.IN_PROGRESS]: 'doing',
+                                                [TaskStatus.TESTING]: 'testing',
+                                                [TaskStatus.DONE]: 'done',
+                                            }
+                                            return labels[containerId as TaskStatus]
+                                        })()}
+                                    </h3>
                                     <span className="text-xs text-muted bg-border rounded-full px-2 py-1">
                                         {items[containerId].length}
                                     </span>

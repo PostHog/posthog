@@ -10,10 +10,10 @@ import { urls } from 'scenes/urls'
 
 import { IntegrationKind } from '~/types'
 
-export function ErrorTrackingIntegrations(): JSX.Element {
+export function GithubIntegration(): JSX.Element {
     return (
         <div className="flex flex-col gap-y-6">
-            <Integration kind="linear" />
+            <Integration kind="github" />
         </div>
     )
 }
@@ -22,7 +22,8 @@ const Integration = ({ kind }: { kind: IntegrationKind }): JSX.Element => {
     const { getIntegrationsByKind } = useValues(integrationsLogic)
 
     const name = getIntegrationNameFromKind(kind)
-    const integrations = getIntegrationsByKind([kind])
+    const integrations = getIntegrationsByKind([kind]) || []
+    const integration = integrations?.[0]
 
     const authorizationUrl = api.integrations.authorizeUrl({
         next: urls.errorTrackingConfiguration({ tab: 'error-tracking-integrations' }),
@@ -33,12 +34,10 @@ const Integration = ({ kind }: { kind: IntegrationKind }): JSX.Element => {
         <div className="flex flex-col">
             <h3>{name}</h3>
             <div className="flex flex-col gap-y-2">
-                {integrations?.map((integration) => (
-                    <IntegrationView key={integration.id} integration={integration} />
-                ))}
+                {integration && <IntegrationView key={integration.id} integration={integration} />}
                 <div className="flex">
                     <LemonButton type="secondary" disableClientSideRouting to={authorizationUrl}>
-                        Connect workspace
+                        Connect GitHub
                     </LemonButton>
                 </div>
             </div>
