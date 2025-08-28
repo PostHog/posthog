@@ -562,7 +562,10 @@ def get_source_aggregation_expr(
     if isinstance(source, EventsNode) or isinstance(source, ActionsNode):
         math_type = getattr(source, "math", None)
         if math_type == ExperimentMetricMathType.UNIQUE_SESSION:
-            return parse_expr(f"toFloat(count(distinct {table_alias}.value))")
+            # Clickhouse count NULL and empty values as distinct, so need to explicitly exclude them here
+            return parse_expr(
+                f"toFloat(countDistinctIf({table_alias}.value, {table_alias}.value is not null and {table_alias}.value != ''))"
+            )
         elif math_type == ExperimentMetricMathType.MIN:
             return parse_expr(f"min(coalesce(toFloat({table_alias}.value), 0))")
         elif math_type == ExperimentMetricMathType.MAX:
