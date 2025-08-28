@@ -241,11 +241,13 @@ class TestWebPreaggregatedInserts(WebAnalyticsPreAggregatedTestBase):
             date_start=date_start,
             date_end=date_end,
             team_ids=[self.team.pk],
+            table_name="web_pre_aggregated_bounces",
         )
         stats_insert = WEB_STATS_INSERT_SQL(
             date_start=date_start,
             date_end=date_end,
             team_ids=[self.team.pk],
+            table_name="web_pre_aggregated_stats",
         )
         sync_execute(stats_insert)
         sync_execute(bounces_insert)
@@ -258,6 +260,7 @@ class TestWebPreaggregatedInserts(WebAnalyticsPreAggregatedTestBase):
             date_start="2024-01-01",
             date_end="2024-01-02",
             team_ids=[self.team.pk],
+            table_name="web_pre_aggregated_stats",
         )
 
         expected_stats_columns = get_web_stats_insert_columns()
@@ -274,6 +277,7 @@ class TestWebPreaggregatedInserts(WebAnalyticsPreAggregatedTestBase):
             date_start="2024-01-01",
             date_end="2024-01-02",
             team_ids=[self.team.pk],
+            table_name="web_pre_aggregated_bounces",
         )
 
         expected_bounces_columns = get_web_bounces_insert_columns()
