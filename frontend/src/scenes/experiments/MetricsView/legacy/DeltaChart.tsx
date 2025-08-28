@@ -392,13 +392,18 @@ function ChartSVG({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSVGElement>
 
 // Chart controls component
 function ChartControls(): JSX.Element {
-    const { displayOrder, isSecondary, primaryMetricsLengthWithSharedMetrics, setIsModalOpen } = useDeltaChartContext()
+    const { displayOrder, isSecondary, primaryMetricsLengthWithSharedMetrics, setIsModalOpen, metric } =
+        useDeltaChartContext()
 
     return (
         <>
             {/* Chart is z-index 100, so we need to be above it */}
             <div className="absolute top-2 left-2 z-[102]">
-                <SignificanceHighlight displayOrder={displayOrder} isSecondary={isSecondary} />
+                <SignificanceHighlight
+                    displayOrder={displayOrder}
+                    isSecondary={isSecondary}
+                    metricUuid={metric?.uuid}
+                />
             </div>
             {(isSecondary || (!isSecondary && primaryMetricsLengthWithSharedMetrics > 1)) && (
                 <div
