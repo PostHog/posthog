@@ -38,8 +38,11 @@ class TestProperty(BaseTest):
         scope: Optional[
             Literal["event", "person", "group", "session", "replay", "replay_entity", "revenue_analytics"]
         ] = None,
+        strict: bool = True,
     ):
-        return clear_locations(property_to_expr(property, team=team or self.team, scope=scope or "event"))
+        return clear_locations(
+            property_to_expr(property, team=team or self.team, scope=scope or "event", strict=strict)
+        )
 
     def _selector_to_expr(self, selector: str):
         return clear_locations(selector_to_expr(selector))
@@ -85,7 +88,10 @@ class TestProperty(BaseTest):
             self._parse_expr("group_0.properties.a in ('b', 'c')"),
         )
 
-        self.assertEqual(self._property_to_expr({"type": "group", "key": "a", "value": "b"}), self._parse_expr("1"))
+        # Missing group_type_index
+        self.assertEqual(
+            self._property_to_expr({"type": "group", "key": "a", "value": "b"}, strict=False), self._parse_expr("1")
+        )
 
     def test_property_to_expr_group_scope(self):
         self.assertEqual(
@@ -185,11 +191,13 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._parse_expr("1"),
-            self._property_to_expr({"type": "event", "key": "a", "operator": "icontains"}),  # value missing
+            self._property_to_expr(
+                {"type": "event", "key": "a", "operator": "icontains"}, strict=False
+            ),  # value missing
         )
         self.assertEqual(
             self._parse_expr("1"),
-            self._property_to_expr({}),  # incomplete event
+            self._property_to_expr({}, strict=False),  # incomplete event
         )
         self.assertEqual(
             self._parse_expr("1"),
