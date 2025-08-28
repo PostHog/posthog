@@ -132,7 +132,7 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
                 ),
             }
         })
-        .with({ activity: 'updated' }, (updateLogItem) => {
+        .with({ activity: 'updated' }, ({ detail: updateLogDetail }) => {
             const changes = logItem.detail.changes || []
             /**
              * if there are no changes, we don't need to describe the update.
@@ -143,10 +143,17 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
                         <SentenceList
                             prefix={<strong>{userNameForLogItem(logItem)}</strong>}
                             listParts={['updated']}
-                            suffix={(isSharedMetric ? nameOrLinkToSharedMetric : nameOrLinkToExperiment)(
-                                logItem.detail.name,
-                                logItem.item_id
-                            )}
+                            suffix={match(updateLogDetail)
+                                .with({ type: null }, () =>
+                                    nameOrLinkToExperiment(updateLogDetail.name, logItem.item_id)
+                                )
+                                .with({ type: 'shared_metric' }, () =>
+                                    nameOrLinkToSharedMetric(updateLogDetail.name, logItem.item_id)
+                                )
+                                .with({ type: 'holdout' }, () => <strong>{updateLogDetail.name}</strong>)
+                                .otherwise(() => {
+                                    return null
+                                })}
                         />
                     ),
                 }
