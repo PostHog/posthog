@@ -4,7 +4,6 @@ import { IconInfo } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { IconAreaChart } from 'lib/lemon-ui/icons'
-import { EXPERIMENT_MAX_PRIMARY_METRICS, EXPERIMENT_MAX_SECONDARY_METRICS } from 'scenes/experiments/constants'
 
 import { ExperimentMetric } from '~/queries/schema/schema-general'
 
@@ -112,11 +111,6 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                     <div className="flex flex-col items-center mx-auto deprecated-space-y-3">
                         <IconAreaChart fontSize="30" />
                         <div className="text-sm text-center text-balance max-w-sm">
-                            <p>
-                                Add up to&nbsp;
-                                {isSecondary ? EXPERIMENT_MAX_SECONDARY_METRICS : EXPERIMENT_MAX_PRIMARY_METRICS}&nbsp;
-                                <span>{isSecondary ? 'secondary' : 'primary'}</span> metrics.
-                            </p>
                             <p>
                                 {isSecondary
                                     ? 'Secondary metrics provide additional context and help detect unintended side effects.'
