@@ -9,6 +9,9 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { EarlyAccessFeatureType, ProductKey } from '~/types'
 
 import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
@@ -33,7 +36,16 @@ export function EarlyAccessFeatures(): JSX.Element {
     const shouldShowEmptyState = earlyAccessFeatures.length == 0 && !earlyAccessFeaturesLoading
 
     return (
-        <>
+        <SceneContent forceNewSpacing>
+            <SceneTitleSection
+                name="Early access features"
+                description="Allow your users to individually enable or disable features that are in public beta."
+                resourceType={{
+                    type: 'early_access_feature',
+                    typePlural: 'Early access features',
+                }}
+            />
+            <SceneDivider />
             <PageHeader
                 buttons={
                     <LemonButton type="primary" to={urls.earlyAccessFeature('new')}>
@@ -93,6 +105,6 @@ export function EarlyAccessFeatures(): JSX.Element {
                     dataSource={earlyAccessFeatures}
                 />
             )}
-        </>
+        </SceneContent>
     )
 }
