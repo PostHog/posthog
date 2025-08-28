@@ -14,7 +14,6 @@ import { SidePanelTab } from '~/types'
 
 import { TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
-import { maxLogic } from './maxLogic'
 import { generateBurstPoints } from './utils'
 
 interface MaxToolProps extends Omit<ToolRegistration, 'name' | 'description'> {
@@ -117,26 +116,15 @@ export function MaxTool({
                         )}
                         type="button"
                         onClick={() => {
-                            openSidePanel(SidePanelTab.Max, initialMaxPrompt)
-
-                            // If this tool has suggestions, find and set the appropriate suggestion group
+                            // Include both initial prompt and suggestions
+                            let options = initialMaxPrompt
                             if (suggestions && suggestions.length > 0) {
-                                const { allSuggestions } = maxLogic.values
-                                const matchingGroup = allSuggestions.find((group) =>
-                                    suggestions.some((suggestion) =>
-                                        group.suggestions?.some(
-                                            (groupSuggestion) => groupSuggestion.content === suggestion
-                                        )
-                                    )
-                                )
-                                if (matchingGroup) {
-                                    // Waiting a bit for Max side panel to be opened
-                                    setTimeout(() => {
-                                        maxLogic.actions.setActiveGroup(matchingGroup)
-                                    }, 100)
-                                }
+                                options = JSON.stringify({
+                                    prompt: initialMaxPrompt,
+                                    suggestions: suggestions,
+                                })
                             }
-
+                            openSidePanel(SidePanelTab.Max, options)
                             onMaxOpen?.()
                         }}
                     >
