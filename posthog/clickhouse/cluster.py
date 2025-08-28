@@ -374,13 +374,14 @@ def get_cluster(
     client_settings: Mapping[str, str] | None = None,
     cluster: str | None = None,
     retry_policy: RetryPolicy | None = None,
+    host: str = settings.CLICKHOUSE_HOST,
 ) -> ClickhouseCluster:
     extra_hosts = []
     for host_config in map(copy, CLICKHOUSE_PER_TEAM_SETTINGS.values()):
         extra_hosts.append(ConnectionInfo(host_config.pop("host"), None))
         assert len(host_config) == 0, f"unexpected values: {host_config!r}"
     return ClickhouseCluster(
-        default_client(),
+        default_client(host=host),
         extra_hosts=extra_hosts,
         logger=logger,
         client_settings=client_settings,
