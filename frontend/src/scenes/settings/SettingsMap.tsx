@@ -41,6 +41,7 @@ import { DataColorThemes } from './environment/DataColorThemes'
 import { ErrorTrackingIntegrations } from './environment/ErrorTrackingIntegrations'
 import { FeatureFlagSettings } from './environment/FeatureFlagSettings'
 import { FeaturePreviewsSettings } from './environment/FeaturePreviewsSettings'
+import { GithubIntegration } from './environment/GithubIntegration'
 import { GroupAnalyticsConfig } from './environment/GroupAnalyticsConfig'
 import { HeatmapsSettings } from './environment/HeatmapsSettings'
 import { HumanFriendlyComparisonPeriodsSetting } from './environment/HumanFriendlyComparisonPeriodsSetting'
@@ -519,9 +520,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <ErrorTrackingIntegrations />,
             },
             {
+                id: 'integration-github',
+                title: 'GitHub integration',
+                component: <GithubIntegration />,
+            },
+            {
                 id: 'integration-other',
                 title: 'Other integrations',
-                component: <IntegrationsList omitKinds={['slack', 'linear']} />,
+                component: <IntegrationsList omitKinds={['slack', 'linear', 'github']} />,
             },
             {
                 id: 'integration-ip-allowlist',

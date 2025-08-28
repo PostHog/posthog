@@ -194,17 +194,43 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         updated = []
+        # Capture status change events so we can trigger workflows after DB update
+        status_change_events = []  # list of tuples: (task_id, previous_status, new_status)
         with transaction.atomic():
             for status_key, id_list in columns.items():
                 for idx, tid in enumerate(id_list):
                     task = task_by_id[str(tid)]
                     if task.status != status_key or task.position != idx:
-                        task.status = status_key
+                        previous_status = task.status
+                        new_status = status_key
+                        # Record status changes so we can trigger workflows after bulk update
+                        if previous_status != new_status:
+                            status_change_events.append((str(task.id), previous_status, new_status))
+
+                        task.status = new_status
                         task.position = idx
                         updated.append(task)
 
             if updated:
                 Task.objects.bulk_update(updated, ["status", "position"])  # updated_at handled by model defaults if any
+
+        # Trigger Temporal workflows for any tasks whose status changed
+        if status_change_events:
+            for task_id, previous_status, new_status in status_change_events:
+                try:
+                    team_obj = task_by_id[str(task_id)].team
+                    team_pk = getattr(team_obj, "pk", None)
+                    execute_task_processing_workflow(
+                        task_id=str(task_id),
+                        team_id=cast(int, team_pk),
+                        previous_status=previous_status,
+                        new_status=new_status,
+                        user_id=getattr(self.request.user, "id", None),
+                    )
+                except Exception:
+                    logging.exception(
+                        f"Failed to trigger task processing workflow for task {task_id}: {previous_status} -> {new_status}"
+                    )
 
         # Return serialized updated tasks
         serialized = TaskSerializer(updated, many=True, context=self.get_serializer_context()).data

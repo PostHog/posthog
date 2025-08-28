@@ -23,12 +23,15 @@ import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
 import React, { PropsWithChildren, useEffect, useRef, useState } from 'react'
 
-import { LemonCard } from '@posthog/lemon-ui'
+import { LemonCard, lemonToast } from '@posthog/lemon-ui'
 
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
+import { MaxTool } from 'scenes/max/MaxTool'
+import { maxLogic } from 'scenes/max/maxLogic'
 
 import { tasksLogic } from '../tasksLogic'
-import { Task, TaskStatus } from './../types'
+import { OriginProduct, Task, TaskStatus } from './../types'
 import { TaskCard } from './TaskCard'
 import { TaskModal } from './TaskModal'
 
@@ -56,7 +59,11 @@ type Items = Record<UniqueIdentifier, Task[]>
 
 export function KanbanView(): JSX.Element {
     const { tasks, kanbanColumns, selectedTask } = useValues(tasksLogic)
-    const { openTaskModal, closeTaskModal, moveTask } = useActions(tasksLogic)
+    const { openTaskModal, closeTaskModal, moveTask, createTask } = useActions(tasksLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const tasksEnabled = !!featureFlags['tasks']
+    const sessionSummarizationEnabled = !!featureFlags['max-session-summarization']
 
     const [items, setItems] = useState<Items>(kanbanColumns)
     const [activeTask, setActiveTask] = useState<Task | null>(null)
@@ -73,8 +80,8 @@ export function KanbanView(): JSX.Element {
         index: null,
     })
     const sensors = useSensors(
-        useSensor(MouseSensor),
-        useSensor(TouchSensor),
+        useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
+        useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
         useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
     )
     const findContainer = (item: Active | Over): UniqueIdentifier => {
@@ -107,9 +114,80 @@ export function KanbanView(): JSX.Element {
         }
     }, [kanbanColumns, activeTask])
 
+    const { setQuestion, focusInput, startNewConversation } = useActions(maxLogic)
+
+    const initialPrompt =
+        'Use the session_summarization tool to summarize all recent session recordings and identify the top UX issues and recurring patterns. Focus on actionable fixes. Return a structured JSON artifact via tool result containing a `patterns` array (with `pattern_name`, `pattern_description`, `severity`, `stats`) and an optional `notebook_id`. Do not answer without calling the tool.'
+
     return (
         <div className="space-y-4">
-            <h2 className="text-xl font-semibold">Kanban Board</h2>
+            <div className="relative">
+                <MaxTool
+                    identifier="session_summarization"
+                    initialMaxPrompt={initialPrompt}
+                    onMaxOpen={() => {
+                        // Proactively prefill the prompt because maxLogic is permanently mounted
+                        startNewConversation()
+                        setQuestion(initialPrompt)
+                        focusInput()
+                    }}
+                    callback={async (toolOutput: any) => {
+                        try {
+                            lemonToast.success('Max session summary received')
+                        } catch {}
+                        try {
+                            if (!tasksEnabled) {
+                                lemonToast.warning('Tasks flag is disabled – not creating tasks')
+                                return
+                            }
+                            let payload = toolOutput
+                            if (typeof payload === 'string') {
+                                try {
+                                    payload = JSON.parse(payload)
+                                } catch {}
+                            }
+                            const patterns = payload?.patterns || payload?.result?.patterns
+                            if (!Array.isArray(patterns) || patterns.length === 0) {
+                                lemonToast.info('No patterns returned from Max')
+                                return
+                            }
+                            // Create one task per pattern
+                            for (const pattern of patterns) {
+                                const title: string = `[Replay] ${pattern.pattern_name}`
+                                const severity: string = pattern?.severity?.value || pattern?.severity || 'unknown'
+                                const sessionsAffected: number | undefined = pattern?.stats?.sessions_affected
+                                const failureRate: number | undefined =
+                                    pattern?.stats && typeof pattern.stats.segments_success_ratio === 'number'
+                                        ? Math.round((1 - pattern.stats.segments_success_ratio) * 100)
+                                        : undefined
+                                const notebookHint = payload?.notebook_id ? `\n\nNotebook: ${payload.notebook_id}` : ''
+                                const meta = [
+                                    `Severity: ${severity}`,
+                                    sessionsAffected != null ? `Sessions affected: ${sessionsAffected}` : undefined,
+                                    failureRate != null ? `Estimated failure rate: ${failureRate}%` : undefined,
+                                ]
+                                    .filter(Boolean)
+                                    .join(' | ')
+                                const description: string = `${pattern.pattern_description}\n\n${meta}${notebookHint}`
+
+                                await createTask({
+                                    title,
+                                    description,
+                                    status: TaskStatus.BACKLOG,
+                                    origin_product: OriginProduct.USER_CREATED,
+                                })
+                            }
+                            lemonToast.success('Created tasks from Max summary')
+                        } catch (e) {
+                            // Swallow errors; task creation failures are already toasted in loader
+                            lemonToast.error('Error creating tasks from Max summary', e)
+                        }
+                    }}
+                    position="top-right"
+                >
+                    <h2 className="text-xl font-semibold">Kanban Board</h2>
+                </MaxTool>
+            </div>
             <DndContext
                 sensors={sensors}
                 collisionDetection={closestCorners}
@@ -236,7 +314,18 @@ export function KanbanView(): JSX.Element {
                                     </div>
                                 )}
                                 <div className="flex justify-between items-center mb-3">
-                                    <h3 className="font-medium text-sm">Column Title</h3>
+                                    <h3 className="font-medium text-sm">
+                                        {(() => {
+                                            const labels: Record<TaskStatus, string> = {
+                                                [TaskStatus.BACKLOG]: 'backlog',
+                                                [TaskStatus.TODO]: 'todo',
+                                                [TaskStatus.IN_PROGRESS]: 'doing',
+                                                [TaskStatus.TESTING]: 'testing',
+                                                [TaskStatus.DONE]: 'done',
+                                            }
+                                            return labels[containerId as TaskStatus]
+                                        })()}
+                                    </h3>
                                     <span className="text-xs text-muted bg-border rounded-full px-2 py-1">
                                         {items[containerId].length}
                                     </span>
