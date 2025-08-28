@@ -28,6 +28,19 @@ def record_replay_to_file(
     screenshot_height: int = 600,
     recording_duration: int = 5,  # Duration in seconds
 ) -> None:
+    # Input validation
+    if recording_duration <= 0:
+        raise ValueError("recording_duration must be positive")
+    if screenshot_width <= 0:
+        raise ValueError("screenshot_width must be positive")
+    if screenshot_height <= 0:
+        raise ValueError("screenshot_height must be positive")
+
+    # Check if ffmpeg is available for video conversion
+    ext = os.path.splitext(image_path)[1].lower()
+    if ext in [".mp4", ".gif"] and not shutil.which("ffmpeg"):
+        raise RuntimeError("ffmpeg is required for MP4 and GIF exports but was not found in PATH")
+
     temp_dir_ctx: Optional[tempfile.TemporaryDirectory] = None
     try:
         temp_dir_ctx = tempfile.TemporaryDirectory(prefix="ph-video-export-")
