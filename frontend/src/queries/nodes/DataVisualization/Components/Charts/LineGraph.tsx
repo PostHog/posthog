@@ -105,7 +105,6 @@ export type LineGraphProps = {
     visualizationType: ChartDisplayType
     chartSettings: ChartSettings
     presetChartHeight?: boolean
-    showEditingUI?: boolean
     dashboardId?: string
     goalLines?: GoalLine[]
     className?: string
@@ -117,7 +116,6 @@ export const LineGraph = ({
     yData,
     presetChartHeight,
     visualizationType,
-    showEditingUI,
     chartSettings,
     dashboardId,
     goalLines = [],
@@ -553,7 +551,6 @@ export const LineGraph = ({
     return (
         <div
             className={clsx(className, 'rounded bg-surface-primary relative flex flex-1 flex-col', {
-                border: showEditingUI,
                 'h-[60vh]': presetChartHeight,
                 'h-full': !presetChartHeight,
             })}

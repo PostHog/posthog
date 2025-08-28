@@ -217,7 +217,6 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 chartSettings={chartSettings}
                 dashboardId={dashboardId}
                 goalLines={goalLines}
-                showEditingUI={showEditingUI}
                 presetChartHeight={presetChartHeight}
             />
         )

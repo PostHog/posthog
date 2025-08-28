@@ -19,7 +19,7 @@ import {
     IconPlus,
     IconShare,
 } from '@posthog/icons'
-import { LemonButton, LemonModal, LemonTable, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonModal, LemonTable, Tooltip } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
@@ -697,11 +697,12 @@ function InternalDataTableVisualization(
     return (
         <div className="DataVisualization h-full hide-scrollbar flex flex-1 gap-2">
             <div className="relative w-full flex flex-col gap-4 flex-1">
-                <div className="flex flex-1 flex-row gap-4 overflow-auto hide-scrollbar">
+                <div className="flex flex-1 flex-row overflow-auto hide-scrollbar">
                     {isChartSettingsPanelOpen && (
-                        <div>
+                        <>
                             <SideBar />
-                        </div>
+                            <LemonDivider vertical className="h-full" />
+                        </>
                     )}
                     <div className={clsx('w-full h-full flex-1 overflow-auto')}>{component}</div>
                 </div>
@@ -864,7 +865,7 @@ const Content = ({
 
     if (activeTab === OutputTab.Visualization) {
         return (
-            <div className="flex-1 absolute top-0 left-0 right-0 bottom-0 px-4 py-1 hide-scrollbar border-t">
+            <div className="flex-1 absolute inset-0 hide-scrollbar border-t">
                 <InternalDataTableVisualization
                     uniqueKey={vizKey}
                     query={sourceQuery}
