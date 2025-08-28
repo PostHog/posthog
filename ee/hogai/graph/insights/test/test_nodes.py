@@ -23,7 +23,7 @@ from posthog.schema import (
 
 from posthog.models import Insight, InsightViewed
 
-from ee.hogai.graph.insights.nodes import InsightSearchNode
+from ee.hogai.graph.insights.nodes import InsightDict, InsightSearchNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.models.assistant import Conversation
 
@@ -104,15 +104,16 @@ class TestInsightSearchNode(BaseTest):
             last_viewed_at=timezone.now(),
         )
 
-    def _insight_to_dict(self, insight: Insight) -> dict:
-        """Convert Insight model object to dict format matching _get_insights_queryset values()."""
-        return {
-            "id": insight.id,
-            "name": insight.name,
-            "description": insight.description,
-            "query": insight.query,
-            "derived_name": insight.derived_name,
-        }
+    def _insight_to_dict(self, insight: Insight) -> InsightDict:
+        """Convert Insight model object to InsightDict."""
+        return InsightDict(
+            id=insight.id,
+            name=insight.name,
+            description=insight.description,
+            query=insight.query,
+            derived_name=insight.derived_name,
+            short_id=insight.short_id,
+        )
 
     def test_router_returns_root(self):
         """Test that router returns 'root' as expected."""
@@ -127,14 +128,14 @@ class TestInsightSearchNode(BaseTest):
         self.assertEqual(len(first_page), 2)
 
         # Check that insights are loaded with correct data
-        insight_ids = [insight.get("id") for insight in first_page]
+        insight_ids = [insight["id"] for insight in first_page]
         self.assertIn(self.insight1.id, insight_ids)
         self.assertIn(self.insight2.id, insight_ids)
 
         # Check insight data structure
-        insight1_data = next(i for i in first_page if i.get("id") == self.insight1.id)
-        self.assertEqual(insight1_data.get("name"), "Daily Pageviews")
-        self.assertEqual(insight1_data.get("description"), "Track daily website traffic")
+        insight1_data = next(i for i in first_page if i["id"] == self.insight1.id)
+        self.assertEqual(insight1_data["name"], "Daily Pageviews")
+        self.assertEqual(insight1_data["description"], "Track daily website traffic")
 
     async def test_load_insights_page_unique_only(self):
         """Test that load_insights_page returns unique insights only."""
@@ -148,7 +149,7 @@ class TestInsightSearchNode(BaseTest):
         first_page = await self.node._load_insights_page(0)
 
         # Should still only have 2 unique insights
-        insight_ids = [insight.get("id") for insight in first_page]
+        insight_ids = [insight["id"] for insight in first_page]
         self.assertEqual(len(insight_ids), len(set(insight_ids)), "Should return unique insights only")
 
     async def test_format_insights_page(self):
@@ -531,7 +532,7 @@ class TestInsightSearchNode(BaseTest):
         first_page = await self.node._load_insights_page(0)
 
         # Should only load insights from self.team
-        insight_ids = [insight.get("id") for insight in first_page]
+        insight_ids = [insight["id"] for insight in first_page]
         self.assertIn(self.insight1.id, insight_ids)
         self.assertIn(self.insight2.id, insight_ids)
         self.assertNotIn(other_insight.id, insight_ids)
@@ -694,13 +695,14 @@ class TestInsightSearchNode(BaseTest):
     async def test_non_executable_insights_handling(self, mock_openai):
         """Test that non-executable insights are presented to LLM but rejected."""
         # Create a mock insight that can't be visualized
-        mock_insight = {
-            "id": 99999,
-            "name": "Broken Insight",
-            "description": "This insight cannot be executed",
-            "query": None,
-            "derived_name": None,
-        }
+        mock_insight: InsightDict = InsightDict(
+            id=99999,
+            name="Broken Insight",
+            description="This insight cannot be executed",
+            query=None,
+            derived_name=None,
+            short_id="mock_short_id",
+        )
 
         # Mock _find_insight_by_id to return our mock insight
         original_find = self.node._find_insight_by_id
@@ -871,9 +873,7 @@ class TestInsightSearchNode(BaseTest):
 
         insight_dict = self._insight_to_dict(insight)
         query_obj, _ = await self.node._process_insight_query(insight_dict)
-        self.assertIsNotNone(
-            query_obj, f"Query object should not be None for insight. Query: {insight_dict.get('query')}"
-        )
+        self.assertIsNotNone(query_obj, f"Query object should not be None for insight. Query: {insight_dict['query']}")
         self.assertIsInstance(query_obj, RetentionQuery)
 
         # Test insight visualization message creation
@@ -907,9 +907,7 @@ class TestInsightSearchNode(BaseTest):
 
         insight_dict = self._insight_to_dict(insight)
         query_obj, _ = await self.node._process_insight_query(insight_dict)
-        self.assertIsNotNone(
-            query_obj, f"Query object should not be None for insight. Query: {insight_dict.get('query')}"
-        )
+        self.assertIsNotNone(query_obj, f"Query object should not be None for insight. Query: {insight_dict['query']}")
         self.assertIsInstance(query_obj, HogQLQuery)
 
         # Test insight visualization message creation
