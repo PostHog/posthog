@@ -268,7 +268,7 @@ class TestWebPreaggregatedInserts(WebAnalyticsPreAggregatedTestBase):
             assert f"\n    {column}" in stats_insert
 
         # Verify it has explicit column list format
-        assert "INSERT INTO web_stats_daily\n(" in stats_insert
+        assert "INSERT INTO web_pre_aggregated_stats\n(" in stats_insert
         assert ")\n\n    SELECT" in stats_insert
 
     def test_insert_queries_contain_all_columns_for_bounces(self):
@@ -285,7 +285,7 @@ class TestWebPreaggregatedInserts(WebAnalyticsPreAggregatedTestBase):
             assert f"\n    {column}" in bounces_insert
 
         # Verify it has explicit column list format
-        assert "INSERT INTO web_bounces_daily\n(" in bounces_insert
+        assert "INSERT INTO web_pre_aggregated_bounces\n(" in bounces_insert
         assert ")\n\n    SELECT" in bounces_insert
 
 
