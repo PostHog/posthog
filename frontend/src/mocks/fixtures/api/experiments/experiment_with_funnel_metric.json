@@ -96,7 +96,8 @@
                     "event": "signup completed"
                 }
             ],
-            "metric_type": "funnel"
+            "metric_type": "funnel",
+            "uuid": "3340a599-f56c-4e91-a31f-3e3f01528031"
         }
     ],
     "metrics_secondary": [],
