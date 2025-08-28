@@ -162,6 +162,17 @@ where
     )
     .expect("failed to create survey limiter");
 
+    // LLM events quota limiting - create for all capture modes
+    let llm_events_limiter = RedisLimiter::new(
+        Duration::from_secs(5),
+        redis_client.clone(),
+        QUOTA_LIMITER_CACHE_KEY.to_string(),
+        config.redis_key_prefix.clone(),
+        QuotaResource::LLMEvents,
+        ServiceName::Capture,
+    )
+    .expect("failed to create AI events limiter");
+
     let token_dropper = config
         .drop_events_by_token_distinct_id
         .clone()
@@ -189,6 +200,7 @@ where
         redis_client,
         billing_limiter,
         survey_limiter,
+        llm_events_limiter,
         token_dropper,
         config.export_prometheus,
         config.capture_mode,

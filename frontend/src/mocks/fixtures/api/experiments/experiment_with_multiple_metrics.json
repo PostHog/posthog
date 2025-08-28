@@ -95,7 +95,8 @@
                 "math": "total",
                 "event": "$pageview"
             },
-            "metric_type": "mean"
+            "metric_type": "mean",
+            "uuid": "09a40e22-8190-49f0-9f9c-8f70458b58da"
         },
         {
             "kind": "ExperimentMetric",
@@ -105,7 +106,8 @@
                     "event": "signup completed"
                 }
             ],
-            "metric_type": "funnel"
+            "metric_type": "funnel",
+            "uuid": "f10233ac-56d9-42d7-b686-78502dd909c9"
         }
     ],
     "metrics_secondary": [],

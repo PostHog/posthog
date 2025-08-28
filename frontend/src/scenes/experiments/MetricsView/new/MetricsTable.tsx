@@ -68,26 +68,29 @@ export function MetricsTable({
                 </colgroup>
                 <TableHeader axisRange={axisRange} />
                 <tbody>
-                    {metrics.map((metric, metricIndex) => {
-                        const result = results[metricIndex]
-                        const error = errors[metricIndex]
+                    {metrics.map((metric, index) => {
+                        const result = results[index]
+                        const error = errors[index]
 
                         const isLoading = !result && !error && !!experiment.start_date
 
                         return (
                             <MetricRowGroup
-                                key={metricIndex}
+                                key={metric.uuid || index}
                                 metric={metric}
                                 result={result}
                                 experiment={experiment}
                                 metricType={getInsightType(metric)}
-                                metricIndex={metricIndex}
+                                displayOrder={index}
                                 axisRange={axisRange}
                                 isSecondary={isSecondary}
-                                isLastMetric={metricIndex === metrics.length - 1}
-                                isAlternatingRow={metricIndex % 2 === 1}
+                                isLastMetric={index === metrics.length - 1}
+                                isAlternatingRow={index % 2 === 1}
                                 onDuplicateMetric={() => {
-                                    duplicateMetric({ metricIndex, isSecondary })
+                                    if (!metric.uuid) {
+                                        return
+                                    }
+                                    duplicateMetric({ uuid: metric.uuid, isSecondary })
                                     updateExperimentMetrics()
                                 }}
                                 error={error}
