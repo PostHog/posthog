@@ -387,7 +387,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                         to release to your early access users.
                     </LemonBanner>
                 )}
-                <div className="flex-1 min-w-[20rem]">
+                <div className="flex-1 min-w-[20rem] max-w-prose">
                     {'feature_flag' in earlyAccessFeature ? (
                         <LemonField.Pure label="Connected Feature flag">
                             <div>
@@ -428,7 +428,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                 </div>
 
                 {!isNewEarlyAccessFeature && earlyAccessFeature.stage !== 'draft' ? (
-                    <div className="flex-1 min-w-[20rem]">
+                    <div className="flex-1 min-w-[20rem] max-w-prose">
                         <b>Stage</b>
                         <div>
                             {isEditingFeature ? (
@@ -473,7 +473,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                 ) : null}
 
                 {!newSceneLayout && (
-                    <div className="flex-1 min-w-[20rem]">
+                    <div className="flex-1 min-w-[20rem] max-w-prose">
                         {isEditingFeature || isNewEarlyAccessFeature ? (
                             <LemonField name="description" label="Description" showOptional>
                                 <LemonTextArea
@@ -497,9 +497,11 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                 )}
 
                 {isEditingFeature || isNewEarlyAccessFeature ? (
-                    <LemonField name="documentation_url" label="Documentation URL" showOptional>
-                        <LemonInput autoComplete="off" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
-                    </LemonField>
+                    <div className="max-w-prose">
+                        <LemonField name="documentation_url" label="Documentation URL" showOptional>
+                            <LemonInput autoComplete="off" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
+                        </LemonField>
+                    </div>
                 ) : (
                     <div>
                         <b>Documentation URL</b>
