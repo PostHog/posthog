@@ -1403,6 +1403,10 @@ class _Printer(Visitor[str]):
             raise QueryError(f"Unsupported function call '{node.name}(...)'")
 
     def visit_placeholder(self, node: ast.Placeholder):
+        if self.context.modifiers.looseSyntax and node.chain:
+            field = ".".join([self._print_hogql_identifier_or_index(identifier) for identifier in node.chain])
+            return f"{{{field}}}"
+
         if node.field is None:
             raise QueryError("You can not use placeholders here")
         raise QueryError(f"Unresolved placeholder: {{{node.field}}}")

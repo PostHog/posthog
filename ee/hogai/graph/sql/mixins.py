@@ -15,7 +15,7 @@ from posthog.hogql.errors import (
 )
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import print_ast, print_prepared_ast
 
 from posthog.sync import database_sync_to_async
 
@@ -100,7 +100,11 @@ class HogQLGeneratorMixin(AssistantContextMixin):
                 }
                 if finder.has_filters:
                     dummy_placeholders["filters"] = ast.Constant(value=1)
-                parsed_query = cast(ast.SelectQuery, replace_placeholders(parsed_query, dummy_placeholders))
+                validated_query = cast(ast.SelectQuery, replace_placeholders(parsed_query, dummy_placeholders))
+                print_ast(validated_query, context=hogql_context, dialect="hogql")
+
+                return print_prepared_ast(parsed_query, context=hogql_context, dialect="hogql")
+
             return print_ast(parsed_query, context=hogql_context, dialect="hogql")
         except (ExposedHogQLError, HogQLNotImplementedError, ResolutionError) as err:
             err_msg = str(err)
