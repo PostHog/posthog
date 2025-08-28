@@ -60,7 +60,7 @@ class TestVercelIntegration(TestCase):
         assert paid_plan["paymentMethodRequired"]
 
     def test_get_installation_returns_free_plan(self):
-        result = VercelIntegration.get_installation(self.installation_id)
+        result = VercelIntegration.get_installation_billing_plan(self.installation_id)
         assert "billingplan" in result
         assert result["billingplan"]["id"] == "free"
 

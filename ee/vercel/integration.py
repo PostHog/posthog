@@ -150,7 +150,7 @@ class VercelIntegration:
         )
 
     @staticmethod
-    def get_installation(installation_id: str) -> dict[str, Any]:
+    def get_installation_billing_plan(installation_id: str) -> dict[str, Any]:
         VercelIntegration._get_installation(installation_id)
         billing_plans = VercelIntegration.get_vercel_plans()
 
@@ -165,7 +165,7 @@ class VercelIntegration:
     def update_installation(installation_id: str, billing_plan_id: str) -> None:
         logger.info("Starting Vercel installation update", installation_id=installation_id)
 
-        # TODO: Implement billing plan update logic here
+        # TODO: Implement billing plan update logic here, awaiting billing service implementation.
 
         logger.info("Successfully updated Vercel installation", installation_id=installation_id)
 

@@ -100,7 +100,7 @@ class VercelInstallationViewSet(VercelErrorResponseMixin, viewsets.GenericViewSe
         """
         installation_id = self.kwargs.get("installation_id", "")
 
-        response_data = VercelIntegration.get_installation(installation_id)
+        response_data = VercelIntegration.get_installation_billing_plan(installation_id)
         return Response(response_data, status=200)
 
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
