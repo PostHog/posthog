@@ -410,7 +410,6 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
     with timings.measure("initial_referring_domain_type"):
         field_name = "$virt_initial_referring_domain_type"
         database.persons.fields[field_name] = create_initial_domain_type(name=field_name, timings=timings)
-        database.groups.fields[field_name] = create_initial_domain_type(name=field_name, timings=timings)
         poe.fields[field_name] = create_initial_domain_type(
             name=field_name,
             timings=timings,
@@ -419,9 +418,6 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
     with timings.measure("initial_channel_type"):
         field_name = "$virt_initial_channel_type"
         database.persons.fields[field_name] = create_initial_channel_type(
-            name=field_name, custom_rules=modifiers.customChannelTypeRules, timings=timings
-        )
-        database.groups.fields[field_name] = create_initial_channel_type(
             name=field_name, custom_rules=modifiers.customChannelTypeRules, timings=timings
         )
         poe.fields[field_name] = create_initial_channel_type(
