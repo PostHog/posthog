@@ -1,8 +1,5 @@
 import { RGBColor } from 'd3'
 
-import { FunnelPathsFilter, PathsFilter } from '~/queries/schema/schema-general'
-import { FunnelPathType } from '~/types'
-
 export interface PathTargetLink {
     average_conversion_time: number
     index: number
@@ -31,6 +28,8 @@ export interface PathNodeData {
     source: PathNodeData
     target: PathNodeData
 }
+<<<<<<< HEAD
+=======
 
 export function roundedRect(
     x: number,
@@ -132,3 +131,4 @@ export const isSelectedPathStartOrEnd = (
                 (cardName === funnelSource?.series[funnelStep! - 2].name && isPathStart)))
     )
 }
+>>>>>>> master

@@ -129,6 +129,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         inMenu: true,
         tooltipDocLink: 'https://posthog.com/docs/product-analytics/paths',
     },
+    [NodeKind.PathsV2Query]: {
+        name: 'Event Journeys',
+        description: 'Trace the journeys users take within your product and where they drop off.',
+        icon: IconUserPaths,
+        inMenu: true,
+    },
     [NodeKind.StickinessQuery]: {
         name: 'Stickiness',
         description: 'See what keeps users coming back by viewing the interval between repeated actions.',
@@ -510,6 +516,7 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
     [InsightType.FUNNELS]: QUERY_TYPES_METADATA[NodeKind.FunnelsQuery],
     [InsightType.RETENTION]: QUERY_TYPES_METADATA[NodeKind.RetentionQuery],
     [InsightType.PATHS]: QUERY_TYPES_METADATA[NodeKind.PathsQuery],
+    [InsightType.PATHS_V2]: QUERY_TYPES_METADATA[NodeKind.PathsV2Query],
     [InsightType.STICKINESS]: QUERY_TYPES_METADATA[NodeKind.StickinessQuery],
     [InsightType.LIFECYCLE]: QUERY_TYPES_METADATA[NodeKind.LifecycleQuery],
     [InsightType.CALENDAR_HEATMAP]: QUERY_TYPES_METADATA[NodeKind.CalendarHeatmapQuery],

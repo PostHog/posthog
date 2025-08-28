@@ -26,6 +26,7 @@ from posthog.schema import (
     LogEntryPropertyFilter,
     LogPropertyFilter,
     PathsQuery,
+    PathsV2Query,
     PersonPropertyFilter,
     RecordingPropertyFilter,
     RetentionQuery,
@@ -49,6 +50,7 @@ InsightQueryNode: TypeAlias = Union[
     FunnelsQuery,
     RetentionQuery,
     PathsQuery,
+    PathsV2Query,
     StickinessQuery,
     LifecycleQuery,
 ]

@@ -2,7 +2,6 @@ import { actions, connect, kea, key, listeners, path, props, selectors } from 'k
 import { router } from 'kea-router'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -42,8 +41,6 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                 'dateRange',
                 'theme',
             ],
-            featureFlagLogic,
-            ['featureFlags'],
         ],
         actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateQuerySource']],
     })),

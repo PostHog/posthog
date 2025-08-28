@@ -8,6 +8,7 @@ from posthog.schema import (
     FunnelsQuery,
     LifecycleQuery,
     PathsQuery,
+    PathsV2Query,
     RetentionQuery,
     StickinessQuery,
     TrendsQuery,
@@ -47,7 +48,7 @@ def to_dict(query: BaseModel) -> dict:
 
     if isinstance(
         query,
-        (TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery),
+        (TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery),
     ):
         insightFilterKey = filter_key_for_query(query)
 
@@ -140,6 +141,8 @@ def filter_key_for_query(node: InsightQueryNode) -> str:
         return "retentionFilter"
     elif isinstance(node, PathsQuery):
         return "pathsFilter"
+    elif isinstance(node, PathsV2Query):
+        return "pathsV2Filter"
     elif isinstance(node, StickinessQuery):
         return "stickinessFilter"
     elif isinstance(node, LifecycleQuery):

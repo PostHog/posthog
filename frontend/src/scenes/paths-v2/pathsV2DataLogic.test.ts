@@ -1,7 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { pathsDataLogic } from 'scenes/paths-v2/pathsDataLogic'
+import { pathsV2DataLogic } from 'scenes/paths-v2/pathsV2DataLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { examples } from '~/queries/examples'
@@ -9,7 +9,7 @@ import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps, PathType } from '~/types'
 
-let logic: ReturnType<typeof pathsDataLogic.build>
+let logic: ReturnType<typeof pathsV2DataLogic.build>
 
 const insightProps: InsightLogicProps = {
     dashboardItemId: undefined,
@@ -19,12 +19,12 @@ const insightProps: InsightLogicProps = {
 }
 
 async function initPathsDataLogic(): Promise<void> {
-    logic = pathsDataLogic(insightProps)
+    logic = pathsV2DataLogic(insightProps)
     logic.mount()
     await expectLogic(logic).toFinishAllListeners()
 }
 
-describe('pathsDataLogic', () => {
+describe('pathsV2DataLogic', () => {
     beforeEach(async () => {
         initKeaTests(false)
         teamLogic.mount()

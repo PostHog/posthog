@@ -1,0 +1,43 @@
+# serializer version: 1
+# name: TestPathsV2PathsPerActorAndSessionAsTupleQuery.test_paths_per_actor_and_session_as_tuple_query
+  '''
+  SELECT actor_id AS actor_id,
+         session_index,
+         arrayZip(timestamp_array, path_item_array, arrayPopBack(arrayPushFront(timestamp_array, NULL))) AS paths_array,
+         arraySplit(x -> if(ifNull(less(x.1, plus(x.3, toIntervalDay(14))), 0), 0, 1), paths_array) AS paths_array_session_split,
+         arrayMap(x -> tuple(x.1, x.2), paths_array_per_session_joined) AS paths_array_per_session,
+         arrayFilter((x, i) -> or(ifNull(equals(i, 1), 0), ifNull(notEquals(x.2, arrayElement(paths_array_per_session, minus(i, 1)).2), isNotNull(x.2)
+                                                                  or isNotNull(arrayElement(paths_array_per_session, minus(i, 1)).2))), paths_array_per_session, arrayEnumerate(paths_array_per_session)) AS filtered_paths_array_per_session,
+         arrayPushBack(paths_array_per_session, tuple(now64(6, 'UTC'), '$$__posthog_dropoff__$$')) AS paths_array_per_session_with_dropoffs,
+         arraySlice(paths_array_per_session_with_dropoffs, 1, 5) AS limited_paths_array_per_session
+  FROM
+    (SELECT actor_id AS actor_id,
+            groupArray(timestamp) AS timestamp_array,
+            groupArray(path_item) AS path_item_array
+     FROM
+       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id,
+               events.event AS path_item
+        FROM events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2025-04-03 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-04-10 23:59:59', 'UTC'))))
+        ORDER BY actor_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
+     GROUP BY actor_id) ARRAY
+  JOIN paths_array_session_split AS paths_array_per_session_joined,
+       arrayEnumerate(paths_array_session_split) AS session_index
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1
+  '''
+# ---

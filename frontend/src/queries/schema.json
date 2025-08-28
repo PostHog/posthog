@@ -402,6 +402,42 @@
             "required": ["results"],
             "type": "object"
         },
+        "AnalyticsQueryResponseBase<def-alias-974149753-45145-45279-974149753-0-120732[]>": {
+            "additionalProperties": false,
+            "description": "All analytics query responses must inherit from this.",
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {},
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
         "AnyAssistantGeneratedQuery": {
             "anyOf": [
                 {
@@ -4461,6 +4497,76 @@
             ],
             "type": "object"
         },
+        "CachedPathsV2QueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {},
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
         "CachedRetentionQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -7239,6 +7345,10 @@
                     "type": "object"
                 }
             ]
+        },
+        "ConversionWindowIntervalUnit": {
+            "enum": ["second", "minute", "hour", "day", "week", "month"],
+            "type": "string"
         },
         "CountPerActorMathType": {
             "enum": [
@@ -12304,6 +12414,7 @@
                 "insightTrends",
                 "insightRetention",
                 "insightUserPaths",
+                "insightPathsV2",
                 "insightLifecycle",
                 "insightStickiness",
                 "insightHogQL",
@@ -14292,6 +14403,9 @@
                     "$ref": "#/definitions/PathsFilter"
                 },
                 {
+                    "$ref": "#/definitions/PathsV2Filter"
+                },
+                {
                     "$ref": "#/definitions/StickinessFilter"
                 },
                 {
@@ -14308,6 +14422,7 @@
                 "funnelsFilter",
                 "retentionFilter",
                 "pathsFilter",
+                "pathsV2Filter",
                 "stickinessFilter",
                 "calendarHeatmapFilter",
                 "lifecycleFilter"
@@ -14320,6 +14435,7 @@
                 "FunnelsQuery",
                 "RetentionQuery",
                 "PathsQuery",
+                "PathsV2Query",
                 "StickinessQuery",
                 "LifecycleQuery",
                 "CalendarHeatmapQuery"
@@ -14342,6 +14458,9 @@
                 },
                 {
                     "$ref": "#/definitions/PathsQuery"
+                },
+                {
+                    "$ref": "#/definitions/PathsV2Query"
                 },
                 {
                     "$ref": "#/definitions/StickinessQuery"
@@ -14697,6 +14816,75 @@
                 },
                 "response": {
                     "$ref": "#/definitions/PathsQueryResponse"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags",
+                    "description": "Tags that will be added to the Query log comment"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "InsightsQueryBase<PathsV2QueryResponse>": {
+            "additionalProperties": false,
+            "description": "Base class for insight query nodes. Should not be used directly.",
+            "properties": {
+                "aggregation_group_type_index": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation"
+                },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization",
+                    "type": ["number", "null"]
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange",
+                    "description": "Date range for the query"
+                },
+                "filterTestAccounts": {
+                    "default": false,
+                    "description": "Exclude internal and test users by applying the respective filters",
+                    "type": "boolean"
+                },
+                "kind": {
+                    "$ref": "#/definitions/NodeKind"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/AnyPropertyFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyGroupFilter"
+                        }
+                    ],
+                    "default": [],
+                    "description": "Property filters for all series"
+                },
+                "response": {
+                    "$ref": "#/definitions/PathsV2QueryResponse"
                 },
                 "samplingFactor": {
                     "description": "Sampling rate",
@@ -16368,6 +16556,7 @@
                 "FunnelsQuery",
                 "RetentionQuery",
                 "PathsQuery",
+                "PathsV2Query",
                 "StickinessQuery",
                 "StickinessActorsQuery",
                 "LifecycleQuery",
@@ -16736,6 +16925,164 @@
                     },
                     "type": "array"
                 },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "PathsV2Filter": {
+            "additionalProperties": false,
+            "properties": {
+                "collapseEvents": {
+                    "default": false,
+                    "type": "boolean"
+                },
+                "maxRowsPerStep": {
+                    "$ref": "#/definitions/integer",
+                    "default": 3
+                },
+                "maxSteps": {
+                    "$ref": "#/definitions/integer",
+                    "default": 5
+                },
+                "windowInterval": {
+                    "$ref": "#/definitions/integer",
+                    "default": 14
+                },
+                "windowIntervalUnit": {
+                    "$ref": "#/definitions/ConversionWindowIntervalUnit",
+                    "default": "day"
+                }
+            },
+            "type": "object"
+        },
+        "PathsV2Item": {
+            "additionalProperties": false,
+            "properties": {
+                "source_step": {
+                    "type": ["string", "null"]
+                },
+                "step_index": {
+                    "type": "number"
+                },
+                "target_step": {
+                    "type": ["string", "null"]
+                },
+                "value": {
+                    "type": "number"
+                }
+            },
+            "required": ["step_index", "source_step", "target_step", "value"],
+            "type": "object"
+        },
+        "PathsV2Query": {
+            "additionalProperties": false,
+            "properties": {
+                "aggregation_group_type_index": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation"
+                },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization",
+                    "type": ["number", "null"]
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange",
+                    "description": "Date range for the query"
+                },
+                "filterTestAccounts": {
+                    "default": false,
+                    "description": "Exclude internal and test users by applying the respective filters",
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "PathsV2Query",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "pathsV2Filter": {
+                    "$ref": "#/definitions/PathsV2Filter"
+                },
+                "properties": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/AnyPropertyFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyGroupFilter"
+                        }
+                    ],
+                    "default": [],
+                    "description": "Property filters for all series"
+                },
+                "response": {
+                    "$ref": "#/definitions/PathsV2QueryResponse"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
+                },
+                "series": {
+                    "items": {
+                        "$ref": "#/definitions/AnyEntityNode"
+                    },
+                    "type": "array"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags",
+                    "description": "Tags that will be added to the Query log comment"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "PathsV2QueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {},
                 "timings": {
                     "description": "Measured timings for different parts of the query generation process",
                     "items": {
@@ -20283,6 +20630,41 @@
                             "$ref": "#/definitions/ResolvedDateRangeResponse",
                             "description": "The date range used for the query"
                         },
+                        "results": {},
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
                         "results": {
                             "items": {
                                 "type": "object"
@@ -20839,6 +21221,9 @@
                 },
                 {
                     "$ref": "#/definitions/PathsQuery"
+                },
+                {
+                    "$ref": "#/definitions/PathsV2Query"
                 },
                 {
                     "$ref": "#/definitions/StickinessQuery"

@@ -36,6 +36,7 @@ import {
     Node,
     NodeKind,
     PathsQuery,
+    PathsV2Query,
     RetentionQuery,
     StickinessQuery,
     TrendsQuery,
@@ -52,6 +53,7 @@ import {
     isInsightVizNode,
     isLifecycleQuery,
     isPathsQuery,
+    isPathsV2Query,
     isRetentionQuery,
     isTrendsQuery,
     isValidBreakdown,
@@ -270,6 +272,11 @@ function PathsSummary({ query }: { query: PathsQuery }): JSX.Element {
     )
 }
 
+function PathsV2Summary({ query: _query }: { query: PathsV2Query }): JSX.Element {
+    // TODO: implement paths-v2 summary
+    return <div className="SeriesDisplay" />
+}
+
 function RetentionSummary({ query }: { query: RetentionQuery }): JSX.Element {
     const { aggregationLabel } = useValues(mathsLogic)
 
@@ -349,6 +356,8 @@ export function SeriesSummary({
                     <div className="InsightDetails__series">
                         {isPathsQuery(query) ? (
                             <PathsSummary query={query} />
+                        ) : isPathsV2Query(query) ? (
+                            <PathsV2Summary query={query} />
                         ) : isRetentionQuery(query) ? (
                             <RetentionSummary query={query} />
                         ) : isInsightQueryWithSeries(query) ? (

@@ -8,6 +8,7 @@ import {
     InsightType,
     LifecycleFilterType,
     PathsFilterType,
+    PathsV2FilterType,
     RetentionFilterType,
     StickinessFilterType,
     TrendsFilterType,
@@ -65,6 +66,9 @@ export function isLifecycleFilter(filters?: Partial<FilterType>): filters is Par
 }
 export function isPathsFilter(filters?: Partial<FilterType>): filters is Partial<PathsFilterType> {
     return filters?.insight === InsightType.PATHS
+}
+export function isPathsV2Filter(filters?: Partial<FilterType>): filters is Partial<PathsV2FilterType> {
+    return filters?.insight === InsightType.PATHS_V2
 }
 
 export function isFilterWithDisplay(

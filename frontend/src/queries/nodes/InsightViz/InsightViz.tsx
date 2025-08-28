@@ -14,7 +14,7 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { DashboardFilter, HogQLVariable, InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { isFunnelsQuery, isRetentionQuery } from '~/queries/utils'
+import { isFunnelsQuery, isPathsV2Query, isRetentionQuery } from '~/queries/utils'
 import { InsightLogicProps, ItemMode } from '~/types'
 
 import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
@@ -93,7 +93,7 @@ export function InsightViz({
     const isFunnels = isFunnelsQuery(query.source)
     const isHorizontalAlways = useFeatureFlag('INSIGHT_HORIZONTAL_CONTROLS')
     const isRetention = isRetentionQuery(query.source)
-
+    const isPathsV2 = isPathsV2Query(query.source)
     const showIfFull = !!query.full
     const disableHeader = embedded || !(query.showHeader ?? showIfFull)
     const disableTable = embedded || !(query.showTable ?? showIfFull)
@@ -132,7 +132,8 @@ export function InsightViz({
                             className={
                                 !isEmbedded
                                     ? clsx('InsightViz', {
-                                          'InsightViz--horizontal': isFunnels || isRetention || isHorizontalAlways,
+                                          'InsightViz--horizontal':
+                                              isFunnels || isRetention || isHorizontalAlways || isPathsV2,
                                       })
                                     : 'InsightCard__viz'
                             }

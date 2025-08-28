@@ -39,9 +39,12 @@ import { PathStepPicker } from 'scenes/insights/views/Paths/PathStepPicker'
 import { RetentionBreakdownFilter } from 'scenes/retention/RetentionBreakdownFilter'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
+import { PathsV2MaxStepPicker } from '~/queries/nodes/InsightViz/PathsV2MaxStepPicker'
 import { isValidBreakdown } from '~/queries/utils'
 import { isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
+
+import { PathsV2MaxRowsPerStepPicker } from './PathsV2MaxRowsPerStepPicker'
 
 export function InsightDisplayConfig(): JSX.Element {
     const { insightProps, canEditInsight } = useValues(insightLogic)
@@ -52,6 +55,7 @@ export function InsightDisplayConfig(): JSX.Element {
         isFunnels,
         isRetention,
         isPaths,
+        isPathsV2,
         isStickiness,
         isLifecycle,
         supportsDisplay,
@@ -325,6 +329,12 @@ export function InsightDisplayConfig(): JSX.Element {
                 {!!isTimeToConvertFunnel && (
                     <ConfigFilter>
                         <FunnelBinsPicker />
+                    </ConfigFilter>
+                )}
+                {!!isPathsV2 && (
+                    <ConfigFilter>
+                        <PathsV2MaxStepPicker />
+                        <PathsV2MaxRowsPerStepPicker />
                     </ConfigFilter>
                 )}
             </div>

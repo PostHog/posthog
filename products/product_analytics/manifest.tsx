@@ -113,6 +113,13 @@ export const manifest: ProductManifest = {
             visualOrder: INSIGHT_VISUAL_ORDER.paths,
         },
         {
+            path: `Insight/Event journeys`,
+            type: 'insight',
+            href: urls.insightNew({ type: InsightType.PATHS_V2 }),
+            iconType: 'insightPathsV2',
+            visualOrder: INSIGHT_VISUAL_ORDER.pathsV2,
+        },
+        {
             path: `Insight/Stickiness`,
             type: 'insight',
             href: urls.insightNew({ type: InsightType.STICKINESS }),
