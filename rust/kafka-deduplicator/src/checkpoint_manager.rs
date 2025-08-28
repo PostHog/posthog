@@ -7,11 +7,12 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use crate::rocksdb::deduplication_store::DeduplicationStore;
+use crate::kafka::types::Partition;
 
 /// Manages checkpointing and periodic flushing for all deduplication stores
 pub struct CheckpointManager {
     /// Reference to all active stores
-    stores: Arc<DashMap<(String, i32), DeduplicationStore>>,
+    stores: Arc<DashMap<Partition, DeduplicationStore>>,
 
     /// Cancellation token for the flush task
     cancel_token: CancellationToken,
@@ -26,7 +27,7 @@ pub struct CheckpointManager {
 impl CheckpointManager {
     /// Create a new checkpoint manager
     pub fn new(
-        stores: Arc<DashMap<(String, i32), DeduplicationStore>>,
+        stores: Arc<DashMap<Partition, DeduplicationStore>>,
         flush_interval: Duration,
     ) -> Self {
         Self {
@@ -76,27 +77,27 @@ impl CheckpointManager {
                         info!("Starting periodic flush for {} stores", store_count);
 
                         // Snapshot all stores to avoid holding locks
-                        let snapshot: Vec<((String, i32), DeduplicationStore)> = stores
+                        let snapshot: Vec<(Partition, DeduplicationStore)> = stores
                             .iter()
                             .map(|entry| {
-                                let ((topic, partition), store) = entry.pair();
-                                ((topic.clone(), *partition), store.clone())
+                                let (partition, store) = entry.pair();
+                                (partition.clone(), store.clone())
                             })
                             .collect();
 
                         // Flush and update metrics for each store
-                        for ((topic, partition), store) in snapshot {
-                            debug!("Flushing store {}:{}", topic, partition);
+                        for (partition, store) in snapshot {
+                            debug!("Flushing store {}:{}", partition.topic(), partition.partition_number());
 
                             // Flush the store
                             if let Err(e) = store.flush() {
-                                error!("Failed to flush store {}:{}: {}", topic, partition, e);
+                                error!("Failed to flush store {}:{}: {}", partition.topic(), partition.partition_number(), e);
                                 continue;
                             }
 
                             // Update metrics
                             if let Err(e) = store.update_metrics() {
-                                warn!("Failed to update metrics for store {}:{}: {}", topic, partition, e);
+                                warn!("Failed to update metrics for store {}:{}: {}", partition.topic(), partition.partition_number(), e);
                             }
                         }
 
@@ -128,17 +129,17 @@ impl CheckpointManager {
     pub async fn flush_all(&self) -> Result<()> {
         info!("Triggering manual flush of all stores");
 
-        let snapshot: Vec<((String, i32), DeduplicationStore)> = self
+        let snapshot: Vec<(Partition, DeduplicationStore)> = self
             .stores
             .iter()
             .map(|entry| {
-                let ((topic, partition), store) = entry.pair();
-                ((topic.clone(), *partition), store.clone())
+                let (partition, store) = entry.pair();
+                (partition.clone(), store.clone())
             })
             .collect();
 
-        for ((topic, partition), store) in snapshot {
-            debug!("Flushing store {}:{}", topic, partition);
+        for (partition, store) in snapshot {
+            debug!("Flushing store {}:{}", partition.topic(), partition.partition_number());
             store.flush()?;
             store.update_metrics()?;
         }
@@ -153,20 +154,20 @@ impl CheckpointManager {
         partition: i32,
         checkpoint_path: &std::path::Path,
     ) -> Result<Vec<String>> {
-        let key = (topic.to_string(), partition);
+        let key = Partition::new(topic.to_string(), partition);
 
         match self.stores.get(&key) {
             Some(entry) => {
                 let store = entry.value();
                 info!(
                     "Creating checkpoint for {}:{} at {:?}",
-                    topic, partition, checkpoint_path
+                    key.topic(), key.partition_number(), checkpoint_path
                 );
                 store.create_checkpoint_with_metadata(checkpoint_path)
             }
             None => Err(anyhow::anyhow!(
                 "Store not found for {}:{}",
-                topic,
+                key.topic(),
                 partition
             )),
         }
@@ -259,8 +260,8 @@ mod tests {
         store1.handle_event_with_raw(&event).unwrap();
         store2.handle_event_with_raw(&event).unwrap();
 
-        stores.insert(("topic1".to_string(), 0), store1);
-        stores.insert(("topic1".to_string(), 1), store2);
+        stores.insert(Partition::new("topic1".to_string(), 0), store1);
+        stores.insert(Partition::new("topic1".to_string(), 1), store2);
 
         let manager = CheckpointManager::new(stores.clone(), Duration::from_secs(30));
 
@@ -277,7 +278,7 @@ mod tests {
         let event = create_test_event();
         store.handle_event_with_raw(&event).unwrap();
 
-        stores.insert(("topic1".to_string(), 0), store);
+        stores.insert(Partition::new("topic1".to_string(), 0), store);
 
         let manager = CheckpointManager::new(stores.clone(), Duration::from_secs(30));
 
@@ -316,7 +317,7 @@ mod tests {
         let event = create_test_event();
         store.handle_event_with_raw(&event).unwrap();
 
-        stores.insert(("topic1".to_string(), 0), store);
+        stores.insert(Partition::new("topic1".to_string(), 0), store);
 
         // Create manager with short interval for testing
         let mut manager = CheckpointManager::new(stores.clone(), Duration::from_millis(100));

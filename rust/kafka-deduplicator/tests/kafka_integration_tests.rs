@@ -4,6 +4,7 @@ use kafka_deduplicator::kafka::{
     message::{AckableMessage, MessageProcessor},
     rebalance_handler::RebalanceHandler,
     stateful_consumer::StatefulKafkaConsumer,
+    types::Partition,
 };
 use rdkafka::{
     config::ClientConfig,
@@ -75,12 +76,12 @@ impl MessageProcessor for TestProcessor {
 /// Test rebalance handler that tracks partition assignments
 #[derive(Default)]
 struct TestRebalanceHandler {
-    assigned_partitions: Arc<std::sync::Mutex<Vec<(String, i32)>>>,
-    revoked_partitions: Arc<std::sync::Mutex<Vec<(String, i32)>>>,
+    assigned_partitions: Arc<std::sync::Mutex<Vec<Partition>>>,
+    revoked_partitions: Arc<std::sync::Mutex<Vec<Partition>>>,
 }
 
 impl TestRebalanceHandler {
-    fn get_assigned_partitions(&self) -> Vec<(String, i32)> {
+    fn get_assigned_partitions(&self) -> Vec<Partition> {
         self.assigned_partitions.lock().unwrap().clone()
     }
 }
@@ -90,7 +91,7 @@ impl RebalanceHandler for TestRebalanceHandler {
     async fn on_partitions_assigned(&self, partitions: &TopicPartitionList) -> Result<()> {
         let mut assigned = self.assigned_partitions.lock().unwrap();
         for elem in partitions.elements() {
-            assigned.push((elem.topic().to_string(), elem.partition()));
+            assigned.push(Partition::from(elem));
         }
         Ok(())
     }
@@ -98,7 +99,7 @@ impl RebalanceHandler for TestRebalanceHandler {
     async fn on_partitions_revoked(&self, partitions: &TopicPartitionList) -> Result<()> {
         let mut revoked = self.revoked_partitions.lock().unwrap();
         for elem in partitions.elements() {
-            revoked.push((elem.topic().to_string(), elem.partition()));
+            revoked.push(Partition::from(elem));
         }
         Ok(())
     }
@@ -219,7 +220,9 @@ async fn test_generic_kafka_consumer_message_processing() -> Result<()> {
     let assigned = rebalance_handler.get_assigned_partitions();
     assert!(!assigned.is_empty(), "Should have assigned partitions");
     assert!(
-        assigned.iter().any(|(topic, _)| topic == &test_topic),
+        assigned
+            .iter()
+            .any(|partition| partition.topic() == test_topic),
         "Should have assigned the test topic"
     );
 

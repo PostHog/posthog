@@ -79,50 +79,39 @@ fn start_server(config: &Config, liveness: HealthRegistry) -> JoinHandle<()> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Initialize tokio-console if the feature is enabled
-    #[cfg(feature = "tokio-console")]
-    {
-        console_subscriber::init();
-        info!("tokio-console subscriber initialized - connect with 'tokio-console' command");
-    }
-
     // Load configuration first to get OTEL settings
     let config = Config::init_with_defaults()
         .context("Failed to load configuration from environment variables. Please check your environment setup.")?;
 
-    // Only initialize regular tracing if tokio-console is not enabled
-    #[cfg(not(feature = "tokio-console"))]
-    {
-        // Initialize tracing with structured output similar to feature-flags
-        let log_layer = fmt::layer()
-            .with_span_events(
-                FmtSpan::NEW | FmtSpan::CLOSE | FmtSpan::ENTER | FmtSpan::EXIT | FmtSpan::ACTIVE,
-            )
-            .with_target(true)
-            .with_thread_ids(true)
-            .with_level(true)
-            .with_ansi(false)
-            .with_filter(EnvFilter::from_default_env());
+    // Initialize tracing with structured output similar to feature-flags
+    let log_layer = fmt::layer()
+        .with_span_events(
+            FmtSpan::NEW | FmtSpan::CLOSE | FmtSpan::ENTER | FmtSpan::EXIT | FmtSpan::ACTIVE,
+        )
+        .with_target(true)
+        .with_thread_ids(true)
+        .with_level(true)
+        .with_ansi(false)
+        .with_filter(EnvFilter::from_default_env());
 
-        // OpenTelemetry layer if configured
-        let otel_layer = if let Some(ref otel_url) = config.otel_url {
-            Some(
-                OpenTelemetryLayer::new(init_tracer(
-                    otel_url,
-                    config.otel_sampling_rate,
-                    &config.otel_service_name,
-                ))
-                .with_filter(LevelFilter::from_level(config.otel_log_level)),
-            )
-        } else {
-            None
-        };
+    // OpenTelemetry layer if configured
+    let otel_layer = if let Some(ref otel_url) = config.otel_url {
+        Some(
+            OpenTelemetryLayer::new(init_tracer(
+                otel_url,
+                config.otel_sampling_rate,
+                &config.otel_service_name,
+            ))
+            .with_filter(LevelFilter::from_level(config.otel_log_level)),
+        )
+    } else {
+        None
+    };
 
-        tracing_subscriber::registry()
-            .with(log_layer)
-            .with(otel_layer)
-            .init();
-    }
+    tracing_subscriber::registry()
+        .with(log_layer)
+        .with(otel_layer)
+        .init();
 
     info!("Starting Kafka Deduplicator service");
 

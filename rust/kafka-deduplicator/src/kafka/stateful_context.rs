@@ -5,6 +5,8 @@ use tokio::runtime::Handle;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
+use crate::kafka::types::Partition;
+
 use super::rebalance_handler::RebalanceHandler;
 use super::tracker::InFlightTracker;
 
@@ -12,9 +14,9 @@ use super::tracker::InFlightTracker;
 #[derive(Debug, Clone)]
 enum RebalanceEvent {
     /// Partitions are being revoked
-    Revoke(Vec<(String, i32)>),
+    Revoke(Vec<Partition>),
     /// Partitions have been assigned  
-    Assign(Vec<(String, i32)>),
+    Assign(Vec<Partition>),
 }
 
 /// Stateful Kafka consumer context that coordinates with external state systems
@@ -77,8 +79,8 @@ impl StatefulConsumerContext {
 
                     // Create TopicPartitionList for handler
                     let mut tpl = TopicPartitionList::new();
-                    for (topic, partition) in &partitions {
-                        tpl.add_partition(topic, *partition);
+                    for partition in &partitions {
+                        tpl.add_partition(partition.topic(), partition.partition_number());
                     }
 
                     // Call user's revocation handler
@@ -104,8 +106,8 @@ impl StatefulConsumerContext {
 
                     // Create TopicPartitionList for handler
                     let mut tpl = TopicPartitionList::new();
-                    for (topic, partition) in &partitions {
-                        tpl.add_partition(topic, *partition);
+                    for partition in &partitions {
+                        tpl.add_partition(partition.topic(), partition.partition_number());
                     }
 
                     // Call user's assignment handler
@@ -139,25 +141,21 @@ impl ConsumerContext for StatefulConsumerContext {
             Rebalance::Revoke(partitions) => {
                 info!("Revoking {} partitions", partitions.count());
 
-                // Extract partition info immediately to avoid Send issues
-                let partition_infos: Vec<(String, i32)> = partitions
+                let partitions: Vec<Partition> = partitions
                     .elements()
                     .into_iter()
-                    .map(|elem| (elem.topic().to_string(), elem.partition()))
+                    .map(Partition::from)
                     .collect();
 
                 // Fast, non-blocking fence operation
                 let tracker_clone = self.tracker.clone();
-                let partition_infos_clone = partition_infos.clone();
+                let partitions_clone = partitions.clone();
                 self.rt_handle.spawn(async move {
-                    tracker_clone.fence_partitions(&partition_infos_clone).await;
+                    tracker_clone.fence_partitions(&partitions_clone).await;
                 });
 
                 // Send revocation event to async worker
-                if let Err(e) = self
-                    .rebalance_tx
-                    .send(RebalanceEvent::Revoke(partition_infos))
-                {
+                if let Err(e) = self.rebalance_tx.send(RebalanceEvent::Revoke(partitions)) {
                     error!("Failed to send revoke event to rebalance worker: {}", e);
                 }
             }
@@ -182,24 +180,16 @@ impl ConsumerContext for StatefulConsumerContext {
                 info!("Assigned {} partitions", partitions.count());
 
                 // Extract partition info
-                let partition_infos: Vec<(String, i32)> = partitions
+                let partitions: Vec<Partition> = partitions
                     .elements()
                     .into_iter()
-                    .map(|elem| {
-                        let topic = elem.topic().to_string();
-                        let partition = elem.partition();
-                        info!("🎯 Assigned partition: {}-{}", topic, partition);
-                        (topic, partition)
-                    })
+                    .map(Partition::from)
                     .collect();
 
-                info!("📋 Total partitions assigned: {:?}", partition_infos);
+                info!("📋 Total partitions assigned: {:?}", partitions);
 
                 // Send assignment event to async worker
-                if let Err(e) = self
-                    .rebalance_tx
-                    .send(RebalanceEvent::Assign(partition_infos))
-                {
+                if let Err(e) = self.rebalance_tx.send(RebalanceEvent::Assign(partitions)) {
                     error!("Failed to send assign event to rebalance worker: {}", e);
                 }
             }
@@ -256,8 +246,8 @@ mod tests {
         revoked_count: AtomicUsize,
         pre_rebalance_count: AtomicUsize,
         post_rebalance_count: AtomicUsize,
-        assigned_partitions: Mutex<Vec<(String, i32)>>,
-        revoked_partitions: Mutex<Vec<(String, i32)>>,
+        assigned_partitions: Mutex<Vec<Partition>>,
+        revoked_partitions: Mutex<Vec<Partition>>,
     }
 
     #[async_trait]
@@ -267,7 +257,7 @@ mod tests {
 
             let mut assigned = self.assigned_partitions.lock().unwrap();
             for elem in partitions.elements() {
-                assigned.push((elem.topic().to_string(), elem.partition()));
+                assigned.push(Partition::from(elem));
             }
 
             Ok(())
@@ -278,7 +268,7 @@ mod tests {
 
             let mut revoked = self.revoked_partitions.lock().unwrap();
             for elem in partitions.elements() {
-                revoked.push((elem.topic().to_string(), elem.partition()));
+                revoked.push(Partition::from(elem));
             }
 
             Ok(())
@@ -326,9 +316,9 @@ mod tests {
 
         let assigned = handler.assigned_partitions.lock().unwrap();
         assert_eq!(assigned.len(), 3);
-        assert!(assigned.contains(&("test-topic-1".to_string(), 0)));
-        assert!(assigned.contains(&("test-topic-1".to_string(), 1)));
-        assert!(assigned.contains(&("test-topic-2".to_string(), 0)));
+        assert!(assigned.contains(&Partition::new("test-topic-1".to_string(), 0)));
+        assert!(assigned.contains(&Partition::new("test-topic-1".to_string(), 1)));
+        assert!(assigned.contains(&Partition::new("test-topic-2".to_string(), 0)));
     }
 
     #[tokio::test]
@@ -351,9 +341,9 @@ mod tests {
 
         let revoked = handler.revoked_partitions.lock().unwrap();
         assert_eq!(revoked.len(), 3);
-        assert!(revoked.contains(&("test-topic-1".to_string(), 0)));
-        assert!(revoked.contains(&("test-topic-1".to_string(), 1)));
-        assert!(revoked.contains(&("test-topic-2".to_string(), 0)));
+        assert!(revoked.contains(&Partition::new("test-topic-1".to_string(), 0)));
+        assert!(revoked.contains(&Partition::new("test-topic-1".to_string(), 1)));
+        assert!(revoked.contains(&Partition::new("test-topic-2".to_string(), 0)));
     }
 
     #[tokio::test]
@@ -450,7 +440,11 @@ mod tests {
 
         // Verify messages are tracked and partition is active
         assert_eq!(tracker.in_flight_count().await, 2);
-        assert!(tracker.is_partition_active("test-topic-1", 0).await);
+        assert!(
+            tracker
+                .is_partition_active(&Partition::new("test-topic-1".to_string(), 0))
+                .await
+        );
 
         // Create partition list for revocation
         let partitions = create_test_partition_list();
@@ -463,8 +457,16 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
         // Verify partition is now fenced (should happen immediately)
-        assert!(!tracker.is_partition_active("test-topic-1", 0).await);
-        assert!(!tracker.is_partition_active("test-topic-1", 1).await);
+        assert!(
+            !tracker
+                .is_partition_active(&Partition::new("test-topic-1".to_string(), 0))
+                .await
+        );
+        assert!(
+            !tracker
+                .is_partition_active(&Partition::new("test-topic-1".to_string(), 1))
+                .await
+        );
 
         // Messages should still be in-flight at this point
         assert_eq!(tracker.in_flight_count().await, 2);
@@ -502,15 +504,23 @@ mod tests {
         let consumer = create_test_consumer(Arc::new(TestRebalanceHandler::default()));
 
         // Initially fence some partitions
-        let partitions_info = vec![
-            ("test-topic-1".to_string(), 0),
-            ("test-topic-1".to_string(), 1),
+        let partitions = vec![
+            Partition::new("test-topic-1".to_string(), 0),
+            Partition::new("test-topic-1".to_string(), 1),
         ];
-        tracker.fence_partitions(&partitions_info).await;
+        tracker.fence_partitions(&partitions).await;
 
         // Verify partitions are fenced
-        assert!(!tracker.is_partition_active("test-topic-1", 0).await);
-        assert!(!tracker.is_partition_active("test-topic-1", 1).await);
+        assert!(
+            !tracker
+                .is_partition_active(&Partition::new("test-topic-1".to_string(), 0))
+                .await
+        );
+        assert!(
+            !tracker
+                .is_partition_active(&Partition::new("test-topic-1".to_string(), 1))
+                .await
+        );
 
         // Create partition list for assignment
         let partitions = create_test_partition_list();
@@ -523,8 +533,16 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         // Verify partitions are now active
-        assert!(tracker.is_partition_active("test-topic-1", 0).await);
-        assert!(tracker.is_partition_active("test-topic-1", 1).await);
+        assert!(
+            tracker
+                .is_partition_active(&Partition::new("test-topic-1".to_string(), 0))
+                .await
+        );
+        assert!(
+            tracker
+                .is_partition_active(&Partition::new("test-topic-1".to_string(), 1))
+                .await
+        );
 
         // Verify rebalance handler was called
         assert_eq!(

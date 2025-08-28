@@ -13,6 +13,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::checkpoint_manager::CheckpointManager;
 use crate::kafka::message::{AckableMessage, MessageProcessor};
+use crate::kafka::types::Partition;
 use crate::rocksdb::deduplication_store::{DeduplicationStore, DeduplicationStoreConfig};
 use tokio::sync::Mutex as TokioMutex;
 
@@ -45,7 +46,7 @@ pub struct DeduplicationProcessor {
 
     /// Per-partition deduplication stores using DashMap for better concurrent performance
     /// Key: (topic, partition)
-    stores: Arc<DashMap<(String, i32), DeduplicationStore>>,
+    stores: Arc<DashMap<Partition, DeduplicationStore>>,
 
     /// Checkpoint manager for periodic flushing and checkpointing
     checkpoint_manager: Arc<TokioMutex<CheckpointManager>>,
@@ -83,12 +84,12 @@ impl DeduplicationProcessor {
 
     /// Get or create a deduplication store for a specific partition
     async fn get_or_create_store(&self, topic: &str, partition: i32) -> Result<DeduplicationStore> {
-        let partition_key = (topic.to_string(), partition);
+        let partition_key = Partition::new(topic.to_string(), partition);
 
         // Use DashMap's entry API for atomic get-or-create operation
         let store = self
             .stores
-            .entry(partition_key.clone())
+            .entry(partition_key)
             .or_try_insert_with(|| {
                 // Create new store for this partition
                 let store_path = format!(
@@ -358,13 +359,12 @@ impl DeduplicationProcessor {
     }
 
     /// Clean up stores for revoked partitions
-    pub async fn cleanup_stores(&self, revoked_partitions: &[(String, i32)]) {
-        for (topic, partition) in revoked_partitions {
-            let partition_key = (topic.clone(), *partition);
-            if let Some(_store) = self.stores.remove(&partition_key) {
+    pub async fn cleanup_stores(&self, revoked_partitions: &[Partition]) {
+        for partition in revoked_partitions {
+            if let Some(_store) = self.stores.remove(partition) {
                 info!(
                     "Cleaned up deduplication store for revoked partition {}:{}",
-                    topic, partition
+                    partition.topic(), partition.partition_number()
                 );
                 // Store will be dropped when Arc goes out of scope
             }
@@ -441,15 +441,15 @@ mod tests {
 
         // We can't easily test the full processor without Kafka running,
         // but we can test the store management logic separately
-        let stores: Arc<DashMap<(String, i32), Arc<DeduplicationStore>>> = Arc::new(DashMap::new());
+        let stores: Arc<DashMap<Partition, Arc<DeduplicationStore>>> = Arc::new(DashMap::new());
 
         // Test that stores map starts empty
         assert_eq!(stores.len(), 0);
 
         // Test cleanup with empty stores
-        let revoked = vec![("test-topic".to_string(), 0)];
-        for (topic, partition) in &revoked {
-            stores.remove(&(topic.clone(), *partition));
+        let revoked = vec![Partition::new("test-topic".to_string(), 0)];
+        for partition in &revoked {
+            stores.remove(partition);
         }
 
         assert_eq!(stores.len(), 0);

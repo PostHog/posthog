@@ -1,7 +1,8 @@
+use anyhow::Result;
 use rdkafka::message::OwnedMessage;
 use rdkafka::Message;
-use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, OwnedSemaphorePermit, RwLock, Semaphore};
@@ -10,15 +11,13 @@ use tokio::time::sleep;
 use tracing::{debug, info, warn};
 
 use crate::kafka::message::{AckableMessage, MessageResult};
+use crate::kafka::types::{Partition, PartitionOffset, PartitionState};
 use crate::rocksdb::metrics_consts::{
     KAFKA_CONSUMER_IN_FLIGHT_MEMORY_BYTES, KAFKA_CONSUMER_IN_FLIGHT_MESSAGES,
     MESSAGE_COMPLETION_DURATION, OUT_OF_ORDER_COMPLETIONS, PARTITION_LAST_COMMITTED_OFFSET,
     PARTITION_OFFSET_GAP_DETECTED, PARTITION_OFFSET_GAP_SIZE, PARTITION_PENDING_COMPLETIONS,
     PARTITION_SECONDS_SINCE_LAST_COMMIT,
 };
-
-/// Type alias for fenced partitions mapping
-type FencedPartitionsMap = Arc<RwLock<HashMap<(String, i32), Arc<AtomicBool>>>>;
 
 /// Global statistics shared between InFlightTracker and PartitionTrackers
 #[derive(Debug)]
@@ -300,16 +299,57 @@ impl MessageHandle {
     }
 }
 
+struct PartitionTrackingInfo {
+    state: PartitionState,
+    tracker: Option<PartitionTracker>,
+}
+
+impl PartitionTrackingInfo {
+    /// Transition to a new state with validation
+    fn transition_to(&mut self, new_state: PartitionState) -> Result<()> {
+        // Validate state transitions
+        match (&self.state, &new_state) {
+            // Valid transitions
+            (PartitionState::Active, PartitionState::Fenced) => {}
+            (PartitionState::Fenced, PartitionState::Revoked) => {
+                // Clean up tracker when revoking
+                self.tracker = None;
+            }
+            (PartitionState::Fenced, PartitionState::Active) => {
+                // Unfencing - clean tracker for fresh start
+                self.tracker = None;
+            }
+            (PartitionState::Revoked, PartitionState::Active) => {
+                // Reactivating after revocation
+                self.tracker = None;
+            }
+            (PartitionState::Active, PartitionState::Revoked) => {
+                // Direct revocation from active (e.g., during fast rebalance)
+                self.tracker = None;
+            }
+            // No-op transitions (already in target state)
+            (current, target) if current == target => {
+                return Err(anyhow::anyhow!("Already in state {:?}", current));
+            }
+            // Invalid transitions
+            _ => {
+                return Err(anyhow::anyhow!(
+                    "Invalid state transition from {:?} to {:?}",
+                    self.state,
+                    new_state
+                ));
+            }
+        }
+
+        self.state = new_state;
+        Ok(())
+    }
+}
+
 /// Tracks in-flight messages using channels per partition
 pub struct InFlightTracker {
     /// Per-partition trackers
-    partitions: Arc<RwLock<HashMap<(String, i32), PartitionTracker>>>,
-
-    /// Set of revoked partitions that should not accept new messages
-    revoked_partitions: Arc<RwLock<HashSet<(String, i32)>>>,
-
-    /// Fast lookup for fenced partitions using atomic booleans
-    fenced_partitions: FencedPartitionsMap,
+    partitions: Arc<RwLock<HashMap<Partition, PartitionTrackingInfo>>>,
 
     /// Global statistics shared with PartitionTrackers
     global_stats: Arc<GlobalStats>,
@@ -332,8 +372,6 @@ impl InFlightTracker {
     pub fn with_capacity(max_in_flight: usize) -> Self {
         Self {
             partitions: Arc::new(RwLock::new(HashMap::new())),
-            revoked_partitions: Arc::new(RwLock::new(HashSet::new())),
-            fenced_partitions: Arc::new(RwLock::new(HashMap::new())),
             global_stats: Arc::new(GlobalStats::new()),
             in_flight_semaphore: Arc::new(Semaphore::new(max_in_flight)),
         }
@@ -356,9 +394,17 @@ impl InFlightTracker {
 
         let completion_tx = {
             let mut partitions = self.partitions.write().await;
-            let partition_key = (topic.clone(), partition);
+            let partition_key = Partition::new(topic.clone(), partition);
 
-            let tracker = partitions.entry(partition_key).or_insert_with(|| {
+            let partition_info =
+                partitions
+                    .entry(partition_key)
+                    .or_insert_with(|| PartitionTrackingInfo {
+                        state: PartitionState::Active,
+                        tracker: None,
+                    });
+
+            let tracker = partition_info.tracker.get_or_insert_with(|| {
                 PartitionTracker::new(topic.clone(), partition, self.global_stats.clone())
             });
 
@@ -383,22 +429,25 @@ impl InFlightTracker {
         // Check if this is the expected next offset
         {
             let partitions = self.partitions.read().await;
-            if let Some(tracker) = partitions.get(&(topic.clone(), partition)) {
-                let last_committed = *tracker.last_committed_offset.read().await;
-                let in_flight = self.global_stats.in_flight_count.load(Ordering::SeqCst) as i64;
+            let partition_key = Partition::new(topic.clone(), partition);
+            if let Some(partition_tracker_info) = partitions.get(&partition_key) {
+                if let Some(tracker) = &partition_tracker_info.tracker {
+                    let last_committed = *tracker.last_committed_offset.read().await;
+                    let in_flight = self.global_stats.in_flight_count.load(Ordering::SeqCst) as i64;
 
-                let expected_offset = if last_committed == -1 {
-                    // First message for this partition - use initial offset
-                    tracker.initial_offset.read().await.unwrap_or(0)
-                } else {
-                    last_committed + 1
-                };
+                    let expected_offset = if last_committed == -1 {
+                        // First message for this partition - use initial offset
+                        tracker.initial_offset.read().await.unwrap_or(0)
+                    } else {
+                        last_committed + 1
+                    };
 
-                if offset != expected_offset && last_committed != -1 {
-                    warn!(
+                    if offset != expected_offset && last_committed != -1 {
+                        warn!(
                         "⚠️ TRACKING NON-SEQUENTIAL OFFSET: topic={}, partition={}, offset={}, expected={}, last_committed={}, global_in_flight={}",
                         topic, partition, offset, expected_offset, last_committed, in_flight
                     );
+                    }
                 }
             }
         }
@@ -425,21 +474,25 @@ impl InFlightTracker {
     }
 
     /// Get safe commit offsets for all partitions
-    pub async fn get_safe_commit_offsets(&self) -> HashMap<(String, i32), i64> {
+    pub async fn get_safe_commit_offsets(&self) -> HashMap<Partition, i64> {
         let partitions = self.partitions.read().await;
         let mut safe_offsets = HashMap::new();
 
         // Collect safe offsets from each partition
-        for ((topic, partition), tracker) in partitions.iter() {
-            let last_committed = *tracker.last_committed_offset.read().await;
+        for (partition_key, partition_tracker_info) in partitions.iter() {
+            if let Some(tracker) = &partition_tracker_info.tracker {
+                let last_committed = *tracker.last_committed_offset.read().await;
 
-            info!(
-                "Partition {}:{} - last_committed_offset={}",
-                topic, partition, last_committed,
-            );
+                info!(
+                    "Partition {}:{} - last_committed_offset={}",
+                    partition_key.topic(),
+                    partition_key.partition_number(),
+                    last_committed
+                );
 
-            if last_committed >= 0 {
-                safe_offsets.insert((topic.clone(), *partition), last_committed);
+                if last_committed >= 0 {
+                    safe_offsets.insert(partition_key.clone(), last_committed);
+                }
             }
         }
 
@@ -452,14 +505,11 @@ impl InFlightTracker {
 
     /// Wait for all in-flight messages to complete and return final offsets
     /// This is a convenience method that waits for ALL partitions
-    pub async fn wait_for_completion(&self) -> Vec<(String, i32, i64)> {
+    pub async fn wait_for_completion(&self) -> Vec<PartitionOffset> {
         // Get all active partitions and wait for them
         let partitions = {
             let partitions_guard = self.partitions.read().await;
-            partitions_guard
-                .keys()
-                .map(|(topic, partition)| (topic.clone(), *partition))
-                .collect::<Vec<_>>()
+            partitions_guard.keys().cloned().collect::<Vec<_>>()
         };
 
         if partitions.is_empty() {
@@ -499,98 +549,161 @@ impl InFlightTracker {
         let partitions = self.partitions.read().await;
         let mut health_reports = Vec::new();
 
-        for ((topic, partition), tracker) in partitions.iter() {
-            let last_committed = *tracker.last_committed_offset.read().await;
-            let in_flight = tracker.get_in_flight_count();
+        for (partition_key, partition_tracker_info) in partitions.iter() {
+            if let Some(tracker) = &partition_tracker_info.tracker {
+                let last_committed = *tracker.last_committed_offset.read().await;
+                let in_flight = tracker.get_in_flight_count();
 
-            health_reports.push(PartitionHealth {
-                topic: topic.clone(),
-                partition: *partition,
-                last_committed_offset: last_committed,
-                in_flight_count: in_flight,
-            });
+                health_reports.push(PartitionHealth {
+                    topic: partition_key.topic().to_string(),
+                    partition: partition_key.partition_number(),
+                    last_committed_offset: last_committed,
+                    in_flight_count: in_flight,
+                });
+            }
         }
 
         health_reports
     }
 
     /// Check if a partition is active (not fenced or revoked) - fast non-blocking check
-    pub async fn is_partition_active(&self, topic: &str, partition: i32) -> bool {
-        // First check if it's fenced
-        let fenced = self.fenced_partitions.read().await;
-        if let Some(is_fenced) = fenced.get(&(topic.to_string(), partition)) {
-            if is_fenced.load(Ordering::Acquire) {
-                return false;
-            }
+    pub async fn is_partition_active(&self, partition: &Partition) -> bool {
+        let partitions = self.partitions.read().await;
+        if let Some(partition_info) = partitions.get(partition) {
+            return partition_info.state == PartitionState::Active;
         }
-
-        // Then check if it's revoked
-        let revoked = self.revoked_partitions.read().await;
-        !revoked.contains(&(topic.to_string(), partition))
+        // Return false for unknown partitions - we only process messages for explicitly tracked partitions
+        false
     }
 
     /// Fence partitions immediately (non-blocking) to stop accepting new messages
-    pub async fn fence_partitions(&self, partitions: &[(String, i32)]) {
-        let mut fenced = self.fenced_partitions.write().await;
-        for (topic, partition) in partitions {
-            info!("Fencing partition {}:{}", topic, partition);
-            let is_fenced = fenced
-                .entry((topic.clone(), *partition))
-                .or_insert_with(|| Arc::new(AtomicBool::new(false)));
-            is_fenced.store(true, Ordering::Release);
+    pub async fn fence_partitions(&self, partitions_to_fence: &[Partition]) {
+        let mut partitions = self.partitions.write().await;
+
+        for partition in partitions_to_fence {
+            info!(
+                "Fencing partition {}:{}",
+                partition.topic(),
+                partition.partition_number()
+            );
+
+            if let Some(partition_info) = partitions.get_mut(partition) {
+                match partition_info.transition_to(PartitionState::Fenced) {
+                    Ok(()) => {
+                        info!(
+                            "Successfully fenced partition {}:{}",
+                            partition.topic(),
+                            partition.partition_number()
+                        );
+                    }
+                    Err(e) => {
+                        debug!(
+                            "Partition {}:{} state transition: {}",
+                            partition.topic(),
+                            partition.partition_number(),
+                            e
+                        );
+                    }
+                }
+            } else {
+                // Create new entry as fenced for unknown partition
+                partitions.insert(
+                    partition.clone(),
+                    PartitionTrackingInfo {
+                        state: PartitionState::Fenced,
+                        tracker: None,
+                    },
+                );
+                info!(
+                    "Created new fenced entry for partition {}:{}",
+                    partition.topic(),
+                    partition.partition_number()
+                );
+            }
         }
     }
 
     /// Finalize revocation after cleanup is complete
-    pub async fn finalize_revocation(&self, partitions: &[(String, i32)]) {
-        let mut revoked = self.revoked_partitions.write().await;
-        let mut fenced = self.fenced_partitions.write().await;
-        let mut partition_trackers = self.partitions.write().await;
+    pub async fn finalize_revocation(&self, partitions_to_revoke: &[Partition]) {
+        let mut partitions = self.partitions.write().await;
 
-        for (topic, partition) in partitions {
+        for partition in partitions_to_revoke {
             info!(
                 "Finalizing revocation for partition {}:{}",
-                topic, partition
+                partition.topic(),
+                partition.partition_number()
             );
-            revoked.insert((topic.clone(), *partition));
-            // Remove from fenced map as it's now fully revoked
-            fenced.remove(&(topic.clone(), *partition));
 
-            // IMPORTANT: Remove the PartitionTracker to clean up resources
-            // This will drop the tracker and its completion processor task
-            if partition_trackers
-                .remove(&(topic.clone(), *partition))
-                .is_some()
-            {
-                info!(
-                    "Removed PartitionTracker for revoked partition {}:{}",
-                    topic, partition
+            if let Some(partition_info) = partitions.get_mut(partition) {
+                match partition_info.transition_to(PartitionState::Revoked) {
+                    Ok(()) => {
+                        info!(
+                            "Successfully revoked partition {}:{}",
+                            partition.topic(),
+                            partition.partition_number()
+                        );
+                    }
+                    Err(e) => {
+                        debug!(
+                            "Partition {}:{} state transition: {}",
+                            partition.topic(),
+                            partition.partition_number(),
+                            e
+                        );
+                    }
+                }
+            } else {
+                warn!(
+                    "Could not revoke partition {}:{} - not found",
+                    partition.topic(),
+                    partition.partition_number()
                 );
             }
         }
     }
 
     /// Mark partitions as active (remove from revoked set and unfence)
-    pub async fn mark_partitions_active(&self, partitions: &[(String, i32)]) {
-        let mut revoked = self.revoked_partitions.write().await;
-        let mut fenced = self.fenced_partitions.write().await;
-        let mut partition_trackers = self.partitions.write().await;
+    pub async fn mark_partitions_active(&self, partitions_to_unfence: &[Partition]) {
+        let mut partitions = self.partitions.write().await;
 
-        for (topic, partition) in partitions {
-            info!("Marking partition {}:{} as active", topic, partition);
-            revoked.remove(&(topic.clone(), *partition));
-            // Remove any fencing
-            fenced.remove(&(topic.clone(), *partition));
+        for partition in partitions_to_unfence {
+            info!(
+                "Marking partition {}:{} as active",
+                partition.topic(),
+                partition.partition_number()
+            );
 
-            // Remove any old tracker to ensure clean state when partition is reassigned
-            // The new tracker will be created when the first message arrives
-            if partition_trackers
-                .remove(&(topic.clone(), *partition))
-                .is_some()
-            {
+            if let Some(partition_info) = partitions.get_mut(partition) {
+                match partition_info.transition_to(PartitionState::Active) {
+                    Ok(()) => {
+                        info!(
+                            "Successfully activated partition {}:{}",
+                            partition.topic(),
+                            partition.partition_number()
+                        );
+                    }
+                    Err(e) => {
+                        debug!(
+                            "Partition {}:{} state transition: {}",
+                            partition.topic(),
+                            partition.partition_number(),
+                            e
+                        );
+                    }
+                }
+            } else {
+                // Create new entry for unknown partition
+                partitions.insert(
+                    partition.clone(),
+                    PartitionTrackingInfo {
+                        state: PartitionState::Active,
+                        tracker: None,
+                    },
+                );
                 info!(
-                    "Removed old PartitionTracker for newly assigned partition {}:{} to ensure clean state",
-                    topic, partition
+                    "Created new active entry for partition {}:{}",
+                    partition.topic(),
+                    partition.partition_number()
                 );
             }
         }
@@ -599,8 +712,8 @@ impl InFlightTracker {
     /// Wait for all in-flight messages in specific partitions to complete
     pub async fn wait_for_partition_completion(
         &self,
-        partitions: &[(String, i32)],
-    ) -> Vec<(String, i32, i64)> {
+        partitions: &[Partition],
+    ) -> Vec<PartitionOffset> {
         info!(
             "Waiting for {} partitions to complete processing",
             partitions.len()
@@ -615,10 +728,13 @@ impl InFlightTracker {
             let partitions_guard = self.partitions.read().await;
             let mut total_in_flight = 0;
 
-            for (topic, partition) in partitions {
-                let partition_key = (topic.clone(), *partition);
-                if let Some(tracker) = partitions_guard.get(&partition_key) {
-                    total_in_flight += tracker.get_in_flight_count();
+            for partition in partitions {
+                let partition_key =
+                    Partition::new(partition.topic().to_string(), partition.partition_number());
+                if let Some(partition_tracker_info) = partitions_guard.get(&partition_key) {
+                    if let Some(tracker) = &partition_tracker_info.tracker {
+                        total_in_flight += tracker.get_in_flight_count();
+                    }
                 }
             }
 
@@ -638,11 +754,10 @@ impl InFlightTracker {
         let safe_offsets = self.get_safe_commit_offsets().await;
         partitions
             .iter()
-            .filter_map(|(topic, partition)| {
-                let partition_key = (topic.clone(), *partition);
+            .filter_map(|partition| {
                 safe_offsets
-                    .get(&partition_key)
-                    .map(|offset| (topic.clone(), *partition, *offset))
+                    .get(partition)
+                    .map(|offset| PartitionOffset::new(partition.clone(), *offset))
             })
             .collect()
     }
@@ -780,7 +895,10 @@ mod tests {
 
         // Check safe commit offsets
         let safe_offsets = tracker.get_safe_commit_offsets().await;
-        assert_eq!(safe_offsets.get(&("test-topic".to_string(), 0)), Some(&0));
+        assert_eq!(
+            safe_offsets.get(&Partition::new("test-topic".to_string(), 0)),
+            Some(&0)
+        );
     }
 
     #[tokio::test]
@@ -827,8 +945,14 @@ mod tests {
         assert_eq!(tracker.memory_usage().await, 0);
 
         let safe_offsets = tracker.get_safe_commit_offsets().await;
-        assert_eq!(safe_offsets.get(&("topic".to_string(), 0)), Some(&1)); // Both messages on partition 0 completed
-        assert_eq!(safe_offsets.get(&("topic".to_string(), 1)), Some(&0)); // Message on partition 1 completed
+        assert_eq!(
+            safe_offsets.get(&Partition::new("topic".to_string(), 0)),
+            Some(&1)
+        ); // Both messages on partition 0 completed
+        assert_eq!(
+            safe_offsets.get(&Partition::new("topic".to_string(), 1)),
+            Some(&0)
+        ); // Message on partition 1 completed
     }
 
     #[tokio::test]
@@ -870,7 +994,10 @@ mod tests {
 
         // Should commit all the way to 2 once 1 is completed
         let safe_offsets = tracker.get_safe_commit_offsets().await;
-        assert_eq!(safe_offsets.get(&("topic".to_string(), 0)), Some(&2));
+        assert_eq!(
+            safe_offsets.get(&Partition::new("topic".to_string(), 0)),
+            Some(&2)
+        );
     }
 
     #[tokio::test]
@@ -904,7 +1031,10 @@ mod tests {
 
         // Should only commit up to 0 due to gap at 1
         let safe_offsets = tracker.get_safe_commit_offsets().await;
-        assert_eq!(safe_offsets.get(&("topic".to_string(), 0)), Some(&0));
+        assert_eq!(
+            safe_offsets.get(&Partition::new("topic".to_string(), 0)),
+            Some(&0)
+        );
     }
 
     #[tokio::test]
@@ -929,7 +1059,13 @@ mod tests {
         // Wait for completion
         let offsets = tracker.wait_for_completion().await;
 
-        assert_eq!(offsets, vec![("test-topic".to_string(), 0, 0)]);
+        assert_eq!(
+            offsets,
+            vec![PartitionOffset::new(
+                Partition::new("test-topic".to_string(), 0),
+                0
+            )]
+        );
         assert_eq!(tracker.in_flight_count().await, 0);
     }
 
@@ -937,34 +1073,86 @@ mod tests {
     async fn test_partition_fencing() {
         let tracker = InFlightTracker::new();
 
-        // Initially all partitions should be active
-        assert!(tracker.is_partition_active("topic1", 0).await);
-        assert!(tracker.is_partition_active("topic1", 1).await);
-        assert!(tracker.is_partition_active("topic2", 0).await);
+        // Initially unknown partitions should be inactive (not tracked)
+        assert!(
+            !tracker
+                .is_partition_active(&Partition::new("topic1".to_string(), 0))
+                .await
+        );
+        assert!(
+            !tracker
+                .is_partition_active(&Partition::new("topic1".to_string(), 1))
+                .await
+        );
+
+        // Mark some partitions as active first
+        let partitions_to_activate = vec![
+            Partition::new("topic1".to_string(), 0),
+            Partition::new("topic1".to_string(), 1),
+            Partition::new("topic2".to_string(), 0),
+        ];
+        tracker.mark_partitions_active(&partitions_to_activate).await;
+
+        // Now they should be active
+        assert!(
+            tracker
+                .is_partition_active(&Partition::new("topic1".to_string(), 0))
+                .await
+        );
+        assert!(
+            tracker
+                .is_partition_active(&Partition::new("topic1".to_string(), 1))
+                .await
+        );
 
         // Fence some partitions
-        let partitions_to_fence = vec![("topic1".to_string(), 0), ("topic2".to_string(), 0)];
+        let partitions_to_fence = vec![
+            Partition::new("topic1".to_string(), 0),
+            Partition::new("topic2".to_string(), 0),
+        ];
         tracker.fence_partitions(&partitions_to_fence).await;
 
         // Check partition states - fenced partitions should be inactive
-        assert!(!tracker.is_partition_active("topic1", 0).await); // Fenced
-        assert!(tracker.is_partition_active("topic1", 1).await); // Still active
-        assert!(!tracker.is_partition_active("topic2", 0).await); // Fenced
+        assert!(
+            !tracker
+                .is_partition_active(&Partition::new("topic1".to_string(), 0))
+                .await
+        ); // Fenced
+        assert!(
+            tracker
+                .is_partition_active(&Partition::new("topic1".to_string(), 1))
+                .await
+        ); // Still active
 
         // Finalize revocation
         tracker.finalize_revocation(&partitions_to_fence).await;
 
         // Partitions should still be inactive (now revoked)
-        assert!(!tracker.is_partition_active("topic1", 0).await);
-        assert!(!tracker.is_partition_active("topic2", 0).await);
+        assert!(
+            !tracker
+                .is_partition_active(&Partition::new("topic1".to_string(), 0))
+                .await
+        );
+        assert!(
+            !tracker
+                .is_partition_active(&Partition::new("topic2".to_string(), 0))
+                .await
+        );
 
         // Mark partitions as active again
         tracker.mark_partitions_active(&partitions_to_fence).await;
 
         // All should be active again
-        assert!(tracker.is_partition_active("topic1", 0).await);
-        assert!(tracker.is_partition_active("topic1", 1).await);
-        assert!(tracker.is_partition_active("topic2", 0).await);
+        assert!(
+            tracker
+                .is_partition_active(&Partition::new("topic1".to_string(), 0))
+                .await
+        );
+        assert!(
+            tracker
+                .is_partition_active(&Partition::new("topic1".to_string(), 1))
+                .await
+        );
     }
 
     #[tokio::test]
@@ -1014,14 +1202,17 @@ mod tests {
         });
 
         // Wait for specific partition completion
-        let target_partitions = vec![("topic".to_string(), 0)];
+        let target_partitions = vec![Partition::new("topic".to_string(), 0)];
         let offsets = tracker
             .wait_for_partition_completion(&target_partitions)
             .await;
 
         // Should get final offsets for the completed partition
         assert_eq!(offsets.len(), 1);
-        assert_eq!(offsets[0], ("topic".to_string(), 0, 1)); // Last completed offset
+        assert_eq!(
+            offsets[0],
+            PartitionOffset::new(Partition::new("topic".to_string(), 0), 1)
+        ); // Last completed offset
 
         // Other messages should still be in-flight
         assert_eq!(tracker.in_flight_count().await, 2);
@@ -1039,8 +1230,8 @@ mod tests {
 
         // Wait for completion on partitions with no messages
         let target_partitions = vec![
-            ("empty-topic".to_string(), 0),
-            ("empty-topic".to_string(), 1),
+            Partition::new("empty-topic".to_string(), 0),
+            Partition::new("empty-topic".to_string(), 1),
         ];
 
         let offsets = tracker
@@ -1093,7 +1284,10 @@ mod tests {
         });
 
         // Wait for specific partitions
-        let target_partitions = vec![("topic".to_string(), 0), ("topic".to_string(), 1)];
+        let target_partitions = vec![
+            Partition::new("topic".to_string(), 0),
+            Partition::new("topic".to_string(), 1),
+        ];
 
         let offsets = tracker
             .wait_for_partition_completion(&target_partitions)
@@ -1101,8 +1295,14 @@ mod tests {
 
         // Should get offsets for both partitions
         assert_eq!(offsets.len(), 2);
-        assert!(offsets.contains(&("topic".to_string(), 0, 0)));
-        assert!(offsets.contains(&("topic".to_string(), 1, 0)));
+        assert!(offsets.contains(&PartitionOffset::new(
+            Partition::new("topic".to_string(), 0),
+            0
+        )));
+        assert!(offsets.contains(&PartitionOffset::new(
+            Partition::new("topic".to_string(), 1),
+            0
+        )));
 
         // Partition 2 should still have in-flight message initially
         // Wait a bit more for the last message to complete
@@ -1142,14 +1342,22 @@ mod tests {
         let ackable3 = tracker.track_message(msg3, 100, permit3).await;
 
         // Simulate partition revocation workflow
-        let revoked_partitions = vec![("topic".to_string(), 0)];
+        let revoked_partitions = vec![Partition::new("topic".to_string(), 0)];
 
         // 1. Fence partitions immediately
         tracker.fence_partitions(&revoked_partitions).await;
 
         // Partition should be marked as inactive immediately
-        assert!(!tracker.is_partition_active("topic", 0).await);
-        assert!(tracker.is_partition_active("topic", 1).await);
+        assert!(
+            !tracker
+                .is_partition_active(&Partition::new("topic".to_string(), 0))
+                .await
+        );
+        assert!(
+            tracker
+                .is_partition_active(&Partition::new("topic".to_string(), 1))
+                .await
+        );
 
         // 2. Complete in-flight messages in background
         tokio::spawn(async move {
@@ -1165,7 +1373,10 @@ mod tests {
 
         // Should get final offsets
         assert_eq!(offsets.len(), 1);
-        assert_eq!(offsets[0], ("topic".to_string(), 0, 1));
+        assert_eq!(
+            offsets[0],
+            PartitionOffset::new(Partition::new("topic".to_string(), 0), 1)
+        );
 
         // 4. Finalize revocation
         tracker.finalize_revocation(&revoked_partitions).await;

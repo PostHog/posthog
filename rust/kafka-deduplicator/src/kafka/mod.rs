@@ -5,6 +5,7 @@ pub mod rebalance_handler;
 pub mod stateful_consumer;
 pub mod stateful_context;
 pub mod tracker;
+pub mod types;
 
 #[cfg(test)]
 pub mod test_utils;

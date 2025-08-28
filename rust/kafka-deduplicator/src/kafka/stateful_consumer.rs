@@ -7,6 +7,8 @@ use tokio::sync::oneshot;
 use tokio::time::timeout;
 use tracing::{debug, error, info, warn};
 
+use crate::kafka::types::Partition;
+
 use super::message::MessageProcessor;
 use super::rebalance_handler::RebalanceHandler;
 use super::stateful_context::StatefulConsumerContext;
@@ -163,12 +165,15 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
         let topic = msg.topic();
         let partition = msg.partition();
         let offset = msg.offset();
+        let partition = Partition::new(topic.to_string(), partition);
 
         // Check if partition is still active (not revoked)
-        if !self.tracker.is_partition_active(topic, partition).await {
+        if !self.tracker.is_partition_active(&partition).await {
             warn!(
                 "Skipping message from revoked partition {}:{} offset {}",
-                topic, partition, offset
+                partition.topic(),
+                partition.partition_number(),
+                offset
             );
             return Ok(());
         }
@@ -186,7 +191,7 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
                 // No permits available - process completions and try once more
                 debug!(
                     "No permits available, processing completions. Topic {} partition {} offset {}. In-flight: {}",
-                    topic, partition, offset,
+                    partition.topic(), partition.partition_number(), offset,
                     self.tracker.in_flight_count().await
                 );
 
@@ -209,7 +214,7 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
                         // Still no permits - apply backpressure
                         debug!(
                             "Still no permits after processing completions, applying backpressure. Topic {} partition {} offset {}",
-                            topic, partition, offset
+                            partition.topic(), partition.partition_number(), offset
                         );
                         return Ok(());
                     }
@@ -228,8 +233,8 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
 
         debug!(
             "Tracking message from topic {} partition {} offset {} (available permits: {})",
-            topic,
-            partition,
+            partition.topic(),
+            partition.partition_number(),
             offset,
             self.tracker.available_permits()
         );
@@ -239,14 +244,14 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
             Ok(_) => {
                 debug!(
                     "Successfully processed message from topic {} partition {} offset {}",
-                    topic, partition, offset
+                    partition.topic(), partition.partition_number(), offset
                 );
                 // Note: AckableMessage handles the actual acking
             }
             Err(e) => {
                 error!(
                     "Failed to process message from topic {} partition {} offset {}: {}",
-                    topic, partition, offset, e
+                    partition.topic(), partition.partition_number(), offset, e
                 );
                 // Note: AckableMessage should handle nacking in this case
             }
@@ -284,17 +289,17 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
 
         // Build TopicPartitionList with safe offsets
         let mut topic_partition_list = rdkafka::TopicPartitionList::new();
-        for ((topic, partition), offset) in safe_offsets {
+        for (partition, offset) in safe_offsets {
             info!(
                 "Adding safe commit offset: topic={}, partition={}, offset={} (will commit {})",
-                topic,
-                partition,
+                partition.topic(),
+                partition.partition_number(),
                 offset,
                 offset + 1
             );
             topic_partition_list.add_partition_offset(
-                &topic,
-                partition,
+                partition.topic(),
+                partition.partition_number(),
                 rdkafka::Offset::Offset(offset + 1),
             )?;
         }
