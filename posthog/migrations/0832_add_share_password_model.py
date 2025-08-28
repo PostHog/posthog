@@ -6,10 +6,15 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0832_sharingconfiguration_password_and_more"),
+        ("posthog", "0831_alter_groupusagemetric_bytecode_and_more"),
     ]
 
     operations = [
+        migrations.AddField(
+            model_name="sharingconfiguration",
+            name="password_required",
+            field=models.BooleanField(blank=True, default=False, null=True),
+        ),
         migrations.CreateModel(
             name="SharePassword",
             fields=[
