@@ -1,4 +1,5 @@
 import re
+import base64
 import functools
 from datetime import timedelta
 from typing import Any, Optional, Union
@@ -12,6 +13,7 @@ from django.http import HttpRequest, JsonResponse
 from django.utils import timezone
 
 import jwt
+import orjson
 from prometheus_client import Counter
 from rest_framework import authentication
 from rest_framework.exceptions import AuthenticationFailed
@@ -370,8 +372,21 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
 
         # Only process Bearer tokens that look like our sharing JWT tokens
         # This prevents interference with other Bearer tokens (e.g., personal API keys)
-        if auth_header.startswith("Bearer ") and "sharing_config_id" in auth_header:
-            sharing_jwt_token = auth_header[7:]  # Remove 'Bearer ' prefix
+        if auth_header.startswith("Bearer "):
+            potential_jwt = auth_header[7:]  # Remove 'Bearer ' prefix
+            # Try to check if it's a sharing JWT by looking for typical JWT structure (3 parts separated by dots)
+            # and attempting to decode to see if it has sharing_config_id
+            if potential_jwt.count(".") == 2:
+                try:
+                    # Quick check of the payload without full validation
+                    payload_b64 = potential_jwt.split(".")[1]
+                    # Add padding if necessary
+                    payload_b64 += "=" * (4 - len(payload_b64) % 4)
+                    payload = orjson.loads(base64.urlsafe_b64decode(payload_b64))
+                    if "sharing_config_id" in payload:
+                        sharing_jwt_token = potential_jwt
+                except:
+                    pass
         # If no Bearer token, check for JWT in cookie (for rendering decisions)
         elif hasattr(request, "COOKIES") and request.COOKIES.get("posthog_sharing_token"):
             sharing_jwt_token = request.COOKIES.get("posthog_sharing_token")
@@ -379,7 +394,7 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
         if not sharing_jwt_token:
             return None
 
-        if request.method not in ["GET", "HEAD"]:
+        if request.method != "GET":
             # Don't raise an exception, just don't authenticate
             return None
 
