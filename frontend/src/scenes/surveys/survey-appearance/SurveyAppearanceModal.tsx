@@ -103,9 +103,6 @@ function SurveyPreview({
                     previewPageIndex={selectedPageIndex || 0}
                     positionStyles={{
                         position: 'absolute',
-                        left: '50%',
-                        top: '50%',
-                        transform: 'translateX(-50%) translateY(-50%)',
                     }}
                     onPreviewSubmit={(response) => {
                         const nextStep = getNextSurveyStep(survey, selectedPageIndex, response)
