@@ -56,17 +56,18 @@ impl TimeSource for FixedTimeSource {
 }
 
 async fn setup_billing_limited_router(token: &str, is_limited: bool) -> (Router, MemorySink) {
-    setup_router_with_limits(token, is_limited, false).await
+    setup_router_with_limits(token, is_limited, false, false).await
 }
 
 async fn setup_survey_limited_router(token: &str, is_survey_limited: bool) -> (Router, MemorySink) {
-    setup_router_with_limits(token, false, is_survey_limited).await
+    setup_router_with_limits(token, false, is_survey_limited, false).await
 }
 
 async fn setup_router_with_limits(
     token: &str,
     is_billing_limited: bool,
     is_survey_limited: bool,
+    is_ai_limited: bool,
 ) -> (Router, MemorySink) {
     let liveness = HealthRegistry::new("billing_limit_tests");
     let sink = MemorySink::default();
@@ -113,6 +114,27 @@ async fn setup_router_with_limits(
     )
     .unwrap();
 
+    // Set up AI events limiter with its own Redis client
+    let ai_key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, "llm_events");
+    let ai_redis = Arc::new(MockRedisClient::new().zrangebyscore_ret(
+        &ai_key,
+        if is_ai_limited {
+            vec![token.to_string()]
+        } else {
+            vec![]
+        },
+    ));
+
+    let llm_events_limiter = RedisLimiter::new(
+        Duration::from_secs(60),
+        ai_redis,
+        QUOTA_LIMITER_CACHE_KEY.to_string(),
+        None,
+        QuotaResource::LLMEvents,
+        ServiceName::Capture,
+    )
+    .unwrap();
+
     let app = router(
         timesource,
         liveness,
@@ -120,6 +142,7 @@ async fn setup_router_with_limits(
         redis,
         billing_limiter,
         survey_limiter,
+        llm_events_limiter,
         TokenDropper::default(),
         false, // metrics
         CaptureMode::Events,
@@ -389,6 +412,54 @@ async fn test_billing_limit_retains_survey_events_on_i_endpoint() {
     assert!(!event_names.contains(&"pageview".to_string()));
 }
 
+// Test with /i/v0/e endpoint for AI events
+#[tokio::test]
+async fn test_billing_limit_retains_ai_events_on_i_endpoint() {
+    let token = "test_token_i_endpoint_ai";
+    let (router, sink) = setup_billing_limited_router(token, true).await; // Only billing limited, not AI limited
+    let client = TestClient::new(router);
+
+    let events = [
+        "$ai_generation",
+        "pageview",
+        "$ai_span",
+        "click",
+        "$ai_trace",
+    ];
+    let payload = create_batch_payload_with_token(&events, token);
+
+    let response = client
+        .post("/i/v0/e")
+        .body(payload)
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
+
+    // Should return OK even when billing limited
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Check that only AI events were retained when billing limited
+    let captured_events = sink.events();
+    assert_eq!(captured_events.len(), 3); // Only AI events should be retained
+
+    // Parse the event data to check the event names
+    let event_names: Vec<String> = captured_events
+        .iter()
+        .map(|e| {
+            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
+            event_data["event"].as_str().unwrap().to_string()
+        })
+        .collect();
+
+    assert!(event_names.contains(&"$ai_generation".to_string()));
+    assert!(event_names.contains(&"$ai_span".to_string()));
+    assert!(event_names.contains(&"$ai_trace".to_string()));
+    // Regular events should NOT be present when billing limited
+    assert!(!event_names.contains(&"pageview".to_string()));
+    assert!(!event_names.contains(&"click".to_string()));
+}
+
 // Tests for check_survey_quota_and_filter function
 //
 // These tests verify that the survey-specific quota limiting works correctly.
@@ -562,7 +633,7 @@ async fn test_survey_quota_limit_ignores_non_survey_events() {
 #[tokio::test]
 async fn test_both_billing_and_survey_limits_applied() {
     let token = "test_token_both_limits";
-    let (router, sink) = setup_router_with_limits(token, true, true).await; // Both billing and survey limited
+    let (router, sink) = setup_router_with_limits(token, true, true, false).await; // Both billing and survey limited
     let client = TestClient::new(router);
 
     let events = [
@@ -916,6 +987,15 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
     )
     .unwrap();
 
+    let llm_events_limiter = RedisLimiter::new(
+        Duration::from_secs(60),
+        redis.clone(),
+        QUOTA_LIMITER_CACHE_KEY.to_string(),
+        None,
+        QuotaResource::LLMEvents,
+        ServiceName::Capture,
+    )
+    .unwrap();
     let app = router(
         timesource,
         liveness,
@@ -923,6 +1003,7 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
         redis,
         billing_limiter,
         survey_limiter,
+        llm_events_limiter,
         TokenDropper::default(),
         false,
         CaptureMode::Events,
@@ -1004,6 +1085,15 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
     )
     .unwrap();
 
+    let llm_events_limiter = RedisLimiter::new(
+        Duration::from_secs(60),
+        redis.clone(),
+        QUOTA_LIMITER_CACHE_KEY.to_string(),
+        None,
+        QuotaResource::LLMEvents,
+        ServiceName::Capture,
+    )
+    .unwrap();
     let app = router(
         timesource,
         liveness,
@@ -1011,6 +1101,7 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
         redis,
         billing_limiter,
         survey_limiter,
+        llm_events_limiter,
         TokenDropper::default(),
         false,
         CaptureMode::Events,
@@ -1094,6 +1185,15 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
     )
     .unwrap();
 
+    let llm_events_limiter = RedisLimiter::new(
+        Duration::from_secs(60),
+        redis.clone(),
+        QUOTA_LIMITER_CACHE_KEY.to_string(),
+        None,
+        QuotaResource::LLMEvents,
+        ServiceName::Capture,
+    )
+    .unwrap();
     let app = router(
         timesource,
         liveness,
@@ -1101,6 +1201,7 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
         redis,
         billing_limiter,
         survey_limiter,
+        llm_events_limiter,
         TokenDropper::default(),
         false,
         CaptureMode::Events,
@@ -1231,4 +1332,740 @@ async fn test_survey_quota_backward_compatibility_survey_sent_only() {
 
     // Non-survey events should be kept
     assert!(event_names.contains(&"pageview".to_string()));
+}
+
+#[tokio::test]
+async fn test_ai_events_quota_limit_filters_only_ai_events() {
+    let token = "test_token";
+    let (app, sink) = setup_ai_limited_router(token, true).await;
+    let client = TestClient::new(app);
+
+    let ai_event = serde_json::json!({
+        "api_key": token,
+        "batch": [
+            {
+                "event": "$ai_generation",
+                "properties": {
+                    "distinct_id": "ai_user",
+                    "$ai_model": "gpt-4",
+                    "$ai_provider": "openai"
+                }
+            },
+            {"event": "$ai_span", "properties": {"distinct_id": "ai_user"}},
+            {"event": "$ai_trace", "properties": {"distinct_id": "ai_user"}},
+            {"event": "pageview", "properties": {"distinct_id": "regular_user"}},
+            {"event": "custom_event", "properties": {"distinct_id": "regular_user"}}
+        ]
+    });
+
+    let res = client
+        .post("/e")
+        .body(ai_event.to_string())
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let events = sink.events();
+    assert_eq!(events.len(), 2); // Only non-AI events should be kept
+
+    // Verify only non-AI events were kept
+    let event_names: Vec<String> = events
+        .iter()
+        .map(|e| {
+            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
+            event_data["event"].as_str().unwrap().to_string()
+        })
+        .collect();
+    assert!(event_names.contains(&"pageview".to_string()));
+    assert!(event_names.contains(&"custom_event".to_string()));
+    assert!(!event_names.contains(&"$ai_generation".to_string()));
+    assert!(!event_names.contains(&"$ai_span".to_string()));
+    assert!(!event_names.contains(&"$ai_trace".to_string()));
+}
+
+#[tokio::test]
+async fn test_ai_events_quota_limit_returns_error_when_only_ai_events() {
+    let token = "test_token";
+    let (app, _) = setup_ai_limited_router(token, true).await;
+    let client = TestClient::new(app);
+
+    let ai_only_event = serde_json::json!({
+        "api_key": token,
+        "batch": [
+            {"event": "$ai_generation", "properties": {"distinct_id": "ai_user"}},
+            {"event": "$ai_completion", "properties": {"distinct_id": "ai_user"}},
+            {"event": "$ai_custom_metric", "properties": {"distinct_id": "ai_user"}}
+        ]
+    });
+
+    let res = client
+        .post("/e")
+        .body(ai_only_event.to_string())
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
+    assert_eq!(res.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_ai_events_quota_allows_ai_events_when_not_limited() {
+    let token = "test_token";
+    let (app, sink) = setup_ai_limited_router(token, false).await;
+    let client = TestClient::new(app);
+
+    let ai_event = serde_json::json!({
+        "api_key": token,
+        "batch": [
+            {"event": "$ai_generation", "properties": {"distinct_id": "ai_user"}},
+            {"event": "$ai_span", "properties": {"distinct_id": "ai_user"}},
+            {"event": "pageview", "properties": {"distinct_id": "regular_user"}}
+        ]
+    });
+
+    let res = client
+        .post("/e")
+        .body(ai_event.to_string())
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let events = sink.events();
+    assert_eq!(events.len(), 3); // All events should be kept when not limited
+
+    let event_names: Vec<String> = events
+        .iter()
+        .map(|e| {
+            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
+            event_data["event"].as_str().unwrap().to_string()
+        })
+        .collect();
+    assert!(event_names.contains(&"$ai_generation".to_string()));
+    assert!(event_names.contains(&"$ai_span".to_string()));
+    assert!(event_names.contains(&"pageview".to_string()));
+}
+
+#[tokio::test]
+async fn test_ai_events_quota_ignores_non_ai_events() {
+    let token = "test_token";
+    let (app, sink) = setup_ai_limited_router(token, true).await;
+    let client = TestClient::new(app);
+
+    // Send only non-AI events when AI quota is exceeded
+    let non_ai_event = serde_json::json!({
+        "api_key": token,
+        "batch": [
+            {"event": "pageview", "properties": {"distinct_id": "user1"}},
+            {"event": "$autocapture", "properties": {"distinct_id": "user2"}},
+            {"event": "custom_event", "properties": {"distinct_id": "user3"}}
+        ]
+    });
+
+    let res = client
+        .post("/e")
+        .body(non_ai_event.to_string())
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let events = sink.events();
+    assert_eq!(events.len(), 3); // All non-AI events should pass through
+}
+
+// Helper function to set up router with AI limiting
+async fn setup_ai_limited_router(token: &str, is_ai_limited: bool) -> (Router, MemorySink) {
+    setup_router_with_limits(token, false, false, is_ai_limited).await
+}
+
+#[tokio::test]
+async fn test_both_billing_and_ai_limits_applied() {
+    let token = "test_token";
+    let (app, sink) = setup_router_with_limits(token, true, false, true).await;
+    let client = TestClient::new(app);
+
+    let mixed_event = serde_json::json!({
+        "api_key": token,
+        "batch": [
+            {"event": "$ai_generation", "properties": {"distinct_id": "ai_user"}},
+            {"event": "$exception", "properties": {"distinct_id": "error_user"}},
+            {"event": "pageview", "properties": {"distinct_id": "regular_user"}}
+        ]
+    });
+
+    let res = client
+        .post("/e")
+        .body(mixed_event.to_string())
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let events = sink.events();
+    assert_eq!(events.len(), 1); // Only exception should remain
+
+    let event_names: Vec<String> = events
+        .iter()
+        .map(|e| {
+            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
+            event_data["event"].as_str().unwrap().to_string()
+        })
+        .collect();
+    assert!(event_names.contains(&"$exception".to_string()));
+    assert!(!event_names.contains(&"$ai_generation".to_string()));
+    assert!(!event_names.contains(&"pageview".to_string()));
+}
+
+#[tokio::test]
+async fn test_ai_and_survey_limits_interaction() {
+    let token = "test_token";
+    let (app, sink) = setup_router_with_limits(token, false, true, true).await;
+    let client = TestClient::new(app);
+
+    let mixed_event = serde_json::json!({
+        "api_key": token,
+        "batch": [
+            {"event": "$ai_generation", "properties": {"distinct_id": "ai_user"}},
+            {"event": "survey sent", "properties": {"distinct_id": "survey_user", "$survey_id": "123"}},
+            {"event": "pageview", "properties": {"distinct_id": "regular_user"}},
+            {"event": "custom_event", "properties": {"distinct_id": "regular_user"}}
+        ]
+    });
+
+    let res = client
+        .post("/e")
+        .body(mixed_event.to_string())
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
+    let status = res.status();
+
+    assert_eq!(status, StatusCode::OK);
+
+    let events = sink.events();
+    assert_eq!(events.len(), 2); // Only regular events should remain
+
+    let event_names: Vec<String> = events
+        .iter()
+        .map(|e| {
+            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
+            event_data["event"].as_str().unwrap().to_string()
+        })
+        .collect();
+    assert!(event_names.contains(&"pageview".to_string()));
+    assert!(event_names.contains(&"custom_event".to_string()));
+    assert!(!event_names.contains(&"$ai_generation".to_string()));
+    assert!(!event_names.contains(&"survey sent".to_string()));
+}
+
+#[tokio::test]
+async fn test_all_three_limits_applied() {
+    let token = "test_token";
+    let (app, sink) = setup_router_with_limits(token, true, true, true).await;
+    let client = TestClient::new(app);
+
+    let mixed_event = serde_json::json!({
+        "api_key": token,
+        "batch": [
+            {"event": "$ai_generation", "properties": {"distinct_id": "ai_user"}},
+            {"event": "survey sent", "properties": {"distinct_id": "survey_user"}},
+            {"event": "$exception", "properties": {"distinct_id": "error_user"}},
+            {"event": "pageview", "properties": {"distinct_id": "regular_user"}}
+        ]
+    });
+
+    let res = client
+        .post("/e")
+        .body(mixed_event.to_string())
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let events = sink.events();
+    assert_eq!(events.len(), 1); // Only exception should remain
+
+    let event_names: Vec<String> = events
+        .iter()
+        .map(|e| {
+            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
+            event_data["event"].as_str().unwrap().to_string()
+        })
+        .collect();
+    assert!(event_names.contains(&"$exception".to_string()));
+    assert!(!event_names.contains(&"$ai_generation".to_string()));
+    assert!(!event_names.contains(&"survey sent".to_string()));
+    assert!(!event_names.contains(&"pageview".to_string()));
+}
+
+#[tokio::test]
+async fn test_ai_event_name_detection() {
+    // Test various event names to ensure is_ai_event() works correctly
+    let test_cases = vec![
+        ("$ai_generation", true),
+        ("$ai_completion", true),
+        ("$ai_span", true),
+        ("$ai_trace", true),
+        ("$ai_custom", true),
+        ("$ai_", true),           // Edge case: exactly "$ai_"
+        ("$ai", false),           // No underscore
+        ("$ainotthis", false),    // No underscore after ai
+        ("ai_generation", false), // Missing $
+        ("$pageview", false),
+        ("pageview", false),
+    ];
+
+    let token = "test_token";
+
+    for (event_name, should_be_filtered) in test_cases {
+        let (app, sink) = setup_ai_limited_router(token, true).await;
+        let client = TestClient::new(app);
+
+        let event = serde_json::json!({
+            "api_key": token,
+            "batch": [
+                {"event": event_name, "properties": {"distinct_id": "user"}},
+                {"event": "pageview", "properties": {"distinct_id": "user"}}  // Control event
+            ]
+        });
+
+        let res = client
+            .post("/e")
+            .body(event.to_string())
+            .header("Content-Type", "application/json")
+            .header("X-Forwarded-For", "127.0.0.1")
+            .send()
+            .await;
+        assert_eq!(res.status(), StatusCode::OK);
+
+        let events = sink.events();
+
+        if should_be_filtered {
+            // AI event should be filtered, only pageview remains
+            assert_eq!(events.len(), 1, "Event '{event_name}' should be filtered");
+            let event_data: Value = serde_json::from_str(&events[0].event.data).unwrap();
+            assert_eq!(event_data["event"], "pageview");
+        } else {
+            // Non-AI event should pass through with pageview
+            assert_eq!(
+                events.len(),
+                2,
+                "Event '{event_name}' should not be filtered"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn test_ai_generation_event_limited() {
+    let token = "test_token";
+    let (app, sink) = setup_ai_limited_router(token, true).await;
+    let client = TestClient::new(app);
+
+    let event = serde_json::json!({
+        "api_key": token,
+        "batch": [
+            {
+                "event": "$ai_generation",
+                "properties": {
+                    "distinct_id": "user",
+                    "$ai_model": "gpt-4",
+                    "$ai_provider": "openai",
+                    "$ai_input_tokens": 100,
+                    "$ai_output_tokens": 200
+                }
+            }
+        ]
+    });
+
+    let res = client
+        .post("/i/v0/e")
+        .body(event.to_string())
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
+    assert_eq!(res.status(), StatusCode::OK); // Returns OK even when all events are filtered (legacy behavior)
+
+    let events = sink.events();
+    assert_eq!(events.len(), 0); // AI event should be filtered
+}
+
+#[tokio::test]
+async fn test_ai_span_event_limited() {
+    let token = "test_token";
+    let (app, sink) = setup_ai_limited_router(token, true).await;
+    let client = TestClient::new(app);
+
+    let event = serde_json::json!({
+        "api_key": token,
+        "batch": [
+            {
+                "event": "$ai_span",
+                "properties": {
+                    "distinct_id": "user",
+                    "$ai_trace_id": "trace_123",
+                    "$ai_span_id": "span_456"
+                }
+            },
+            {"event": "custom", "properties": {"distinct_id": "user"}}
+        ]
+    });
+
+    let res = client
+        .post("/i/v0/e")
+        .body(event.to_string())
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let events = sink.events();
+    assert_eq!(events.len(), 1);
+    let event_data: Value = serde_json::from_str(&events[0].event.data).unwrap();
+    assert_eq!(event_data["event"], "custom");
+}
+
+#[tokio::test]
+async fn test_ai_trace_event_limited() {
+    let token = "test_token";
+    let (app, sink) = setup_ai_limited_router(token, true).await;
+    let client = TestClient::new(app);
+
+    let event = serde_json::json!({
+        "api_key": token,
+        "batch": [
+            {
+                "event": "$ai_trace",
+                "properties": {
+                    "distinct_id": "user",
+                    "$ai_trace_id": "trace_789"
+                }
+            },
+            {"event": "$autocapture", "properties": {"distinct_id": "user"}}
+        ]
+    });
+
+    let res = client
+        .post("/i/v0/e")
+        .body(event.to_string())
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let events = sink.events();
+    assert_eq!(events.len(), 1);
+    let event_data: Value = serde_json::from_str(&events[0].event.data).unwrap();
+    assert_eq!(event_data["event"], "$autocapture");
+}
+
+#[tokio::test]
+async fn test_custom_ai_prefixed_events_limited() {
+    let token = "test_token";
+    let (app, sink) = setup_ai_limited_router(token, true).await;
+    let client = TestClient::new(app);
+
+    // Custom AI events that follow the $ai_ pattern should also be limited
+    let event = serde_json::json!({
+        "api_key": token,
+        "batch": [
+            {"event": "$ai_custom_metric", "properties": {"distinct_id": "user"}},
+            {"event": "$ai_user_feedback", "properties": {"distinct_id": "user"}},
+            {"event": "$ai_model_switch", "properties": {"distinct_id": "user"}},
+            {"event": "non_ai_event", "properties": {"distinct_id": "user"}}
+        ]
+    });
+
+    let res = client
+        .post("/i/v0/e")
+        .body(event.to_string())
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let events = sink.events();
+    assert_eq!(events.len(), 1); // Only non-AI event should pass
+    let event_data: Value = serde_json::from_str(&events[0].event.data).unwrap();
+    assert_eq!(event_data["event"], "non_ai_event");
+}
+
+#[tokio::test]
+async fn test_ai_quota_with_empty_batch() {
+    let token = "test_token";
+    let (app, _sink) = setup_ai_limited_router(token, true).await;
+    let client = TestClient::new(app);
+
+    let empty_event = serde_json::json!({
+        "api_key": token,
+        "batch": []
+    });
+
+    let res = client
+        .post("/e")
+        .body(empty_event.to_string())
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST); // Empty batch is invalid
+}
+
+#[tokio::test]
+async fn test_ai_quota_cross_batch_redis_error_fail_open() {
+    let token = "test_token_redis_error_ai";
+    let liveness = HealthRegistry::new("ai_limit_tests");
+    let sink = MemorySink::default();
+    let timesource = FixedTimeSource {
+        time: "2025-07-31T12:00:00Z".to_string(),
+    };
+
+    // Configure MockRedisClient for AI quota limited scenario
+    let ai_key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, "llm_events");
+    let mut redis_client =
+        MockRedisClient::new().zrangebyscore_ret(&ai_key, vec![token.to_string()]);
+
+    // Configure set_nx_ex to return an error (Redis failure) for cross-batch tracking
+    let tracking_key = format!("ai-events:{token}:batch_1");
+    redis_client =
+        redis_client.set_nx_ex_ret(&tracking_key, Err(common_redis::CustomRedisError::Timeout));
+
+    let redis = Arc::new(redis_client);
+
+    let billing_limiter = RedisLimiter::new(
+        Duration::from_secs(60),
+        redis.clone(),
+        QUOTA_LIMITER_CACHE_KEY.to_string(),
+        None,
+        QuotaResource::Events,
+        ServiceName::Capture,
+    )
+    .unwrap();
+
+    let survey_limiter = RedisLimiter::new(
+        Duration::from_secs(60),
+        redis.clone(),
+        QUOTA_LIMITER_CACHE_KEY.to_string(),
+        None,
+        QuotaResource::Surveys,
+        ServiceName::Capture,
+    )
+    .unwrap();
+
+    let llm_events_limiter = RedisLimiter::new(
+        Duration::from_secs(60),
+        redis.clone(),
+        QUOTA_LIMITER_CACHE_KEY.to_string(),
+        None,
+        QuotaResource::LLMEvents,
+        ServiceName::Capture,
+    )
+    .unwrap();
+
+    let app = router(
+        timesource,
+        liveness,
+        sink.clone(),
+        redis,
+        billing_limiter,
+        survey_limiter,
+        llm_events_limiter,
+        TokenDropper::default(),
+        false,
+        CaptureMode::Events,
+        None,
+        1024 * 1024,
+        false,
+        1,
+        None,
+        false,
+        0.0,
+    );
+
+    let client = TestClient::new(app);
+
+    // Events with Redis error - should fail open (allow events through but apply quota)
+    let ai_event = serde_json::json!({
+        "api_key": token,
+        "batch": [
+            {"event": "$ai_generation", "properties": {"distinct_id": "ai_user", "batch_id": "batch_1"}},
+            {"event": "pageview", "properties": {"distinct_id": "regular_user"}},
+        ]
+    });
+
+    let res = client
+        .post("/e")
+        .body(ai_event.to_string())
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // Redis error should fail open - but AI quota limit still applies
+    // So AI event should be dropped, only pageview remains
+    let events = sink.events();
+    assert_eq!(events.len(), 1);
+    let event_data: Value = serde_json::from_str(&events[0].event.data).unwrap();
+    assert_eq!(event_data["event"], "pageview");
+}
+
+#[tokio::test]
+async fn test_ai_quota_cross_batch_consistency() {
+    let token = "test_token_cross_batch_ai";
+    let (app, sink) = setup_ai_limited_router(token, true).await;
+    let client = TestClient::new(app);
+
+    // First batch - AI events should be filtered
+    let first_batch = serde_json::json!({
+        "api_key": token,
+        "batch": [
+            {"event": "$ai_generation", "properties": {"distinct_id": "ai_user_1"}},
+            {"event": "pageview", "properties": {"distinct_id": "user_1"}},
+        ]
+    });
+
+    let res = client
+        .post("/e")
+        .body(first_batch.to_string())
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // Second batch - AI events should still be filtered consistently
+    let second_batch = serde_json::json!({
+        "api_key": token,
+        "batch": [
+            {"event": "$ai_span", "properties": {"distinct_id": "ai_user_2"}},
+            {"event": "click", "properties": {"distinct_id": "user_2"}},
+        ]
+    });
+
+    let res = client
+        .post("/e")
+        .body(second_batch.to_string())
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // Both batches should have AI events filtered out consistently
+    let events = sink.events();
+    assert_eq!(events.len(), 2); // Only non-AI events
+
+    let event_names: Vec<String> = events
+        .iter()
+        .map(|e| {
+            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
+            event_data["event"].as_str().unwrap().to_string()
+        })
+        .collect();
+    assert!(event_names.contains(&"pageview".to_string()));
+    assert!(event_names.contains(&"click".to_string()));
+    assert!(!event_names.contains(&"$ai_generation".to_string()));
+    assert!(!event_names.contains(&"$ai_span".to_string()));
+}
+
+#[tokio::test]
+async fn test_ai_quota_all_ai_event_types_count() {
+    let token = "test_token_all_types";
+    let (app, sink) = setup_ai_limited_router(token, true).await;
+    let client = TestClient::new(app);
+
+    // Test that ALL events starting with "$ai_" count toward quota
+    let ai_event = serde_json::json!({
+        "api_key": token,
+        "batch": [
+            {"event": "$ai_generation", "properties": {"distinct_id": "user1"}},
+            {"event": "$ai_completion", "properties": {"distinct_id": "user2"}},
+            {"event": "$ai_span", "properties": {"distinct_id": "user3"}},
+            {"event": "$ai_trace", "properties": {"distinct_id": "user4"}},
+            {"event": "$ai_custom_metric", "properties": {"distinct_id": "user5"}},
+            {"event": "$ai_anything", "properties": {"distinct_id": "user6"}},
+            {"event": "$ainotcounted", "properties": {"distinct_id": "user7"}},  // No underscore
+            {"event": "ai_generation", "properties": {"distinct_id": "user8"}},  // No $
+            {"event": "pageview", "properties": {"distinct_id": "user9"}},
+        ]
+    });
+
+    let res = client
+        .post("/e")
+        .body(ai_event.to_string())
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let events = sink.events();
+    // Only non-AI events should pass: $ainotcounted, ai_generation, pageview
+    assert_eq!(events.len(), 3);
+
+    let event_names: Vec<String> = events
+        .iter()
+        .map(|e| {
+            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
+            event_data["event"].as_str().unwrap().to_string()
+        })
+        .collect();
+    assert!(event_names.contains(&"$ainotcounted".to_string())); // No underscore after $ai
+    assert!(event_names.contains(&"ai_generation".to_string())); // No $ prefix
+    assert!(event_names.contains(&"pageview".to_string()));
+
+    // All proper $ai_ events should be filtered
+    assert!(!event_names.contains(&"$ai_generation".to_string()));
+    assert!(!event_names.contains(&"$ai_completion".to_string()));
+    assert!(!event_names.contains(&"$ai_span".to_string()));
+    assert!(!event_names.contains(&"$ai_trace".to_string()));
+    assert!(!event_names.contains(&"$ai_custom_metric".to_string()));
+    assert!(!event_names.contains(&"$ai_anything".to_string()));
+}
+
+#[tokio::test]
+async fn test_ai_quota_empty_null_field_handling() {
+    let token = "test_token_empty_fields_ai";
+    let (app, _sink) = setup_ai_limited_router(token, true).await;
+    let client = TestClient::new(app);
+
+    // Test various empty/null scenarios
+    let ai_event = serde_json::json!({
+        "api_key": token,
+        "batch": [
+            // AI event with empty string event name (should be handled gracefully)
+            {"event": "", "properties": {"distinct_id": "user1"}},
+            // AI event with whitespace event name
+            {"event": "  ", "properties": {"distinct_id": "user2"}},
+            // Proper AI event
+            {"event": "$ai_generation", "properties": {"distinct_id": "user3"}},
+            // Event with null (will be handled by JSON parsing)
+            {"event": null, "properties": {"distinct_id": "user4"}},
+            // Regular event
+            {"event": "pageview", "properties": {"distinct_id": "user5"}},
+        ]
+    });
+
+    let res = client
+        .post("/e")
+        .body(ai_event.to_string())
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
+    // Invalid event names (null, empty) should return BAD_REQUEST
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
 }

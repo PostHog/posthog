@@ -240,6 +240,9 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "product_type", "created_at", "onboarding_completed_at", "updated_at"
         )
 
+    def validate_access_control(self, value) -> None:
+        return TeamSerializer.validate_access_control(cast(TeamSerializer, self), value)
+
     @staticmethod
     def validate_session_recording_linked_flag(value) -> dict | None:
         return TeamSerializer.validate_session_recording_linked_flag(value)

@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0831_alter_groupusagemetric_bytecode_and_more"),
+        ("posthog", "0832_alter_exportedasset_export_format"),
     ]
 
     operations = [

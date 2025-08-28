@@ -19,8 +19,9 @@ import { useEffect, useState } from 'react'
 
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
-import { TeamMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getRelativeNextPath, identifierToHuman } from 'lib/utils'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
@@ -127,7 +128,14 @@ export const sceneLogic = kea<sceneLogicType>([
             inviteLogic,
             ['hideInviteModal'],
         ],
-        values: [billingLogic, ['billing'], organizationLogic, ['organizationBeingDeleted']],
+        values: [
+            billingLogic,
+            ['billing'],
+            organizationLogic,
+            ['organizationBeingDeleted'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
     })),
     afterMount(({ cache }) => {
         cache.mountedTabLogic = {} as Record<string, () => void>
@@ -976,7 +984,11 @@ export const sceneLogic = kea<sceneLogicType>([
     })),
     afterMount(({ actions, cache, values }) => {
         cache.onKeyDown = (event: KeyboardEvent) => {
-            if ((event.ctrlKey || event.metaKey) && event.key === 'b') {
+            if (
+                values.featureFlags[FEATURE_FLAGS.SCENE_TABS] &&
+                (event.ctrlKey || event.metaKey) &&
+                event.key === 'b'
+            ) {
                 event.preventDefault()
                 event.stopPropagation()
                 if (event.shiftKey) {

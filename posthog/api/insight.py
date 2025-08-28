@@ -975,7 +975,6 @@ class InsightViewSet(
                     "PATHS": schema.NodeKind.PATHS_QUERY,
                     "STICKINESS": schema.NodeKind.STICKINESS_QUERY,
                     "LIFECYCLE": schema.NodeKind.LIFECYCLE_QUERY,
-                    "CALENDAR_HEATMAP": schema.NodeKind.CALENDAR_HEATMAP_QUERY,
                 }
                 if insight == "JSON":
                     queryset = queryset.filter(query__isnull=False)
@@ -1159,7 +1158,6 @@ When set, the specified dashboard's filters and date range override will be appl
             isinstance(result, schema.CachedTrendsQueryResponse)
             or isinstance(result, schema.CachedStickinessQueryResponse)
             or isinstance(result, schema.CachedLifecycleQueryResponse)
-            or isinstance(result, schema.CachedCalendarHeatmapQueryResponse)
         )
 
         return {"result": result.results, "timezone": team.timezone}
