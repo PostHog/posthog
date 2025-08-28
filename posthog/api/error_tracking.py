@@ -77,7 +77,7 @@ class ErrorTrackingExternalReferenceSerializer(serializers.ModelSerializer):
         read_only_fields = ["external_url"]
 
     def get_external_url(self, reference: ErrorTrackingExternalReference) -> str:
-        external_context: dict[str, str] = reference.external_context
+        external_context: dict[str, str] = reference.external_context or {}
         if reference.integration.kind == Integration.IntegrationKind.LINEAR:
             url_key = LinearIntegration(reference.integration).url_key()
             return f"https://linear.app/{url_key}/issue/{external_context['id']}"
