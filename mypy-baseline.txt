@@ -661,7 +661,6 @@ posthog/api/batch_imports.py:0: error: "AbstractBaseUser" has no attribute "dist
 posthog/api/batch_imports.py:0: error: "AbstractBaseUser" has no attribute "distinct_id"  [attr-defined]
 posthog/api/cohort.py:0: error: Incompatible type for lookup 'pk': (got "str | int | list[str]", expected "str | int")  [misc]
 posthog/api/cohort.py:0: error: Incompatible types in assignment (expression has type "Any | None", variable has type "bool | Combinable")  [assignment]
-posthog/api/dashboards/dashboard.py:0: error: Argument 1 to "dashboard_queryset" of "DashboardTile" has incompatible type "DashboardTile_RelatedManager"; expected "QuerySet[Any, Any]"  [arg-type]
 posthog/api/dashboards/dashboard_templates.py:0: error: Item "AbstractBaseUser" of "AbstractBaseUser | AnonymousUser" has no attribute "is_staff"  [union-attr]
 posthog/api/dead_letter_queue.py:0: error: Incompatible return value type (got "str | Any", expected "int")  [return-value]
 posthog/api/documentation.py:0: error: Signature of "run_validation" incompatible with supertype "rest_framework.fields.Field"  [override]

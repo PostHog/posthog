@@ -141,6 +141,7 @@ COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
 RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
 
 
+
 #
 # ---------------------------------------------------------
 #
@@ -180,7 +181,8 @@ RUN apt-get update && \
     "libxmlsec1" \
     "libxmlsec1-dev" \
     "libxml2" \
-    "gettext-base"
+    "gettext-base" \
+    "ffmpeg=7:5.1.6-0+deb12u1"
 
 # Install MS SQL dependencies
 RUN curl https://packages.microsoft.com/keys/microsoft.asc | tee /etc/apt/trusted.gpg.d/microsoft.asc
@@ -227,6 +229,16 @@ COPY --from=posthog-build --chown=posthog:posthog /code/staticfiles /code/static
 COPY --from=posthog-build --chown=posthog:posthog /python-runtime /python-runtime
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
+
+# Install Playwright Chromium browser for video export (as root for system deps)
+USER root
+RUN /python-runtime/bin/python -m playwright install --with-deps chromium
+USER posthog
+
+# Validate video export dependencies
+RUN ffmpeg -version
+RUN /python-runtime/bin/python -c "import playwright; print('Playwright package imported successfully')"
+RUN /python-runtime/bin/python -c "from playwright.sync_api import sync_playwright; print('Playwright sync API available')"
 
 # Copy the frontend assets from the frontend-build stage.
 # TODO: this copy should not be necessary, we should remove it once we verify everything still works.

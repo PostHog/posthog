@@ -429,18 +429,6 @@ export function doesSurveyHaveDisplayConditions(survey: Survey | NewSurvey): boo
     return false
 }
 
-export const DATE_FORMAT = 'YYYY-MM-DDTHH:mm:ss'
-
-export function getSurveyStartDateForQuery(survey: Survey): string {
-    return dayjs(survey.created_at).utc().startOf('day').format(DATE_FORMAT)
-}
-
-export function getSurveyEndDateForQuery(survey: Survey): string {
-    return survey.end_date
-        ? dayjs(survey.end_date).utc().endOf('day').format(DATE_FORMAT)
-        : dayjs().utc().endOf('day').format(DATE_FORMAT)
-}
-
 export function buildPartialResponsesFilter(survey: Survey): string {
     if (!survey.enable_partial_responses) {
         return `AND (
@@ -532,4 +520,16 @@ export function calculateSurveyRates(stats: SurveyStats | null): SurveyRates {
         }
     }
     return defaultRates
+}
+
+export const DATE_FORMAT = 'YYYY-MM-DDTHH:mm:ss'
+
+export function getSurveyStartDateForQuery(survey: Pick<Survey, 'created_at'>): string {
+    return dayjs.utc(survey.created_at).startOf('day').format(DATE_FORMAT)
+}
+
+export function getSurveyEndDateForQuery(survey: Pick<Survey, 'end_date'>): string {
+    return survey.end_date
+        ? dayjs.utc(survey.end_date).endOf('day').format(DATE_FORMAT)
+        : dayjs.utc().endOf('day').format(DATE_FORMAT)
 }

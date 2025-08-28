@@ -944,7 +944,14 @@ class Resolver(CloningVisitor):
     ) -> list[ast.TableOrSelectType]:
         tables: list[ast.TableOrSelectType] = []
         if isinstance(select_query_type, ast.SelectQueryType):
-            tables.extend(list(select_query_type.tables.values()))
+            for t in select_query_type.tables.values():
+                if isinstance(t, ast.SelectQueryAliasType):
+                    tables.extend(self._extract_tables_from_query_type(t.select_query_type))
+                else:
+                    tables.append(t)
+
+            for at in select_query_type.anonymous_tables:
+                tables.extend(self._extract_tables_from_query_type(at))
         else:
             for sqt in select_query_type.types:
                 tables.extend(self._extract_tables_from_query_type(sqt))
