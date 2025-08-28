@@ -351,7 +351,8 @@ def _shallow_transform_select(node: ast.SelectQuery, context: HogQLContext) -> a
 
     # TODO right now we only have the one preaggregated table that is supported, but in the future could support more.
     # We could even make them unique per team (depending on what the team queries) or allow them to be user-defined.
-    table_name = get_stats_table(True)
+    # TODO: We should move this to use the hourly tables but we must also check the required data validity checks.
+    table_name = get_stats_table(False)
 
     # Bail if any unsupported part of the SELECT query exist
     # Some of these could be supported in the future, if you add them, make sure you add some tests!
