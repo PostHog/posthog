@@ -48,11 +48,12 @@ def run_sql_with_exceptions(
         Raised in certain scenarios when the input arguments conflict with the expected
         configuration, such as when the sharded flag is set for roles other than DATA.
     """
-    cluster = get_migrations_cluster()
 
     def run_migration():
         if "ON CLUSTER" in sql:
-            logger.error("you are not suppose to use ON CLUSTER in migration: {sql}")
+            logger.error("you are not suppose to use ON CLUSTER in migration: %s", sql)
+
+        cluster = get_migrations_cluster()
 
         query = Query(sql)
         if node_role == NodeRole.ALL:
