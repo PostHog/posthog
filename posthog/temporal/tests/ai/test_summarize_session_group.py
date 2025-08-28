@@ -938,52 +938,61 @@ class TestPatternExtractionChunking:
         assert len(chunks) == 1
         assert chunks[0] == ["session-1", "session-2"]
 
-    @patch("posthog.temporal.ai.session_summary.activities.patterns.get_async_client")
-    @patch("posthog.temporal.ai.session_summary.activities.patterns.json.dumps")
-    @patch(
-        "posthog.temporal.ai.session_summary.activities.patterns.remove_excessive_content_from_session_summary_for_llm"
-    )
-    @patch("posthog.temporal.ai.session_summary.activities.patterns.estimate_tokens_from_strings")
-    @patch("posthog.temporal.ai.session_summary.activities.patterns._get_session_summaries_str_from_inputs")
     async def test_sessions_split_into_multiple_chunks(
-        self, mock_get_summaries, mock_estimate_tokens, mock_remove_excessive, mock_json_dumps, mock_get_async_client
+        self,
+        auser: User,
+        ateam: Team,
+        mock_intermediate_session_summary_serializer: SessionSummarySerializer,
+        mock_single_session_summary_inputs: Callable,
     ):
         """Test sessions are split when exceeding token limit."""
+        # Setup session IDs
+        session_ids = [f"session-{i}" for i in range(3)]
+
+        # Store session summaries in DB for each session
+        for session_id in session_ids:
+            await database_sync_to_async(SingleSessionSummary.objects.add_summary)(
+                team_id=ateam.id,
+                session_id=session_id,
+                summary=mock_intermediate_session_summary_serializer,
+                exception_event_ids=[],
+                extra_summary_context=None,
+                created_by=auser,
+            )
+
+        # Verify summaries exist in DB before the activity
+        summaries_before = await database_sync_to_async(SingleSessionSummary.objects.summaries_exist)(
+            team_id=ateam.id,
+            session_ids=session_ids,
+            extra_summary_context=None,
+        )
+        for session_id in session_ids:
+            assert summaries_before.get(session_id), f"Summary should exist in DB for session {session_id}"
+
         # Setup inputs with 3 sessions
+        single_session_inputs = [
+            mock_single_session_summary_inputs(session_id, ateam.id, auser.id) for session_id in session_ids
+        ]
+
         inputs = SessionGroupSummaryOfSummariesInputs(
-            single_session_summaries_inputs=[
-                SingleSessionSummaryInputs(
-                    session_id=f"session-{i}",
-                    user_id=1,
-                    team_id=1,
-                    redis_key_base="test",
-                    model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
-                )
-                for i in range(3)
-            ],
-            user_id=1,
+            single_session_summaries_inputs=single_session_inputs,
+            user_id=auser.id,
+            team_id=ateam.id,
             model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
             extra_summary_context=None,
             redis_key_base="test",
         )
 
-        # Mock Redis client
-        mock_redis_client = AsyncMock()
-        mock_get_async_client.return_value = mock_redis_client
-
-        # Mock Redis returning session summaries
-        mock_get_summaries.return_value = [f'{{"summary": "Summary {i}", "segments": []}}' for i in range(3)]
-
-        # Mock json.dumps to return a simple string
-        mock_json_dumps.side_effect = lambda x: f"cleaned_{x}"
-
         # Mock token counts: base=1000, session0=80000, session1=70000, session2=500
         # - session0 goes alone (80k + 1k base)
         # - session1 goes into the next chunk (80k + 70k + 1k base > 150k)
         # - session2 fits together with session1 (70k + 500 + 1k base < 150k)
-        mock_estimate_tokens.side_effect = [1000, 80000, 70000, 500]
+        with patch(
+            "posthog.temporal.ai.session_summary.activities.patterns.estimate_tokens_from_strings"
+        ) as mock_estimate:
+            mock_estimate.side_effect = [1000, 80000, 70000, 500]
 
-        chunks = await split_session_summaries_into_chunks_for_patterns_extraction_activity(inputs)
+            chunks = await split_session_summaries_into_chunks_for_patterns_extraction_activity(inputs)
 
         assert len(chunks) == 2
         assert chunks[0] == ["session-0"]
