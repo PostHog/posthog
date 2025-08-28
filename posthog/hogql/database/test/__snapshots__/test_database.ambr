@@ -3,7 +3,7 @@
   '''
   
   SELECT events__some_field.key AS key 
-  FROM events LEFT JOIN (
+  FROM events GLOBAL LEFT JOIN (
   SELECT groups.key AS key, key AS events__some_field___key 
   FROM (
   SELECT groups.group_type_index AS index, groups.group_key AS key 
@@ -18,7 +18,7 @@
   '''
   
   SELECT events__some_field.key AS key 
-  FROM events LEFT JOIN (
+  FROM events GLOBAL LEFT JOIN (
   SELECT groups.key AS key, key AS events__some_field___key 
   FROM (
   SELECT groups.group_type_index AS index, groups.group_key AS key 
@@ -2239,6 +2239,26 @@
                   "table": null,
                   "type": "boolean"
               },
+              "api_key_label": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "api_key_label",
+                  "id": null,
+                  "name": "api_key_label",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "api_key_mask": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "api_key_mask",
+                  "id": null,
+                  "name": "api_key_mask",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "cpu_microseconds": {
                   "chain": null,
                   "fields": null,
@@ -3634,6 +3654,26 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "boolean"
+              },
+              "api_key_label": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "api_key_label",
+                  "id": null,
+                  "name": "api_key_label",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "api_key_mask": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "api_key_mask",
+                  "id": null,
+                  "name": "api_key_mask",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               },
               "cpu_microseconds": {
                   "chain": null,

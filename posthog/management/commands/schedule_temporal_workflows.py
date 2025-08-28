@@ -1,5 +1,6 @@
-import structlog
 from django.core.management.base import BaseCommand
+
+import structlog
 
 from posthog.temporal.schedule import init_schedules
 

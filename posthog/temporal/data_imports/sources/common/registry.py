@@ -1,4 +1,5 @@
 from typing import TYPE_CHECKING
+
 from posthog.warehouse.types import ExternalDataSourceType
 
 if TYPE_CHECKING:

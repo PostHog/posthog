@@ -1,20 +1,18 @@
-import asyncio
-import base64
-import dataclasses
-import datetime
-import datetime as dt
-import gzip
-import hashlib
-import json
-from django.urls import URLPattern, re_path
-import orjson
 import os
 import re
-import secrets
-import string
+import gzip
+import json
 import time
 import uuid
 import zlib
+import base64
+import string
+import asyncio
+import hashlib
+import secrets
+import datetime
+import datetime as dt
+import dataclasses
 from collections.abc import Callable, Generator, Mapping
 from contextlib import contextmanager
 from enum import Enum
@@ -23,17 +21,7 @@ from operator import itemgetter
 from typing import TYPE_CHECKING, Any, Optional, Union, cast
 from urllib.parse import unquote, urljoin, urlparse
 from zoneinfo import ZoneInfo
-from user_agents import parse
 
-import lzstring
-import posthoganalytics
-import pytz
-import structlog
-from asgiref.sync import async_to_sync
-from celery.result import AsyncResult
-from celery.schedules import crontab
-from dateutil import parser
-from dateutil.relativedelta import relativedelta
 from django.apps import apps
 from django.conf import settings
 from django.core.cache import cache
@@ -41,18 +29,28 @@ from django.db import ProgrammingError
 from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
+from django.urls import URLPattern, re_path
 from django.utils import timezone
 from django.utils.cache import patch_cache_control
+
+import pytz
+import orjson
+import lzstring
+import structlog
+import posthoganalytics
+from asgiref.sync import async_to_sync
+from celery.result import AsyncResult
+from celery.schedules import crontab
+from dateutil import parser
+from dateutil.relativedelta import relativedelta
 from rest_framework import serializers
 from rest_framework.request import Request
 from rest_framework.utils.encoders import JSONEncoder
+from user_agents import parse
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
-from posthog.exceptions import (
-    RequestParsingError,
-    UnspecifiedCompressionFallbackParsingError,
-)
+from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
 from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.metrics import KLUDGES_COUNTER
@@ -61,7 +59,7 @@ from posthog.redis import get_client
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 
-    from posthog.models import Team, User, Dashboard, InsightVariable
+    from posthog.models import Dashboard, InsightVariable, Team, User
 
 DATERANGE_MAP = {
     "second": datetime.timedelta(seconds=1),
@@ -397,7 +395,7 @@ def render_template(
         from posthog.api.shared import TeamPublicSerializer
         from posthog.api.team import TeamSerializer
         from posthog.api.user import UserSerializer
-        from posthog.rbac.user_access_control import UserAccessControl, ACCESS_CONTROL_RESOURCES
+        from posthog.rbac.user_access_control import ACCESS_CONTROL_RESOURCES, UserAccessControl
         from posthog.user_permissions import UserPermissions
         from posthog.views import preflight_check
 

@@ -1,11 +1,12 @@
 import re
 from typing import Optional
 
-from posthog.clickhouse.client.escape import substitute_params
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import FunctionCallTable
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.escape_sql import escape_hogql_identifier
+
+from posthog.clickhouse.client.escape import substitute_params
 
 
 def build_function_call(

@@ -1,24 +1,26 @@
-import unittest
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 
-from posthog.clickhouse.client import sync_execute
+import unittest
+from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, QueryMatchingTest, snapshot_clickhouse_queries
+
+from parameterized import parameterized
+
+from posthog.schema import BaseMathType, DateRange, EventsNode, HogQLQueryModifiers, TrendsQuery
+
 from posthog.hogql.ast import SelectQuery
-from posthog.hogql.database.schema.web_analytics_preaggregated import (
-    WebStatsCombinedTable,
-)
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.schema.web_analytics_preaggregated import WebStatsCombinedTable
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.transforms.preaggregated_table_transformation import do_preaggregated_table_transforms
-from posthog.hogql.context import HogQLContext
+
+from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
-from posthog.schema import TrendsQuery, DateRange, HogQLQueryModifiers, EventsNode, BaseMathType
-from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, BaseTest, QueryMatchingTest, snapshot_clickhouse_queries
-from parameterized import parameterized
 from posthog.hogql_queries.web_analytics.pre_aggregated.properties import (
     EVENT_PROPERTY_TO_FIELD,
     SESSION_PROPERTY_TO_FIELD,
 )
+from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 
 class TestPreaggregatedTableTransformation(BaseTest, QueryMatchingTest):

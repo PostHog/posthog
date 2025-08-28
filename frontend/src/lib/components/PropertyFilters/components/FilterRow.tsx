@@ -30,6 +30,7 @@ interface FilterRowProps {
     errorMessage?: JSX.Element | null
     disabledReason?: string
     editable: boolean
+    size?: 'xsmall' | 'small' | 'medium'
 }
 
 export const FilterRow = React.memo(function FilterRow({
@@ -48,6 +49,7 @@ export const FilterRow = React.memo(function FilterRow({
     errorMessage,
     disabledReason,
     editable,
+    size = 'small',
 }: FilterRowProps) {
     const [open, setOpen] = useState(() => openOnInsert)
 
@@ -81,7 +83,7 @@ export const FilterRow = React.memo(function FilterRow({
                             <LemonButton
                                 icon={orFiltering ? <IconTrash /> : <IconX />}
                                 onClick={() => onRemove(index)}
-                                size="small"
+                                size={size}
                                 className="ml-2"
                                 noPadding
                             />
@@ -107,7 +109,7 @@ export const FilterRow = React.memo(function FilterRow({
                                 className="new-prop-filter grow"
                                 data-attr={'new-prop-filter-' + pageKey}
                                 type="secondary"
-                                size="small"
+                                size={size}
                                 icon={<IconPlusSmall />}
                                 sideIcon={null}
                             >

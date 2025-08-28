@@ -155,6 +155,8 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
             return <>Initial Path</>
         case WebStatsBreakdown.ExitPage:
             return <>End Path</>
+        case WebStatsBreakdown.PreviousPage:
+            return <>Previous Page</>
         case WebStatsBreakdown.ExitClick:
             return <>Exit Click</>
         case WebStatsBreakdown.ScreenName:

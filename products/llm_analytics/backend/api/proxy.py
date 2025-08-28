@@ -1,5 +1,5 @@
 """
-ViewSet for LLM Observability Proxy
+ViewSet for LLM Analytics Proxy
 
 Endpoints:
 - GET /api/llm_proxy/models
@@ -8,30 +8,33 @@ Endpoints:
 """
 
 import json
-import logging
 import uuid
+import logging
 from collections.abc import Callable, Generator
 from typing import Any, TypedDict, TypeGuard
 
+from django.http import StreamingHttpResponse
+
 import posthoganalytics
 from anthropic.types import MessageParam
-from django.http import StreamingHttpResponse
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from ee.hogai.utils.asgi import SyncIterableToAsync
 from posthog.auth import SessionAuthentication
 from posthog.rate_limit import LLMProxyBurstRateThrottle, LLMProxySustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
+
 from products.llm_analytics.backend.providers.anthropic import AnthropicConfig, AnthropicProvider
 from products.llm_analytics.backend.providers.codestral import CodestralConfig, CodestralProvider
 from products.llm_analytics.backend.providers.gemini import GeminiConfig, GeminiProvider
 from products.llm_analytics.backend.providers.inkeep import InkeepConfig, InkeepProvider
 from products.llm_analytics.backend.providers.openai import OpenAIConfig, OpenAIProvider
+
+from ee.hogai.utils.asgi import SyncIterableToAsync
 
 logger = logging.getLogger(__name__)
 
@@ -70,8 +73,8 @@ class ProviderData(TypedDict):
 
 class LLMProxyViewSet(viewsets.ViewSet):
     """
-    ViewSet for LLM Observability Proxy
-    Proxies LLM calls from the llm observability playground
+    ViewSet for LLM Analytics Proxy
+    Proxies LLM calls from the llm analytics playground
     """
 
     authentication_classes = [SessionAuthentication]
@@ -85,10 +88,10 @@ class LLMProxyViewSet(viewsets.ViewSet):
         if not request.user or not request.user.is_authenticated:
             return False
 
-        llm_observability_enabled = posthoganalytics.feature_enabled(
+        llm_analytics_enabled = posthoganalytics.feature_enabled(
             "llm-observability-playground", request.user.email, person_properties={"email": request.user.email}
         )
-        return llm_observability_enabled
+        return llm_analytics_enabled
 
     def validate_messages(self, messages: list[dict[str, Any]]) -> TypeGuard[list[MessageParam]]:
         if not messages:
@@ -143,7 +146,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
             if isinstance(provider, Response):  # Error response
                 return provider
 
-            # Generate tracking parameters for PostHog observability
+            # Generate tracking parameters for PostHog analytics
             trace_id = str(uuid.uuid4())
             distinct_id = getattr(request.user, "email", "") if request.user and request.user.is_authenticated else ""
             properties = {"ai_product": "playground"}

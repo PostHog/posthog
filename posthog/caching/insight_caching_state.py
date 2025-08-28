@@ -3,10 +3,10 @@ from enum import Enum
 from functools import cached_property
 from typing import Optional, Union
 
-from posthog.schema_migrations.upgrade_manager import upgrade_query
-import structlog
 from django.core.paginator import Paginator
 from django.utils.timezone import now
+
+import structlog
 from prometheus_client import Counter
 
 from posthog.caching.calculate_results import calculate_cache_key
@@ -17,6 +17,7 @@ from posthog.models.insight import Insight, InsightViewed
 from posthog.models.insight_caching_state import InsightCachingState
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
+from posthog.schema_migrations.upgrade_manager import upgrade_query
 
 VERY_RECENTLY_VIEWED_THRESHOLD = timedelta(hours=48)
 GENERALLY_VIEWED_THRESHOLD = timedelta(weeks=2)

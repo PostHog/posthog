@@ -1,17 +1,6 @@
 from datetime import timedelta
 
-from django.utils.timezone import now
 from freezegun import freeze_time
-
-from posthog.clickhouse.client import sync_execute
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
-from posthog.models.event.sql import TRUNCATE_EVENTS_TABLE_SQL
-from posthog.models.utils import uuid7
-from posthog.schema import HogQLQueryModifiers
-from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
-from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -20,6 +9,20 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+
+from django.utils.timezone import now
+
+from posthog.schema import HogQLQueryModifiers
+
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.client import sync_execute
+from posthog.models.event.sql import TRUNCATE_EVENTS_TABLE_SQL
+from posthog.models.utils import uuid7
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 
 
 @freeze_time("2021-01-01T13:46:23")

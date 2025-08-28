@@ -1,23 +1,29 @@
 import dataclasses
 from collections import defaultdict
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
 from typing import Literal, Optional, Union, cast
-from posthog.hogql.property import property_to_expr
-from posthog.hogql_queries.query_runner import QueryRunnerWithHogQLContext, AR
-from posthog.hogql import ast
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.warehouse.models import ExternalDataSchema
-from posthog.warehouse.types import ExternalDataSourceType
-from posthog.models.filters.mixins.utils import cached_property
+from zoneinfo import ZoneInfo
+
 from posthog.schema import (
+    IntervalType,
+    RevenueAnalyticsGrossRevenueQuery,
+    RevenueAnalyticsGroupBy,
     RevenueAnalyticsGrowthRateQuery,
     RevenueAnalyticsMetricsQuery,
+    RevenueAnalyticsMRRQuery,
     RevenueAnalyticsOverviewQuery,
-    RevenueAnalyticsRevenueQuery,
     RevenueAnalyticsTopCustomersQuery,
-    RevenueAnalyticsGroupBy,
 )
+
+from posthog.hogql import ast
+from posthog.hogql.property import property_to_expr
+
+from posthog.hogql_queries.query_runner import AR, QueryRunnerWithHogQLContext
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.filters.mixins.utils import cached_property
+from posthog.warehouse.models import ExternalDataSchema
+from posthog.warehouse.types import ExternalDataSourceType
+
 from products.revenue_analytics.backend.utils import (
     REVENUE_SELECT_OUTPUT_CHARGE_KEY,
     REVENUE_SELECT_OUTPUT_CUSTOMER_KEY,
@@ -69,9 +75,10 @@ class RevenueSubqueries:
 class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
     query: Union[
         RevenueAnalyticsMetricsQuery,
+        RevenueAnalyticsMRRQuery,
+        RevenueAnalyticsGrossRevenueQuery,
         RevenueAnalyticsGrowthRateQuery,
         RevenueAnalyticsOverviewQuery,
-        RevenueAnalyticsRevenueQuery,
         RevenueAnalyticsTopCustomersQuery,
     ]
 
@@ -298,7 +305,8 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
             date_range=self.query.dateRange,
             team=self.team,
             timezone_info=timezone_info,
-            interval=self.query.interval if hasattr(self.query, "interval") else None,
+            # Can only be either day | month only, simpler implementation
+            interval=IntervalType(self.query.interval) if hasattr(self.query, "interval") else None,
             now=datetime.now(timezone_info),
             earliest_timestamp_fallback=EARLIEST_TIMESTAMP,
         )
