@@ -1,5 +1,6 @@
 import DOMPurify from 'dompurify'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
+import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
 import { NewSurvey } from 'scenes/surveys/constants'
@@ -532,4 +533,10 @@ export function calculateSurveyRates(stats: SurveyStats | null): SurveyRates {
         }
     }
     return defaultRates
+}
+
+export function captureMaxAISurveyCreationException(error?: string): void {
+    posthog.captureException(error || 'Undefined error when creating MaxAI survey', {
+        action: 'max-ai-survey-creation-failed',
+    })
 }

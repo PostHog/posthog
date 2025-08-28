@@ -9,6 +9,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import MaxTool from 'scenes/max/MaxTool'
+import { captureMaxAISurveyCreationException } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -131,13 +132,7 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
                                     })
 
                                     if (toolOutput?.error || !toolOutput?.survey_id) {
-                                        posthog.captureException(
-                                            toolOutput.error || 'Undefined error when creating MaxAI survey',
-                                            {
-                                                action: 'max-ai-survey-creation-failed',
-                                            }
-                                        )
-                                        return
+                                        return captureMaxAISurveyCreationException(toolOutput.error)
                                     }
 
                                     router.actions.push(urls.survey(toolOutput.survey_id))
