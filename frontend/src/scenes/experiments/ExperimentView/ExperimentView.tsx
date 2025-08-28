@@ -94,7 +94,7 @@ const ResultsTab = (): JSX.Element => {
             {/* Show overview if there's only a single primary metric */}
             {hasSinglePrimaryMetric && hasMinimumExposureForResults && (
                 <div className="mb-4 mt-2">
-                    <Overview />
+                    <Overview metricUuid={firstPrimaryMetric?.uuid || ''} />
                 </div>
             )}
             {/**
@@ -106,7 +106,7 @@ const ResultsTab = (): JSX.Element => {
                     {showResultDetails && (
                         <div>
                             <div className="pb-4">
-                                <SummaryTable metric={firstPrimaryMetric} metricIndex={0} isSecondary={false} />
+                                <SummaryTable metric={firstPrimaryMetric} displayOrder={0} isSecondary={false} />
                             </div>
                             {isLegacyExperimentQuery(firstPrimaryMetricResult) ? (
                                 <>
@@ -128,7 +128,7 @@ const ResultsTab = (): JSX.Element => {
                                 <ResultsBreakdown
                                     result={firstPrimaryMetricResult as CachedExperimentQueryResponse}
                                     experiment={experiment}
-                                    metricIndex={0}
+                                    metricUuid={firstPrimaryMetric?.uuid || ''}
                                     isPrimary={true}
                                 >
                                     {({
