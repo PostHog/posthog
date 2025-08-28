@@ -1,5 +1,4 @@
 import re
-import base64
 import functools
 from datetime import timedelta
 from typing import Any, Optional, Union
@@ -13,7 +12,6 @@ from django.http import HttpRequest, JsonResponse
 from django.utils import timezone
 
 import jwt
-import orjson
 from prometheus_client import Counter
 from rest_framework import authentication
 from rest_framework.exceptions import AuthenticationFailed
@@ -363,6 +361,7 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
     Supports both Bearer token (for API calls) and cookie (for rendering decisions).
     """
 
+    keyword = "Bearer"
     sharing_configuration: SharingConfiguration
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, Any]]:
@@ -371,35 +370,18 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
 
         # Extract JWT token from Authorization header or cookie
         sharing_jwt_token = None
-        auth_header = request.META.get("HTTP_AUTHORIZATION", "")
-
-        if auth_header.startswith("Bearer "):
-            sharing_jwt_token = auth_header[7:]  # Remove 'Bearer ' prefix
+        if "HTTP_AUTHORIZATION" in request.META:
+            authorization_match = re.match(rf"^{self.keyword}\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
+            if authorization_match:
+                sharing_jwt_token = authorization_match.group(1).strip()
         elif hasattr(request, "COOKIES") and request.COOKIES.get("posthog_sharing_token"):
             sharing_jwt_token = request.COOKIES.get("posthog_sharing_token")
 
         if not sharing_jwt_token:
             return None
 
-        # Quick check if this is a sharing JWT token by examining structure and payload
-        if sharing_jwt_token.count(".") != 2:
-            return None
-
         try:
-            # Decode the payload to check if it's a sharing JWT
-            payload_b64 = sharing_jwt_token.split(".")[1]
-            # Add padding if necessary
-            payload_b64 += "=" * (4 - len(payload_b64) % 4)
-            quick_payload = orjson.loads(base64.urlsafe_b64decode(payload_b64))
-
-            # If it's not a sharing JWT, don't process it (prevents interference with other Bearer tokens)
-            if "sharing_config_id" not in quick_payload:
-                return None
-        except:
-            return None
-
-        try:
-            # Now do full JWT validation
+            # Attempt full JWT validation - this will fail fast for non-sharing JWTs due to audience mismatch
             payload = decode_jwt(sharing_jwt_token, PosthogJwtAudience.SHARING_PASSWORD_PROTECTED)
 
             sharing_configuration = SharingConfiguration.objects.get(

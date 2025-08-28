@@ -1,9 +1,10 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import api from 'lib/api'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { objectsEqual } from 'lib/utils'
+import { objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
@@ -71,6 +72,10 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
                 if (dashboardId) {
                     params.dashboards = [dashboardId]
                 }
+
+                const response = await api.get(
+                    `api/environments/${teamLogic.values.currentTeamId}/insights/?${toParams(params)}`
+                )
 
                 return {
                     ...response,
