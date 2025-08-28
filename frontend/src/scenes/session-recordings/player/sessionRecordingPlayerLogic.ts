@@ -1503,8 +1503,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     })),
 
     subscriptions(({ actions, values }) => ({
-        sessionPlayerData: (next, prev) => {
-            const hasSnapshotChanges = next?.snapshotsByWindowId !== prev?.snapshotsByWindowId
+        sessionPlayerData: (value, oldValue) => {
+            const hasSnapshotChanges = value?.snapshotsByWindowId !== oldValue?.snapshotsByWindowId
 
             // TODO: Detect if the order of the current window has changed (this would require re-initializing the player)
 
@@ -1512,8 +1512,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.syncSnapshotsWithPlayer()
             }
         },
-        timestampChangeTracking: (next) => {
-            if (next.timestampMatchesPrevious < 10) {
+        timestampChangeTracking: (value) => {
+            if (value.timestampMatchesPrevious < 10) {
                 return
             }
 
@@ -1523,19 +1523,19 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.skipPlayerForward(rrwebPlayerTime, values.roughAnimationFPS)
             }
         },
-        playerError: (next) => {
-            if (next) {
+        playerError: (value) => {
+            if (value) {
                 posthog.capture('recording player error', {
                     watchedSessionId: values.sessionRecordingId,
                     currentTimestamp: values.currentTimestamp,
                     currentSegment: values.currentSegment,
                     currentPlayerTime: values.currentPlayerTime,
-                    error: next,
+                    error: value,
                 })
             }
         },
-        currentPlayerState: (next) => {
-            if (next === SessionPlayerState.PLAY && !values.wasMarkedViewed) {
+        currentPlayerState: (value) => {
+            if (value === SessionPlayerState.PLAY && !values.wasMarkedViewed) {
                 actions.markViewed(0)
             }
         },
