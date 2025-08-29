@@ -203,6 +203,8 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 )}
                             </>
                         )}
+
+                        {newSceneLayout ? <SceneDivider /> : <LemonDivider className="my-0" />}
                         <FeatureFlagCodeExample featureFlag={featureFlag} />
                     </div>
                 </>
@@ -268,7 +270,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
 
     return (
         <>
-            <SceneContent className="feature-flag" forceNewSpacing>
+            <div className="feature-flag">
                 {isNewFeatureFlag || isEditingFlag ? (
                     <Form
                         id="feature-flag"
@@ -306,16 +308,16 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 </div>
                             }
                         />
-                        {featureFlag.experiment_set && featureFlag.experiment_set.length > 0 && (
-                            <LemonBanner type="warning">
-                                This feature flag is linked to an experiment. Edit settings here only for advanced
-                                functionality. If unsure, go back to{' '}
-                                <Link to={urls.experiment(featureFlag.experiment_set[0])}>
-                                    the experiment creation screen.
-                                </Link>
-                            </LemonBanner>
-                        )}
-                        <div className="my-4">
+                        <SceneContent forceNewSpacing>
+                            {featureFlag.experiment_set && featureFlag.experiment_set.length > 0 && (
+                                <LemonBanner type="warning">
+                                    This feature flag is linked to an experiment. Edit settings here only for advanced
+                                    functionality. If unsure, go back to{' '}
+                                    <Link to={urls.experiment(featureFlag.experiment_set[0])}>
+                                        the experiment creation screen.
+                                    </Link>
+                                </LemonBanner>
+                            )}
                             <div className="max-w-1/2 deprecated-space-y-4">
                                 <LemonField
                                     name="key"
@@ -428,80 +430,80 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     </LemonField>
                                 )}
                             </div>
-                        </div>
-                        {newSceneLayout ? <SceneDivider /> : <LemonDivider />}
-                        <FeatureFlagRollout />
-                        {newSceneLayout ? <SceneDivider /> : <LemonDivider />}
-                        {!featureFlag.is_remote_configuration && (
-                            <>
-                                <FeatureFlagReleaseConditions
-                                    id={`${featureFlag.id}`}
-                                    filters={featureFlag.filters}
-                                    onChange={setFeatureFlagFilters}
-                                />
-                                {newSceneLayout ? <SceneDivider /> : <LemonDivider />}
-                            </>
-                        )}
+                            {newSceneLayout ? <SceneDivider /> : <LemonDivider className="my-2" />}
+                            <FeatureFlagRollout />
+                            {newSceneLayout ? <SceneDivider /> : <LemonDivider className="my-2" />}
+                            {!featureFlag.is_remote_configuration && (
+                                <>
+                                    <FeatureFlagReleaseConditions
+                                        id={`${featureFlag.id}`}
+                                        filters={featureFlag.filters}
+                                        onChange={setFeatureFlagFilters}
+                                    />
+                                    {newSceneLayout ? <SceneDivider /> : <LemonDivider className="my-2" />}
+                                </>
+                            )}
 
-                        <FeatureFlagCodeExample featureFlag={featureFlag} />
-                        <LemonDivider />
-                        {isNewFeatureFlag && (
-                            <>
-                                <div>
-                                    <LemonButton
-                                        fullWidth
-                                        onClick={() => setAdvancedSettingsExpanded(!advancedSettingsExpanded)}
-                                        sideIcon={advancedSettingsExpanded ? <IconCollapse /> : <IconExpand />}
-                                    >
-                                        <div>
-                                            <h3 className="l4 mt-2">Advanced settings</h3>
-                                            <div className="text-secondary mb-2 font-medium">
-                                                Define who can modify this flag.
+                            <FeatureFlagCodeExample featureFlag={featureFlag} />
+                            <LemonDivider />
+                            {isNewFeatureFlag && (
+                                <>
+                                    <div>
+                                        <LemonButton
+                                            fullWidth
+                                            onClick={() => setAdvancedSettingsExpanded(!advancedSettingsExpanded)}
+                                            sideIcon={advancedSettingsExpanded ? <IconCollapse /> : <IconExpand />}
+                                        >
+                                            <div>
+                                                <h3 className="l4 mt-2">Advanced settings</h3>
+                                                <div className="text-secondary mb-2 font-medium">
+                                                    Define who can modify this flag.
+                                                </div>
                                             </div>
-                                        </div>
-                                    </LemonButton>
-                                </div>
-                                {advancedSettingsExpanded && (
-                                    <>
-                                        {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && (
-                                            <FeatureFlagAutoRollback />
-                                        )}
-                                        <div className="border rounded bg-surface-primary">
-                                            <h3 className="p-2 mb-0">Permissions</h3>
-                                            <LemonDivider className="my-0" />
-                                            <div className="p-3">
-                                                <FeatureFlagPermissions featureFlag={featureFlag} />
+                                        </LemonButton>
+                                    </div>
+                                    {advancedSettingsExpanded && (
+                                        <>
+                                            {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && (
+                                                <FeatureFlagAutoRollback />
+                                            )}
+                                            <div className="border rounded bg-surface-primary">
+                                                <h3 className="p-2 mb-0">Permissions</h3>
+                                                <LemonDivider className="my-0" />
+                                                <div className="p-3">
+                                                    <FeatureFlagPermissions featureFlag={featureFlag} />
+                                                </div>
                                             </div>
-                                        </div>
-                                    </>
-                                )}
-                                <LemonDivider />
-                            </>
-                        )}
-                        <div className="flex items-center gap-2 justify-end">
-                            <LemonButton
-                                data-attr="cancel-feature-flag"
-                                type="secondary"
-                                onClick={() => {
-                                    if (isEditingFlag) {
-                                        editFeatureFlag(false)
-                                        loadFeatureFlag()
-                                    } else {
-                                        router.actions.push(urls.featureFlags())
-                                    }
-                                }}
-                            >
-                                Cancel
-                            </LemonButton>
-                            <LemonButton
-                                type="primary"
-                                data-attr="save-feature-flag"
-                                htmlType="submit"
-                                form="feature-flag"
-                            >
-                                Save
-                            </LemonButton>
-                        </div>
+                                        </>
+                                    )}
+                                    <LemonDivider />
+                                </>
+                            )}
+                            <div className="flex items-center gap-2 justify-end">
+                                <LemonButton
+                                    data-attr="cancel-feature-flag"
+                                    type="secondary"
+                                    onClick={() => {
+                                        if (isEditingFlag) {
+                                            editFeatureFlag(false)
+                                            loadFeatureFlag()
+                                        } else {
+                                            router.actions.push(urls.featureFlags())
+                                        }
+                                    }}
+                                >
+                                    Cancel
+                                </LemonButton>
+                                <LemonButton
+                                    type="primary"
+                                    data-attr="save-feature-flag"
+                                    htmlType="submit"
+                                    form="feature-flag"
+                                >
+                                    Save
+                                </LemonButton>
+                            </div>
+                        </SceneContent>
                     </Form>
                 ) : (
                     <>
@@ -658,35 +660,38 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 </>
                             }
                         />
-                        {earlyAccessFeature && earlyAccessFeature.stage === EarlyAccessFeatureStage.Concept && (
-                            <LemonBanner type="info">
-                                This feature flag is assigned to an early access feature in the{' '}
-                                <LemonTag type="default" className="uppercase">
-                                    Concept
-                                </LemonTag>{' '}
-                                stage. All users who register interest will be assigned this feature flag. Gate your
-                                code behind a different feature flag if you'd like to keep it hidden, and then switch
-                                your code to this feature flag when you're ready to release to your early access users.
-                            </LemonBanner>
-                        )}
-                        <SceneTitleSection
-                            name={featureFlag.key}
-                            description={featureFlag.name}
-                            resourceType={{
-                                type: 'feature_flag',
-                                typePlural: 'Feature flags',
-                            }}
-                        />
-                        <SceneDivider />
-                        <LemonTabs
-                            activeKey={activeTab}
-                            onChange={(tab) => tab !== activeTab && setActiveTab(tab)}
-                            tabs={tabs}
-                            sceneInset={newSceneLayout}
-                        />
+                        <SceneContent forceNewSpacing>
+                            {earlyAccessFeature && earlyAccessFeature.stage === EarlyAccessFeatureStage.Concept && (
+                                <LemonBanner type="info">
+                                    This feature flag is assigned to an early access feature in the{' '}
+                                    <LemonTag type="default" className="uppercase">
+                                        Concept
+                                    </LemonTag>{' '}
+                                    stage. All users who register interest will be assigned this feature flag. Gate your
+                                    code behind a different feature flag if you'd like to keep it hidden, and then
+                                    switch your code to this feature flag when you're ready to release to your early
+                                    access users.
+                                </LemonBanner>
+                            )}
+                            <SceneTitleSection
+                                name={featureFlag.key}
+                                description={featureFlag.name}
+                                resourceType={{
+                                    type: 'feature_flag',
+                                    typePlural: 'Feature flags',
+                                }}
+                            />
+                            <SceneDivider />
+                            <LemonTabs
+                                activeKey={activeTab}
+                                onChange={(tab) => tab !== activeTab && setActiveTab(tab)}
+                                tabs={tabs}
+                                sceneInset={newSceneLayout}
+                            />
+                        </SceneContent>
                     </>
                 )}
-            </SceneContent>
+            </div>
         </>
     )
 }
@@ -1009,7 +1014,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             </>
                         )}
                     </div>
-                    {newSceneLayout ? <SceneDivider /> : <LemonDivider className="my-3" />}
+                    {newSceneLayout ? <SceneDivider /> : <LemonDivider className="my-0" />}
                     {featureFlag.filters.multivariate && (
                         <>
                             <SceneSection title="Variant keys">

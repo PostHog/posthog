@@ -13,7 +13,6 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { RolloutConditionType } from '~/types'
 
@@ -30,7 +29,7 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
     const { user } = useValues(userLogic)
 
     if (!featureFlag.rollback_conditions || featureFlag.rollback_conditions.length === 0) {
-        return <SceneDivider />
+        return null
     }
 
     return (
@@ -259,7 +258,6 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                     </LemonButton>
                 )}
             </SceneSection>
-            <SceneDivider />
         </>
     )
 }

@@ -28,7 +28,7 @@ import {
 
 function FeatureFlagInstructionsFooter({ documentationLink }: { documentationLink: string }): JSX.Element {
     return (
-        <div className="mt-4">
+        <div>
             Need more information?{' '}
             <Link data-attr="feature-flag-doc-link" target="_blank" to={documentationLink} targetBlankIcon>
                 Check the docs

@@ -630,7 +630,7 @@ export function FeatureFlagReleaseConditions({
                     />
                 </div>
             )}
-            <div className="FeatureConditionCard">
+            <div className="FeatureConditionCard max-w-prose">
                 {filterGroups.map((group, index) => (
                     <div key={group.sort_key || index}>
                         {isSuper
