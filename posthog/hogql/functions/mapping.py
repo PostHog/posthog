@@ -1464,10 +1464,10 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         for name in ["today", "current_date"]
     },
     "date_bin": HogQLFunctionMeta(
-        "toStartOfInterval({1}, {0}, {2})",
+        "toStartOfInterval({1}, {0})",
         3,
         3,
-        tz_aware=True,
+        tz_aware=False,
         signatures=[
             ((IntervalType(), DateTimeType(), DateTimeType()), DateTimeType()),
         ],
