@@ -341,7 +341,10 @@ class AccessControlViewSetMixin(_GenericViewSet):
         """
         DEPRECATED - use resource_access_controls instead.
         """
-        return self.resource_access_controls(request, *args, **kwargs)
+        if request.method == "PUT":
+            return self._update_access_controls(request, is_resource_level=True)
+
+        return self._get_access_controls(request, is_resource_level=True)
 
     @extend_schema(exclude=True)
     @action(methods=["GET"], detail=True)
