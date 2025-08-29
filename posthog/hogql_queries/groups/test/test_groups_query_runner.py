@@ -1,18 +1,18 @@
-from posthog.models import GroupTypeMapping
-from posthog.test.test_utils import create_group_type_mapping_without_created_at
-from django.utils import timezone
 from datetime import timedelta
-from django.test import override_settings
+
 from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
+
+from django.test import override_settings
+from django.utils import timezone
+
+from posthog.schema import GroupPropertyFilter, GroupsQuery, PropertyOperator
+
 from posthog.hogql_queries.groups.groups_query_runner import GroupsQueryRunner
+from posthog.models import GroupTypeMapping
 from posthog.models.group.util import create_group, raw_create_group_ch
 from posthog.models.property_definition import PropertyDefinition, PropertyType
-from posthog.schema import GroupsQuery, PropertyOperator, GroupPropertyFilter
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    snapshot_clickhouse_queries,
-)
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
 @override_settings(IN_UNIT_TESTING=True)

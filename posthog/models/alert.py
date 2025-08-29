@@ -1,16 +1,16 @@
-from datetime import datetime, UTC, timedelta
+from datetime import UTC, datetime, timedelta
 
-
-from django.db import models
 from django.core.exceptions import ValidationError
-from posthog.models.activity_logging.model_activity import ModelActivityMixin
-from posthog.schema_migrations.upgrade_manager import upgrade_query
+from django.db import models
+
 import pydantic
 
-from posthog.models.insight import Insight
-from posthog.models.utils import UUIDTModel, CreatedMetaFields
-from posthog.schema import InsightThreshold, AlertState, AlertCalculationInterval
+from posthog.schema import AlertCalculationInterval, AlertState, InsightThreshold
 
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.insight import Insight
+from posthog.models.utils import CreatedMetaFields, UUIDTModel
+from posthog.schema_migrations.upgrade_manager import upgrade_query
 
 ALERT_STATE_CHOICES = [
     (AlertState.FIRING, AlertState.FIRING),

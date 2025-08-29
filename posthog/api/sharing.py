@@ -8,12 +8,15 @@ from django.db.models import Q
 from django.shortcuts import render
 from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
+
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import SAFE_METHODS
 from rest_framework.request import Request
+
+from posthog.schema import SharingConfigurationSettings
 
 from posthog.api.dashboards.dashboard import DashboardSerializer
 from posthog.api.data_color_theme import DataColorTheme, DataColorThemeSerializer
@@ -23,24 +26,18 @@ from posthog.api.insight_variable import InsightVariable
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import AvailableFeature
-from posthog.hogql_queries.utils.event_usage import log_event_usage_from_insight
-from posthog.models import SessionRecording, SharingConfiguration, Team, InsightViewed
-from posthog.schema import SharingConfigurationSettings
+from posthog.exceptions_capture import capture_exception
+from posthog.jwt import PosthogJwtAudience, encode_jwt
+from posthog.models import InsightViewed, SessionRecording, SharingConfiguration, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.dashboard import Dashboard
-from posthog.models.exported_asset import (
-    ExportedAsset,
-    asset_for_token,
-    get_content_response,
-)
+from posthog.models.exported_asset import ExportedAsset, asset_for_token, get_content_response
 from posthog.models.insight import Insight
 from posthog.models.user import User
+from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
 from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
 from posthog.user_permissions import UserPermissions
-from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
 from posthog.utils import render_template
-from posthog.jwt import encode_jwt, PosthogJwtAudience
-from posthog.exceptions_capture import capture_exception
 
 
 def shared_url_as_png(url: str = "") -> str:
@@ -387,12 +384,6 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 insight=resource.insight, team=None, user=None, defaults={"last_viewed_at": now()}
             )
 
-            log_event_usage_from_insight(
-                resource.insight,
-                team_id=resource.team.pk,
-                user_id=self.request.user.pk if self.request.user.is_authenticated else None,
-            )
-
             # Add hideExtraDetails to context so that PII related information is not returned to the client
             insight_context = {**context, "hide_extra_details": state.get("hideExtraDetails", False)}
             insight_data = InsightSerializer(resource.insight, many=False, context=insight_context).data
@@ -403,16 +394,6 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             asset_description = resource.dashboard.description or ""
             resource.dashboard.last_accessed_at = now()
             resource.dashboard.save(update_fields=["last_accessed_at"])
-
-            insights = (
-                Insight.objects.filter(dashboard_tiles__dashboard=resource.dashboard).distinct().only("query_metadata")
-            )
-            for insight in insights.iterator(chunk_size=100):
-                log_event_usage_from_insight(
-                    insight,
-                    team_id=resource.team.pk,
-                    user_id=self.request.user.pk if self.request.user.is_authenticated else None,
-                )
 
             with task_chain_context():
                 dashboard_data = DashboardSerializer(resource.dashboard, context=context).data

@@ -1,11 +1,8 @@
 import dagster
 
+from dags import oauth
+
 from . import resources
-
-from dags import (
-    oauth,
-)
-
 
 defs = dagster.Definitions(
     jobs=[

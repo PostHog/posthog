@@ -483,7 +483,8 @@
       event_count Int64,
       message_count Int64,
       snapshot_source LowCardinality(Nullable(String)),
-      snapshot_library Nullable(String)
+      snapshot_library Nullable(String),
+      retention_period Nullable(String),
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
   
   '''
@@ -779,7 +780,7 @@
       
   , _timestamp DateTime
   , _offset UInt64
-  , inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NOW64()
+  , inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NOW64(), consumer_breadcrumbs Array(String)
       
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_events', sipHash64(distinct_id))
   
@@ -1559,7 +1560,8 @@
       event_count Int64,
       message_count Int64,
       snapshot_source LowCardinality(Nullable(String)),
-      snapshot_library Nullable(String)
+      snapshot_library Nullable(String),
+      retention_period Nullable(String),
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
   
   '''
@@ -2116,6 +2118,8 @@
       lc_id String,
       lc_route_id String,
       lc_access_method LowCardinality(String),
+      lc_api_key_label String,
+      lc_api_key_mask String,
   
       lc_query_type LowCardinality(String),
       lc_product LowCardinality(String),
@@ -2369,7 +2373,7 @@
 # name: test_create_table_query[raw_sessions_mv]
   '''
   
-  CREATE MATERIALIZED VIEW IF NOT EXISTS raw_sessions_mv ON CLUSTER 'posthog'
+  CREATE MATERIALIZED VIEW IF NOT EXISTS raw_sessions_mv 
   TO posthog_test.writable_raw_sessions
   AS
   
@@ -2503,7 +2507,7 @@
 # name: test_create_table_query[session_replay_events]
   '''
   
-  CREATE TABLE IF NOT EXISTS session_replay_events ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS session_replay_events 
   (
       -- part of order by so will aggregate correctly
       session_id VARCHAR,
@@ -2544,7 +2548,9 @@
       snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-      _timestamp SimpleAggregateFunction(max, DateTime)
+      _timestamp SimpleAggregateFunction(max, DateTime),
+      -- retention period for this session, useful to show TTL for the recording
+      retention_period Nullable(String)
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
   
   '''
@@ -2569,7 +2575,8 @@
   `event_count` Int64,
   `snapshot_source` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
   `snapshot_library` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-  `_timestamp` Nullable(DateTime)
+  `_timestamp` Nullable(DateTime),
+  `retention_period` Nullable(String)
   )
   AS SELECT
   session_id,
@@ -2604,7 +2611,10 @@
   sum(event_count) as event_count,
   argMinState(snapshot_source, first_timestamp) as snapshot_source,
   argMinState(snapshot_library, first_timestamp) as snapshot_library,
-  max(_timestamp) as _timestamp
+  max(_timestamp) as _timestamp,
+  -- CH will pick the retention period here, but only if there is a single unique non-null value across all blocks
+  -- ...otherwise this column will be NULL
+  singleValueOrNull(retention_period) as retention_period
   FROM posthog_test.kafka_session_replay_events
   group by session_id, team_id
   
@@ -2613,7 +2623,7 @@
 # name: test_create_table_query[session_replay_events_v2_test]
   '''
   
-      CREATE TABLE IF NOT EXISTS session_replay_events_v2_test ON CLUSTER 'posthog'
+      CREATE TABLE IF NOT EXISTS session_replay_events_v2_test 
       (
           session_id VARCHAR,
           team_id Int64,
@@ -3264,7 +3274,9 @@
       snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-      _timestamp SimpleAggregateFunction(max, DateTime)
+      _timestamp SimpleAggregateFunction(max, DateTime),
+      -- retention period for this session, useful to show TTL for the recording
+      retention_period Nullable(String)
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
   
       PARTITION BY toYYYYMM(min_first_timestamp)
@@ -3392,7 +3404,7 @@
 # name: test_create_table_query[web_bounces_daily]
   '''
   
-      CREATE TABLE IF NOT EXISTS web_bounces_daily ON CLUSTER 'posthog'
+      CREATE TABLE IF NOT EXISTS web_bounces_daily 
       (
           period_bucket DateTime,
           team_id UInt64,
@@ -3525,7 +3537,7 @@
 # name: test_create_table_query[web_pre_aggregated_bounces]
   '''
   
-      CREATE TABLE IF NOT EXISTS web_pre_aggregated_bounces ON CLUSTER 'posthog'
+      CREATE TABLE IF NOT EXISTS web_pre_aggregated_bounces 
       (
           period_bucket DateTime,
           team_id UInt64,
@@ -3588,76 +3600,10 @@
       
   '''
 # ---
-# name: test_create_table_query[web_pre_aggregated_bounces_staging]
-  '''
-  
-      CREATE TABLE IF NOT EXISTS web_pre_aggregated_bounces_staging ON CLUSTER 'posthog'
-      (
-          period_bucket DateTime,
-          team_id UInt64,
-          host String,
-          device_type String,
-          
-      entry_pathname String,
-  end_pathname String,
-  browser String,
-  os String,
-  viewport_width Int64,
-  viewport_height Int64,
-  referring_domain String,
-  utm_source String,
-  utm_medium String,
-  utm_campaign String,
-  utm_term String,
-  utm_content String,
-  country_code String,
-  city_name String,
-  region_code String,
-  region_name String,
-  has_gclid Bool,
-  has_gad_source_paid_search Bool,
-  has_fbclid Bool,
-      persons_uniq_state AggregateFunction(uniq, UUID),
-      sessions_uniq_state AggregateFunction(uniq, String),
-      pageviews_count_state AggregateFunction(sum, UInt64),
-      bounces_count_state AggregateFunction(sum, UInt64),
-      total_session_duration_state AggregateFunction(sum, Int64),
-      total_session_count_state AggregateFunction(sum, UInt64)
-  
-      ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/5c928ef6-2194-4843-988a-2ffb931c4ca6_noshard/posthog.web_pre_aggregated_bounces_staging', '{replica}-{shard}')
-      PARTITION BY toYYYYMMDD(period_bucket)
-      ORDER BY (
-      team_id,
-      period_bucket,
-      host,
-      device_type,
-      entry_pathname,
-      end_pathname,
-      browser,
-      os,
-      viewport_width,
-      viewport_height,
-      referring_domain,
-      utm_source,
-      utm_medium,
-      utm_campaign,
-      utm_term,
-      utm_content,
-      country_code,
-      city_name,
-      region_code,
-      region_name,
-      has_gclid,
-      has_gad_source_paid_search,
-      has_fbclid
-  )
-      
-  '''
-# ---
 # name: test_create_table_query[web_pre_aggregated_stats]
   '''
   
-      CREATE TABLE IF NOT EXISTS web_pre_aggregated_stats ON CLUSTER 'posthog'
+      CREATE TABLE IF NOT EXISTS web_pre_aggregated_stats 
       (
           period_bucket DateTime,
           team_id UInt64,
@@ -3719,75 +3665,10 @@
       
   '''
 # ---
-# name: test_create_table_query[web_pre_aggregated_stats_staging]
-  '''
-  
-      CREATE TABLE IF NOT EXISTS web_pre_aggregated_stats_staging ON CLUSTER 'posthog'
-      (
-          period_bucket DateTime,
-          team_id UInt64,
-          host String,
-          device_type String,
-          
-      pathname String,
-  entry_pathname String,
-  end_pathname String,
-  browser String,
-  os String,
-  viewport_width Int64,
-  viewport_height Int64,
-  referring_domain String,
-  utm_source String,
-  utm_medium String,
-  utm_campaign String,
-  utm_term String,
-  utm_content String,
-  country_code String,
-  city_name String,
-  region_code String,
-  region_name String,
-  has_gclid Bool,
-  has_gad_source_paid_search Bool,
-  has_fbclid Bool,
-      persons_uniq_state AggregateFunction(uniq, UUID),
-      sessions_uniq_state AggregateFunction(uniq, String),
-      pageviews_count_state AggregateFunction(sum, UInt64),
-  
-      ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/70780557-5ea4-44f0-9b88-40c3d92b8b25_noshard/posthog.web_pre_aggregated_stats_staging', '{replica}-{shard}')
-      PARTITION BY toYYYYMMDD(period_bucket)
-      ORDER BY (
-      team_id,
-      period_bucket,
-      host,
-      device_type,
-      pathname,
-      entry_pathname,
-      end_pathname,
-      browser,
-      os,
-      viewport_width,
-      viewport_height,
-      referring_domain,
-      utm_source,
-      utm_medium,
-      utm_campaign,
-      utm_term,
-      utm_content,
-      country_code,
-      city_name,
-      region_code,
-      region_name,
-      has_gclid,
-      has_gad_source_paid_search,
-      has_fbclid
-  )
-      
-  '''
-# ---
 # name: test_create_table_query[web_stats_daily]
   '''
   
-      CREATE TABLE IF NOT EXISTS web_stats_daily ON CLUSTER 'posthog'
+      CREATE TABLE IF NOT EXISTS web_stats_daily 
       (
           period_bucket DateTime,
           team_id UInt64,
@@ -3946,7 +3827,7 @@
       
   , _timestamp DateTime
   , _offset UInt64
-  
+  , consumer_breadcrumbs Array(String)
       
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_events', sipHash64(distinct_id))
   
@@ -4089,6 +3970,89 @@
   , _offset UInt64
   
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_recording_events', sipHash64(distinct_id))
+  
+  '''
+# ---
+# name: test_create_table_query[writable_session_replay_events]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_session_replay_events 
+  (
+      -- part of order by so will aggregate correctly
+      session_id VARCHAR,
+      -- part of order by so will aggregate correctly
+      team_id Int64,
+      -- ClickHouse will pick any value of distinct_id for the session
+      -- this is fine since even if the distinct_id changes during a session
+      -- it will still (or should still) map to the same person
+      distinct_id VARCHAR,
+      min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      -- session recording v2 blocks
+      block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+      block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+      block_urls SimpleAggregateFunction(groupArrayArray, Array(String)),
+      -- store the first url of the session so we can quickly show that in playlists
+      first_url AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
+      -- but also store each url so we can query by visited page without having to scan all events
+      -- despite the name we can put mobile screens in here as well to give same functionality across platforms
+      all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      click_count SimpleAggregateFunction(sum, Int64),
+      keypress_count SimpleAggregateFunction(sum, Int64),
+      mouse_activity_count SimpleAggregateFunction(sum, Int64),
+      active_milliseconds SimpleAggregateFunction(sum, Int64),
+      console_log_count SimpleAggregateFunction(sum, Int64),
+      console_warn_count SimpleAggregateFunction(sum, Int64),
+      console_error_count SimpleAggregateFunction(sum, Int64),
+      -- this column allows us to estimate the amount of data that is being ingested
+      size SimpleAggregateFunction(sum, Int64),
+      -- this allows us to count the number of messages received in a session
+      -- often very useful in incidents or debugging
+      message_count SimpleAggregateFunction(sum, Int64),
+      -- this allows us to count the number of snapshot events received in a session
+      -- often very useful in incidents or debugging
+      -- because we batch events we expect message_count to be lower than event_count
+      event_count SimpleAggregateFunction(sum, Int64),
+      -- which source the snapshots came from Mobile or Web. Web if absent
+      snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+      -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
+      snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      _timestamp SimpleAggregateFunction(max, DateTime),
+      -- retention period for this session, useful to show TTL for the recording
+      retention_period Nullable(String)
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
+  
+  '''
+# ---
+# name: test_create_table_query[writable_session_replay_events_v2_test]
+  '''
+  
+      CREATE TABLE IF NOT EXISTS writable_session_replay_events_v2_test 
+      (
+          session_id VARCHAR,
+          team_id Int64,
+          distinct_id VARCHAR,
+          min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+          max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+          block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+          block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+          block_urls SimpleAggregateFunction(groupArrayArray, Array(String)),
+          first_url AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
+          all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+          click_count SimpleAggregateFunction(sum, Int64),
+          keypress_count SimpleAggregateFunction(sum, Int64),
+          mouse_activity_count SimpleAggregateFunction(sum, Int64),
+          active_milliseconds SimpleAggregateFunction(sum, Int64),
+          console_log_count SimpleAggregateFunction(sum, Int64),
+          console_warn_count SimpleAggregateFunction(sum, Int64),
+          console_error_count SimpleAggregateFunction(sum, Int64),
+          size SimpleAggregateFunction(sum, Int64),
+          message_count SimpleAggregateFunction(sum, Int64),
+          event_count SimpleAggregateFunction(sum, Int64),
+          snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+          snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+          _timestamp SimpleAggregateFunction(max, DateTime)
+      ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events_v2_test', sipHash64(distinct_id))
   
   '''
 # ---
@@ -4692,6 +4656,8 @@
       lc_id String,
       lc_route_id String,
       lc_access_method LowCardinality(String),
+      lc_api_key_label String,
+      lc_api_key_mask String,
   
       lc_query_type LowCardinality(String),
       lc_product LowCardinality(String),
@@ -5192,7 +5158,9 @@
       snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-      _timestamp SimpleAggregateFunction(max, DateTime)
+      _timestamp SimpleAggregateFunction(max, DateTime),
+      -- retention period for this session, useful to show TTL for the recording
+      retention_period Nullable(String)
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
   
       PARTITION BY toYYYYMM(min_first_timestamp)
@@ -5320,7 +5288,7 @@
 # name: test_create_table_query_replicated_and_storage[web_bounces_daily]
   '''
   
-      CREATE TABLE IF NOT EXISTS web_bounces_daily ON CLUSTER 'posthog'
+      CREATE TABLE IF NOT EXISTS web_bounces_daily 
       (
           period_bucket DateTime,
           team_id UInt64,
@@ -5453,7 +5421,7 @@
 # name: test_create_table_query_replicated_and_storage[web_pre_aggregated_bounces]
   '''
   
-      CREATE TABLE IF NOT EXISTS web_pre_aggregated_bounces ON CLUSTER 'posthog'
+      CREATE TABLE IF NOT EXISTS web_pre_aggregated_bounces 
       (
           period_bucket DateTime,
           team_id UInt64,
@@ -5516,76 +5484,10 @@
       
   '''
 # ---
-# name: test_create_table_query_replicated_and_storage[web_pre_aggregated_bounces_staging]
-  '''
-  
-      CREATE TABLE IF NOT EXISTS web_pre_aggregated_bounces_staging ON CLUSTER 'posthog'
-      (
-          period_bucket DateTime,
-          team_id UInt64,
-          host String,
-          device_type String,
-          
-      entry_pathname String,
-  end_pathname String,
-  browser String,
-  os String,
-  viewport_width Int64,
-  viewport_height Int64,
-  referring_domain String,
-  utm_source String,
-  utm_medium String,
-  utm_campaign String,
-  utm_term String,
-  utm_content String,
-  country_code String,
-  city_name String,
-  region_code String,
-  region_name String,
-  has_gclid Bool,
-  has_gad_source_paid_search Bool,
-  has_fbclid Bool,
-      persons_uniq_state AggregateFunction(uniq, UUID),
-      sessions_uniq_state AggregateFunction(uniq, String),
-      pageviews_count_state AggregateFunction(sum, UInt64),
-      bounces_count_state AggregateFunction(sum, UInt64),
-      total_session_duration_state AggregateFunction(sum, Int64),
-      total_session_count_state AggregateFunction(sum, UInt64)
-  
-      ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/5c928ef6-2194-4843-988a-2ffb931c4ca6_noshard/posthog.web_pre_aggregated_bounces_staging', '{replica}-{shard}')
-      PARTITION BY toYYYYMMDD(period_bucket)
-      ORDER BY (
-      team_id,
-      period_bucket,
-      host,
-      device_type,
-      entry_pathname,
-      end_pathname,
-      browser,
-      os,
-      viewport_width,
-      viewport_height,
-      referring_domain,
-      utm_source,
-      utm_medium,
-      utm_campaign,
-      utm_term,
-      utm_content,
-      country_code,
-      city_name,
-      region_code,
-      region_name,
-      has_gclid,
-      has_gad_source_paid_search,
-      has_fbclid
-  )
-      
-  '''
-# ---
 # name: test_create_table_query_replicated_and_storage[web_pre_aggregated_stats]
   '''
   
-      CREATE TABLE IF NOT EXISTS web_pre_aggregated_stats ON CLUSTER 'posthog'
+      CREATE TABLE IF NOT EXISTS web_pre_aggregated_stats 
       (
           period_bucket DateTime,
           team_id UInt64,
@@ -5647,75 +5549,10 @@
       
   '''
 # ---
-# name: test_create_table_query_replicated_and_storage[web_pre_aggregated_stats_staging]
-  '''
-  
-      CREATE TABLE IF NOT EXISTS web_pre_aggregated_stats_staging ON CLUSTER 'posthog'
-      (
-          period_bucket DateTime,
-          team_id UInt64,
-          host String,
-          device_type String,
-          
-      pathname String,
-  entry_pathname String,
-  end_pathname String,
-  browser String,
-  os String,
-  viewport_width Int64,
-  viewport_height Int64,
-  referring_domain String,
-  utm_source String,
-  utm_medium String,
-  utm_campaign String,
-  utm_term String,
-  utm_content String,
-  country_code String,
-  city_name String,
-  region_code String,
-  region_name String,
-  has_gclid Bool,
-  has_gad_source_paid_search Bool,
-  has_fbclid Bool,
-      persons_uniq_state AggregateFunction(uniq, UUID),
-      sessions_uniq_state AggregateFunction(uniq, String),
-      pageviews_count_state AggregateFunction(sum, UInt64),
-  
-      ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/70780557-5ea4-44f0-9b88-40c3d92b8b25_noshard/posthog.web_pre_aggregated_stats_staging', '{replica}-{shard}')
-      PARTITION BY toYYYYMMDD(period_bucket)
-      ORDER BY (
-      team_id,
-      period_bucket,
-      host,
-      device_type,
-      pathname,
-      entry_pathname,
-      end_pathname,
-      browser,
-      os,
-      viewport_width,
-      viewport_height,
-      referring_domain,
-      utm_source,
-      utm_medium,
-      utm_campaign,
-      utm_term,
-      utm_content,
-      country_code,
-      city_name,
-      region_code,
-      region_name,
-      has_gclid,
-      has_gad_source_paid_search,
-      has_fbclid
-  )
-      
-  '''
-# ---
 # name: test_create_table_query_replicated_and_storage[web_stats_daily]
   '''
   
-      CREATE TABLE IF NOT EXISTS web_stats_daily ON CLUSTER 'posthog'
+      CREATE TABLE IF NOT EXISTS web_stats_daily 
       (
           period_bucket DateTime,
           team_id UInt64,
@@ -5841,5 +5678,56 @@
       PARTITION BY formatDateTime(period_bucket, '%Y%m%d%H')
       TTL period_bucket + INTERVAL 24 HOUR DELETE
       
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[writable_session_replay_events]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_session_replay_events 
+  (
+      -- part of order by so will aggregate correctly
+      session_id VARCHAR,
+      -- part of order by so will aggregate correctly
+      team_id Int64,
+      -- ClickHouse will pick any value of distinct_id for the session
+      -- this is fine since even if the distinct_id changes during a session
+      -- it will still (or should still) map to the same person
+      distinct_id VARCHAR,
+      min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      -- session recording v2 blocks
+      block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+      block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+      block_urls SimpleAggregateFunction(groupArrayArray, Array(String)),
+      -- store the first url of the session so we can quickly show that in playlists
+      first_url AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
+      -- but also store each url so we can query by visited page without having to scan all events
+      -- despite the name we can put mobile screens in here as well to give same functionality across platforms
+      all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      click_count SimpleAggregateFunction(sum, Int64),
+      keypress_count SimpleAggregateFunction(sum, Int64),
+      mouse_activity_count SimpleAggregateFunction(sum, Int64),
+      active_milliseconds SimpleAggregateFunction(sum, Int64),
+      console_log_count SimpleAggregateFunction(sum, Int64),
+      console_warn_count SimpleAggregateFunction(sum, Int64),
+      console_error_count SimpleAggregateFunction(sum, Int64),
+      -- this column allows us to estimate the amount of data that is being ingested
+      size SimpleAggregateFunction(sum, Int64),
+      -- this allows us to count the number of messages received in a session
+      -- often very useful in incidents or debugging
+      message_count SimpleAggregateFunction(sum, Int64),
+      -- this allows us to count the number of snapshot events received in a session
+      -- often very useful in incidents or debugging
+      -- because we batch events we expect message_count to be lower than event_count
+      event_count SimpleAggregateFunction(sum, Int64),
+      -- which source the snapshots came from Mobile or Web. Web if absent
+      snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+      -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
+      snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      _timestamp SimpleAggregateFunction(max, DateTime),
+      -- retention period for this session, useful to show TTL for the recording
+      retention_period Nullable(String)
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
+  
   '''
 # ---

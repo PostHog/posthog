@@ -1,42 +1,45 @@
 from datetime import datetime, timedelta
+from math import ceil
+from typing import Any, Optional, cast
 
+from posthog.schema import (
+    Breakdown,
+    BreakdownType,
+    CachedRetentionQueryResponse,
+    EntityType,
+    HogQLQueryModifiers,
+    IntervalType,
+    RetentionEntity,
+    RetentionQuery,
+    RetentionQueryResponse,
+    RetentionType,
+)
+
+from posthog.hogql import ast
 from posthog.hogql.ast import Alias
 from posthog.hogql.base import Expr
-from posthog.hogql.property import property_to_expr
+from posthog.hogql.constants import (
+    MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
+    HogQLGlobalSettings,
+    LimitContext,
+    get_breakdown_limit_for_context,
+)
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.constants import HogQLGlobalSettings, MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
-from math import ceil
-from typing import Any, cast, Optional
+from posthog.hogql.printer import to_printed_hogql
+from posthog.hogql.property import entity_to_expr, property_to_expr
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.timings import HogQLTimings
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
-from posthog.constants import (
-    TREND_FILTER_TYPE_EVENTS,
-    RetentionQueryType,
-)
-from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.printer import to_printed_hogql
-from posthog.hogql.property import entity_to_expr
-from posthog.hogql.query import execute_hogql_query
-from posthog.models.action.action import Action
-from posthog.hogql.timings import HogQLTimings
+from posthog.constants import TREND_FILTER_TYPE_EVENTS, RetentionQueryType
+from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRangeWithIntervals
 from posthog.models import Team
+from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.queries.util import correct_result_for_sampling
-from posthog.schema import (
-    CachedRetentionQueryResponse,
-    HogQLQueryModifiers,
-    RetentionQueryResponse,
-    IntervalType,
-    RetentionEntity,
-    EntityType,
-)
-from posthog.schema import RetentionQuery, RetentionType, Breakdown
-from posthog.hogql.constants import get_breakdown_limit_for_context
-from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
 from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
+from posthog.queries.util import correct_result_for_sampling
 
 DEFAULT_INTERVAL = IntervalType("day")
 DEFAULT_TOTAL_INTERVALS = 7
@@ -231,7 +234,11 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             else:
                 properties_chain = ["person", "properties", property_name]
         elif breakdown_type == "group":
-            properties_chain = [f"groups_{group_type_index}", "properties", property_name]
+            if property_name.startswith("$virt_"):
+                # Virtual properties exist as expression fields on the groups table
+                properties_chain = [f"groups_{group_type_index}", property_name]
+            else:
+                properties_chain = [f"groups_{group_type_index}", "properties", property_name]
         else:
             # Default to event properties
             properties_chain = ["events", "properties", property_name]
@@ -781,20 +788,47 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
     def to_actors_query(
         self, interval: Optional[int] = None, breakdown_values: str | list[str] | int | None = None
     ) -> ast.SelectQuery:
-        selected_breakdown_value = None
-
-        if breakdown_values:
-            if not isinstance(breakdown_values, list):
-                raise ValueError(
-                    "Single breakdowns are not supported, ensure multiple-breakdowns feature flag is enabled"
-                )
-
-            selected_breakdown_value = "::".join(breakdown_values)
-
         with self.timings.measure("retention_actors_query"):
-            actor_query = self.actor_query(
-                start_interval_index_filter=interval, selected_breakdown_value=selected_breakdown_value
+            # Cohort breakdowns require special handling as cohort breakdowns unlike say event breakdowns
+            # run the original retention query for each cohort value separately and then combine the results
+            # so while breaking down by cohort, we need to change the base query to only keep the cohort
+            # for which we want to see the actors
+            is_cohort_breakdown = (
+                self.query.breakdownFilter is not None
+                and self.query.breakdownFilter.breakdowns is not None
+                and any(b.type == "cohort" for b in self.query.breakdownFilter.breakdowns)
             )
+
+            actor_query: ast.SelectQuery | ast.SelectSetQuery
+            if is_cohort_breakdown:
+                if not breakdown_values or not isinstance(breakdown_values, list) or len(breakdown_values) == 0:
+                    raise ValueError("A cohort breakdown value is required for actors query with cohort breakdowns.")
+
+                cohort_id = breakdown_values[0]
+                temp_query = self.query.model_copy(deep=True)
+                if temp_query.breakdownFilter:
+                    temp_query.breakdownFilter.breakdowns = [Breakdown(type="cohort", property=int(cohort_id))]
+                    # these are passed to the new runner to correctly construct the query
+                    temp_query.breakdownFilter.breakdown = cohort_id
+                    temp_query.breakdownFilter.breakdown_type = BreakdownType.COHORT
+
+                runner = RetentionQueryRunner(
+                    query=temp_query, team=self.team, timings=self.timings, modifiers=self.modifiers
+                )
+                actor_query = runner.actor_query(start_interval_index_filter=interval)
+
+            else:
+                selected_breakdown_value = None
+                if breakdown_values:
+                    if not isinstance(breakdown_values, list):
+                        raise ValueError(
+                            "Single breakdowns are not supported, ensure multiple-breakdowns feature flag is enabled"
+                        )
+                    selected_breakdown_value = "::".join(breakdown_values)
+
+                actor_query = self.actor_query(
+                    start_interval_index_filter=interval, selected_breakdown_value=selected_breakdown_value
+                )
 
             # Build the retention actors query
             retention_query = parse_select(

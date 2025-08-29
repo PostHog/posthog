@@ -1,17 +1,18 @@
-import dataclasses
 import json
-from math import ceil
-from pydantic import BaseModel, Field, ValidationError, field_serializer, field_validator
+import dataclasses
 from enum import Enum
+from math import ceil
 
 import yaml
 import structlog
+from pydantic import BaseModel, Field, ValidationError, field_serializer, field_validator
+from temporalio.exceptions import ApplicationError
+
 from ee.hogai.session_summaries import SummaryValidationError
 from ee.hogai.session_summaries.constants import FAILED_PATTERNS_ENRICHMENT_MIN_RATIO
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
 from ee.hogai.session_summaries.utils import logging_session_ids, strip_raw_llm_content, unpack_full_event_id
-from temporalio.exceptions import ApplicationError
 
 logger = structlog.get_logger(__name__)
 

@@ -1,20 +1,40 @@
-import asyncio
-from collections.abc import Generator
-import dataclasses
-from datetime import timedelta
 import json
 import time
-from typing import cast
 import uuid
+import asyncio
+import dataclasses
+from collections.abc import Generator
+from datetime import timedelta
+from typing import cast
 
-from redis import Redis
+from django.conf import settings
+
 import structlog
 import temporalio
+from redis import Redis
+from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
-from django.conf import settings
+from temporalio.exceptions import ApplicationError
+
+from posthog import constants
+from posthog.models.team.team import Team
+from posthog.redis import get_async_client, get_client
+from posthog.temporal.ai.session_summary.state import (
+    StateActivitiesEnum,
+    decompress_redis_data,
+    generate_state_key,
+    get_data_class_from_redis,
+    get_data_str_from_redis,
+    get_redis_state_client,
+    store_data_in_redis,
+)
+from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
+from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.client import async_connect
+
 from ee.hogai.session_summaries import ExceptionToRetry
-from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL, SESSION_SUMMARIES_STREAMING_MODEL
-from ee.hogai.session_summaries.llm.consume import stream_llm_single_session_summary, get_llm_single_session_summary
+from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_STREAMING_MODEL, SESSION_SUMMARIES_SYNC_MODEL
+from ee.hogai.session_summaries.llm.consume import get_llm_single_session_summary, stream_llm_single_session_summary
 from ee.hogai.session_summaries.session.summarize_session import (
     ExtraSummaryContext,
     SingleSessionSummaryLlmInputs,
@@ -23,23 +43,6 @@ from ee.hogai.session_summaries.session.summarize_session import (
     prepare_single_session_summary_input,
 )
 from ee.hogai.session_summaries.utils import serialize_to_sse_event
-from posthog import constants
-from posthog.models.team.team import Team
-from posthog.redis import get_client, get_async_client
-from posthog.temporal.ai.session_summary.state import (
-    StateActivitiesEnum,
-    decompress_redis_data,
-    generate_state_key,
-    get_data_class_from_redis,
-    get_redis_state_client,
-    store_data_in_redis,
-    get_data_str_from_redis,
-)
-from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
-from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.client import async_connect
-from temporalio.client import WorkflowHandle, WorkflowExecutionStatus
-from temporalio.exceptions import ApplicationError
 
 logger = structlog.get_logger(__name__)
 

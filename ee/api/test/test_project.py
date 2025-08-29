@@ -1,10 +1,12 @@
-from ee.api.test.test_team import team_enterprise_api_test_factory
+from posthog.test.base import FuzzyInt
+
 from posthog.api.test.test_team import EnvironmentToProjectRewriteClient
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project import Project
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.test.base import FuzzyInt
+
+from ee.api.test.test_team import team_enterprise_api_test_factory
 
 
 class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):
@@ -30,26 +32,6 @@ class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):
             {
                 "name": "Test",
                 "access_control": False,
-                "effective_membership_level": OrganizationMembership.Level.ADMIN,
-            },
-            response_data,
-        )
-        self.assertEqual(self.organization.teams.count(), 2)
-
-    def test_create_team_with_access_control(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-        self.assertEqual(Team.objects.count(), 1)
-        self.assertEqual(Project.objects.count(), 1)
-        response = self.client.post("/api/projects/@current/environments/", {"name": "Test", "access_control": True})
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(Team.objects.count(), 2)
-        self.assertEqual(Project.objects.count(), 2)
-        response_data = response.json()
-        self.assertDictContainsSubset(
-            {
-                "name": "Test",
-                "access_control": True,
                 "effective_membership_level": OrganizationMembership.Level.ADMIN,
             },
             response_data,

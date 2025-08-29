@@ -1,4 +1,5 @@
 from posthog.test.base import BaseTest
+
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.redis import get_client
 
