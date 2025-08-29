@@ -90,6 +90,12 @@ export class CyclotronJobQueueKafka {
                             hogFunctionId: x.functionId,
                             functionId: x.functionId,
                             teamId: x.teamId.toString(),
+                            ...(x.queueScheduledAt && x.state?.returnTopic
+                                ? {
+                                      queueScheduledAt: x.queueScheduledAt.toString(),
+                                      returnTopic: `cdp_cyclotron_${x.state.returnTopic}`,
+                                  }
+                                : {}),
                         },
                     })
                     .catch((e) => {

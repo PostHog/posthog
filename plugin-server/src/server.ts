@@ -11,6 +11,7 @@ import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
 import { CdpAggregationWriterConsumer } from './cdp/consumers/cdp-aggregation-writer.consumer'
 import { CdpBehaviouralEventsConsumer } from './cdp/consumers/cdp-behavioural-events.consumer'
+import { CdpCyclotronDelayConsumer } from './cdp/consumers/cdp-cyclotron-delay.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
@@ -258,6 +259,14 @@ export class PluginServer {
                     const worker = new CdpCyclotronWorkerHogFlow(hub)
                     await worker.start()
                     return worker.service
+                })
+            }
+
+            if (capabilities.cdpCyclotronWorkerDelay) {
+                serviceLoaders.push(async () => {
+                    const delayConsumer = new CdpCyclotronDelayConsumer(hub)
+                    await delayConsumer.start()
+                    return delayConsumer.service
                 })
             }
 
