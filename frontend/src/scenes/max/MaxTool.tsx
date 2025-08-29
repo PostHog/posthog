@@ -115,3 +115,5 @@ export function MaxTool({
         </div>
     )
 }
+
+export default MaxTool
