@@ -1,6 +1,6 @@
 from django.db import models
 
-from posthog.models.utils import UUIDModel, BytecodeModelMixin
+from posthog.models.utils import BytecodeModelMixin, UUIDModel
 
 
 class GroupUsageMetric(UUIDModel, BytecodeModelMixin):

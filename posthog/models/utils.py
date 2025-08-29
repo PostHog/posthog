@@ -17,8 +17,9 @@ from django.db.models import Q, UniqueConstraint
 from django.db.models.constraints import BaseConstraint
 from django.utils.text import slugify
 
-from posthog.constants import MAX_SLUG_LENGTH
 from posthog.hogql import ast
+
+from posthog.constants import MAX_SLUG_LENGTH
 
 if TYPE_CHECKING:
     from random import Random
