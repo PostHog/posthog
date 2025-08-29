@@ -868,6 +868,9 @@ importers:
       lodash.sortby:
         specifier: ^4.7.0
         version: 4.7.0
+      lodash.throttle:
+        specifier: ^4.1.1
+        version: 4.1.1
       lodash.uniqby:
         specifier: ^4.7.0
         version: 4.7.0
@@ -1086,6 +1089,9 @@ importers:
       '@types/lodash.sortby':
         specifier: ^4.7.9
         version: 4.7.9
+      '@types/lodash.throttle':
+        specifier: ^4.1.1
+        version: 4.1.9
       '@types/lodash.uniqby':
         specifier: ^4.7.9
         version: 4.7.9
@@ -1798,9 +1804,6 @@ importers:
       kea-subscriptions:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
-      lodash.throttle:
-        specifier: ^4.1.1
-        version: 4.1.1
       posthog-js:
         specifier: 1.261.0
         version: 1.261.0(@rrweb/types@2.0.0-alpha.17)
@@ -1819,10 +1822,6 @@ importers:
       use-resize-observer:
         specifier: '*'
         version: 8.0.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-    devDependencies:
-      '@types/lodash.throttle':
-        specifier: ^4.1.9
-        version: 4.1.9
 
   products/experiments:
     dependencies:
@@ -21807,7 +21806,7 @@ snapshots:
 
   '@jridgewell/source-map@0.3.5':
     dependencies:
-      '@jridgewell/gen-mapping': 0.3.8
+      '@jridgewell/gen-mapping': 0.3.12
       '@jridgewell/trace-mapping': 0.3.29
 
   '@jridgewell/sourcemap-codec@1.4.15': {}
@@ -37604,7 +37603,7 @@ snapshots:
   terser@5.19.1:
     dependencies:
       '@jridgewell/source-map': 0.3.5
-      acorn: 8.11.2
+      acorn: 8.15.0
       commander: 2.20.3
       source-map-support: 0.5.21
 
