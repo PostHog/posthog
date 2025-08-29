@@ -6832,6 +6832,15 @@
                 "showTotalRow": {
                     "type": "boolean"
                 },
+                "showXAxisBorder": {
+                    "type": "boolean"
+                },
+                "showXAxisTicks": {
+                    "type": "boolean"
+                },
+                "showYAxisBorder": {
+                    "type": "boolean"
+                },
                 "stackBars100": {
                     "description": "Whether we fill the bars to 100% in stacked mode",
                     "type": "boolean"
@@ -11598,7 +11607,7 @@
             "type": "object"
         },
         "ExperimentMetricMathType": {
-            "enum": ["total", "sum", "unique_session", "min", "max", "avg", "hogql"],
+            "enum": ["total", "sum", "unique_session", "min", "max", "avg", "dau", "unique_group", "hogql"],
             "type": "string"
         },
         "ExperimentMetricOutlierHandling": {
@@ -26547,6 +26556,12 @@
                 "scale": {
                     "enum": ["linear", "logarithmic"],
                     "type": "string"
+                },
+                "showGridLines": {
+                    "type": "boolean"
+                },
+                "showTicks": {
+                    "type": "boolean"
                 },
                 "startAtZero": {
                     "description": "Whether the Y axis should start at zero",

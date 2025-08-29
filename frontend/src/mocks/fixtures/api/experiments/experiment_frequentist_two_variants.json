@@ -137,6 +137,12 @@
             "uuid": "b1c257b6-d8f5-43d7-8173-8c257b979b7c"
         }
     ],
+    "primary_metrics_ordered_uuids": [
+        "1c6118f4-830b-479a-9c19-ecaa02c925f4",
+        "6a5b5944-7ae1-452f-bcad-914909ecc3ea",
+        "29735149-4d4e-45ce-89de-fffb32e9036a"
+    ],
+    "secondary_metrics_ordered_uuids": ["9e736c8a-53fb-45ff-8b14-329d03d9e739", "b1c257b6-d8f5-43d7-8173-8c257b979b7c"],
     "stats_config": {
         "method": "frequentist"
     },

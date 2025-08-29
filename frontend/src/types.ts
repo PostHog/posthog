@@ -3811,6 +3811,8 @@ export interface Experiment {
     filters: TrendsFilterType | FunnelsFilterType
     metrics: (ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
     metrics_secondary: (ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
+    primary_metrics_ordered_uuids: string[] | null
+    secondary_metrics_ordered_uuids: string[] | null
     saved_metrics_ids: { id: number; metadata: { type: 'primary' | 'secondary' } }[]
     saved_metrics: any[]
     parameters: {
@@ -4173,6 +4175,8 @@ export enum ExperimentMetricMathType {
     Min = 'min',
     Max = 'max',
     Avg = 'avg',
+    UniqueUsers = 'dau',
+    UniqueGroup = 'unique_group',
     HogQL = 'hogql',
 }
 
