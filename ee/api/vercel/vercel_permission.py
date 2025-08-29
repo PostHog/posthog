@@ -76,7 +76,7 @@ class VercelPermission(BasePermission):
         # User auth requires role validation
         if auth_type == "user":
             claims = get_vercel_claims(request)
-            user_role = claims.get("user_role", "").upper()
+            user_role = str(claims.get("user_role", "")).upper()
 
             # Check if action requires ADMIN role
             if view.action in self.ADMIN_ONLY_ACTIONS:

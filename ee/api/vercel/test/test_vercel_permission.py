@@ -1,4 +1,5 @@
 import json
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -138,6 +139,10 @@ class TestVercelPermission(VercelTestBase):
 
 
 class TestVercelPermissionIntegration(VercelTestBase):
+    client_id_patcher: Any
+    jwks_patcher: Any
+    mock_get_jwks: Any
+
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
