@@ -48,7 +48,7 @@ function AdvertiseSurveysReactNative({ productKey }: { productKey: ProductKey })
             tagText="GA"
             tagType="primary"
             productKey="surveys"
-            description="Surveys is now available for React Native as Beta."
+            description="Surveys is now available for React Native."
             linkText="Learn how to set it up"
         />
     )
@@ -63,7 +63,7 @@ function AdvertiseSurveysIOS({ productKey }: { productKey: ProductKey }): JSX.El
             tagText="GA"
             tagType="primary"
             productKey="surveys"
-            description="Surveys is now available for iOS as Beta."
+            description="Surveys is now available for iOS."
             linkText="Learn how to set it up"
         />
     )
