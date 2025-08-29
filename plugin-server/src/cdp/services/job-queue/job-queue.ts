@@ -176,6 +176,8 @@ export class CyclotronJobQueue {
         } else if (this.consumerMode === 'delay') {
             return this.jobQueueDelay.isHealthy()
         }
+
+        return false
     }
 
     private getTarget(invocation: CyclotronJobInvocation): CyclotronJobQueueSource {
