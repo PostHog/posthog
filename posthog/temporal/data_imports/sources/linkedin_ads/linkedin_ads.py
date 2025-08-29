@@ -1,9 +1,7 @@
 import time
 import random
 import datetime as dt
-import re
 from typing import Any, Optional
-from collections import defaultdict
 
 import requests
 import structlog
@@ -11,6 +9,17 @@ import structlog
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.sources.linkedin_ads.constants import (
+    API_BASE_URL,
+    API_MAX_RETRIES,
+    API_RATE_LIMIT_DELAY,
+    API_RETRY_DELAY,
+    API_TIMEOUT,
+    API_VERSION,
+    DEFAULT_PAGE_SIZE,
+    MAX_DATE_RANGE_DAYS,
+    MAX_PAGES_SAFETY_LIMIT,
+)
 from posthog.temporal.data_imports.sources.linkedin_ads.schemas import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -18,133 +27,24 @@ from posthog.temporal.data_imports.sources.linkedin_ads.schemas import (
     LINKEDIN_ADS_FIELDS,
     LinkedinAdsResource,
 )
+from posthog.temporal.data_imports.sources.linkedin_ads.utils import (
+    CIRCUIT_BREAKER_TIMEOUT,
+    _failure_counts,
+    check_circuit_breaker,
+    determine_primary_keys,
+    flatten_data_item,
+    record_failure,
+    record_success,
+    validate_account_id,
+    validate_date_format,
+    validate_pivot_value,
+)
 from posthog.warehouse.types import IncrementalFieldType
 
 logger = structlog.get_logger(__name__)
 
-# LinkedIn URN constants
-LINKEDIN_SPONSORED_URN_PREFIX = "urn:li:sponsored"
 
-# Simple circuit breaker for tracking failures
-_failure_counts = defaultdict(int)
-_last_failure_time = defaultdict(float)
-CIRCUIT_BREAKER_THRESHOLD = 5  # Max failures before circuit opens
-CIRCUIT_BREAKER_TIMEOUT = 300  # 5 minutes in seconds
-
-
-def validate_account_id(account_id: str) -> bool:
-    """Validate LinkedIn account ID format.
-    
-    LinkedIn account IDs should be numeric strings.
-    
-    Args:
-        account_id: Account ID to validate
-        
-    Returns:
-        True if valid, False otherwise
-    """
-    if not account_id:
-        return False
-    
-    # Remove any whitespace
-    account_id = account_id.strip()
-    
-    # Should be numeric and reasonable length (typically 8-12 digits)
-    return account_id.isdigit() and 6 <= len(account_id) <= 15
-
-
-def validate_date_format(date_str: str) -> bool:
-    """Validate date string is in YYYY-MM-DD format.
-    
-    Args:
-        date_str: Date string to validate
-        
-    Returns:
-        True if valid, False otherwise
-    """
-    if not date_str:
-        return False
-    
-    # Check exact format with regex first
-    if not re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
-        return False
-        
-    try:
-        dt.datetime.strptime(date_str, "%Y-%m-%d")
-        return True
-    except ValueError:
-        return False
-
-
-def check_circuit_breaker(account_id: str) -> bool:
-    """Check if circuit breaker is open for an account.
-    
-    Args:
-        account_id: LinkedIn account ID
-        
-    Returns:
-        True if circuit is open (should fail fast), False if OK to proceed
-    """
-    current_time = time.time()
-    
-    # Reset failure count if timeout has passed
-    if current_time - _last_failure_time[account_id] > CIRCUIT_BREAKER_TIMEOUT:
-        _failure_counts[account_id] = 0
-    
-    return _failure_counts[account_id] >= CIRCUIT_BREAKER_THRESHOLD
-
-
-def record_failure(account_id: str) -> None:
-    """Record a failure for circuit breaker tracking.
-    
-    Args:
-        account_id: LinkedIn account ID
-    """
-    _failure_counts[account_id] += 1
-    _last_failure_time[account_id] = time.time()
-
-
-def record_success(account_id: str) -> None:
-    """Record a success, resetting failure count.
-    
-    Args:
-        account_id: LinkedIn account ID
-    """
-    _failure_counts[account_id] = 0
-
-
-def validate_pivot_value(pivot: str) -> bool:
-    """Validate LinkedIn ads analytics pivot value.
-    
-    Args:
-        pivot: Pivot value to validate
-        
-    Returns:
-        True if valid, False otherwise
-    """
-    valid_pivots = ["CAMPAIGN", "CAMPAIGN_GROUP", "CREATIVE", "ACCOUNT"]
-    return pivot in valid_pivots
-
-
-def extract_linkedin_id_from_urn(urn: str) -> str:
-    """Extract the ID from a LinkedIn URN.
-
-    Args:
-        urn: LinkedIn URN like "urn:li:sponsoredCampaign:185129613"
-
-    Returns:
-        The extracted ID like "185129613"
-    """
-    if not urn:
-        return urn
-
-    # Split by ':' and take the last part which is the ID
-    parts = urn.split(':')
-    if len(parts) >= 4 and parts[0] == 'urn' and parts[1] == 'li' and parts[2].startswith('sponsored'):
-        return parts[3]
-
-    # If not a recognized LinkedIn URN format, return as-is
-    return urn
+# All validation and utility functions are now imported from utils module
 
 
 class LinkedinAdsError(Exception):
@@ -169,12 +69,12 @@ class LinkedinAdsClient:
     using the new /rest endpoints with proper versioning headers.
     """
 
-    BASE_URL = "https://api.linkedin.com/rest"
-    API_VERSION = "202508"  # August 2025 - latest version
-    REQUEST_TIMEOUT = 30
-    MAX_RETRIES = 3
-    RETRY_DELAY = 5  # Base delay in seconds
-    RATE_LIMIT_DELAY = 60  # Rate limit retry delay
+    BASE_URL = API_BASE_URL
+    API_VERSION = API_VERSION
+    REQUEST_TIMEOUT = API_TIMEOUT
+    MAX_RETRIES = API_MAX_RETRIES
+    RETRY_DELAY = API_RETRY_DELAY
+    RATE_LIMIT_DELAY = API_RATE_LIMIT_DELAY
 
     def __init__(self, access_token: str):
         """Initialize the LinkedIn Ads client.
@@ -227,7 +127,6 @@ class LinkedinAdsClient:
             url = f"{url}?{query_string}"
 
         headers = dict(self.session.headers)
-        logger.debug("Making LinkedIn API request", endpoint=endpoint)
 
         for attempt in range(self.MAX_RETRIES + 1):
             try:
@@ -358,12 +257,8 @@ class LinkedinAdsClient:
         """
         all_elements = []
         page_token = None
-        page_size = 100  # LinkedIn's default/recommended page size
+        page_size = DEFAULT_PAGE_SIZE
         page_number = 1
-
-        logger.debug("Starting pagination",
-                    endpoint=endpoint,
-                    page_size=page_size)
 
         while True:
             page_params = params.copy()
@@ -371,10 +266,6 @@ class LinkedinAdsClient:
 
             if page_token:
                 page_params["pageToken"] = page_token
-
-            logger.debug("Fetching page",
-                        endpoint=endpoint,
-                        page_number=page_number)
 
             data = self._make_request(endpoint, page_params)
 
@@ -392,13 +283,6 @@ class LinkedinAdsClient:
             metadata = data.get("metadata", {})
             page_token = metadata.get("nextPageToken")
 
-            logger.debug("Page processed",
-                        endpoint=endpoint,
-                        page_number=page_number,
-                        elements_count=len(elements),
-                        total_so_far=len(all_elements),
-                        has_next_page=bool(page_token))
-
             # Stop if no pageToken (LinkedIn returns null when done)
             if not page_token:
                 break
@@ -406,7 +290,7 @@ class LinkedinAdsClient:
             page_number += 1
 
             # Safety check to prevent infinite loops
-            if page_number > 1000:
+            if page_number > MAX_PAGES_SAFETY_LIMIT:
                 logger.error("Pagination safety limit reached",
                            endpoint=endpoint,
                            page_number=page_number,
@@ -437,7 +321,7 @@ class LinkedinAdsClient:
 
         Args:
             account_id: LinkedIn ad account ID
-            **kwargs: Additional parameters (unused - LinkedIn API returns all campaigns)
+            **kwargs: Additional parameters (unused - compliance with the source interface)
 
         Returns:
             List of campaign objects
@@ -460,7 +344,7 @@ class LinkedinAdsClient:
 
         Args:
             account_id: LinkedIn ad account ID
-            **kwargs: Additional parameters (unused - LinkedIn API returns all campaign groups)
+            **kwargs: Additional parameters (unused - compliance with the source interface)
 
         Returns:
             List of campaign group objects
@@ -501,8 +385,8 @@ class LinkedinAdsClient:
             valid_pivots = ["CAMPAIGN", "CAMPAIGN_GROUP", "CREATIVE", "ACCOUNT"]
             raise ValueError(f"Invalid pivot '{pivot}'. Must be one of: {valid_pivots}")
 
-        # LinkedIn API has a limit on date range (typically 5 year)
-        max_days = 365 * 5
+        # LinkedIn API has a limit on date range
+        max_days = MAX_DATE_RANGE_DAYS
 
         # Use provided dates or default to reasonable date range
         if date_start or date_end:
@@ -563,12 +447,6 @@ class LinkedinAdsClient:
             "accounts": f"List(urn%3Ali%3AsponsoredAccount%3A{account_id})",
             "fields": ",".join(LINKEDIN_ADS_FIELDS[LinkedinAdsResource.CampaignStats])
         }
-
-        logger.debug("LinkedIn Analytics request",
-                    account_id=account_id,
-                    pivot=pivot,
-                    start_date=start_date.strftime("%Y-%m-%d"),
-                    end_date=end_date.strftime("%Y-%m-%d"))
 
         data = self._make_request(LINKEDIN_ADS_ENDPOINTS[LinkedinAdsResource.CampaignStats], params)
         return data.get("elements", [])
@@ -648,19 +526,19 @@ def linkedin_ads_source(
     # Validate configuration
     if not account_id:
         raise ValueError("LinkedIn account ID is required")
-    
+
     if not validate_account_id(account_id):
         raise ValueError(f"Invalid LinkedIn account ID format: '{account_id}'. Should be numeric, 6-15 digits.")
-    
+
     # Check circuit breaker
     if check_circuit_breaker(account_id):
         failure_count = _failure_counts[account_id]
         raise ValueError(f"Circuit breaker open for account {account_id} due to {failure_count} consecutive failures. Please wait {CIRCUIT_BREAKER_TIMEOUT} seconds before retrying.")
-    
+
     # Validate dates if provided
     if date_start and not validate_date_format(date_start):
         raise ValueError(f"Invalid date_start format: '{date_start}'. Expected YYYY-MM-DD format.")
-    
+
     if date_end and not validate_date_format(date_end):
         raise ValueError(f"Invalid date_end format: '{date_end}'. Expected YYYY-MM-DD format.")
 
@@ -670,7 +548,7 @@ def linkedin_ads_source(
         integration = Integration.objects.get(id=linkedin_ads_integration_id, team_id=team_id)
     except Integration.DoesNotExist:
         raise ValueError(f"LinkedIn Ads integration with ID {linkedin_ads_integration_id} not found for team {team_id}. Please re-authenticate.")
-    
+
     access_token = integration.access_token
     if not access_token:
         raise ValueError("LinkedIn access token is required. Please re-authenticate your LinkedIn Ads integration.")
@@ -760,99 +638,15 @@ def linkedin_ads_source(
         logger.info("Successfully fetched LinkedIn data",
                     resource_name=resource_name,
                     record_count=len(data))
-        
+
         # Record success for circuit breaker
         record_success(account_id)
 
         # Flatten the data structure to make it compatible with the pipeline
-        flattened_data = []
-        for item in data:
-            flattened_item = item.copy()
-
-            # Flatten dateRange structure for analytics data
-            if "dateRange" in item:
-                if "start" in item["dateRange"]:
-                    start = item["dateRange"]["start"]
-                    flattened_item["date_range_start"] = dt.date(start['year'], start['month'], start['day'])
-                if "end" in item["dateRange"]:
-                    end = item["dateRange"]["end"]
-                    flattened_item["date_range_end"] = dt.date(end['year'], end['month'], end['day'])
-
-            # Transform pivotValues from array to specific pivot columns
-            if "pivotValues" in item and isinstance(item["pivotValues"], list):
-                # Extract IDs and create specific columns based on pivot type
-                for pivot_value in item["pivotValues"]:
-                    if isinstance(pivot_value, str) and pivot_value.startswith(LINKEDIN_SPONSORED_URN_PREFIX):
-                        # Remove the LinkedIn URN prefix to get the type and ID part
-                        # "urn:li:sponsoredCampaign:185129613" -> "Campaign:185129613"
-                        cleaned = pivot_value.replace(LINKEDIN_SPONSORED_URN_PREFIX, "")
-
-                        if ":" in cleaned:
-                            pivot_type, pivot_id_str = cleaned.split(":", 1)
-
-                            # Convert ID to integer (LinkedIn IDs are always integers)
-                            try:
-                                pivot_id = int(pivot_id_str)
-                            except ValueError:
-                                logger.warning("Failed to convert pivot ID to int",
-                                             pivot_id=pivot_id_str,
-                                             pivot_type=pivot_type,
-                                             resource_name=resource_name)
-                                pivot_id = pivot_id_str  # Keep as string if conversion fails
-
-                            # Convert pivot type to lowercase column name
-                            if pivot_type == "Campaign":
-                                flattened_item["campaign_id"] = pivot_id
-                            elif pivot_type == "CampaignGroup":
-                                flattened_item["campaign_group_id"] = pivot_id
-                            elif pivot_type == "Creative":
-                                flattened_item["creative_id"] = pivot_id
-                            elif pivot_type == "Account":
-                                flattened_item["account_id"] = pivot_id
-                            else:
-                                # For any other pivot types, use a generic pattern
-                                column_name = pivot_type.lower() + "_id"
-                                flattened_item[column_name] = pivot_id
-
-
-            # Convert cost_in_usd from String to Float
-            if "costInUsd" in item:
-                try:
-                    flattened_item["cost_in_usd"] = float(item["costInUsd"]) if item["costInUsd"] is not None else None
-                except (ValueError, TypeError):
-                    logger.warning("Failed to convert costInUsd to float",
-                                 cost_in_usd=item["costInUsd"],
-                                 resource_name=resource_name)
-                    flattened_item["cost_in_usd"] = None
-                # Remove the original camelCase field since we've converted it
-                flattened_item.pop("costInUsd", None)
-
-            # Flatten changeAuditStamps structure for campaigns/campaign groups
-            if "changeAuditStamps" in item:
-                if "lastModified" in item["changeAuditStamps"] and "time" in item["changeAuditStamps"]["lastModified"]:
-                    flattened_item["last_modified_time"] = item["changeAuditStamps"]["lastModified"]["time"]
-                if "created" in item["changeAuditStamps"] and "time" in item["changeAuditStamps"]["created"]:
-                    flattened_item["created_time"] = item["changeAuditStamps"]["created"]["time"]
-
-            flattened_data.append(flattened_item)
+        flattened_data = [flatten_data_item(item, resource_name) for item in data]
 
         # Determine primary keys based on resource type
-        if resource_name in [LinkedinAdsResource.CampaignStats, LinkedinAdsResource.CampaignGroupStats]:
-            # Analytics data uses combination of fields for uniqueness
-            if flattened_data and "pivotValues" in flattened_data[0] and "date_range_start" in flattened_data[0]:
-                primary_keys = ["pivotValues", "date_range_start"]
-            elif flattened_data and "date_range_start" in flattened_data[0]:
-                primary_keys = ["date_range_start"]
-            else:
-                primary_keys = None
-                logger.warning("No suitable primary keys found for analytics data", resource_name=resource_name)
-        else:
-            # Entity data uses ID field
-            if flattened_data and "id" in flattened_data[0]:
-                primary_keys = ["id"]
-            else:
-                primary_keys = None
-                logger.warning("No ID field found for entity data", resource_name=resource_name)
+        primary_keys = determine_primary_keys(resource_name, flattened_data)
 
         return SourceResponse(
             name=resource_name,
@@ -870,7 +664,7 @@ def linkedin_ads_source(
     except Exception as e:
         # Record failure for circuit breaker
         record_failure(account_id)
-        
+
         logger.exception("Failed to fetch LinkedIn data",
                     resource_name=resource_name,
                     error=str(e),

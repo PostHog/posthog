@@ -19,6 +19,7 @@ from posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads import (
     get_schemas as get_linkedin_ads_schemas,
     linkedin_ads_source,
 )
+from posthog.temporal.data_imports.sources.linkedin_ads.utils import validate_account_id
 from posthog.warehouse.types import ExternalDataSourceType
 
 
@@ -64,7 +65,6 @@ class LinkedinAdsSource(BaseSource[LinkedinAdsSourceConfig], OAuthMixin):
                 LinkedinAdsClient,
                 LinkedinAdsError,
                 LinkedinAdsRateLimitError,
-                validate_account_id,
             )
 
             # Validate config structure

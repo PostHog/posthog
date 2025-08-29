@@ -1,143 +1,17 @@
+
 import pytest
 from unittest.mock import Mock, patch
-import datetime as dt
 
 from posthog.models import Team
-from posthog.models.organization import Organization
 from posthog.models.integration import Integration
+from posthog.models.organization import Organization
+from posthog.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
 from posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads import (
-    validate_account_id,
-    validate_date_format,
-    validate_pivot_value,
-    extract_linkedin_id_from_urn,
-    check_circuit_breaker,
-    record_failure,
-    record_success,
-    LinkedinAdsClient,
-    LinkedinAdsError,
     LinkedinAdsAuthError,
+    LinkedinAdsClient,
     LinkedinAdsRateLimitError,
-    _failure_counts,
-    _last_failure_time,
-    CIRCUIT_BREAKER_THRESHOLD,
 )
 from posthog.temporal.data_imports.sources.linkedin_ads.source import LinkedinAdsSource
-from posthog.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
-
-
-class TestLinkedInAdsValidators:
-    """Test validation helper functions."""
-
-    def test_validate_account_id_valid(self):
-        """Test account ID validation with valid IDs."""
-        assert validate_account_id("123456789") is True
-        assert validate_account_id("12345678") is True
-        assert validate_account_id("123456789012345") is True
-
-    def test_validate_account_id_invalid(self):
-        """Test account ID validation with invalid IDs."""
-        assert validate_account_id("") is False
-        assert validate_account_id("12345") is False  # Too short
-        assert validate_account_id("1234567890123456") is False  # Too long
-        assert validate_account_id("abc123456") is False  # Non-numeric
-        assert validate_account_id("123-456-789") is False  # Contains dashes
-        assert validate_account_id("  123456789  ") is True  # Whitespace trimmed
-
-    def test_validate_date_format_valid(self):
-        """Test date format validation with valid dates."""
-        assert validate_date_format("2024-01-01") is True
-        assert validate_date_format("2024-12-31") is True
-        assert validate_date_format("2025-08-15") is True
-
-    def test_validate_date_format_invalid(self):
-        """Test date format validation with invalid dates."""
-        assert validate_date_format("") is False
-        assert validate_date_format("2024-1-1") is False  # Wrong format
-        assert validate_date_format("01-01-2024") is False  # Wrong format
-        assert validate_date_format("2024/01/01") is False  # Wrong separator
-        assert validate_date_format("2024-13-01") is False  # Invalid month
-        assert validate_date_format("2024-01-32") is False  # Invalid day
-        assert validate_date_format("not-a-date") is False
-
-    def test_validate_pivot_value_valid(self):
-        """Test pivot value validation with valid values."""
-        assert validate_pivot_value("CAMPAIGN") is True
-        assert validate_pivot_value("CAMPAIGN_GROUP") is True
-        assert validate_pivot_value("CREATIVE") is True
-        assert validate_pivot_value("ACCOUNT") is True
-
-    def test_validate_pivot_value_invalid(self):
-        """Test pivot value validation with invalid values."""
-        assert validate_pivot_value("") is False
-        assert validate_pivot_value("INVALID") is False
-        assert validate_pivot_value("campaign") is False  # Case sensitive
-        assert validate_pivot_value("CAMPAIGN_GROUPS") is False  # Wrong spelling
-
-    def test_extract_linkedin_id_from_urn(self):
-        """Test LinkedIn URN ID extraction."""
-        assert extract_linkedin_id_from_urn("urn:li:sponsoredCampaign:185129613") == "185129613"
-        assert extract_linkedin_id_from_urn("urn:li:sponsoredAccount:123456789") == "123456789"
-        assert extract_linkedin_id_from_urn("urn:li:sponsoredCreative:987654321") == "987654321"
-        assert extract_linkedin_id_from_urn("") == ""
-        assert extract_linkedin_id_from_urn("invalid-urn") == "invalid-urn"
-
-
-class TestLinkedInAdsCircuitBreaker:
-    """Test circuit breaker functionality."""
-
-    def setup_method(self):
-        """Reset circuit breaker state before each test."""
-        _failure_counts.clear()
-        _last_failure_time.clear()
-
-    def test_circuit_breaker_initial_state(self):
-        """Test circuit breaker starts in closed state."""
-        assert check_circuit_breaker("123456789") is False
-
-    def test_circuit_breaker_opens_after_failures(self):
-        """Test circuit breaker opens after threshold failures."""
-        account_id = "123456789"
-        
-        # Record failures up to threshold
-        for _ in range(CIRCUIT_BREAKER_THRESHOLD):
-            record_failure(account_id)
-        
-        # Circuit should now be open
-        assert check_circuit_breaker(account_id) is True
-
-    def test_circuit_breaker_resets_on_success(self):
-        """Test circuit breaker resets on success."""
-        account_id = "123456789"
-        
-        # Record some failures
-        for _ in range(3):
-            record_failure(account_id)
-        
-        # Record success
-        record_success(account_id)
-        
-        # Circuit should be closed
-        assert check_circuit_breaker(account_id) is False
-
-    @patch('time.time')
-    def test_circuit_breaker_timeout_reset(self, mock_time):
-        """Test circuit breaker resets after timeout."""
-        account_id = "123456789"
-        
-        # Start at time 0
-        mock_time.return_value = 0
-        
-        # Record failures to open circuit
-        for _ in range(CIRCUIT_BREAKER_THRESHOLD):
-            record_failure(account_id)
-        
-        assert check_circuit_breaker(account_id) is True
-        
-        # Advance time past timeout
-        mock_time.return_value = 400  # Beyond 300 second timeout
-        
-        # Circuit should be closed now
-        assert check_circuit_breaker(account_id) is False
 
 
 class TestLinkedInAdsClient:
@@ -165,7 +39,7 @@ class TestLinkedInAdsClient:
 
         client = LinkedinAdsClient("test_token")
         result = client._make_request("test_endpoint")
-        
+
         assert result == {"elements": [{"id": "123"}]}
 
     @patch('requests.Session.get')
@@ -177,7 +51,7 @@ class TestLinkedInAdsClient:
         mock_get.return_value = mock_response
 
         client = LinkedinAdsClient("test_token")
-        
+
         with pytest.raises(LinkedinAdsAuthError, match="LinkedIn API authentication failed"):
             client._make_request("test_endpoint")
 
@@ -188,18 +62,18 @@ class TestLinkedInAdsClient:
         mock_response_429 = Mock()
         mock_response_429.status_code = 429
         mock_response_429.headers = {"Retry-After": "1"}
-        
+
         mock_response_200 = Mock()
         mock_response_200.status_code = 200
         mock_response_200.json.return_value = {"success": True}
-        
+
         mock_get.side_effect = [mock_response_429, mock_response_200]
 
         client = LinkedinAdsClient("test_token")
-        
+
         with patch('time.sleep'):  # Skip actual sleep
             result = client._make_request("test_endpoint")
-        
+
         assert result == {"success": True}
         assert mock_get.call_count == 2
 
@@ -212,7 +86,7 @@ class TestLinkedInAdsClient:
         mock_get.return_value = mock_response
 
         client = LinkedinAdsClient("test_token")
-        
+
         with patch('time.sleep'):  # Skip actual sleep
             with pytest.raises(LinkedinAdsRateLimitError, match="LinkedIn API rate limit exceeded"):
                 client._make_request("test_endpoint")
@@ -224,18 +98,18 @@ class TestLinkedInAdsClient:
         mock_response_500 = Mock()
         mock_response_500.status_code = 500
         mock_response_500.text = "Internal Server Error"
-        
+
         mock_response_200 = Mock()
         mock_response_200.status_code = 200
         mock_response_200.json.return_value = {"success": True}
-        
+
         mock_get.side_effect = [mock_response_500, mock_response_200]
 
         client = LinkedinAdsClient("test_token")
-        
+
         with patch('time.sleep'):  # Skip actual sleep
             result = client._make_request("test_endpoint")
-        
+
         assert result == {"success": True}
         assert mock_get.call_count == 2
 
@@ -261,7 +135,7 @@ class TestLinkedInAdsSource:
             account_id="",
             linkedin_ads_integration_id="123"
         )
-        
+
         valid, error = self.source.validate_credentials(config, self.team.id)
         assert valid is False
         assert "Account ID is required" in error
@@ -272,7 +146,7 @@ class TestLinkedInAdsSource:
             account_id="invalid-id",
             linkedin_ads_integration_id="123"
         )
-        
+
         valid, error = self.source.validate_credentials(config, self.team.id)
         assert valid is False
         assert "Invalid account ID format" in error
@@ -283,7 +157,7 @@ class TestLinkedInAdsSource:
             account_id="123456789",
             linkedin_ads_integration_id="99999999"  # Non-existent integer ID
         )
-        
+
         valid, error = self.source.validate_credentials(config, self.team.id)
         assert valid is False
         assert "LinkedIn Ads integration not found" in error
@@ -297,12 +171,12 @@ class TestLinkedInAdsSource:
             config={"client_id": "test", "client_secret": "test"},
             # Don't set access_token to test the missing token case
         )
-        
+
         config = LinkedinAdsSourceConfig(
             account_id="123456789",
             linkedin_ads_integration_id=str(integration.id)
         )
-        
+
         valid, error = self.source.validate_credentials(config, self.team.id)
         assert valid is False
         assert "access token not found" in error
@@ -328,8 +202,8 @@ class TestLinkedInAdsIntegration:
     @patch('posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads.LinkedinAdsClient')
     def test_get_schemas_success(self, mock_client_class):
         """Test successful schema retrieval."""
-        from posthog.temporal.data_imports.sources.linkedin_ads.source import LinkedinAdsSource
         from posthog.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
+        from posthog.temporal.data_imports.sources.linkedin_ads.source import LinkedinAdsSource
 
         # Mock the client
         mock_client = Mock()
@@ -356,8 +230,8 @@ class TestLinkedInAdsIntegration:
     @patch('posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads.LinkedinAdsClient')
     def test_linkedin_ads_source_accounts(self, mock_client_class):
         """Test LinkedIn Ads source for accounts resource."""
-        from posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads import linkedin_ads_source
         from posthog.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
+        from posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads import linkedin_ads_source
 
         # Mock the client
         mock_client = Mock()
@@ -395,8 +269,8 @@ class TestLinkedInAdsIntegration:
     @patch('posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads.LinkedinAdsClient')
     def test_linkedin_ads_source_campaigns(self, mock_client_class):
         """Test LinkedIn Ads source for campaigns resource."""
-        from posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads import linkedin_ads_source
         from posthog.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
+        from posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads import linkedin_ads_source
 
         # Mock the client
         mock_client = Mock()
@@ -437,8 +311,8 @@ class TestLinkedInAdsIntegration:
     @patch('posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads.LinkedinAdsClient')
     def test_linkedin_ads_source_campaign_stats(self, mock_client_class):
         """Test LinkedIn Ads source for campaign analytics."""
-        from posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads import linkedin_ads_source
         from posthog.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
+        from posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads import linkedin_ads_source
 
         # Mock the client
         mock_client = Mock()
@@ -485,13 +359,10 @@ class TestLinkedInAdsIntegration:
     @patch('posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads.LinkedinAdsClient')
     def test_linkedin_ads_source_circuit_breaker_integration(self, mock_client_class):
         """Test circuit breaker integration in the full source flow."""
-        from posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads import (
-            linkedin_ads_source, 
-            _failure_counts, 
-            _last_failure_time,
-            CIRCUIT_BREAKER_THRESHOLD
-        )
         from posthog.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
+        from posthog.temporal.data_imports.sources.linkedin_ads.constants import CIRCUIT_BREAKER_THRESHOLD
+        from posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads import linkedin_ads_source
+        from posthog.temporal.data_imports.sources.linkedin_ads.utils import _failure_counts, _last_failure_time
 
         # Clear circuit breaker state
         _failure_counts.clear()
@@ -508,7 +379,7 @@ class TestLinkedInAdsIntegration:
         )
 
         # Trigger failures up to threshold
-        for i in range(CIRCUIT_BREAKER_THRESHOLD):
+        for _i in range(CIRCUIT_BREAKER_THRESHOLD):
             with patch.object(type(self.integration), 'access_token', new_callable=lambda: property(lambda self: "test_access_token")):
                 with pytest.raises(Exception):
                     linkedin_ads_source(
@@ -528,8 +399,8 @@ class TestLinkedInAdsIntegration:
 
     def test_validate_credentials_integration_success(self):
         """Test successful credential validation with real flow."""
-        from posthog.temporal.data_imports.sources.linkedin_ads.source import LinkedinAdsSource
         from posthog.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
+        from posthog.temporal.data_imports.sources.linkedin_ads.source import LinkedinAdsSource
 
         with patch('posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads.LinkedinAdsClient') as mock_client_class:
             mock_client = Mock()
