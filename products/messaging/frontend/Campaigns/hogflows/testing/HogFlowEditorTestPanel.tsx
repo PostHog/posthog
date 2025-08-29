@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconInfo, IconPlay, IconRedo, IconTestTube, IconX } from '@posthog/icons'
+import { IconInfo, IconPlay, IconRedo } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -26,7 +26,7 @@ import { hogFlowEditorTestLogic } from './hogFlowEditorTestLogic'
 
 export function HogFlowTestPanelNonSelected(): JSX.Element {
     return (
-        <div className="p-2 w-120">
+        <div className="p-2">
             <div className="p-8 text-center rounded border bg-surface-secondary">
                 <div className="text-muted">Please select a node...</div>
             </div>
@@ -59,25 +59,8 @@ export function HogFlowEditorTestPanel(): JSX.Element | null {
             props={logicProps}
             formKey="testInvocation"
             enableFormOnSubmit
-            className="flex overflow-hidden flex-col flex-1 w-180"
+            className="flex overflow-hidden flex-col flex-1"
         >
-            {/* Header */}
-            <div className="flex justify-between items-center px-2 my-2 w-full">
-                <h3 className="flex gap-1 items-center mb-0 font-semibold">
-                    <IconTestTube className="text-lg" />
-                    Testing - <span className="text-lg">{Step?.icon}</span> {selectedNode.data.name}
-                </h3>
-                <div className="flex gap-2 items-center">
-                    <LemonButton
-                        size="xsmall"
-                        icon={<IconX />}
-                        onClick={() => setSelectedNodeId(null)}
-                        aria-label="close"
-                    />
-                </div>
-            </div>
-
-            <LemonDivider className="my-0" />
             {/* Body */}
             <div className="flex overflow-y-auto flex-col flex-1 gap-2 p-2">
                 {/* Event Information */}

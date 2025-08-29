@@ -144,6 +144,21 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 return nodes.find((node) => node.id === selectedNodeId) ?? null
             },
         ],
+        selectedNodeCanBeDeleted: [
+            (s) => [s.selectedNode, s.nodes, s.edges],
+            (selectedNode, nodes, edges) => {
+                if (!selectedNode) {
+                    return false
+                }
+
+                const outgoingNodes = getOutgoers(selectedNode, nodes, edges)
+                if (outgoingNodes.length === 1) {
+                    return true
+                }
+
+                return new Set(outgoingNodes.map((node) => node.id)).size === 1
+            },
+        ],
     }),
     listeners(({ values, actions }) => ({
         onEdgesChange: ({ edges }) => {

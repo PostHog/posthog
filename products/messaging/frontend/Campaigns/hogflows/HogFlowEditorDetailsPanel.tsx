@@ -1,7 +1,7 @@
-import { getOutgoers, useReactFlow } from '@xyflow/react'
+import { useReactFlow } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 
-import { IconExternal, IconTrash, IconX } from '@posthog/icons'
+import { IconExternal } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
@@ -24,47 +24,11 @@ export function HogFlowEditorDetailsPanel(): JSX.Element | null {
         return null
     }
 
-    const canBeDeleted = (): boolean => {
-        const outgoingNodes = getOutgoers(selectedNode, nodes, edges)
-        if (outgoingNodes.length === 1) {
-            return true
-        }
-
-        return new Set(outgoingNodes.map((node) => node.id)).size === 1
-    }
-
     const action = selectedNode.data
     const Step = getHogFlowStep(action.type)
 
     return (
-        <div className="flex flex-col h-full w-140 overflow-hidden">
-            <div className="flex justify-between items-center px-2 my-2">
-                <h3 className="flex gap-1 items-center mb-0 font-semibold">
-                    <span className="text-lg">{Step?.icon}</span> Edit {selectedNode.data.name} step
-                </h3>
-                <div className="flex gap-1 items-center">
-                    {selectedNode.deletable && (
-                        <LemonButton
-                            size="xsmall"
-                            status="danger"
-                            onClick={() => {
-                                void deleteElements({ nodes: [selectedNode] })
-                                setSelectedNodeId(null)
-                            }}
-                            icon={<IconTrash />}
-                            disabledReason={canBeDeleted() ? undefined : 'Clean up branching steps first'}
-                        />
-                    )}
-                    <LemonButton
-                        size="xsmall"
-                        icon={<IconX />}
-                        onClick={() => setSelectedNodeId(null)}
-                        aria-label="close"
-                    />
-                </div>
-            </div>
-            <LemonDivider className="my-0" />
-
+        <div className="flex flex-col h-full overflow-hidden">
             <ScrollableShadows
                 direction="vertical"
                 className="flex-1 min-h-0"
