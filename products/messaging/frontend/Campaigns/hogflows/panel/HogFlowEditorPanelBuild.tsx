@@ -42,7 +42,7 @@ function HogFlowEditorToolbarNode({ type }: { type: HogFlowAction['type'] }): JS
     )
 }
 
-export function HogFlowEditorToolbar(): JSX.Element {
+export function HogFlowEditorPanelBuild(): JSX.Element {
     return (
         <div className="flex overflow-y-auto flex-col gap-px p-2 max-h-120">
             <span className="flex gap-2 text-sm font-semibold mt-2 items-center">

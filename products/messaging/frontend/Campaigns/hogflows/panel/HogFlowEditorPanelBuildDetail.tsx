@@ -13,7 +13,7 @@ import { getHogFlowStep } from '../steps/HogFlowSteps'
 import { isOptOutEligibleAction } from '../steps/types'
 import { HogFlowAction } from '../types'
 
-export function HogFlowEditorDetailsPanel(): JSX.Element | null {
+export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
     const { selectedNode, categories, categoriesLoading } = useValues(hogFlowEditorLogic)
     const { setCampaignAction } = useActions(hogFlowEditorLogic)
 

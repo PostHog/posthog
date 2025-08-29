@@ -33,7 +33,7 @@ export function HogFlowTestPanelNonSelected(): JSX.Element {
     )
 }
 
-export function HogFlowEditorTestPanel(): JSX.Element | null {
+export function HogFlowEditorPanelTest(): JSX.Element | null {
     const { selectedNode } = useValues(hogFlowEditorLogic)
     const { logicProps } = useValues(campaignLogic)
     const { sampleGlobals, isTestInvocationSubmitting, testResult, shouldLoadSampleGlobals } = useValues(

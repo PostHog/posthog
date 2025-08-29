@@ -9,9 +9,12 @@ import { capitalizeFirstLetter } from 'lib/utils'
 
 import { HOG_FLOW_EDITOR_MODES, HogFlowEditorMode, hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { getHogFlowStep } from '../steps/HogFlowSteps'
-import { HogFlowEditorDetailsPanel } from './HogFlowEditorDetailsPanel'
-import { HogFlowEditorToolbar } from './HogFlowEditorToolbar'
-import { HogFlowEditorTestPanel, HogFlowTestPanelNonSelected } from './testing/HogFlowEditorTestPanel'
+import { HogFlowEditorPanelBuild } from './HogFlowEditorPanelBuild'
+import { HogFlowEditorPanelBuildDetail } from './HogFlowEditorPanelBuildDetail'
+import { HogFlowEditorPanelLogsDetail } from './HogFlowEditorPanelLogsDetail'
+import { HogFlowEditorPanelMetricsDetail } from './HogFlowEditorPanelMetricsDetail'
+import { HogFlowEditorPanelNodeRequired } from './components/HogFlowEditorPanelNodeRequired'
+import { HogFlowEditorPanelTest } from './testing/HogFlowEditorPanelTest'
 
 export function HogFlowEditorPanel(): JSX.Element | null {
     const { selectedNode, mode, selectedNodeCanBeDeleted } = useValues(hogFlowEditorLogic)
@@ -23,10 +26,7 @@ export function HogFlowEditorPanel(): JSX.Element | null {
         key: mode,
     }))
 
-    let width = selectedNode ? '36rem' : '22rem'
-    if (mode === 'test') {
-        width = '36rem'
-    }
+    const width = mode !== 'build' ? '36rem' : selectedNode ? '36rem' : '22rem'
 
     const Step = selectedNode ? getHogFlowStep(selectedNode.data.type) : null
 
@@ -89,8 +89,24 @@ export function HogFlowEditorPanel(): JSX.Element | null {
                     )}
                 </div>
 
-                {mode === 'build' && <>{!selectedNode ? <HogFlowEditorToolbar /> : <HogFlowEditorDetailsPanel />}</>}
-                {mode === 'test' && <>{!selectedNode ? <HogFlowTestPanelNonSelected /> : <HogFlowEditorTestPanel />}</>}
+                {mode === 'build' && (
+                    <>{!selectedNode ? <HogFlowEditorPanelBuild /> : <HogFlowEditorPanelBuildDetail />}</>
+                )}
+                {mode === 'test' && (
+                    <HogFlowEditorPanelNodeRequired>
+                        <HogFlowEditorPanelTest />
+                    </HogFlowEditorPanelNodeRequired>
+                )}
+                {mode === 'metrics' && (
+                    <HogFlowEditorPanelNodeRequired>
+                        <HogFlowEditorPanelMetricsDetail />
+                    </HogFlowEditorPanelNodeRequired>
+                )}
+                {mode === 'logs' && (
+                    <HogFlowEditorPanelNodeRequired>
+                        <HogFlowEditorPanelLogsDetail />
+                    </HogFlowEditorPanelNodeRequired>
+                )}
             </div>
         </div>
     )
