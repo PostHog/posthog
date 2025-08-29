@@ -6,6 +6,7 @@ import { Properties } from '@posthog/plugin-scaffold'
 import {
     Group,
     GroupTypeIndex,
+    ProjectId,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
     RawGroup,
@@ -173,6 +174,44 @@ export class PostgresGroupRepository
         }
 
         return Number(result.rows[0].version || 0)
+    }
+
+    async insertGroupType(
+        teamId: TeamId,
+        projectId: ProjectId,
+        groupType: string,
+        index: number,
+        tx?: TransactionClient
+    ): Promise<[GroupTypeIndex | null, boolean]> {
+        const MAX_GROUP_TYPES_PER_TEAM = 5
+
+        if (index >= MAX_GROUP_TYPES_PER_TEAM) {
+            return [null, false]
+        }
+
+        const insertGroupTypeResult = await this.postgres.query(
+            tx ?? PostgresUse.PERSONS_WRITE,
+            `
+            WITH insert_result AS (
+                INSERT INTO posthog_grouptypemapping (team_id, project_id, group_type, group_type_index, created_at)
+                VALUES ($1, $2, $3, $4, $5)
+                ON CONFLICT DO NOTHING
+                RETURNING group_type_index
+            )
+            SELECT group_type_index, 1 AS is_insert FROM insert_result
+            UNION
+            SELECT group_type_index, 0 AS is_insert FROM posthog_grouptypemapping WHERE project_id = $2 AND group_type = $3;
+            `,
+            [teamId, projectId, groupType, index, new Date()],
+            'insertGroupType'
+        )
+
+        if (insertGroupTypeResult.rows.length == 0) {
+            return await this.insertGroupType(teamId, projectId, groupType, index + 1, tx)
+        }
+
+        const { group_type_index, is_insert } = insertGroupTypeResult.rows[0]
+        return [group_type_index, is_insert === 1]
     }
 
     async inTransaction<T>(

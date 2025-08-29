@@ -2,7 +2,14 @@ import { DateTime } from 'luxon'
 
 import { Properties } from '@posthog/plugin-scaffold'
 
-import { Group, GroupTypeIndex, PropertiesLastOperation, PropertiesLastUpdatedAt, TeamId } from '../../../../types'
+import {
+    Group,
+    GroupTypeIndex,
+    ProjectId,
+    PropertiesLastOperation,
+    PropertiesLastUpdatedAt,
+    TeamId,
+} from '../../../../types'
 import { GroupRepositoryTransaction } from './group-repository-transaction.interface'
 
 export interface GroupRepository {
@@ -44,6 +51,13 @@ export interface GroupRepository {
         propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
         propertiesLastOperation: PropertiesLastOperation
     ): Promise<number | undefined>
+
+    insertGroupType(
+        teamId: TeamId,
+        projectId: ProjectId,
+        groupType: string,
+        index: number
+    ): Promise<[GroupTypeIndex | null, boolean]>
 
     inTransaction<T>(description: string, transaction: (tx: GroupRepositoryTransaction) => Promise<T>): Promise<T>
 }

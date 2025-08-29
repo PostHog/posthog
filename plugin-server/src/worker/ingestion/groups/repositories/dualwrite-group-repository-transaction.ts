@@ -2,7 +2,14 @@ import { DateTime } from 'luxon'
 
 import { Properties } from '@posthog/plugin-scaffold'
 
-import { Group, GroupTypeIndex, PropertiesLastOperation, PropertiesLastUpdatedAt, TeamId } from '../../../../types'
+import {
+    Group,
+    GroupTypeIndex,
+    ProjectId,
+    PropertiesLastOperation,
+    PropertiesLastUpdatedAt,
+    TeamId,
+} from '../../../../types'
 import { TransactionClient } from '../../../../utils/db/postgres'
 import { dualWriteComparisonCounter, dualWriteDataMismatchCounter } from '../../persons/metrics'
 import { GroupRepositoryTransaction } from './group-repository-transaction.interface'
@@ -148,5 +155,32 @@ export class DualWriteGroupRepositoryTransaction implements GroupRepositoryTrans
                 result: 'match',
             })
         }
+    }
+
+    async insertGroupType(
+        teamId: TeamId,
+        projectId: ProjectId,
+        groupType: string,
+        index: number
+    ): Promise<[GroupTypeIndex | null, boolean]> {
+        const [primaryResult, secondaryResult] = await Promise.all([
+            this.primaryRepo.insertGroupType(teamId, projectId, groupType, index, this.lTx),
+            this.secondaryRepo.insertGroupType(teamId, projectId, groupType, index, this.rTx),
+        ])
+
+        const [primaryIndex, primaryIsInsert] = primaryResult
+        const [secondaryIndex, secondaryIsInsert] = secondaryResult
+
+        if (primaryIndex !== secondaryIndex || primaryIsInsert !== secondaryIsInsert) {
+            dualWriteDataMismatchCounter.inc({ operation: 'insertGroupType_tx', field: 'result' })
+        } else {
+            dualWriteComparisonCounter.inc({
+                operation: 'insertGroupType_tx',
+                comparison_type: 'result_match',
+                result: 'match',
+            })
+        }
+
+        return primaryResult
     }
 }

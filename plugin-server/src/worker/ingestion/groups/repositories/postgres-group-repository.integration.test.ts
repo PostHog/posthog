@@ -4,6 +4,7 @@ import { insertRow, resetTestDatabase } from '../../../../../tests/helpers/sql'
 import {
     GroupTypeIndex,
     Hub,
+    ProjectId,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
     PropertyUpdateOperation,
@@ -1281,6 +1282,320 @@ describe('PostgresGroupRepository Integration', () => {
             const fetchedGroup = await repository.fetchGroup(teamId, groupTypeIndex, groupKey)
             expect(fetchedGroup?.version).toBe(1)
             expect(fetchedGroup?.group_properties).toMatchObject(groupProperties)
+        })
+    })
+
+    describe('insertGroupType', () => {
+        it('should insert a new group type successfully', async () => {
+            await insertTestTeam(teamId)
+
+            const [groupTypeIndex, isInsert] = await repository.insertGroupType(
+                teamId,
+                teamId as ProjectId, // insertTestTeam creates project with id = teamId
+                'company',
+                0
+            )
+
+            expect(groupTypeIndex).toBe(0)
+            expect(isInsert).toBe(true)
+
+            // Verify the group type was actually inserted
+            const { rows } = await postgres.query(
+                PostgresUse.PERSONS_READ,
+                'SELECT * FROM posthog_grouptypemapping WHERE team_id = $1 AND project_id = $2 AND group_type = $3',
+                [teamId, teamId, 'company'], // project_id = teamId because insertTestTeam creates project with id = teamId
+                'test-fetch-group-type'
+            )
+
+            expect(rows).toHaveLength(1)
+            expect(rows[0].team_id).toBe(teamId)
+            expect(Number(rows[0].project_id)).toBe(teamId) // project_id should equal teamId
+            expect(rows[0].group_type).toBe('company')
+            expect(rows[0].group_type_index).toBe(0)
+        })
+
+        it('should return existing group type index when already exists', async () => {
+            await insertTestTeam(teamId)
+
+            // Insert the group type first
+            await repository.insertGroupType(teamId, teamId as ProjectId, 'company', 0)
+
+            // Try to insert the same group type again
+            const [groupTypeIndex, isInsert] = await repository.insertGroupType(
+                teamId,
+                teamId as ProjectId,
+                'company',
+                0
+            )
+
+            expect(groupTypeIndex).toBe(0)
+            expect(isInsert).toBe(false)
+
+            // Verify only one record exists
+            const { rows } = await postgres.query(
+                PostgresUse.PERSONS_READ,
+                'SELECT * FROM posthog_grouptypemapping WHERE team_id = $1 AND project_id = $2 AND group_type = $3',
+                [teamId, teamId, 'company'],
+                'test-fetch-group-type'
+            )
+
+            expect(rows).toHaveLength(1)
+        })
+
+        it('should handle index conflicts by incrementing', async () => {
+            await insertTestTeam(teamId)
+
+            // Insert first group type at index 0
+            const [index1, isInsert1] = await repository.insertGroupType(teamId, teamId as ProjectId, 'company', 0)
+            expect(index1).toBe(0)
+            expect(isInsert1).toBe(true)
+
+            // Try to insert second group type at index 0 (should get index 1)
+            const [index2, isInsert2] = await repository.insertGroupType(teamId, teamId as ProjectId, 'organization', 0)
+            expect(index2).toBe(1)
+            expect(isInsert2).toBe(true)
+
+            // Try to insert third group type at index 0 (should get index 2)
+            const [index3, isInsert3] = await repository.insertGroupType(teamId, teamId as ProjectId, 'team', 0)
+            expect(index3).toBe(2)
+            expect(isInsert3).toBe(true)
+        })
+
+        it('should respect the maximum group types limit', async () => {
+            await insertTestTeam(teamId)
+
+            // Insert 5 group types (the maximum)
+            for (let i = 0; i < 5; i++) {
+                const [index, isInsert] = await repository.insertGroupType(
+                    teamId,
+                    teamId as ProjectId,
+                    `group_type_${i}`,
+                    i
+                )
+                expect(index).toBe(i)
+                expect(isInsert).toBe(true)
+            }
+
+            // Try to insert the 6th group type (should fail)
+            const [index6, isInsert6] = await repository.insertGroupType(teamId, teamId as ProjectId, 'group_type_6', 5)
+            expect(index6).toBe(null)
+            expect(isInsert6).toBe(false)
+        })
+
+        it('should handle different projects independently', async () => {
+            const localTeamId1 = 10 as TeamId // Use unique IDs for this test
+            const localTeamId2 = 11 as TeamId
+            await insertTestTeam(localTeamId1)
+            await insertTestTeam(localTeamId2)
+
+            // Insert group type in first project
+            const [index1, isInsert1] = await repository.insertGroupType(
+                localTeamId1,
+                localTeamId1 as ProjectId,
+                'company',
+                0
+            )
+            expect(index1).toBe(0)
+            expect(isInsert1).toBe(true)
+
+            // Insert same group type name in second project (should succeed)
+            const [index2, isInsert2] = await repository.insertGroupType(
+                localTeamId2,
+                localTeamId2 as ProjectId,
+                'company',
+                0
+            )
+            expect(index2).toBe(0)
+            expect(isInsert2).toBe(true)
+
+            // Verify both exist independently
+            const { rows: rows1 } = await postgres.query(
+                PostgresUse.PERSONS_READ,
+                'SELECT * FROM posthog_grouptypemapping WHERE project_id = $1',
+                [localTeamId1],
+                'test-fetch-project1'
+            )
+            const { rows: rows2 } = await postgres.query(
+                PostgresUse.PERSONS_READ,
+                'SELECT * FROM posthog_grouptypemapping WHERE project_id = $1',
+                [localTeamId2],
+                'test-fetch-project2'
+            )
+
+            expect(rows1).toHaveLength(1)
+            expect(rows2).toHaveLength(1)
+            expect(Number(rows1[0].project_id)).toBe(localTeamId1)
+            expect(Number(rows2[0].project_id)).toBe(localTeamId2)
+        })
+
+        it('should handle race conditions gracefully', async () => {
+            await insertTestTeam(teamId)
+
+            // Simulate race condition by directly inserting a group type
+            await insertRow(postgres, 'posthog_grouptypemapping', {
+                team_id: teamId,
+                project_id: teamId,
+                group_type: 'company',
+                group_type_index: 0,
+                created_at: new Date().toISOString(),
+            })
+
+            // Now try to insert the same group type through the repository
+            const [groupTypeIndex, isInsert] = await repository.insertGroupType(
+                teamId,
+                teamId as ProjectId,
+                'company',
+                0
+            )
+
+            expect(groupTypeIndex).toBe(0)
+            expect(isInsert).toBe(false)
+        })
+
+        it('should work within a transaction', async () => {
+            await insertTestTeam(teamId)
+
+            const result = await repository.inTransaction('test insertGroupType transaction', async (tx) => {
+                return await tx.insertGroupType(teamId, teamId as ProjectId, 'company', 0)
+            })
+
+            expect(result).toEqual([0, true])
+
+            // Verify the group type was actually inserted
+            const { rows } = await postgres.query(
+                PostgresUse.PERSONS_READ,
+                'SELECT * FROM posthog_grouptypemapping WHERE team_id = $1 AND project_id = $2 AND group_type = $3',
+                [teamId, teamId, 'company'],
+                'test-fetch-group-type'
+            )
+
+            expect(rows).toHaveLength(1)
+        })
+
+        it('should work with raw transaction', async () => {
+            await insertTestTeam(teamId)
+
+            const result = await repository.inRawTransaction('test insertGroupType raw transaction', async (tx) => {
+                return await repository.insertGroupType(teamId, teamId as ProjectId, 'company', 0, tx)
+            })
+
+            expect(result).toEqual([0, true])
+
+            // Verify the group type was actually inserted
+            const { rows } = await postgres.query(
+                PostgresUse.PERSONS_READ,
+                'SELECT * FROM posthog_grouptypemapping WHERE team_id = $1 AND project_id = $2 AND group_type = $3',
+                [teamId, teamId, 'company'],
+                'test-fetch-group-type'
+            )
+
+            expect(rows).toHaveLength(1)
+        })
+
+        it('should rollback transaction on error', async () => {
+            await insertTestTeam(teamId)
+
+            // Try to execute a transaction that will fail
+            await expect(
+                repository.inTransaction('failing insertGroupType transaction', async (tx) => {
+                    // Insert a group type
+                    await tx.insertGroupType(teamId, teamId as ProjectId, 'company', 0)
+
+                    // This should cause the transaction to rollback
+                    throw new Error('Simulated transaction failure')
+                })
+            ).rejects.toThrow('Simulated transaction failure')
+
+            // Verify the group type was not inserted (transaction rolled back)
+            const { rows } = await postgres.query(
+                PostgresUse.PERSONS_READ,
+                'SELECT * FROM posthog_grouptypemapping WHERE team_id = $1 AND project_id = $2',
+                [teamId, teamId],
+                'test-fetch-group-types'
+            )
+
+            expect(rows).toHaveLength(0)
+        })
+
+        it('should handle special characters in group type names', async () => {
+            await insertTestTeam(teamId)
+
+            const specialGroupType = 'group-type-with-special-chars!@#$%^&*()_+-=[]{}|;:,.<>?'
+
+            const [groupTypeIndex, isInsert] = await repository.insertGroupType(
+                teamId,
+                teamId as ProjectId,
+                specialGroupType,
+                0
+            )
+
+            expect(groupTypeIndex).toBe(0)
+            expect(isInsert).toBe(true)
+
+            // Verify the group type was actually inserted
+            const { rows } = await postgres.query(
+                PostgresUse.PERSONS_READ,
+                'SELECT * FROM posthog_grouptypemapping WHERE team_id = $1 AND project_id = $2 AND group_type = $3',
+                [teamId, teamId, specialGroupType],
+                'test-fetch-group-type'
+            )
+
+            expect(rows).toHaveLength(1)
+            expect(rows[0].group_type).toBe(specialGroupType)
+        })
+
+        it('should handle empty group type names', async () => {
+            await insertTestTeam(teamId)
+
+            const emptyGroupType = ''
+
+            const [groupTypeIndex, isInsert] = await repository.insertGroupType(
+                teamId,
+                teamId as ProjectId,
+                emptyGroupType,
+                0
+            )
+
+            expect(groupTypeIndex).toBe(0)
+            expect(isInsert).toBe(true)
+
+            // Verify the group type was actually inserted
+            const { rows } = await postgres.query(
+                PostgresUse.PERSONS_READ,
+                'SELECT * FROM posthog_grouptypemapping WHERE team_id = $1 AND project_id = $2 AND group_type = $3',
+                [teamId, teamId, emptyGroupType],
+                'test-fetch-group-type'
+            )
+
+            expect(rows).toHaveLength(1)
+            expect(rows[0].group_type).toBe(emptyGroupType)
+        })
+
+        it('should handle very long group type names', async () => {
+            await insertTestTeam(teamId)
+
+            const longGroupType = 'x'.repeat(400) // 400 limit
+
+            const [groupTypeIndex, isInsert] = await repository.insertGroupType(
+                teamId,
+                teamId as ProjectId,
+                longGroupType,
+                0
+            )
+
+            expect(groupTypeIndex).toBe(0)
+            expect(isInsert).toBe(true)
+
+            // Verify the group type was actually inserted
+            const { rows } = await postgres.query(
+                PostgresUse.PERSONS_READ,
+                'SELECT * FROM posthog_grouptypemapping WHERE team_id = $1 AND project_id = $2 AND group_type = $3',
+                [teamId, teamId, longGroupType],
+                'test-fetch-group-type'
+            )
+
+            expect(rows).toHaveLength(1)
+            expect(rows[0].group_type).toBe(longGroupType)
         })
     })
 })

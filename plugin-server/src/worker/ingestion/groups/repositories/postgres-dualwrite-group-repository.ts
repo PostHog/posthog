@@ -2,7 +2,14 @@ import { DateTime } from 'luxon'
 
 import { Properties } from '@posthog/plugin-scaffold'
 
-import { Group, GroupTypeIndex, PropertiesLastOperation, PropertiesLastUpdatedAt, TeamId } from '../../../../types'
+import {
+    Group,
+    GroupTypeIndex,
+    ProjectId,
+    PropertiesLastOperation,
+    PropertiesLastUpdatedAt,
+    TeamId,
+} from '../../../../types'
 import { PostgresRouter, PostgresUse } from '../../../../utils/db/postgres'
 import { TwoPhaseCommitCoordinator } from '../../../../utils/db/two-phase'
 import { logger as _logger } from '../../../../utils/logger'
@@ -304,5 +311,49 @@ export class PostgresDualWriteGroupRepository implements GroupRepository {
                 result: 'match',
             })
         }
+    }
+
+    async insertGroupType(
+        teamId: TeamId,
+        projectId: ProjectId,
+        groupType: string,
+        index: number
+    ): Promise<[GroupTypeIndex | null, boolean]> {
+        let result!: [GroupTypeIndex | null, boolean]
+
+        await this.coordinator.run('insertGroupType', async (leftTx, rightTx) => {
+            const [primary, secondary] = await Promise.all([
+                this.primaryRepo.insertGroupType(teamId, projectId, groupType, index, leftTx),
+                this.secondaryRepo.insertGroupType(teamId, projectId, groupType, index, rightTx),
+            ])
+
+            if (this.comparisonEnabled) {
+                const [primaryIndex, primaryIsInsert] = primary
+                const [secondaryIndex, secondaryIsInsert] = secondary
+
+                if (primaryIndex !== secondaryIndex || primaryIsInsert !== secondaryIsInsert) {
+                    _logger.warn('Group type insertion result mismatch', {
+                        teamId,
+                        projectId,
+                        groupType,
+                        index,
+                        primary: { index: primaryIndex, isInsert: primaryIsInsert },
+                        secondary: { index: secondaryIndex, isInsert: secondaryIsInsert },
+                    })
+                    dualWriteDataMismatchCounter.inc({ operation: 'insertGroupType', field: 'result' })
+                } else {
+                    dualWriteComparisonCounter.inc({
+                        operation: 'insertGroupType',
+                        comparison_type: 'result_match',
+                        result: 'match',
+                    })
+                }
+            }
+
+            result = primary
+            return true
+        })
+
+        return result
     }
 }

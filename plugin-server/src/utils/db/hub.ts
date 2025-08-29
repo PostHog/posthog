@@ -131,12 +131,12 @@ export async function createHub(
     const actionManager = new ActionManager(postgres, pubSub)
     const actionManagerCDP = new ActionManagerCDP(postgres)
     const actionMatcher = new ActionMatcher(postgres, actionManager)
-    const groupTypeManager = new GroupTypeManager(postgres, teamManager)
     const groupRepository = serverConfig.GROUPS_DUAL_WRITE_ENABLED
         ? new PostgresDualWriteGroupRepository(postgres, postgresPersonMigration, {
               comparisonEnabled: serverConfig.GROUPS_DUAL_WRITE_COMPARISON_ENABLED,
           })
         : new PostgresGroupRepository(postgres)
+    const groupTypeManager = new GroupTypeManager(postgres, teamManager, groupRepository)
     const clickhouseGroupRepository = new ClickhouseGroupRepository(kafkaProducer)
     const cookielessManager = new CookielessManager(serverConfig, cookielessRedisPool, teamManager)
     const geoipService = new GeoIPService(serverConfig)

@@ -92,8 +92,8 @@ describe('eachMessageWebhooksHandlers', () => {
             hub.appMetrics,
             hub.EXTERNAL_REQUEST_TIMEOUT_MS
         )
-        const groupTypeManager = new GroupTypeManager(hub.postgres, hub.teamManager)
-        await groupTypeManager.insertGroupType(2, 2 as ProjectId, 'organization', 0)
+        const groupTypeManager = new GroupTypeManager(hub.postgres, hub.teamManager, hub.groupRepository)
+        await hub.groupRepository.insertGroupType(2, 2 as ProjectId, 'organization', 0)
 
         const team = await hub.teamManager.getTeam(2)
         team!.available_features = ['group_analytics'] // NOTE: Hacky but this will be removed soon

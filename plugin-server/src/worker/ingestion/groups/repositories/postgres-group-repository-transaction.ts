@@ -2,7 +2,14 @@ import { DateTime } from 'luxon'
 
 import { Properties } from '@posthog/plugin-scaffold'
 
-import { Group, GroupTypeIndex, PropertiesLastOperation, PropertiesLastUpdatedAt, TeamId } from '../../../../types'
+import {
+    Group,
+    GroupTypeIndex,
+    ProjectId,
+    PropertiesLastOperation,
+    PropertiesLastUpdatedAt,
+    TeamId,
+} from '../../../../types'
 import { TransactionClient } from '../../../../utils/db/postgres'
 import { GroupRepositoryTransaction } from './group-repository-transaction.interface'
 import { RawPostgresGroupRepository } from './raw-postgres-group-repository.interface'
@@ -64,5 +71,14 @@ export class PostgresGroupRepositoryTransaction implements GroupRepositoryTransa
             tag,
             this.tx
         )
+    }
+
+    async insertGroupType(
+        teamId: TeamId,
+        projectId: ProjectId,
+        groupType: string,
+        index: number
+    ): Promise<[GroupTypeIndex | null, boolean]> {
+        return await this.repository.insertGroupType(teamId, projectId, groupType, index, this.tx)
     }
 }

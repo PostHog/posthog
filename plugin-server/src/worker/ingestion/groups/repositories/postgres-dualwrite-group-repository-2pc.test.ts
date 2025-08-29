@@ -1,7 +1,14 @@
 import { DateTime } from 'luxon'
 
 import { insertRow, resetTestDatabase } from '../../../../../tests/helpers/sql'
-import { GroupTypeIndex, Hub, PropertiesLastOperation, PropertiesLastUpdatedAt, TeamId } from '../../../../types'
+import {
+    GroupTypeIndex,
+    Hub,
+    ProjectId,
+    PropertiesLastOperation,
+    PropertiesLastUpdatedAt,
+    TeamId,
+} from '../../../../types'
 import { closeHub, createHub } from '../../../../utils/db/hub'
 import { PostgresRouter, PostgresUse } from '../../../../utils/db/postgres'
 import { RaceConditionError, UUIDT } from '../../../../utils/utils'
@@ -25,6 +32,13 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
 
         await migrationPostgres.query(
             PostgresUse.PERSONS_WRITE,
+            `DROP TABLE IF EXISTS posthog_grouptypemapping CASCADE`,
+            [],
+            'drop-grouptypemapping-table'
+        )
+
+        await migrationPostgres.query(
+            PostgresUse.PERSONS_WRITE,
             `
             CREATE TABLE IF NOT EXISTS posthog_group (
                 team_id INT NOT NULL,
@@ -40,6 +54,24 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
             `,
             [],
             'create-group-table'
+        )
+
+        await migrationPostgres.query(
+            PostgresUse.PERSONS_WRITE,
+            `
+            CREATE TABLE IF NOT EXISTS posthog_grouptypemapping (
+                id SERIAL PRIMARY KEY,
+                team_id INT NOT NULL,
+                project_id INT NOT NULL,
+                group_type VARCHAR(400) NOT NULL,
+                group_type_index SMALLINT NOT NULL,
+                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(project_id, group_type),
+                UNIQUE(project_id, group_type_index)
+            );
+            `,
+            [],
+            'create-grouptypemapping-table'
         )
     }
 
@@ -1014,6 +1046,223 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
             expect(insideGroup?.group_properties.location).toBe('inside')
             expect(txResult.updatedVersion).toBe(2)
             expect(txResult.newVersion).toBe(1)
+        })
+    })
+
+    describe('insertGroupType() 2PC tests', () => {
+        const teamId = 1 as TeamId
+        const projectId = 1 as ProjectId
+
+        it('writes to both primary and secondary (happy path)', async () => {
+            const [groupTypeIndex, isInsert] = await repository.insertGroupType(teamId, projectId, 'company', 0)
+
+            expect(groupTypeIndex).toBe(0)
+            expect(isInsert).toBe(true)
+
+            // Verify in both databases
+            const primary = await postgres.query(
+                PostgresUse.PERSONS_READ,
+                'SELECT * FROM posthog_grouptypemapping WHERE team_id = $1 AND project_id = $2 AND group_type = $3',
+                [teamId, projectId, 'company'],
+                'verify-primary-group-type'
+            )
+            const secondary = await migrationPostgres.query(
+                PostgresUse.PERSONS_READ,
+                'SELECT * FROM posthog_grouptypemapping WHERE team_id = $1 AND project_id = $2 AND group_type = $3',
+                [teamId, projectId, 'company'],
+                'verify-secondary-group-type'
+            )
+
+            expect(primary.rows.length).toBe(1)
+            expect(secondary.rows.length).toBe(1)
+
+            // Check primary database result
+            expect(primary.rows[0].team_id).toBe(teamId)
+            expect(Number(primary.rows[0].project_id)).toBe(projectId)
+            expect(primary.rows[0].group_type).toBe('company')
+            expect(primary.rows[0].group_type_index).toBe(0)
+
+            // Check secondary database result
+            expect(secondary.rows[0].team_id).toBe(teamId)
+            expect(Number(secondary.rows[0].project_id)).toBe(projectId)
+            expect(secondary.rows[0].group_type).toBe('company')
+            expect(secondary.rows[0].group_type_index).toBe(0)
+        })
+
+        it('returns existing group type without inserting when already exists', async () => {
+            // First insert
+            await repository.insertGroupType(teamId, projectId, 'organization', 0)
+
+            // Second insert should return existing
+            const [groupTypeIndex, isInsert] = await repository.insertGroupType(teamId, projectId, 'organization', 0)
+
+            expect(groupTypeIndex).toBe(0)
+            expect(isInsert).toBe(false)
+
+            // Verify only one record in each database
+            const primary = await postgres.query(
+                PostgresUse.PERSONS_READ,
+                'SELECT * FROM posthog_grouptypemapping WHERE team_id = $1 AND project_id = $2 AND group_type = $3',
+                [teamId, projectId, 'organization'],
+                'verify-primary-single'
+            )
+            const secondary = await migrationPostgres.query(
+                PostgresUse.PERSONS_READ,
+                'SELECT * FROM posthog_grouptypemapping WHERE team_id = $1 AND project_id = $2 AND group_type = $3',
+                [teamId, projectId, 'organization'],
+                'verify-secondary-single'
+            )
+
+            expect(primary.rows.length).toBe(1)
+            expect(secondary.rows.length).toBe(1)
+        })
+
+        it('handles index conflicts by incrementing consistently', async () => {
+            // Insert multiple group types
+            const [index1, isInsert1] = await repository.insertGroupType(teamId, projectId, 'type1', 0)
+            const [index2, isInsert2] = await repository.insertGroupType(teamId, projectId, 'type2', 0)
+            const [index3, isInsert3] = await repository.insertGroupType(teamId, projectId, 'type3', 0)
+
+            expect(index1).toBe(0)
+            expect(index2).toBe(1)
+            expect(index3).toBe(2)
+            expect(isInsert1).toBe(true)
+            expect(isInsert2).toBe(true)
+            expect(isInsert3).toBe(true)
+
+            // Verify consistency between databases
+            const primaryCount = await postgres.query(
+                PostgresUse.PERSONS_READ,
+                'SELECT COUNT(*) as count FROM posthog_grouptypemapping WHERE team_id = $1 AND project_id = $2',
+                [teamId, projectId],
+                'count-primary'
+            )
+            const secondaryCount = await migrationPostgres.query(
+                PostgresUse.PERSONS_READ,
+                'SELECT COUNT(*) as count FROM posthog_grouptypemapping WHERE team_id = $1 AND project_id = $2',
+                [teamId, projectId],
+                'count-secondary'
+            )
+
+            expect(primaryCount.rows[0].count).toBe('3')
+            expect(secondaryCount.rows[0].count).toBe('3')
+        })
+
+        it('respects maximum group types limit consistently', async () => {
+            // Insert 5 group types (the maximum)
+            for (let i = 0; i < 5; i++) {
+                const [index, isInsert] = await repository.insertGroupType(teamId, projectId, `type_${i}`, i)
+                expect(index).toBe(i)
+                expect(isInsert).toBe(true)
+            }
+
+            // Try to insert the 6th group type (should fail)
+            const [index6, isInsert6] = await repository.insertGroupType(teamId, projectId, 'type_6', 5)
+            expect(index6).toBe(null)
+            expect(isInsert6).toBe(false)
+
+            // Verify both databases have exactly 5 records
+            const primaryCount = await postgres.query(
+                PostgresUse.PERSONS_READ,
+                'SELECT COUNT(*) as count FROM posthog_grouptypemapping WHERE team_id = $1 AND project_id = $2',
+                [teamId, projectId],
+                'count-primary-max'
+            )
+            const secondaryCount = await migrationPostgres.query(
+                PostgresUse.PERSONS_READ,
+                'SELECT COUNT(*) as count FROM posthog_grouptypemapping WHERE team_id = $1 AND project_id = $2',
+                [teamId, projectId],
+                'count-secondary-max'
+            )
+
+            expect(primaryCount.rows[0].count).toBe('5')
+            expect(secondaryCount.rows[0].count).toBe('5')
+        })
+
+        it('rolls back when secondary write fails', async () => {
+            const spy = jest
+                .spyOn((repository as any).secondaryRepo, 'insertGroupType')
+                .mockRejectedValue(new Error('simulated secondary failure'))
+
+            await expect(repository.insertGroupType(teamId, projectId, 'failtype', 0)).rejects.toThrow(
+                'simulated secondary failure'
+            )
+
+            spy.mockRestore()
+
+            // Verify no records in either database
+            const primary = await postgres.query(
+                PostgresUse.PERSONS_READ,
+                'SELECT * FROM posthog_grouptypemapping WHERE team_id = $1 AND project_id = $2 AND group_type = $3',
+                [teamId, projectId, 'failtype'],
+                'verify-primary-rollback'
+            )
+            const secondary = await migrationPostgres.query(
+                PostgresUse.PERSONS_READ,
+                'SELECT * FROM posthog_grouptypemapping WHERE team_id = $1 AND project_id = $2 AND group_type = $3',
+                [teamId, projectId, 'failtype'],
+                'verify-secondary-rollback'
+            )
+
+            expect(primary.rows.length).toBe(0)
+            expect(secondary.rows.length).toBe(0)
+        })
+
+        it('works within a transaction', async () => {
+            const result = await repository.inTransaction('test insertGroupType transaction', async (tx) => {
+                const groupTypeResult = await tx.insertGroupType(teamId, projectId, 'txtype', 0)
+
+                // Also insert a group to verify the transaction context
+                await tx.insertGroup(
+                    teamId,
+                    0 as GroupTypeIndex,
+                    'txgroup',
+                    { name: 'Transaction Group' },
+                    DateTime.now(),
+                    {},
+                    {}
+                )
+
+                return groupTypeResult
+            })
+
+            expect(result).toEqual([0, true])
+
+            // Verify both group type and group exist in both databases
+            const primaryGroupType = await postgres.query(
+                PostgresUse.PERSONS_READ,
+                'SELECT * FROM posthog_grouptypemapping WHERE team_id = $1 AND project_id = $2 AND group_type = $3',
+                [teamId, projectId, 'txtype'],
+                'verify-primary-tx-grouptype'
+            )
+            const primaryGroup = await postgres.query(
+                PostgresUse.PERSONS_READ,
+                'SELECT * FROM posthog_group WHERE team_id = $1 AND group_key = $2',
+                [teamId, 'txgroup'],
+                'verify-primary-tx-group'
+            )
+
+            expect(primaryGroupType.rows.length).toBe(1)
+            expect(primaryGroup.rows.length).toBe(1)
+        })
+
+        it('compares results between databases when comparison is enabled', async () => {
+            // Create a repository with comparison enabled
+            const comparingRepository = new PostgresDualWriteGroupRepository(postgres, migrationPostgres, {
+                comparisonEnabled: true,
+            })
+
+            const [groupTypeIndex, isInsert] = await comparingRepository.insertGroupType(
+                teamId,
+                projectId,
+                'comparetype',
+                0
+            )
+
+            expect(groupTypeIndex).toBe(0)
+            expect(isInsert).toBe(true)
+
+            // Should not throw despite comparison being enabled (successful comparison)
         })
     })
 
