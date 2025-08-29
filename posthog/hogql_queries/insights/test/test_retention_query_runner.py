@@ -4194,6 +4194,86 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 f"Missing expected {expected_type} at {expected_time} for person2 on day 1",
             )
 
+    def test_retention_first_time_vs_first_ever_occurrence(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        # First event, doesn't match property filter
+        _create_events(
+            self.team,
+            [("person1", _date(0), {"prop": "wrong"})],
+            event="target_event",
+        )
+        # Second event, matches property filter
+        _create_events(
+            self.team,
+            [("person1", _date(1), {"prop": "correct"})],
+            event="target_event",
+        )
+        # Returning events
+        _create_events(
+            self.team,
+            [("person1", _date(2)), ("person1", _date(3))],
+            event="returning_event",
+        )
+        flush_persons_and_events()
+
+        base_query = {
+            "dateRange": {"date_from": _date(0), "date_to": _date(5)},
+            "retentionFilter": {
+                "totalIntervals": 5,
+                "targetEntity": {
+                    "id": "target_event",
+                    "type": "events",
+                    "properties": [{"key": "prop", "value": "correct", "type": "event"}],
+                },
+                "returningEntity": {"id": "returning_event", "type": "events"},
+            },
+        }
+
+        # Run query with RETENTION_FIRST_TIME
+        query_first_time = base_query.copy()
+        query_first_time["retentionFilter"]["retentionType"] = "retention_first_time"
+        result_first_time = self.run_query(query=query_first_time)
+
+        # Run query with RETENTION_FIRST_EVER_OCCURRENCE
+        query_first_ever = base_query.copy()
+        query_first_ever["retentionFilter"]["retentionType"] = "retention_first_ever_occurrence"
+        result_first_ever = self.run_query(query=query_first_ever)
+
+        # Assert results are different
+        self.assertNotEqual(result_first_time, result_first_ever)
+
+        # Assert correctness of RETENTION_FIRST_TIME
+        # Cohort is on day 1 as that's the first time the event has the correct property.
+        # Returns on day 2 (1 day later) and day 3 (2 days later).
+        expected_first_time_counts = [
+            [0, 0, 0, 0, 0],  # Day 0
+            [1, 1, 1, 0, 0],  # Day 1
+            [0, 0, 0, 0, 0],  # Day 2
+            [0, 0, 0, 0, 0],  # Day 3
+            [0, 0, 0, 0, 0],  # Day 4
+            [0, 0, 0, 0, 0],  # Day 5
+        ]
+        self.assertEqual(
+            pluck(result_first_time, "values", "count"),
+            expected_first_time_counts,
+        )
+
+        # Assert correctness of RETENTION_FIRST_EVER_OCCURRENCE
+        # First `target_event` is at `_date(0)` but doesn't match properties.
+        # So person1 is not in any cohort. Result should be all zeros.
+        expected_first_ever_counts = [
+            [0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0],
+        ]
+        self.assertEqual(
+            pluck(result_first_ever, "values", "count"),
+            expected_first_ever_counts,
+        )
+
 
 class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
     def run_query(self, query, *, limit_context: Optional[LimitContext] = None):
@@ -4938,7 +5018,6 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
             },
             breakdown=[str(cohort2.pk)],
         )
-
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0][0]["id"], person2.uuid)
         self.assertEqual(result[0][1], [0, 2])
