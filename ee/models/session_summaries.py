@@ -211,7 +211,6 @@ class SingleSessionSummary(ModelActivityMixin, UUIDModel):
     class Meta:
         db_table = "ee_single_session_summary"
         indexes = [
-            models.Index(fields=["session_id"]),
             models.Index(fields=["team", "session_id"]),
             GinIndex(
                 name="idx_exception_event_ids_gin",
