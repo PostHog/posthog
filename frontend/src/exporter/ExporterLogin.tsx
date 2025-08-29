@@ -14,8 +14,6 @@ import { SupportModalButton } from 'scenes/authentication/SupportModalButton'
 
 import type { loginLogicType } from './ExporterLoginType'
 
-// No separate type file needed - TypeScript will infer types
-
 export interface LoginForm {
     password: string
 }
@@ -28,7 +26,6 @@ export const loginLogic = kea<loginLogicType>([
         setSuccess: true,
     }),
     reducers({
-        // This is separate from the login form, so that the form can be submitted even if a general error is present
         generalError: [
             null as { code: string; detail: string } | null,
             {

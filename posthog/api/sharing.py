@@ -550,17 +550,12 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 )
             elif request.method == "GET" and is_jwt_authenticated:
                 # JWT authenticated (via cookie or Bearer) - render full app context
-                exported_data.pop("accessToken", None)  # Remove access_token to prevent direct API access
-                # Add app_context so frontend can initialize properly (same structure as POSTHOG_APP_CONTEXT)
-                exported_data["app_context"] = build_shared_app_context(resource.team, request)
 
                 # Include the JWT token from the cookie so frontend can use it for API calls
                 jwt_token = request.COOKIES.get("posthog_sharing_token")
                 if jwt_token:
                     exported_data["shareToken"] = jwt_token
-
                 # Continue processing to add dashboard/insight data to exported_data
-                pass
             elif request.method == "POST" and (
                 "password" not in request.data or not self._validate_share_password(resource, request.data["password"])
             ):
