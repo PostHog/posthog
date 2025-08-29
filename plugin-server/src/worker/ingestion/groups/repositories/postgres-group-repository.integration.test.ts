@@ -1598,4 +1598,102 @@ describe('PostgresGroupRepository Integration', () => {
             expect(rows[0].group_type).toBe(longGroupType)
         })
     })
+
+    describe('fetchGroupTypesByProjectIds', () => {
+        it('should return empty object for empty project IDs array', async () => {
+            const result = await repository.fetchGroupTypesByProjectIds([])
+            expect(result).toEqual({})
+        })
+
+        it('should return empty arrays for projects with no group types', async () => {
+            await insertTestTeam(teamId)
+            const localTeamId2 = 10 as TeamId
+            await insertTestTeam(localTeamId2)
+
+            const result = await repository.fetchGroupTypesByProjectIds([
+                teamId as ProjectId,
+                localTeamId2 as ProjectId,
+            ])
+
+            expect(result).toEqual({
+                [teamId]: [],
+                [localTeamId2]: [],
+            })
+        })
+
+        it('should fetch group types for single project', async () => {
+            await insertTestTeam(teamId)
+
+            // Insert some group types
+            await repository.insertGroupType(teamId, teamId as ProjectId, 'company', 0)
+            await repository.insertGroupType(teamId, teamId as ProjectId, 'organization', 1)
+
+            const result = await repository.fetchGroupTypesByProjectIds([teamId as ProjectId])
+
+            expect(result).toEqual({
+                [teamId]: [
+                    { group_type: 'company', group_type_index: 0 },
+                    { group_type: 'organization', group_type_index: 1 },
+                ],
+            })
+        })
+
+        it('should fetch group types for multiple projects', async () => {
+            const localTeamId1 = 10 as TeamId
+            const localTeamId2 = 11 as TeamId
+            await insertTestTeam(localTeamId1)
+            await insertTestTeam(localTeamId2)
+
+            // Insert group types for first project
+            await repository.insertGroupType(localTeamId1, localTeamId1 as ProjectId, 'company', 0)
+            await repository.insertGroupType(localTeamId1, localTeamId1 as ProjectId, 'team', 1)
+
+            // Insert group types for second project
+            await repository.insertGroupType(localTeamId2, localTeamId2 as ProjectId, 'organization', 0)
+
+            const result = await repository.fetchGroupTypesByProjectIds([
+                localTeamId1 as ProjectId,
+                localTeamId2 as ProjectId,
+            ])
+
+            expect(result).toEqual({
+                [localTeamId1]: [
+                    { group_type: 'company', group_type_index: 0 },
+                    { group_type: 'team', group_type_index: 1 },
+                ],
+                [localTeamId2]: [{ group_type: 'organization', group_type_index: 0 }],
+            })
+        })
+
+        it('should handle mix of projects with and without group types', async () => {
+            const localTeamId1 = 12 as TeamId
+            const localTeamId2 = 13 as TeamId
+            await insertTestTeam(localTeamId1)
+            await insertTestTeam(localTeamId2)
+
+            // Only insert group types for first project
+            await repository.insertGroupType(localTeamId1, localTeamId1 as ProjectId, 'company', 0)
+
+            const result = await repository.fetchGroupTypesByProjectIds([
+                localTeamId1 as ProjectId,
+                localTeamId2 as ProjectId,
+            ])
+
+            expect(result).toEqual({
+                [localTeamId1]: [{ group_type: 'company', group_type_index: 0 }],
+                [localTeamId2]: [],
+            })
+        })
+
+        it('should return correct types for group_type_index', async () => {
+            await insertTestTeam(teamId)
+            await repository.insertGroupType(teamId, teamId as ProjectId, 'company', 0)
+
+            const result = await repository.fetchGroupTypesByProjectIds([teamId as ProjectId])
+
+            // Verify the type is GroupTypeIndex (the test will fail at compile time if not)
+            const groupTypeIndex: GroupTypeIndex = result[teamId][0].group_type_index
+            expect(groupTypeIndex).toBe(0)
+        })
+    })
 })

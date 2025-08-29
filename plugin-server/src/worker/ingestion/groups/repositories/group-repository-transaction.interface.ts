@@ -40,6 +40,12 @@ export interface GroupRepositoryTransaction {
         tag: string
     ): Promise<number | undefined>
 
+    // Group Type Methods
+
+    fetchGroupTypesByProjectIds(
+        projectIds: ProjectId[]
+    ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>>
+
     insertGroupType(
         teamId: TeamId,
         projectId: ProjectId,

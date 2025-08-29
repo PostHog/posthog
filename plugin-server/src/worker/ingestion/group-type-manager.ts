@@ -1,5 +1,5 @@
 import { GroupTypeIndex, GroupTypeToColumnIndex, ProjectId, Team, TeamId } from '../../types'
-import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
+import { PostgresRouter } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
 import { LazyLoader } from '../../utils/lazy-loader'
 import { captureTeamEvent } from '../../utils/posthog'
@@ -27,16 +27,18 @@ export class GroupTypeManager {
                 const response: Record<string, GroupTypeToColumnIndex> = {}
                 const timeout = timeoutGuard(`Still running "fetchGroupTypes". Timeout warning after 30 sec!`)
                 try {
-                    const { rows } = await this.postgres.query(
-                        PostgresUse.PERSONS_READ,
-                        `SELECT * FROM posthog_grouptypemapping WHERE project_id = ANY($1)`,
-                        [Array.from(projectIds)],
-                        'fetchGroupTypes'
-                    )
-                    for (const row of rows) {
-                        const groupTypes = (response[row.project_id] = response[row.project_id] ?? {})
-                        groupTypes[row.group_type] = row.group_type_index
+                    const projectIdNumbers = projectIds.map((id) => parseInt(id) as ProjectId)
+                    const groupTypesByProject = await this.groupRepository.fetchGroupTypesByProjectIds(projectIdNumbers)
+
+                    for (const [projectIdStr, groupTypes] of Object.entries(groupTypesByProject)) {
+                        const groupTypeMapping: GroupTypeToColumnIndex = {}
+                        for (const groupType of groupTypes) {
+                            groupTypeMapping[groupType.group_type] = groupType.group_type_index
+                        }
+                        response[projectIdStr] = groupTypeMapping
                     }
+
+                    // Ensure all requested project IDs have an entry, even if empty
                     for (const projectId of projectIds) {
                         response[projectId] = response[projectId] ?? {}
                     }

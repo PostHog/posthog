@@ -55,6 +55,13 @@ export interface RawPostgresGroupRepository {
         propertiesLastOperation: PropertiesLastOperation
     ): Promise<number | undefined>
 
+    // Group Type Methods
+
+    fetchGroupTypesByProjectIds(
+        projectIds: ProjectId[],
+        tx?: TransactionClient
+    ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>>
+
     insertGroupType(
         teamId: TeamId,
         projectId: ProjectId,
@@ -62,6 +69,8 @@ export interface RawPostgresGroupRepository {
         index: number,
         tx?: TransactionClient
     ): Promise<[GroupTypeIndex | null, boolean]>
+
+    // Transaction Methods
 
     inRawTransaction<T>(description: string, transaction: (tx: TransactionClient) => Promise<T>): Promise<T>
 }

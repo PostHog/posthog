@@ -157,6 +157,13 @@ export class DualWriteGroupRepositoryTransaction implements GroupRepositoryTrans
         }
     }
 
+    async fetchGroupTypesByProjectIds(
+        projectIds: ProjectId[]
+    ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>> {
+        // For read operations, only query the primary repository
+        return await this.primaryRepo.fetchGroupTypesByProjectIds(projectIds, this.lTx)
+    }
+
     async insertGroupType(
         teamId: TeamId,
         projectId: ProjectId,

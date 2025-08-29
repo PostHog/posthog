@@ -176,6 +176,43 @@ export class PostgresGroupRepository
         return Number(result.rows[0].version || 0)
     }
 
+    async fetchGroupTypesByProjectIds(
+        projectIds: ProjectId[],
+        tx?: TransactionClient
+    ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>> {
+        if (projectIds.length === 0) {
+            return {}
+        }
+
+        const { rows } = await this.postgres.query(
+            tx ?? PostgresUse.PERSONS_READ,
+            `SELECT project_id, group_type, group_type_index FROM posthog_grouptypemapping WHERE project_id = ANY($1)`,
+            [projectIds],
+            'fetchGroupTypesByProjectIds'
+        )
+
+        const response: Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]> = {}
+
+        // Initialize empty arrays for all requested project IDs
+        for (const projectId of projectIds) {
+            response[projectId.toString()] = []
+        }
+
+        // Group the results by project_id
+        for (const row of rows) {
+            const projectIdStr = row.project_id.toString()
+            if (!response[projectIdStr]) {
+                response[projectIdStr] = []
+            }
+            response[projectIdStr].push({
+                group_type: row.group_type,
+                group_type_index: row.group_type_index as GroupTypeIndex,
+            })
+        }
+
+        return response
+    }
+
     async insertGroupType(
         teamId: TeamId,
         projectId: ProjectId,

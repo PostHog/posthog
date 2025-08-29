@@ -73,6 +73,12 @@ export class PostgresGroupRepositoryTransaction implements GroupRepositoryTransa
         )
     }
 
+    async fetchGroupTypesByProjectIds(
+        projectIds: ProjectId[]
+    ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>> {
+        return await this.repository.fetchGroupTypesByProjectIds(projectIds, this.tx)
+    }
+
     async insertGroupType(
         teamId: TeamId,
         projectId: ProjectId,

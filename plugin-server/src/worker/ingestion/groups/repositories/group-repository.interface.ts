@@ -52,12 +52,20 @@ export interface GroupRepository {
         propertiesLastOperation: PropertiesLastOperation
     ): Promise<number | undefined>
 
+    // Group Type Methods
+
+    fetchGroupTypesByProjectIds(
+        projectIds: ProjectId[]
+    ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>>
+
     insertGroupType(
         teamId: TeamId,
         projectId: ProjectId,
         groupType: string,
         index: number
     ): Promise<[GroupTypeIndex | null, boolean]>
+
+    // Transaction Methods
 
     inTransaction<T>(description: string, transaction: (tx: GroupRepositoryTransaction) => Promise<T>): Promise<T>
 }

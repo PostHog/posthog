@@ -1282,4 +1282,82 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
             compareSpy.mockRestore()
         })
     })
+
+    describe('fetchGroupTypesByProjectIds() 2PC tests', () => {
+        const teamId = 1 as TeamId
+        const projectId = 1 as ProjectId
+
+        it('should fetch from primary repository only', async () => {
+            // Insert group types using the dual-write repository (writes to both)
+            await repository.insertGroupType(teamId, projectId, 'company', 0)
+            await repository.insertGroupType(teamId, projectId, 'organization', 1)
+
+            const result = await repository.fetchGroupTypesByProjectIds([projectId])
+
+            expect(result).toEqual({
+                [projectId]: [
+                    { group_type: 'company', group_type_index: 0 },
+                    { group_type: 'organization', group_type_index: 1 },
+                ],
+            })
+        })
+
+        it('should return empty object for empty project IDs array', async () => {
+            const result = await repository.fetchGroupTypesByProjectIds([])
+            expect(result).toEqual({})
+        })
+
+        it('should return empty arrays for projects with no group types', async () => {
+            const result = await repository.fetchGroupTypesByProjectIds([projectId])
+            expect(result).toEqual({
+                [projectId]: [],
+            })
+        })
+
+        it('should handle multiple projects', async () => {
+            const localTeamId1 = 15 as TeamId
+            const localTeamId2 = 16 as TeamId
+            const localProjectId1 = 15 as ProjectId
+            const localProjectId2 = 16 as ProjectId
+
+            await insertTestTeam(postgres, localTeamId1)
+            await insertTestTeam(postgres, localTeamId2)
+
+            // Insert group types for both projects
+            await repository.insertGroupType(localTeamId1, localProjectId1, 'company', 0)
+            await repository.insertGroupType(localTeamId2, localProjectId2, 'organization', 0)
+
+            const result = await repository.fetchGroupTypesByProjectIds([localProjectId1, localProjectId2])
+
+            expect(result).toEqual({
+                [localProjectId1]: [{ group_type: 'company', group_type_index: 0 }],
+                [localProjectId2]: [{ group_type: 'organization', group_type_index: 0 }],
+            })
+        })
+
+        it('should read from primary only (not secondary)', async () => {
+            // Insert directly to primary only using postgres client
+            await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'INSERT INTO posthog_grouptypemapping (team_id, project_id, group_type, group_type_index, created_at) VALUES ($1, $2, $3, $4, $5)',
+                [teamId, projectId, 'primary_only', 0, new Date()],
+                'insert-primary-only'
+            )
+
+            const result = await repository.fetchGroupTypesByProjectIds([projectId])
+
+            expect(result).toEqual({
+                [projectId]: [{ group_type: 'primary_only', group_type_index: 0 }],
+            })
+
+            // Verify secondary has no data
+            const secondaryResult = await migrationPostgres.query(
+                PostgresUse.PERSONS_READ,
+                'SELECT * FROM posthog_grouptypemapping WHERE project_id = $1',
+                [projectId],
+                'test-secondary-check'
+            )
+            expect(secondaryResult.rows).toHaveLength(0)
+        })
+    })
 })

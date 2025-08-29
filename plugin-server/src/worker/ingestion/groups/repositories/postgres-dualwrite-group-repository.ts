@@ -288,6 +288,13 @@ export class PostgresDualWriteGroupRepository implements GroupRepository {
         }
     }
 
+    async fetchGroupTypesByProjectIds(
+        projectIds: ProjectId[]
+    ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>> {
+        // For read operations, only query the primary repository
+        return await this.primaryRepo.fetchGroupTypesByProjectIds(projectIds)
+    }
+
     private compareUpdateGroupResults(primary: number | undefined, secondary: number | undefined, tag: string): void {
         if (primary !== secondary) {
             if (primary === undefined || secondary === undefined) {
