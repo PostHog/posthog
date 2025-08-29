@@ -17,7 +17,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
-import { PipelineStage, ProductKey } from '~/types'
+import { ProductKey } from '~/types'
 
 import { RevenueAnalyticsFilters } from './RevenueAnalyticsFilters'
 import { REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID, revenueAnalyticsLogic } from './revenueAnalyticsLogic'
@@ -174,7 +174,7 @@ const RevenueAnalyticsSceneOnboarding = (): JSX.Element => {
                             sideIcon={<IconDatabase />}
                             onClick={() => {
                                 updateHasSeenProductIntroFor(ProductKey.REVENUE_ANALYTICS, true)
-                                router.actions.push(urls.pipelineNodeNew(PipelineStage.Source, { source: 'Stripe' }))
+                                router.actions.push(urls.dataWarehouseSourceNew('stripe'))
                             }}
                             data-attr="create-revenue-source"
                         >

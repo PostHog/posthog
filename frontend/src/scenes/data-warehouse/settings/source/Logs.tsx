@@ -5,12 +5,35 @@ import { LemonButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 import { LOGS_PORTION_LIMIT } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils'
-import { LogLevelDisplay } from 'scenes/pipeline/utils'
 
-import { ExternalDataJob, LogEntry } from '~/types'
+import { ExternalDataJob, LogEntry, LogEntryLevel } from '~/types'
 
 import { schemaLogLogic } from './schemaLogLogic'
 
+export function LogLevelDisplay(level: LogEntryLevel): JSX.Element {
+    let color: string | undefined
+    switch (level) {
+        case 'DEBUG':
+            color = 'text-muted'
+            break
+        case 'LOG':
+            color = 'text-text-3000'
+            break
+        case 'INFO':
+            color = 'text-accent'
+            break
+        case 'WARNING':
+        case 'WARN':
+            color = 'text-warning'
+            break
+        case 'ERROR':
+            color = 'text-danger'
+            break
+        default:
+            break
+    }
+    return <span className={color}>{level}</span>
+}
 const columns: LemonTableColumns<LogEntry> = [
     {
         title: 'Timestamp',
@@ -51,7 +74,7 @@ export const LogsView = ({ job }: LogsTableProps): JSX.Element => {
     const { revealBackground, loadSchemaLogsMore } = useActions(logic)
 
     return (
-        <div className="ph-no-capture deprecated-space-y-2 flex-1">
+        <div className="flex-1 ph-no-capture deprecated-space-y-2">
             <LemonButton
                 onClick={revealBackground}
                 loading={logsLoading}

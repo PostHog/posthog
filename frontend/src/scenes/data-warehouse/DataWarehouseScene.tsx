@@ -14,7 +14,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { DataWarehouseActivityRecord, DataWarehouseDashboardDataSource, PipelineTab } from '~/types'
+import { DataWarehouseActivityRecord, DataWarehouseDashboardDataSource } from '~/types'
 
 import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 
@@ -244,7 +244,7 @@ export function DataWarehouseScene(): JSX.Element {
                                 </LemonTag>
                             </div>
                             <LemonButton
-                                to={urls.pipeline(PipelineTab.Sources)}
+                                to={urls.dataPipelines('sources')}
                                 size="small"
                                 type="secondary"
                                 className="mb-3"
