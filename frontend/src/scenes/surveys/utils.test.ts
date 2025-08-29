@@ -3,6 +3,7 @@ import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 import { EventPropertyFilter, PropertyFilterType, Survey, SurveyAppearance, SurveyQuestionType } from '~/types'
 
 import {
+    buildSurveyTimestampFilter,
     calculateNpsBreakdown,
     createAnswerFilterHogQLExpression,
     getSurveyEndDateForQuery,
@@ -294,6 +295,54 @@ describe('survey utils', () => {
                 promoters: 0,
                 score: '-100.0',
                 total: 14,
+            })
+        })
+    })
+
+    describe('buildSurveyTimestampFilter', () => {
+        it('uses survey default dates when no date range provided', () => {
+            const survey = { created_at: '2024-08-27T15:30:00Z', end_date: '2024-08-30T10:00:00Z' }
+            const result = buildSurveyTimestampFilter(survey)
+
+            expect(result).toBe(`AND timestamp >= '2024-08-27T00:00:00'
+        AND timestamp <= '2024-08-30T23:59:59'`)
+        })
+
+        it('respects user date range when provided', () => {
+            const survey = { created_at: '2024-08-27T15:30:00Z', end_date: '2024-08-30T10:00:00Z' }
+            const dateRange = { date_from: '2024-08-28', date_to: '2024-08-29' }
+            const result = buildSurveyTimestampFilter(survey, dateRange)
+
+            expect(result).toBe(`AND timestamp >= '2024-08-28T00:00:00'
+    AND timestamp <= '2024-08-29T23:59:59'`)
+        })
+
+        it('enforces survey creation date as minimum even with earlier user date', () => {
+            const survey = { created_at: '2024-08-27T15:30:00Z', end_date: null }
+            const dateRange = { date_from: '2024-08-25', date_to: '2024-08-29' } // Earlier than survey creation
+            const result = buildSurveyTimestampFilter(survey, dateRange)
+
+            expect(result).toContain(`timestamp >= '2024-08-27T00:00:00'`) // Should use survey start, not user's earlier date
+        })
+
+        it('handles timezone consistency across different user timezones', () => {
+            const timezones = [0, 180, -480] // UTC, GMT-3, GMT+8
+
+            timezones.forEach((offset) => {
+                const originalGetTimezoneOffset = Date.prototype.getTimezoneOffset
+                Date.prototype.getTimezoneOffset = jest.fn(() => offset)
+
+                try {
+                    const survey = { created_at: '2024-08-27T15:30:00Z', end_date: '2024-08-30T10:00:00Z' }
+                    const dateRange = { date_from: '2024-08-28T12:00:00Z', date_to: '2024-08-29T12:00:00Z' }
+                    const result = buildSurveyTimestampFilter(survey, dateRange)
+
+                    // All timezones should produce the same result
+                    expect(result).toBe(`AND timestamp >= '2024-08-28T00:00:00'
+    AND timestamp <= '2024-08-29T23:59:59'`)
+                } finally {
+                    Date.prototype.getTimezoneOffset = originalGetTimezoneOffset
+                }
             })
         })
     })
