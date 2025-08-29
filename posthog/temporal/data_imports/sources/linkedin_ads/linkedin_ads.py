@@ -22,6 +22,30 @@ from posthog.temporal.data_imports.sources.linkedin_ads.schemas import (
 
 logger = structlog.get_logger(__name__)
 
+# LinkedIn URN constants
+LINKEDIN_SPONSORED_URN_PREFIX = "urn:li:sponsored"
+
+
+def extract_linkedin_id_from_urn(urn: str) -> str:
+    """Extract the ID from a LinkedIn URN.
+    
+    Args:
+        urn: LinkedIn URN like "urn:li:sponsoredCampaign:185129613"
+        
+    Returns:
+        The extracted ID like "185129613"
+    """
+    if not urn:
+        return urn
+    
+    # Split by ':' and take the last part which is the ID
+    parts = urn.split(':')
+    if len(parts) >= 4 and parts[0] == 'urn' and parts[1] == 'li' and parts[2].startswith('sponsored'):
+        return parts[3]
+    
+    # If not a recognized LinkedIn URN format, return as-is
+    return urn
+
 
 class LinkedinAdsError(Exception):
     """Base exception for LinkedIn Ads API errors."""
@@ -632,6 +656,55 @@ def linkedin_ads_source(
                 if "end" in item["dateRange"]:
                     end = item["dateRange"]["end"]
                     flattened_item["date_range_end"] = dt.date(end['year'], end['month'], end['day'])
+            
+            # Transform pivotValues from array to specific pivot columns
+            if "pivotValues" in item and isinstance(item["pivotValues"], list):
+                # Extract IDs and create specific columns based on pivot type
+                for pivot_value in item["pivotValues"]:
+                    if isinstance(pivot_value, str) and pivot_value.startswith(LINKEDIN_SPONSORED_URN_PREFIX):
+                        # Remove the LinkedIn URN prefix to get the type and ID part
+                        # "urn:li:sponsoredCampaign:185129613" -> "Campaign:185129613"
+                        cleaned = pivot_value.replace(LINKEDIN_SPONSORED_URN_PREFIX, "")
+                        
+                        if ":" in cleaned:
+                            pivot_type, pivot_id_str = cleaned.split(":", 1)
+                            
+                            # Convert ID to integer (LinkedIn IDs are always integers)
+                            try:
+                                pivot_id = int(pivot_id_str)
+                            except ValueError:
+                                logger.warning("Failed to convert pivot ID to int", 
+                                             pivot_id=pivot_id_str, 
+                                             pivot_type=pivot_type,
+                                             resource_name=resource_name)
+                                pivot_id = pivot_id_str  # Keep as string if conversion fails
+                            
+                            # Convert pivot type to lowercase column name
+                            if pivot_type == "Campaign":
+                                flattened_item["campaign_id"] = pivot_id
+                            elif pivot_type == "CampaignGroup":
+                                flattened_item["campaign_group_id"] = pivot_id
+                            elif pivot_type == "Creative":
+                                flattened_item["creative_id"] = pivot_id
+                            elif pivot_type == "Account":
+                                flattened_item["account_id"] = pivot_id
+                            else:
+                                # For any other pivot types, use a generic pattern
+                                column_name = pivot_type.lower() + "_id"
+                                flattened_item[column_name] = pivot_id
+                
+            
+            # Convert cost_in_usd from String to Float
+            if "costInUsd" in item:
+                try:
+                    flattened_item["cost_in_usd"] = float(item["costInUsd"]) if item["costInUsd"] is not None else None
+                except (ValueError, TypeError):
+                    logger.warning("Failed to convert costInUsd to float", 
+                                 cost_in_usd=item["costInUsd"], 
+                                 resource_name=resource_name)
+                    flattened_item["cost_in_usd"] = None
+                # Remove the original camelCase field since we've converted it
+                flattened_item.pop("costInUsd", None)
             
             # Flatten changeAuditStamps structure for campaigns/campaign groups
             if "changeAuditStamps" in item:
