@@ -1,8 +1,11 @@
 from typing import Any, Optional
+
+from django.conf import settings
+
+from structlog import get_logger
+
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.temporal.common.codec import EncryptionCodec
-from django.conf import settings
-from structlog import get_logger
 
 REDACTED_PAYLOAD_VALUE = '"********* (encrypted)"'
 

@@ -1,17 +1,18 @@
-import dataclasses
-from hashlib import md5
-import json
-from datetime import datetime
 import os
+import json
+import dataclasses
+from datetime import datetime
+from hashlib import md5
 from typing import Any
 from uuid import UUID, uuid4
+
+from posthog.test.base import _create_event, flush_persons_and_events
 
 from django.utils import timezone
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Group, Person, PersonDistinctId, Team
 from posthog.models.event.sql import EVENTS_DATA_TABLE
-from posthog.test.base import _create_event, flush_persons_and_events
 
 
 def journeys_for(

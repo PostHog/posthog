@@ -1,63 +1,55 @@
 from typing import Literal, Optional, cast
 
+from django.db import models
+from django.db.models import Q
 from django.db.models.functions.comparison import Coalesce
+
 from pydantic import BaseModel
 
-from posthog.constants import (
-    AUTOCAPTURE_EVENT,
-    TREND_FILTER_TYPE_ACTIONS,
-    PropertyOperatorType,
+from posthog.schema import (
+    CohortPropertyFilter,
+    DataWarehousePersonPropertyFilter,
+    DataWarehousePropertyFilter,
+    ElementPropertyFilter,
+    EmptyPropertyFilter,
+    ErrorTrackingIssueFilter,
+    EventMetadataPropertyFilter,
+    EventPropertyFilter,
+    FeaturePropertyFilter,
+    FilterLogicalOperator,
+    FlagPropertyFilter,
+    GroupPropertyFilter,
+    HogQLPropertyFilter,
+    LogEntryPropertyFilter,
+    LogPropertyFilter,
+    PersonPropertyFilter,
+    PropertyGroupFilter,
+    PropertyGroupFilterValue,
+    PropertyOperator,
+    RecordingPropertyFilter,
+    RetentionEntity,
+    RevenueAnalyticsPropertyFilter,
+    SessionPropertyFilter,
 )
+
 from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.errors import NotImplementedError, QueryError
 from posthog.hogql.functions import find_hogql_aggregation
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
-from posthog.models import (
-    Action,
-    Cohort,
-    Property,
-    PropertyDefinition,
-    Team,
-)
-from posthog.models.event import Selector
+
+from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
+from posthog.models import Action, Cohort, Property, PropertyDefinition, Team
 from posthog.models.element import Element
+from posthog.models.event import Selector
 from posthog.models.property import PropertyGroup, ValueT
 from posthog.models.property.util import build_selector_regex
 from posthog.models.property_definition import PropertyType
-from posthog.schema import (
-    EventMetadataPropertyFilter,
-    RevenueAnalyticsPropertyFilter,
-    FilterLogicalOperator,
-    PropertyGroupFilter,
-    PropertyGroupFilterValue,
-    PropertyOperator,
-    RetentionEntity,
-    EventPropertyFilter,
-    PersonPropertyFilter,
-    ElementPropertyFilter,
-    SessionPropertyFilter,
-    CohortPropertyFilter,
-    RecordingPropertyFilter,
-    LogEntryPropertyFilter,
-    GroupPropertyFilter,
-    FeaturePropertyFilter,
-    FlagPropertyFilter,
-    HogQLPropertyFilter,
-    EmptyPropertyFilter,
-    DataWarehousePropertyFilter,
-    DataWarehousePersonPropertyFilter,
-    ErrorTrackingIssueFilter,
-    LogPropertyFilter,
-)
-from posthog.warehouse.models import DataWarehouseJoin
 from posthog.utils import get_from_dict_or_attr
-from django.db.models import Q
-from django.db import models
-
-
+from posthog.warehouse.models import DataWarehouseJoin
 from posthog.warehouse.models.util import get_view_or_table_by_name
+
 from products.revenue_analytics.backend.views import (
     RevenueAnalyticsCustomerView,
     RevenueAnalyticsProductView,

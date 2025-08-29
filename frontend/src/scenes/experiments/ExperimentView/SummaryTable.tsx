@@ -39,11 +39,11 @@ import { VariantTag } from './components'
 
 export function SummaryTable({
     metric,
-    metricIndex = 0,
+    displayOrder = 0,
     isSecondary = false,
 }: {
     metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery
-    metricIndex?: number
+    displayOrder?: number
     isSecondary?: boolean
 }): JSX.Element {
     const {
@@ -57,8 +57,8 @@ export function SummaryTable({
     } = useValues(experimentLogic)
     const insightType = getInsightType(metric)
     const result = isSecondary
-        ? legacySecondaryMetricsResults?.[metricIndex]
-        : legacyPrimaryMetricsResults?.[metricIndex]
+        ? legacySecondaryMetricsResults?.[displayOrder]
+        : legacyPrimaryMetricsResults?.[displayOrder]
     if (!result) {
         return <></>
     }
@@ -396,7 +396,7 @@ export function SummaryTable({
             <LemonTable
                 loading={false}
                 columns={columns}
-                dataSource={tabularExperimentResults(metricIndex, isSecondary)}
+                dataSource={tabularExperimentResults(displayOrder, isSecondary)}
             />
         </div>
     )

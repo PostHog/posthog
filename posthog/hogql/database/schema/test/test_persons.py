@@ -1,37 +1,40 @@
-from parameterized import parameterized
+from datetime import datetime
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
-from posthog.schema import (
-    PersonsOnEventsMode,
-    InsightActorsQuery,
-    TrendsQuery,
-    ActorsQuery,
-    EventsNode,
-    DateRange,
-    CustomChannelRule,
-    CustomChannelCondition,
-    FilterLogicalOperator,
-    CustomChannelField,
-    CustomChannelOperator,
-    HogQLQueryModifiers,
-)
-from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.query import execute_hogql_query
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
-    _create_person,
     _create_event,
-    snapshot_clickhouse_queries,
+    _create_person,
     flush_persons_and_events,
+    snapshot_clickhouse_queries,
 )
-from posthog.models.person.util import create_person
-from datetime import datetime
+from unittest.mock import Mock, patch
 
-from unittest.mock import patch, Mock
+from parameterized import parameterized
+
+from posthog.schema import (
+    ActorsQuery,
+    CustomChannelCondition,
+    CustomChannelField,
+    CustomChannelOperator,
+    CustomChannelRule,
+    DateRange,
+    EventsNode,
+    FilterLogicalOperator,
+    HogQLQueryModifiers,
+    InsightActorsQuery,
+    PersonsOnEventsMode,
+    TrendsQuery,
+)
+
+from posthog.hogql import ast
+from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
+from posthog.models.person.util import create_person
 
 
 @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))  # for persons-inner-where-optimization

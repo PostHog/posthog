@@ -1,28 +1,26 @@
 import json
-from django.http import HttpRequest
-import structlog
 from typing import TYPE_CHECKING, Optional, cast
-from django.contrib.auth.base_user import AbstractBaseUser
-from django.db.models import QuerySet
 
+from django.contrib.auth.base_user import AbstractBaseUser
 from django.core.cache import cache
 from django.db import models, transaction
+from django.db.models import QuerySet
 from django.db.models.signals import post_delete, post_save
+from django.http import HttpRequest
 from django.utils import timezone
-from posthog.exceptions_capture import capture_exception
-from posthog.models.file_system.file_system_representation import FileSystemRepresentation
-from posthog.models.signals import mutable_receiver
-from posthog.models.activity_logging.model_activity import ModelActivityMixin
-from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
-from posthog.models.utils import RootTeamMixin
 
-from posthog.constants import (
-    ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER,
-    PropertyOperatorType,
-)
+import structlog
+
+from posthog.constants import ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER, PropertyOperatorType
+from posthog.exceptions_capture import capture_exception
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.cohort import Cohort, CohortOrEmpty
+from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.property import GroupTypeIndex
 from posthog.models.property.property import Property, PropertyGroup
+from posthog.models.signals import mutable_receiver
+from posthog.models.utils import RootTeamMixin
 
 FIVE_DAYS = 60 * 60 * 24 * 5  # 5 days in seconds
 

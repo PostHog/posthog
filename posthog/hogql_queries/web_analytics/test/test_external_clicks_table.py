@@ -1,17 +1,6 @@
 from typing import Optional, Union
 
 from freezegun import freeze_time
-
-from posthog.hogql_queries.web_analytics.external_clicks import WebExternalClicksTableQueryRunner
-from posthog.models.utils import uuid7
-from posthog.schema import (
-    DateRange,
-    SessionTableVersion,
-    HogQLQueryModifiers,
-    WebAnalyticsOrderByDirection,
-    WebAnalyticsOrderByFields,
-    WebExternalClicksTableQuery,
-)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -19,6 +8,18 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
 )
+
+from posthog.schema import (
+    DateRange,
+    HogQLQueryModifiers,
+    SessionTableVersion,
+    WebAnalyticsOrderByDirection,
+    WebAnalyticsOrderByFields,
+    WebExternalClicksTableQuery,
+)
+
+from posthog.hogql_queries.web_analytics.external_clicks import WebExternalClicksTableQueryRunner
+from posthog.models.utils import uuid7
 
 
 @snapshot_clickhouse_queries

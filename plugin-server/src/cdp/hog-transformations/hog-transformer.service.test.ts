@@ -727,6 +727,7 @@ describe('HogTransformer', () => {
                     bytecode: await compileHog(`
                         return event = 'match-me'
                     `),
+                    events: [{ id: 'match-me', name: 'match-me', type: 'events', order: 0 }],
                 },
             })
 
@@ -810,6 +811,7 @@ describe('HogTransformer', () => {
                     bytecode: await compileHog(`
                         return event = 'match-me'
                     `),
+                    events: [{ id: 'match-me', name: 'match-me', type: 'events', order: 0 }],
                 },
             })
 
@@ -1034,6 +1036,7 @@ describe('HogTransformer', () => {
                     bytecode: await compileHog(`
                         return event = 'match-me'
                     `),
+                    events: [{ id: 'match-me', name: 'match-me', type: 'events', order: 0 }],
                 },
             })
 
@@ -1080,6 +1083,7 @@ describe('HogTransformer', () => {
                         // Filter that matches events with event name 'match-me'
                         return event = 'match-me'
                     `),
+                    events: [{ id: 'match-me', name: 'match-me', type: 'events', order: 0 }],
                 },
             })
 
@@ -1192,6 +1196,7 @@ describe('HogTransformer', () => {
                         // Invalid filter that will throw an error
                         lol
                     `),
+                    events: [{ id: 'test-event', name: 'test-event', type: 'events', order: 0 }],
                 },
             })
 
@@ -1259,6 +1264,10 @@ describe('HogTransformer', () => {
                         // Only transform if at least one filter matches
                         return filter1 or filter2
                     `),
+                    events: [
+                        { id: 'match-me-1', name: 'match-me-1', type: 'events', order: 0 },
+                        { id: 'match-me-2', name: 'match-me-2', type: 'events', order: 1 },
+                    ],
                 },
             })
 

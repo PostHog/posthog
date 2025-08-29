@@ -5,10 +5,11 @@ from . import (
     calculate_cohort,
     demo_create_data,
     demo_reset_master_team,
+    early_access_feature,
     email,
     exporter,
-    feature_flags,
     feature_flag_webhooks,
+    feature_flags,
     hog_functions,
     integrations,
     plugin_server,
@@ -22,7 +23,6 @@ from . import (
     user_identify,
     verify_persons_data_in_sync,
     warehouse,
-    early_access_feature,
 )
 
 __all__ = [
