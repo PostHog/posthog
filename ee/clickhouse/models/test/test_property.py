@@ -4,17 +4,23 @@ from uuid import UUID
 
 import pytest
 from freezegun.api import freeze_time
+from posthog.test.base import (
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    cleanup_materialized_columns,
+    snapshot_clickhouse_queries,
+)
+
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.materialized_columns.columns import materialize
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import PropertyOperatorType
 from posthog.models.cohort import Cohort
 from posthog.models.element import Element
 from posthog.models.filters import Filter
-from posthog.models.instance_setting import (
-    get_instance_setting,
-)
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization
 from posthog.models.property import Property, TableWithProperties
 from posthog.models.property.util import (
@@ -29,14 +35,8 @@ from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.property_optimizer import PropertyOptimizer
 from posthog.queries.util import PersonPropertiesMode
-from posthog.test.base import (
-    BaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    cleanup_materialized_columns,
-    snapshot_clickhouse_queries,
-)
+
+from ee.clickhouse.materialized_columns.columns import materialize
 
 
 class TestPropFormat(ClickhouseTestMixin, BaseTest):

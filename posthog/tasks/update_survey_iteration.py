@@ -1,8 +1,9 @@
+from datetime import date
 from typing import Any
 
 from django.db.models import ForeignKey
-from datetime import date
-from posthog.models import Survey, FeatureFlag
+
+from posthog.models import FeatureFlag, Survey
 
 
 def _update_survey_iteration(survey: Survey) -> None:

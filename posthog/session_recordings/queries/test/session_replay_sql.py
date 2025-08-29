@@ -2,16 +2,14 @@ from datetime import datetime
 from typing import Optional
 from uuid import uuid4
 
+from django.conf import settings
+
 from dateutil.parser import parse
 from dateutil.relativedelta import relativedelta
-from django.conf import settings
 
 from posthog.clickhouse.log_entries import INSERT_LOG_ENTRY_SQL
 from posthog.kafka_client.client import ClickhouseProducer
-from posthog.kafka_client.topics import (
-    KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
-    KAFKA_LOG_ENTRIES,
-)
+from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS, KAFKA_LOG_ENTRIES
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.utils import cast_timestamp_or_now
 
@@ -136,6 +134,7 @@ def produce_replay_summary(
     block_urls: list[str] | None = None,
     block_first_timestamps: list[datetime] | None = None,
     block_last_timestamps: list[datetime] | None = None,
+    retention_period: str | None = None,
 ):
     """
     Creates a session replay event in ClickHouse for testing purposes.
@@ -168,6 +167,7 @@ def produce_replay_summary(
         "block_urls": block_urls or [],
         "block_first_timestamps": block_first_timestamps or [],
         "block_last_timestamps": block_last_timestamps or [],
+        "retention_period": retention_period or "30d",
     }
 
     if settings.TEST:

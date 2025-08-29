@@ -1,11 +1,8 @@
-from posthog.hogql.database.models import (
-    BooleanDatabaseField,
-    DateTimeDatabaseField,
-    StringDatabaseField,
-)
 from posthog.schema import DatabaseSchemaManagedViewTableKind
-from ._definitions import BASE_CURRENCY_FIELDS, Schema, FieldsDict
 
+from posthog.hogql.database.models import BooleanDatabaseField, DateTimeDatabaseField, StringDatabaseField
+
+from ._definitions import BASE_CURRENCY_FIELDS, FieldsDict, Schema
 
 FIELDS: FieldsDict = {
     "id": StringDatabaseField(name="id"),
@@ -16,6 +13,11 @@ FIELDS: FieldsDict = {
     "is_recurring": BooleanDatabaseField(name="is_recurring"),
     "product_id": StringDatabaseField(name="product_id"),
     "customer_id": StringDatabaseField(name="customer_id"),
+    "group_0_key": StringDatabaseField(name="group_0_key"),
+    "group_1_key": StringDatabaseField(name="group_1_key"),
+    "group_2_key": StringDatabaseField(name="group_2_key"),
+    "group_3_key": StringDatabaseField(name="group_3_key"),
+    "group_4_key": StringDatabaseField(name="group_4_key"),
     "invoice_id": StringDatabaseField(name="invoice_id"),
     "subscription_id": StringDatabaseField(name="subscription_id"),
     "session_id": StringDatabaseField(name="session_id"),

@@ -2,7 +2,7 @@
     .Navigation3000 & {
         position: absolute;
         inset: 0;
-        padding: 0 1rem;
+        padding: 0 2.5rem; // 2.5rem is the minimum to accommodate the heading toggle
         overflow-y: auto;
     }
 

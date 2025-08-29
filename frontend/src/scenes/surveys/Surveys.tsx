@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import posthog from 'posthog-js'
 
 import {
     LemonButton,
@@ -20,11 +19,13 @@ import { MemberSelect } from 'lib/components/MemberSelect'
 import { PageHeader } from 'lib/components/PageHeader'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { cn } from 'lib/utils/css-classes'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
@@ -32,10 +33,13 @@ import MaxTool from 'scenes/max/MaxTool'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
 import { SurveysEmptyState } from 'scenes/surveys/components/empty-state/SurveysEmptyState'
-import { isSurveyRunning } from 'scenes/surveys/utils'
+import { captureMaxAISurveyCreationException, isSurveyRunning } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ActivityScope, ProductKey, ProgressStatus, Survey } from '~/types'
 
 
@@ -74,7 +78,12 @@ function NewSurveyButton(): JSX.Element {
             context={{
                 user_id: user.uuid,
             }}
-            callback={(toolOutput: { survey_id?: string; survey_name?: string; error?: string }) => {
+            callback={(toolOutput: {
+                survey_id?: string
+                survey_name?: string
+                error?: string
+                error_message?: string
+            }) => {
                 addProductIntent({
                     product_type: ProductKey.SURVEYS,
                     intent_context: ProductIntentContext.SURVEY_CREATED,
@@ -86,10 +95,7 @@ function NewSurveyButton(): JSX.Element {
                 })
 
                 if (toolOutput?.error || !toolOutput?.survey_id) {
-                    posthog.captureException('survey-creation-failed', {
-                        error: toolOutput.error,
-                    })
-                    return
+                    return captureMaxAISurveyCreationException(toolOutput.error)
                 }
 
                 // Refresh surveys list to show new survey, then redirect to it
@@ -116,6 +122,7 @@ function Surveys(): JSX.Element {
         hasNextPage,
         hasNextSearchPage,
     } = useValues(surveysLogic)
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const { deleteSurvey, updateSurvey, setSearchTerm, setSurveysFilters, setTab, loadNextPage, loadNextSearchPage } =
         useActions(surveysLogic)
@@ -124,7 +131,7 @@ function Surveys(): JSX.Element {
     const shouldShowEmptyState = !dataLoading && surveys.length === 0
 
     return (
-        <div>
+        <SceneContent>
             <PageHeader
                 buttons={
                     <>
@@ -134,24 +141,36 @@ function Surveys(): JSX.Element {
                 }
                 className="flex gap-2 justify-between items-center min-w-full"
                 caption={
-                    <>
-                        <div>
-                            Check out our
-                            <Link
-                                data-attr="survey-help"
-                                to="https://posthog.com/docs/surveys?utm_medium=in-product&utm_campaign=new-survey"
-                                target="_blank"
-                            >
-                                {' '}
-                                surveys docs
-                            </Link>{' '}
-                            to learn more.
-                        </div>
-                    </>
+                    !newSceneLayout ? (
+                        <>
+                            <div>
+                                Check out our
+                                <Link
+                                    data-attr="survey-help"
+                                    to="https://posthog.com/docs/surveys?utm_medium=in-product&utm_campaign=new-survey"
+                                    target="_blank"
+                                >
+                                    {' '}
+                                    surveys docs
+                                </Link>{' '}
+                                to learn more.
+                            </div>
+                        </>
+                    ) : null
                 }
                 tabbedPage
             />
             <SurveysDisabledBanner />
+            <SceneTitleSection
+                name="Surveys"
+                description="Create surveys to collect feedback from your users"
+                resourceType={{
+                    type: 'survey',
+                    typePlural: 'surveys',
+                }}
+                docsURL="https://posthog.com/docs/surveys?utm_medium=in-product&utm_campaign=new-survey"
+            />
+            <SceneDivider />
             <LemonTabs
                 activeKey={tab}
                 onChange={(newTab) => setTab(newTab as SurveysTabs)}
@@ -162,6 +181,7 @@ function Surveys(): JSX.Element {
                     { key: SurveysTabs.History, label: 'History' },
                     { key: SurveysTabs.Settings, label: 'Settings' },
                 ]}
+                sceneInset={newSceneLayout}
             />
             {tab === SurveysTabs.Settings && <SurveySettings />}
             {tab === SurveysTabs.Notifications && (
@@ -175,10 +195,7 @@ function Surveys(): JSX.Element {
 
             {(tab === SurveysTabs.Active || tab === SurveysTabs.Archived) && (
                 <>
-                    <SurveyResponseLimitWidget />
-                    <div className="deprecated-space-y-2">
-                        <VersionCheckerBanner />
-                    </div>
+
 
                     {(shouldShowEmptyState || !user?.has_seen_product_intro_for?.[ProductKey.SURVEYS]) && (
                         <SurveysEmptyState numOfSurveys={surveys.length} />
@@ -186,7 +203,12 @@ function Surveys(): JSX.Element {
                     {!shouldShowEmptyState && (
                         <>
                             <div>
-                                <div className="flex flex-wrap gap-2 justify-between mb-4">
+                                <div
+                                    className={cn(
+                                        'flex flex-wrap gap-2 justify-between mb-4',
+                                        newSceneLayout && 'mb-0'
+                                    )}
+                                >
                                     <LemonInput
                                         type="search"
                                         placeholder="Search for surveys"
@@ -544,7 +566,7 @@ function Surveys(): JSX.Element {
                     )}
                 </>
             )}
-        </div>
+        </SceneContent>
     )
 }
 

@@ -1,6 +1,6 @@
 from django.test import TestCase
 
-from posthog.sampling import simple_hash, clamp_to_range, sample_on_property
+from posthog.sampling import clamp_to_range, sample_on_property, simple_hash
 
 
 class TestSampling(TestCase):

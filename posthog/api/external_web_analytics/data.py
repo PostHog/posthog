@@ -1,13 +1,13 @@
-from datetime import datetime, timedelta
 import random
+from datetime import datetime, timedelta
 from typing import Any
 
 from rest_framework.request import Request
 
 from .serializers import (
     EXTERNAL_WEB_ANALYTICS_PAGINATION_DEFAULT_LIMIT,
-    WebAnalyticsTrendResponseSerializer,
     WebAnalyticsTrendPointSerializer,
+    WebAnalyticsTrendResponseSerializer,
 )
 
 

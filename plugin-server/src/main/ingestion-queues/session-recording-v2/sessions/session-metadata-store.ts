@@ -40,6 +40,7 @@ export class SessionMetadataStore {
             snapshot_source: metadata.snapshotSource,
             snapshot_library: metadata.snapshotLibrary,
             event_count: metadata.eventCount || 0,
+            retention_period: metadata.retentionPeriod,
         }))
 
         await this.producer.queueMessages({

@@ -1,7 +1,8 @@
 from rest_framework import status
 
-from ee.api.test.base import APILicensedTest
 from posthog.models.experiment import Experiment, ExperimentToSavedMetric
+
+from ee.api.test.base import APILicensedTest
 
 
 class TestExperimentSavedMetricsCRUD(APILicensedTest):
@@ -258,7 +259,80 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("ExperimentMetric metric_type must be 'mean' or 'funnel'", response.json()["detail"])
+        self.assertIn("ExperimentMetric metric_type must be 'mean', 'funnel', or 'ratio'", response.json()["detail"])
+
+    def test_create_saved_metric_with_experiment_metric_ratio(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            data={
+                "name": "Test Experiment ratio metric",
+                "description": "Test description for ratio",
+                "query": {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "ratio",
+                    "numerator": {
+                        "kind": "EventsNode",
+                        "event": "$purchase",
+                    },
+                    "denominator": {
+                        "kind": "EventsNode",
+                        "event": "$pageview",
+                    },
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["name"], "Test Experiment ratio metric")
+        self.assertEqual(response.json()["description"], "Test description for ratio")
+        self.assertEqual(response.json()["query"]["kind"], "ExperimentMetric")
+        self.assertEqual(response.json()["query"]["metric_type"], "ratio")
+        self.assertEqual(response.json()["query"]["numerator"]["event"], "$purchase")
+        self.assertEqual(response.json()["query"]["denominator"]["event"], "$pageview")
+
+    def test_create_saved_metric_with_experiment_metric_ratio_missing_fields(self):
+        # Test missing numerator
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            data={
+                "name": "Test Experiment ratio metric",
+                "description": "Test description",
+                "query": {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "ratio",
+                    "denominator": {
+                        "kind": "EventsNode",
+                        "event": "$pageview",
+                    },
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue("'loc': ('numerator',), 'msg': 'Field required'" in response.json()["detail"])
+
+        # Test missing denominator
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            data={
+                "name": "Test Experiment ratio metric",
+                "description": "Test description",
+                "query": {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "ratio",
+                    "numerator": {
+                        "kind": "EventsNode",
+                        "event": "$purchase",
+                    },
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue("'loc': ('denominator',), 'msg': 'Field required'" in response.json()["detail"])
 
     def test_invalid_create(self):
         response = self.client.post(
