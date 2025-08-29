@@ -165,6 +165,7 @@ Save intermediate findings after completing a batch of tasks:
 ```
 Note: Write for technical depth - a report generator will transform this into user-friendly format later
 *Important*: include as much data as possible in the result
+**CRITICAL**: Do not mention artifacts or artifact short ids
 
 ### finalize_research
 Trigger final report generation
