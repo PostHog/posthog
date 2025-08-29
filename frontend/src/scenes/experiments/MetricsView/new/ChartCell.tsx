@@ -1,3 +1,5 @@
+import { ExperimentMetric } from '~/queries/schema/schema-general'
+
 import { generateViolinPath } from '../legacy/violinUtils'
 import { useChartColors } from '../shared/colors'
 import {
@@ -23,6 +25,7 @@ import { useAxisScale } from './useAxisScale'
 
 interface ChartCellProps {
     variantResult: ExperimentVariantResult
+    metric: ExperimentMetric
     axisRange: number
     metricUuid?: string
     showGridLines?: boolean
@@ -33,6 +36,7 @@ interface ChartCellProps {
 
 export function ChartCell({
     variantResult,
+    metric,
     axisRange,
     metricUuid,
     showGridLines = true,
@@ -93,6 +97,7 @@ export function ChartCell({
                             <ChartGradients
                                 lower={lower}
                                 upper={upper}
+                                metric={metric}
                                 gradientId={`gradient-${isSecondary ? 'secondary' : 'primary'}-${metricUuid ? metricUuid.slice(-8) : 'default'}-${
                                     variantResult.key
                                 }`}

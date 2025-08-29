@@ -386,6 +386,7 @@ export function getDefaultFunnelMetric(): ExperimentMetric {
         kind: NodeKind.ExperimentMetric,
         uuid: uuid(),
         metric_type: ExperimentMetricType.FUNNEL,
+        goal: 'increase',
         series: [
             {
                 kind: NodeKind.EventsNode,
@@ -404,6 +405,7 @@ export function getDefaultCountMetric(): ExperimentMetric {
         kind: NodeKind.ExperimentMetric,
         uuid: uuid(),
         metric_type: ExperimentMetricType.MEAN,
+        goal: 'increase',
         source: {
             kind: NodeKind.EventsNode,
             event: '$pageview',
@@ -417,6 +419,7 @@ export function getDefaultRatioMetric(): ExperimentMetric {
         kind: NodeKind.ExperimentMetric,
         uuid: uuid(),
         metric_type: ExperimentMetricType.RATIO,
+        goal: 'increase',
         numerator: {
             kind: NodeKind.EventsNode,
             event: '$pageview',
@@ -455,6 +458,7 @@ export function getExperimentMetricFromInsight(insight: QueryBasedInsightModel |
             kind: NodeKind.ExperimentMetric,
             uuid: uuid(),
             metric_type: ExperimentMetricType.FUNNEL,
+            goal: 'increase',
             name: metricName,
             series: insight.query.source.series.map((series) => ({
                 ...series,
@@ -482,6 +486,7 @@ export function getExperimentMetricFromInsight(insight: QueryBasedInsightModel |
             kind: NodeKind.ExperimentMetric,
             uuid: uuid(),
             metric_type: ExperimentMetricType.MEAN,
+            goal: 'increase',
             name: metricName,
             source: {
                 ...firstSeries,
