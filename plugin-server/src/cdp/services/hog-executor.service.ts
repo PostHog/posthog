@@ -34,6 +34,7 @@ import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '..
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { HogInputsService } from './hog-inputs.service'
 import { EmailService } from './messaging/email.service'
+import { ACCESS_TOKEN_PLACEHOLDER } from '~/config/constants'
 
 const cdpHttpRequests = new Counter({
     name: 'cdp_http_requests',
@@ -567,9 +568,9 @@ export class HogExecutorService {
         const integrationInputs = await this.hogInputsService.loadIntegrationInputs(invocation.hogFunction)
 
         if (Object.keys(integrationInputs).length > 0) {
-            for (const [, value] of Object.entries(integrationInputs)) {
+            for (const [key, value] of Object.entries(integrationInputs)) {
                 const accessToken: string = value.value.access_token_raw
-                const placeholder: string = value.value.access_token
+                const placeholder: string = ACCESS_TOKEN_PLACEHOLDER + invocation.hogFunction.inputs?.[key]?.value
 
                 if (placeholder && accessToken) {
                     const replace = (val: string) => val.replaceAll(placeholder, accessToken)
