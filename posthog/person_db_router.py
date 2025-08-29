@@ -1,4 +1,7 @@
 # posthog/person_db_router.py
+from django.conf import settings
+
+
 class PersonDBRouter:
     """
     A router to control all database operations on models in the persons database.
@@ -19,23 +22,36 @@ class PersonDBRouter:
         "groups",  # Assuming app_label 'posthog'
         "grouptypemapping",  # Assuming app_label 'posthog'
     }
-    PERSONS_APP_LABEL = "posthog"  # Assuming all models are in the 'posthog' app
+    PERSONS_DB_APP_LABEL = "persons_database"
+    POSTHOG_APP_LABEL = "posthog"
 
     def db_for_read(self, model, **hints):
         """
         Attempts to read person models go to persons_db_writer.
         """
-        if self.is_persons_model(model._meta.model_name):
+        # All models from persons_database app go to persons_db_writer
+        if model._meta.app_label == self.PERSONS_DB_APP_LABEL:
             return "persons_db_writer"
-        return None  # Allow default db selection
+        # For backward compatibility, check if it's a person model in posthog app
+        """
+        if model._meta.app_label == self.POSTHOG_APP_LABEL and self.is_persons_model(model._meta.model_name):
+            return "persons_db_writer"
+        """
+        return "default"  # Allow default db selection
 
     def db_for_write(self, model, **hints):
         """
         Attempts to write person models go to persons_db_writer.
         """
-        if self.is_persons_model(model._meta.model_name):
+        # All models from persons_database app go to persons_db_writer
+        if model._meta.app_label == self.PERSONS_DB_APP_LABEL:
             return "persons_db_writer"
-        return None  # Allow default db selection
+        # For backward compatibility, check if it's a person model in posthog app
+        """
+        if model._meta.app_label == self.POSTHOG_APP_LABEL and self.is_persons_model(model._meta.model_name):
+            return "persons_db_writer"
+        """
+        return "default"  # Allow default db selection
 
     def allow_relation(self, obj1, obj2, **hints):
         """
@@ -46,10 +62,10 @@ class PersonDBRouter:
         by default, as Django doesn't support cross-database relations natively.
         You might need to adjust this based on specific foreign keys (e.g., Person -> Team).
         """
-        obj1_in_persons_db = obj1._meta.app_label == self.PERSONS_APP_LABEL and self.is_persons_model(
+        obj1_in_persons_db = obj1._meta.app_label == self.PERSONS_DB_APP_LABEL and self.is_persons_model(
             obj1._meta.model_name
         )
-        obj2_in_persons_db = obj2._meta.app_label == self.PERSONS_APP_LABEL and self.is_persons_model(
+        obj2_in_persons_db = obj2._meta.app_label == self.PERSONS_DB_APP_LABEL and self.is_persons_model(
             obj2._meta.model_name
         )
 
@@ -72,19 +88,20 @@ class PersonDBRouter:
         Make sure the person models only appear in the 'persons_db'
         database. All other models migrate normally on 'default'.
         """
-        if model_name is None:
-            # App-level migrations should only run on the default database
-            return db != "persons_db_writer"
+        # persons_database app migrations should only migrate against persons_db_writer when enabled
+        if app_label == self.PERSONS_DB_APP_LABEL:
+            if settings.ENABLE_PERSONS_DB_MIGRATIONS:
+                return db == "persons_db_writer"
+            else:
+                # When migrations are disabled, don't run them on any database
+                return False
 
-        is_person_model = self.is_persons_model(model_name)
-
+        # explicitly deny all other apps from migrating to persons_db_writer
         if db == "persons_db_writer":
-            # If the target db is persons_db_writer, only allow migration if it's a person model
-            return is_person_model
-        else:
-            # Otherwise (e.g., target db is 'default'), only allow migration
-            # if it's *not* a person model.
-            return not is_person_model
+            return False
+
+        # default db will handle all other apps
+        return db == "default"
 
     def is_persons_model(self, model_name):
         # Check if the model name belongs to the persons_db models

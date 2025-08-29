@@ -13,6 +13,8 @@ from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 # See https://docs.djangoproject.com/en/3.2/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
 DISABLE_SERVER_SIDE_CURSORS: bool = get_from_env("USING_PGBOUNCER", False, type_cast=str_to_bool)
+# Control whether migrations should run against the persons_db
+ENABLE_PERSONS_DB_MIGRATIONS: bool = get_from_env("ENABLE_PERSONS_DB_MIGRATIONS", False, type_cast=str_to_bool)
 # See https://docs.djangoproject.com/en/3.2/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
 DEFAULT_AUTO_FIELD: str = "django.db.models.AutoField"
 
@@ -120,14 +122,27 @@ if read_host:
 # Add the persons_db_writer database configuration using PERSONS_DB_WRITER_URL
 if os.getenv("PERSONS_DB_WRITER_URL"):
     DATABASES["persons_db_writer"] = dj_database_url.config(default=os.getenv("PERSONS_DB_WRITER_URL"), conn_max_age=0)
-
-    # Fall back to the writer URL if no reader URL is set
     persons_reader_url = os.getenv("PERSONS_DB_READER_URL") or os.getenv("PERSONS_DB_WRITER_URL")
     DATABASES["persons_db_reader"] = dj_database_url.config(default=persons_reader_url, conn_max_age=0)
     if DISABLE_SERVER_SIDE_CURSORS:
         DATABASES["persons_db_writer"]["DISABLE_SERVER_SIDE_CURSORS"] = True
         DATABASES["persons_db_reader"]["DISABLE_SERVER_SIDE_CURSORS"] = True
-
+    DATABASE_ROUTERS.insert(0, "posthog.person_db_router.PersonDBRouter")
+elif DEBUG or TEST:
+    # For local development and testing, configure like the main database so Django can properly handle test database creation
+    DATABASES["persons_db_writer"] = {
+        "ENGINE": "django.db.backends.postgresql_psycopg2",
+        "NAME": "posthog_persons",
+        "USER": "posthog",
+        "PASSWORD": "posthog",
+        "HOST": "localhost",
+        "PORT": "5434",
+        "CONN_MAX_AGE": 0,
+        "DISABLE_SERVER_SIDE_CURSORS": DISABLE_SERVER_SIDE_CURSORS,
+        "TEST": {
+            "NAME": "test_posthog_persons",
+        },
+    }
     DATABASE_ROUTERS.insert(0, "posthog.person_db_router.PersonDBRouter")
 
 # Opt-in to using the read replica
