@@ -21,8 +21,10 @@ import IconMailchimp from 'public/services/mailchimp.png'
 import IconMailjet from 'public/services/mailjet.png'
 import IconMetaAds from 'public/services/meta-ads.png'
 import IconMySQL from 'public/services/mysql.png'
+import IconPolar from 'public/services/polar.png'
 import IconPostgres from 'public/services/postgres.png'
 import IconRedshift from 'public/services/redshift.png'
+import IconRevenueCat from 'public/services/revenuecat.png'
 import IconSalesforce from 'public/services/salesforce.png'
 import IconSnowflake from 'public/services/snowflake.png'
 import IconMSSQL from 'public/services/sql-azure.png'
@@ -84,6 +86,8 @@ export const DATA_WAREHOUSE_SOURCE_ICON_MAP: Record<string, string> = {
     Vitally: IconVitally,
     BigQuery: IconBigQuery,
     Chargebee: IconChargebee,
+    RevenueCat: IconRevenueCat,
+    Polar: IconPolar,
     BlushingHog: BlushingHog, // fallback, we don't know what this is
     PostHog: IconPostHog,
     GoogleAds: IconGoogleAds,

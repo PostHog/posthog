@@ -256,7 +256,6 @@ export type QuerySchema =
 
     // Classic insights
     | TrendsQuery
-    | CalendarHeatmapQuery
     | FunnelsQuery
     | RetentionQuery
     | PathsQuery
@@ -874,6 +873,8 @@ export interface YAxisSettings {
     scale?: 'linear' | 'logarithmic'
     /** Whether the Y axis should start at zero */
     startAtZero?: boolean
+    showGridLines?: boolean
+    showTicks?: boolean
 }
 
 export interface ChartSettings {
@@ -887,6 +888,9 @@ export interface ChartSettings {
     /** Whether we fill the bars to 100% in stacked mode */
     stackBars100?: boolean
     seriesBreakdownColumn?: string | null
+    showXAxisTicks?: boolean
+    showXAxisBorder?: boolean
+    showYAxisBorder?: boolean
     showLegend?: boolean
     showTotalRow?: boolean
 }
@@ -2386,7 +2390,6 @@ export type FileSystemIconType =
     | 'insightLifecycle'
     | 'insightStickiness'
     | 'insightHogQL'
-    | 'insightCalendarHeatmap'
     | 'code'
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
@@ -2418,7 +2421,6 @@ export type InsightQueryNode =
     | PathsQuery
     | StickinessQuery
     | LifecycleQuery
-    | CalendarHeatmapQuery
 
 export interface ExperimentVariantTrendsBaseStats {
     key: string
@@ -3861,6 +3863,8 @@ export const externalDataSources = [
     'Vitally',
     'BigQuery',
     'Chargebee',
+    'RevenueCat',
+    'Polar',
     'GoogleAds',
     'MetaAds',
     'Klaviyo',

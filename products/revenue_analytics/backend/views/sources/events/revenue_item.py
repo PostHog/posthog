@@ -65,6 +65,11 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
                     else ast.Constant(value=None),
                 ),
                 ast.Alias(alias="customer_id", expr=ast.Call(name="toString", args=[ast.Field(chain=["person_id"])])),
+                ast.Alias(alias="group_0_key", expr=ast.Field(chain=["$group_0"])),
+                ast.Alias(alias="group_1_key", expr=ast.Field(chain=["$group_1"])),
+                ast.Alias(alias="group_2_key", expr=ast.Field(chain=["$group_2"])),
+                ast.Alias(alias="group_3_key", expr=ast.Field(chain=["$group_3"])),
+                ast.Alias(alias="group_4_key", expr=ast.Field(chain=["$group_4"])),
                 ast.Alias(alias="invoice_id", expr=ast.Constant(value=None)),
                 ast.Alias(
                     alias="subscription_id",

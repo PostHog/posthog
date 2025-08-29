@@ -28,6 +28,7 @@ export type LinkProps = Pick<React.HTMLProps<HTMLAnchorElement>, 'target' | 'cla
     disableDocsPanel?: boolean
     preventClick?: boolean
     onClick?: (event: React.MouseEvent<HTMLElement>) => void
+    onAuxClick?: (event: React.MouseEvent<HTMLElement>) => void
     onDoubleClick?: (event: React.MouseEvent<HTMLElement>) => void
     onMouseDown?: (event: React.MouseEvent<HTMLElement>) => void
     onMouseEnter?: (event: React.MouseEvent<HTMLElement>) => void
@@ -109,6 +110,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             disableDocsPanel = false,
             preventClick = false,
             onClick: onClickRaw,
+            onAuxClick,
             className,
             children,
             disabled,
@@ -203,6 +205,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 ref={ref as any}
                 className={cn(elementClasses, className)}
                 onClick={onClick}
+                onAuxClick={onAuxClick}
                 href={href}
                 target={target}
                 rel={target === '_blank' ? rel : undefined}

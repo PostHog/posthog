@@ -1643,20 +1643,27 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       title: 'Active Hours',
                                       linkText: 'Unique users',
                                       canOpenModal: true,
+                                      canOpenInsight: !!featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT],
                                       query: {
-                                          kind: NodeKind.CalendarHeatmapQuery,
-                                          series: [
-                                              {
-                                                  kind: NodeKind.EventsNode,
-                                                  event: '$pageview',
-                                                  name: '$pageview',
-                                                  math: BaseMathType.UniqueUsers,
-                                                  properties: webAnalyticsFilters,
+                                          kind: NodeKind.InsightVizNode,
+                                          source: {
+                                              kind: NodeKind.TrendsQuery,
+                                              series: [
+                                                  {
+                                                      kind: NodeKind.EventsNode,
+                                                      event: '$pageview',
+                                                      name: '$pageview',
+                                                      math: BaseMathType.UniqueUsers,
+                                                      properties: webAnalyticsFilters,
+                                                  },
+                                              ],
+                                              dateRange,
+                                              conversionGoal,
+                                              tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                              trendsFilter: {
+                                                  display: ChartDisplayType.CalendarHeatmap,
                                               },
-                                          ],
-                                          dateRange,
-                                          conversionGoal,
-                                          tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                          },
                                       },
                                       docs: {
                                           url: 'https://posthog.com/docs/web-analytics/dashboard#active-hours',
@@ -1699,20 +1706,27 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       title: 'Active Hours',
                                       linkText: 'Total pageviews',
                                       canOpenModal: true,
+                                      canOpenInsight: !!featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT],
                                       query: {
-                                          kind: NodeKind.CalendarHeatmapQuery,
-                                          series: [
-                                              {
-                                                  kind: NodeKind.EventsNode,
-                                                  event: '$pageview',
-                                                  name: '$pageview',
-                                                  math: BaseMathType.TotalCount,
-                                                  properties: webAnalyticsFilters,
+                                          kind: NodeKind.InsightVizNode,
+                                          source: {
+                                              kind: NodeKind.TrendsQuery,
+                                              series: [
+                                                  {
+                                                      kind: NodeKind.EventsNode,
+                                                      event: '$pageview',
+                                                      name: '$pageview',
+                                                      math: BaseMathType.TotalCount,
+                                                      properties: webAnalyticsFilters,
+                                                  },
+                                              ],
+                                              dateRange,
+                                              conversionGoal,
+                                              trendsFilter: {
+                                                  display: ChartDisplayType.CalendarHeatmap,
                                               },
-                                          ],
-                                          dateRange,
-                                          conversionGoal,
-                                          tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                              tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                          },
                                       },
                                       docs: {
                                           url: 'https://posthog.com/docs/web-analytics/dashboard#active-hours',
