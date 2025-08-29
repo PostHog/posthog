@@ -38,11 +38,10 @@ export function SessionTimeline({
 
     function toggleCategory(category: ItemCategory): void {
         setCategories((prevCategories) => {
-            const index = prevCategories.indexOf(category)
-            if (index === -1) {
-                return [...prevCategories, category]
+            if (prevCategories.includes(category)) {
+                return prevCategories.filter((c) => c !== category)
             }
-            return [...prevCategories.slice(0, index), ...prevCategories.slice(index + 1)]
+            return [...prevCategories, category]
         })
     }
 
@@ -108,9 +107,7 @@ export function SessionTimeline({
         },
     })
 
-    useImperativeHandle(ref, () => ({
-        scrollToItem,
-    }))
+    useImperativeHandle(ref, () => ({ scrollToItem }))
 
     return (
         <div className={cn('flex', className)}>
