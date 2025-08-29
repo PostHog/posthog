@@ -27,7 +27,6 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.utils.event_usage import log_event_usage_from_insight
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import InsightViewed, SessionRecording, SharingConfiguration, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
@@ -385,12 +384,6 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 insight=resource.insight, team=None, user=None, defaults={"last_viewed_at": now()}
             )
 
-            log_event_usage_from_insight(
-                resource.insight,
-                team_id=resource.team.pk,
-                user_id=self.request.user.pk if self.request.user.is_authenticated else None,
-            )
-
             # Add hideExtraDetails to context so that PII related information is not returned to the client
             insight_context = {**context, "hide_extra_details": state.get("hideExtraDetails", False)}
             insight_data = InsightSerializer(resource.insight, many=False, context=insight_context).data
@@ -401,16 +394,6 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             asset_description = resource.dashboard.description or ""
             resource.dashboard.last_accessed_at = now()
             resource.dashboard.save(update_fields=["last_accessed_at"])
-
-            insights = (
-                Insight.objects.filter(dashboard_tiles__dashboard=resource.dashboard).distinct().only("query_metadata")
-            )
-            for insight in insights.iterator(chunk_size=100):
-                log_event_usage_from_insight(
-                    insight,
-                    team_id=resource.team.pk,
-                    user_id=self.request.user.pk if self.request.user.is_authenticated else None,
-                )
 
             with task_chain_context():
                 dashboard_data = DashboardSerializer(resource.dashboard, context=context).data
@@ -428,6 +411,19 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
 
             if not session_recording_id:
                 raise NotFound("Invalid replay export - missing session_recording_id")
+
+            # Validate session_recording_id format (UUID-like)
+            if not isinstance(session_recording_id, str) or len(session_recording_id) > 200:
+                raise NotFound("Invalid session_recording_id format")
+
+            # Validate timestamp is a number if present
+            if timestamp is not None:
+                try:
+                    timestamp = float(timestamp)
+                    if timestamp < 0:  # Negative timestamps don't make sense
+                        timestamp = 0
+                except (ValueError, TypeError):
+                    timestamp = 0  # Default to start if invalid
 
             # Create a SessionRecording object for the replay
             try:
@@ -448,6 +444,10 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 asset_title = "Session Recording"
                 asset_description = f"Recording {session_recording_id}"
 
+                mode = resource.export_context.get("mode")
+                if mode not in ("screenshot", "video"):
+                    mode = "screenshot"
+
                 recording_data = SessionRecordingSerializer(recording, context=context).data
 
                 exported_data.update(
@@ -459,7 +459,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                         "exportToken": export_access_token,
                         "noBorder": True,
                         "autoplay": True,
-                        "mode": "screenshot",
+                        "mode": mode,
                     }
                 )
 

@@ -968,7 +968,6 @@ class InsightViewSet(
                     "PATHS": schema.NodeKind.PATHS_QUERY,
                     "STICKINESS": schema.NodeKind.STICKINESS_QUERY,
                     "LIFECYCLE": schema.NodeKind.LIFECYCLE_QUERY,
-                    "CALENDAR_HEATMAP": schema.NodeKind.CALENDAR_HEATMAP_QUERY,
                 }
                 if insight == "JSON":
                     queryset = queryset.filter(query__isnull=False)
@@ -1152,7 +1151,6 @@ When set, the specified dashboard's filters and date range override will be appl
             isinstance(result, schema.CachedTrendsQueryResponse)
             or isinstance(result, schema.CachedStickinessQueryResponse)
             or isinstance(result, schema.CachedLifecycleQueryResponse)
-            or isinstance(result, schema.CachedCalendarHeatmapQueryResponse)
         )
 
         return {"result": result.results, "timezone": team.timezone}
@@ -1224,20 +1222,12 @@ When set, the specified dashboard's filters and date range override will be appl
     # ******************************************
     @action(methods=["POST"], detail=True, required_scopes=["insight:read"])
     def viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        from posthog.hogql_queries.utils.event_usage import log_event_usage_from_insight
-
         insight = self.get_object()
         InsightViewed.objects.update_or_create(
             team=self.team,
             user=request.user,
             insight=insight,
             defaults={"last_viewed_at": now()},
-        )
-
-        log_event_usage_from_insight(
-            insight,
-            team_id=self.team_id,
-            user_id=self.request.user.pk,
         )
 
         return Response(status=status.HTTP_201_CREATED)

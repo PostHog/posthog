@@ -11,7 +11,7 @@ import { sceneLogic } from '~/scenes/sceneLogic'
 import { urls } from '~/scenes/urls'
 import { Breadcrumb, Dataset, DatasetItem } from '~/types'
 
-import { formatIdForDisplay } from '../utils'
+import { truncateValue } from '../utils'
 import type { llmAnalyticsDatasetLogicType } from './llmAnalyticsDatasetLogicType'
 import { llmAnalyticsDatasetsLogic } from './llmAnalyticsDatasetsLogic'
 import { EMPTY_JSON, corseJsonToObject, isStringJsonObject, prettifyJson } from './utils'
@@ -281,7 +281,7 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
             if (props.datasetId !== 'new') {
                 try {
                     await api.datasetItems.update(itemId, { deleted: true })
-                    lemonToast.info(`Dataset item ${formatIdForDisplay(itemId)} has been deleted.`, {
+                    lemonToast.info(`Dataset item ${truncateValue(itemId)} has been deleted.`, {
                         button: {
                             label: 'Undo',
                             dataAttr: 'undo-delete-dataset-item',

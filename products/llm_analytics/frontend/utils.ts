@@ -488,7 +488,16 @@ export function looksLikeXml(input: unknown): boolean {
  * @param id - The string to format.
  * @returns The formatted string.
  */
-export function formatIdForDisplay(id: string): string {
-    const visualValue: string = id.slice(0, 4) + '...' + id.slice(-4)
-    return visualValue
+export function truncateValue(value: string): string {
+    if (value === null || value === undefined) {
+        return '-'
+    }
+
+    const stringValue = String(value)
+
+    if (stringValue.length <= 12) {
+        return stringValue
+    }
+
+    return stringValue.slice(0, 4) + '...' + stringValue.slice(-4)
 }

@@ -38,26 +38,6 @@ class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):
         )
         self.assertEqual(self.organization.teams.count(), 2)
 
-    def test_create_team_with_access_control(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-        self.assertEqual(Team.objects.count(), 1)
-        self.assertEqual(Project.objects.count(), 1)
-        response = self.client.post("/api/projects/@current/environments/", {"name": "Test", "access_control": True})
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(Team.objects.count(), 2)
-        self.assertEqual(Project.objects.count(), 2)
-        response_data = response.json()
-        self.assertDictContainsSubset(
-            {
-                "name": "Test",
-                "access_control": True,
-                "effective_membership_level": OrganizationMembership.Level.ADMIN,
-            },
-            response_data,
-        )
-        self.assertEqual(self.organization.teams.count(), 2)
-
     def test_user_create_project_for_org_via_url(self):
         # Set both current and new org to high enough membership level
         self.organization_membership.level = OrganizationMembership.Level.ADMIN

@@ -1,6 +1,5 @@
 import { combineUrl } from 'kea-router'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '../../frontend/src/types'
@@ -14,7 +13,7 @@ export const manifest: ProductManifest = {
             name: 'LLM analytics',
             activityScope: 'LLMAnalytics',
             layout: 'app-container',
-            defaultDocsPath: '/docs/ai-engineering/observability',
+            defaultDocsPath: '/docs/llm-analytics/installation',
         },
         LLMAnalyticsTrace: {
             import: () => import('./frontend/LLMAnalyticsTraceScene'),
@@ -22,7 +21,7 @@ export const manifest: ProductManifest = {
             name: 'LLM analytics trace',
             activityScope: 'LLMAnalytics',
             layout: 'app-container',
-            defaultDocsPath: '/docs/ai-engineering/observability',
+            defaultDocsPath: '/docs/llm-analytics/traces',
         },
         LLMAnalyticsUsers: {
             import: () => import('./frontend/LLMAnalyticsUsers'),
@@ -30,7 +29,7 @@ export const manifest: ProductManifest = {
             name: 'LLM analytics users',
             activityScope: 'LLMAnalytics',
             layout: 'app-container',
-            defaultDocsPath: '/docs/ai-engineering/observability',
+            defaultDocsPath: '/docs/llm-analytics/installation',
         },
         LLMAnalyticsPlayground: {
             import: () => import('./frontend/LLMAnalyticsPlaygroundScene'),
@@ -38,7 +37,7 @@ export const manifest: ProductManifest = {
             name: 'LLM playground',
             activityScope: 'LLMAnalytics',
             layout: 'app-container',
-            defaultDocsPath: '/docs/ai-engineering/observability',
+            defaultDocsPath: '/docs/llm-analytics/installation',
         },
         LLMAnalyticsDatasets: {
             import: () => import('./frontend/datasets/LLMAnalyticsDatasetsScene'),
@@ -118,8 +117,6 @@ export const manifest: ProductManifest = {
             category: 'Analytics',
             iconType: 'ai',
             href: urls.llmAnalyticsDashboard(),
-            flag: FEATURE_FLAGS.LLM_OBSERVABILITY,
-            tags: ['beta'],
         },
     ],
 }

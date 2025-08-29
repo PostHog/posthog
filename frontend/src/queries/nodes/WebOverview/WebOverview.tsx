@@ -19,8 +19,8 @@ import { urls } from 'scenes/urls'
 import { EvenlyDistributedRows } from '~/queries/nodes/WebOverview/EvenlyDistributedRows'
 import {
     AnyResponseType,
+    WebAnalyticsItemKind,
     WebOverviewItem,
-    WebOverviewItemKind,
     WebOverviewQuery,
     WebOverviewQueryResponse,
 } from '~/queries/schema/schema-general'
@@ -209,7 +209,7 @@ const formatUnit = (x: number, options?: { precise?: boolean }): string => {
 
 const formatItem = (
     value: number | undefined,
-    kind: WebOverviewItemKind,
+    kind: WebAnalyticsItemKind,
     options?: { precise?: boolean; currency?: string }
 ): string => {
     if (value == null) {

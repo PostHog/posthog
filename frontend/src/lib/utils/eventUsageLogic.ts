@@ -292,9 +292,16 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             lastRefreshed,
         }),
         reportDashboardModeToggled: (mode: DashboardMode, source: DashboardEventSource | null) => ({ mode, source }),
-        reportDashboardRefreshed: (dashboardId: number, lastRefreshed?: string | Dayjs | null) => ({
+        reportDashboardRefreshed: (
+            dashboardId: number,
+            lastRefreshed?: string | Dayjs | null,
+            action?: string,
+            forceRefresh?: boolean
+        ) => ({
             dashboardId,
             lastRefreshed,
+            action,
+            forceRefresh,
         }),
         reportDashboardDateRangeChanged: (dateFrom?: string | Dayjs | null, dateTo?: string | Dayjs | null) => ({
             dateFrom,
@@ -688,11 +695,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportDashboardModeToggled: async ({ mode, source }) => {
             posthog.capture('dashboard mode toggled', { mode, source })
         },
-        reportDashboardRefreshed: async ({ dashboardId, lastRefreshed }) => {
+        reportDashboardRefreshed: async ({ dashboardId, lastRefreshed, action, forceRefresh }) => {
             posthog.capture(`dashboard refreshed`, {
                 dashboard_id: dashboardId,
                 last_refreshed: lastRefreshed?.toString(),
                 refreshAge: lastRefreshed ? now().diff(lastRefreshed, 'seconds') : undefined,
+                action: action,
+                force_refresh: forceRefresh,
             })
         },
         reportDashboardDateRangeChanged: async ({ dateFrom, dateTo }) => {
