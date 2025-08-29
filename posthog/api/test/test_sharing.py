@@ -78,7 +78,9 @@ class TestSharing(APIBaseTest):
             "access_token": data["access_token"],
             "created_at": None,
             "enabled": False,
+            "password_required": False,
             "settings": None,
+            "share_passwords": [],
         }
 
     @freeze_time("2022-01-01")
@@ -96,7 +98,9 @@ class TestSharing(APIBaseTest):
             "access_token": initial_data["access_token"],
             "created_at": "2022-01-01T00:00:00Z",
             "enabled": True,
+            "password_required": False,
             "settings": None,
+            "share_passwords": [],
         }
 
         response = self.client.patch(
@@ -107,7 +111,9 @@ class TestSharing(APIBaseTest):
             "access_token": initial_data["access_token"],
             "created_at": "2022-01-01T00:00:00Z",
             "enabled": False,
+            "password_required": False,
             "settings": None,
+            "share_passwords": [],
         }
 
     @patch("posthog.api.exports.exporter.export_asset.delay")
