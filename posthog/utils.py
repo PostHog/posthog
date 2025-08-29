@@ -13,7 +13,7 @@ import secrets
 import datetime
 import datetime as dt
 import dataclasses
-from collections.abc import Callable, Generator, Mapping
+from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import contextmanager
 from enum import Enum
 from functools import lru_cache, wraps
@@ -306,6 +306,14 @@ def relative_date_parse(
         now=now,
         increase=increase,
     )[0]
+
+
+def human_list(items: Sequence[str]) -> str:
+    """Join iterable of strings into a human-readable list ("a, b, and c").
+    Uses the Oxford comma only when there are at least 3 items."""
+    if len(items) < 3:
+        return " and ".join(items)
+    return ", ".join(items[:-1]) + f", and {items[-1]}"
 
 
 def get_js_url(request: HttpRequest) -> str:

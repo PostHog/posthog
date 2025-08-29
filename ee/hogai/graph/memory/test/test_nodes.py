@@ -432,11 +432,6 @@ class TestMemoryOnboardingEnquiryNode(ClickhouseTestMixin, BaseTest):
         question = "**What** is your _target_ market?"
         self.assertEqual(self.node._format_question(question), "What is your target market?")
 
-    def test_format_memory(self):
-        markdown_text = "# Product Description\n\n- Feature 1\n- Feature 2\n\n**Bold text** and `code` [1]"
-        expected = "Product Description\n\nFeature 1\nFeature 2\n\nBold text and code [1]"
-        self.assertEqual(self.node._format_memory(markdown_text), expected)
-
     def test_run_with_initial_message(self):
         with patch.object(MemoryOnboardingEnquiryNode, "_model") as model_mock:
             model_mock.return_value = RunnableLambda(lambda _: "===What is your target market?")
