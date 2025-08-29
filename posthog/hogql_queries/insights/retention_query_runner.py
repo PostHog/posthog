@@ -190,14 +190,14 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         if not is_first_time_ever_retention:
             # Pre filter event
             events = self.get_events_for_entity(self.start_event) + self.get_events_for_entity(self.return_event)
-            unique_events = sorted(set(events))
+            unique_events = set(events)
             # Don't pre-filter if any of them is "All events"
             if None not in unique_events:
                 events_where.append(
                     ast.CompareOperation(
                         left=ast.Field(chain=["event"]),
                         # Sorting for consistent snapshots in tests
-                        right=ast.Tuple(exprs=[ast.Constant(value=event) for event in unique_events]),  # type: ignore
+                        right=ast.Tuple(exprs=[ast.Constant(value=event) for event in sorted(unique_events)]),  # type: ignore
                         op=ast.CompareOperationOp.In,
                     )
                 )

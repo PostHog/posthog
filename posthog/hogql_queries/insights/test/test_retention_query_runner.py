@@ -1436,11 +1436,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 },
             }
         )
-        self.assertEqual(len(result), 8)
-        self.assertEqual(
-            pluck(result, "label"),
-            ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7"],
-        )
+        self.assertEqual(len(result), 7)
         self.assertEqual(
             pluck(result, "label"),
             ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
@@ -1500,11 +1496,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 },
             }
         )
-        self.assertEqual(len(result), 8)
-        self.assertEqual(
-            pluck(result, "label"),
-            ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7"],
-        )
+        self.assertEqual(len(result), 7)
         self.assertEqual(
             pluck(result, "label"),
             ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
@@ -1566,11 +1558,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        self.assertEqual(len(result), 8)
-        self.assertEqual(
-            pluck(result, "label"),
-            ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7"],
-        )
+        self.assertEqual(len(result), 7)
         self.assertEqual(
             pluck(result, "label"),
             ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
@@ -1612,11 +1600,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        self.assertEqual(len(result), 8)
-        self.assertEqual(
-            pluck(result, "label"),
-            ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7"],
-        )
+        self.assertEqual(len(result), 7)
         self.assertEqual(
             pluck(result, "label"),
             ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
@@ -1657,11 +1641,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        self.assertEqual(len(result), 8)
-        self.assertEqual(
-            pluck(result, "label"),
-            ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7"],
-        )
+        self.assertEqual(len(result), 7)
 
         self.assertEqual(
             pluck(result, "values", "count"),
@@ -2116,11 +2096,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        self.assertEqual(len(result), 8)
-        self.assertEqual(
-            pluck(result, "label"),
-            ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7"],
-        )
+        self.assertEqual(len(result), 7)
         self.assertEqual(
             pluck(result, "label"),
             ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
@@ -2200,11 +2176,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        self.assertEqual(len(result), 8)
-        self.assertEqual(
-            pluck(result, "label"),
-            ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7"],
-        )
+        self.assertEqual(len(result), 7)
         self.assertEqual(
             pluck(result, "label"),
             ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
@@ -2276,11 +2248,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        self.assertEqual(len(result), 8)
-        self.assertEqual(
-            pluck(result, "label"),
-            ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7"],
-        )
+        self.assertEqual(len(result), 7)
         self.assertEqual(
             pluck(result, "label"),
             ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
@@ -2333,11 +2301,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        self.assertEqual(len(result), 8)
-        self.assertEqual(
-            pluck(result, "label"),
-            ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7"],
-        )
+        self.assertEqual(len(result), 7)
         self.assertEqual(
             pluck(result, "label"),
             ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
