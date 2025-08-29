@@ -28,6 +28,7 @@ from posthog.api.shared import TeamPublicSerializer
 from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import AvailableFeature
+from posthog.exceptions_capture import capture_exception
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import InsightViewed, SessionRecording, SharePassword, SharingConfiguration, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
@@ -159,12 +160,28 @@ class SharePasswordCreateSerializer(serializers.Serializer):
 
 
 class SharingConfigurationSerializer(serializers.ModelSerializer):
+    settings = serializers.JSONField(required=False, allow_null=True)
     share_passwords = serializers.SerializerMethodField()
 
     class Meta:
         model = SharingConfiguration
-        fields = ["created_at", "enabled", "access_token", "password_required", "share_passwords"]
+        fields = ["created_at", "enabled", "access_token", "settings", "password_required", "share_passwords"]
         read_only_fields = ["created_at", "access_token", "share_passwords"]
+
+    def validate_settings(self, value: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
+        if value is None:
+            return None
+        try:
+            # Filter out unknown fields before validation since the schema has extra="forbid"
+            known_fields = SharingConfigurationSettings.model_fields.keys()
+            filtered_data = {k: v for k, v in value.items() if k in known_fields}
+
+            validated_settings = SharingConfigurationSettings.model_validate(filtered_data, strict=False)
+            result = validated_settings.model_dump(exclude_none=True)
+            return result
+        except Exception as e:
+            capture_exception(e)
+            raise serializers.ValidationError("Invalid settings format")
 
     def get_share_passwords(self, obj):
         # Return empty list for unsaved instances to avoid database relationship access
@@ -223,6 +240,7 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
             "insight": insight,
             "dashboard": dashboard,
             "recording": recording,
+            "expires_at": None,
         }
 
         try:
@@ -296,6 +314,35 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
         if not context.get("recording") and serializer.data.get("enabled"):
             export_asset_for_opengraph(instance)
 
+        return response.Response(serializer.data)
+
+    @action(methods=["POST"], detail=False)
+    def refresh(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
+        context = self.get_serializer_context()
+        instance = self._get_sharing_configuration(context)
+
+        check_can_edit_sharing_configuration(self, request, instance)
+
+        # Create new sharing configuration and expire the old one
+        new_instance = instance.rotate_access_token()
+
+        if context.get("insight"):
+            name = new_instance.insight.name or new_instance.insight.derived_name
+            log_activity(
+                organization_id=None,
+                team_id=self.team_id,
+                user=cast(User, self.request.user),
+                was_impersonated=is_impersonated_session(self.request),
+                item_id=new_instance.insight.pk,
+                scope="Insight",
+                activity="access token refreshed",
+                detail=Detail(
+                    name=str(name) if name else None,
+                    short_id=str(new_instance.insight.short_id),
+                ),
+            )
+
+        serializer = self.get_serializer(new_instance)
         return response.Response(serializer.data)
 
     @action(detail=False, methods=["post"], url_path="passwords")
