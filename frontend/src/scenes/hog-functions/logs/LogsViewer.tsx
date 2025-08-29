@@ -1,17 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCalendar, IconSearch } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonCheckbox,
-    LemonDropdown,
-    LemonInput,
-    LemonTable,
-    LemonTableColumn,
-    LemonTag,
-    LemonTagProps,
-    Link,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTable, LemonTableColumn, LemonTag, LemonTagProps, Link } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -19,8 +9,8 @@ import { pluralize } from 'lib/utils'
 
 import { LogEntryLevel } from '~/types'
 
-import { ALL_LOG_LEVELS, GroupedLogEntry, LOG_VIEWER_LIMIT, logsViewerLogic } from './logsViewerLogic'
-import { LogsViewerLogicProps } from './logsViewerLogic'
+import { LogLevelsPicker } from './LogLevelsPicker'
+import { GroupedLogEntry, LOG_VIEWER_LIMIT, LogsViewerLogicProps, logsViewerLogic } from './logsViewerLogic'
 
 export const tagTypeForLevel = (level: LogEntryLevel): LemonTagProps['type'] => {
     switch (level.toLowerCase()) {
@@ -57,7 +47,7 @@ export function LogsViewer({ renderColumns = (c) => c, ...props }: LogsViewerPro
 
     return (
         <div className="flex-1 deprecated-space-y-2 ph-no-capture">
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap flex-row-reverse items-center gap-2">
                 <LemonInput
                     className="flex-1 min-w-120"
                     type="search"
@@ -72,46 +62,7 @@ export function LogsViewer({ renderColumns = (c) => c, ...props }: LogsViewerPro
                     }
                 />
                 <div className="flex items-center gap-2">
-                    <LemonDropdown
-                        closeOnClickInside={false}
-                        matchWidth={false}
-                        placement="right-end"
-                        overlay={
-                            <div className="deprecated-space-y-2 overflow-hidden max-w-100">
-                                {ALL_LOG_LEVELS.map((level) => {
-                                    return (
-                                        <LemonButton
-                                            key={level}
-                                            fullWidth
-                                            icon={
-                                                <LemonCheckbox
-                                                    checked={filters.levels.includes(level)}
-                                                    className="pointer-events-none"
-                                                />
-                                            }
-                                            onClick={() => {
-                                                setFilters({
-                                                    levels: filters.levels.includes(level)
-                                                        ? filters.levels.filter((t) => t != level)
-                                                        : [...filters.levels, level],
-                                                })
-                                            }}
-                                        >
-                                            {level}
-                                        </LemonButton>
-                                    )
-                                })}
-                            </div>
-                        }
-                    >
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            tooltip="Filtering for any log groups containing any of the selected levels"
-                        >
-                            {filters.levels.map((level) => level).join(', ')}
-                        </LemonButton>
-                    </LemonDropdown>
+                    <LogLevelsPicker value={filters.levels} onChange={(levels) => setFilters({ levels })} />
 
                     <DateFilter
                         dateTo={filters.date_to}
