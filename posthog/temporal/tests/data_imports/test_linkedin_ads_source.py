@@ -6,9 +6,9 @@ from posthog.models import Team
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
+from posthog.temporal.data_imports.sources.linkedin_ads.client import LinkedinAdsClient
 from posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads import (
     LinkedinAdsAuthError,
-    LinkedinAdsClient,
     LinkedinAdsRateLimitError,
 )
 from posthog.temporal.data_imports.sources.linkedin_ads.source import LinkedinAdsSource

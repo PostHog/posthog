@@ -8,18 +8,26 @@ from posthog.schema import (
     SourceFieldOauthConfig,
 )
 
+from posthog.exceptions_capture import capture_exception
+from posthog.models.integration import Integration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
+from posthog.temporal.data_imports.sources.linkedin_ads.client import (
+    LinkedinAdsAuthError,
+    LinkedinAdsClient,
+    LinkedinAdsError,
+    LinkedinAdsRateLimitError,
+)
 from posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads import (
     get_incremental_fields as get_linkedin_ads_incremental_fields,
     get_schemas as get_linkedin_ads_schemas,
     linkedin_ads_source,
 )
-from posthog.temporal.data_imports.sources.linkedin_ads.utils import validate_account_id
+from posthog.temporal.data_imports.sources.linkedin_ads.utils.utils import validate_account_id
 from posthog.warehouse.types import ExternalDataSourceType
 
 
@@ -58,14 +66,6 @@ class LinkedinAdsSource(BaseSource[LinkedinAdsSourceConfig], OAuthMixin):
 
     def validate_credentials(self, config: LinkedinAdsSourceConfig, team_id: int) -> tuple[bool, str | None]:
         try:
-            from posthog.exceptions_capture import capture_exception
-            from posthog.models.integration import Integration
-            from posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads import (
-                LinkedinAdsAuthError,
-                LinkedinAdsClient,
-                LinkedinAdsError,
-                LinkedinAdsRateLimitError,
-            )
 
             # Validate config structure
             if not config.account_id:
@@ -124,7 +124,7 @@ class LinkedinAdsSource(BaseSource[LinkedinAdsSourceConfig], OAuthMixin):
             return False, f"Failed to validate LinkedIn Ads credentials: {str(e)}"
 
     def get_schemas(self, config: LinkedinAdsSourceConfig, team_id: int) -> list[SourceSchema]:
-        linkedin_ads_schemas = get_linkedin_ads_schemas(config, team_id)
+        linkedin_ads_schemas = get_linkedin_ads_schemas()
         ads_incremental_fields = get_linkedin_ads_incremental_fields()
 
         return [
