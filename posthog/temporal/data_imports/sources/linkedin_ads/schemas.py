@@ -95,7 +95,7 @@ LINKEDIN_ADS_FIELDS = {
         "videoViews", "videoCompletions", "oneClickLeads", "follows"
     ],
     LinkedinAdsResource.CampaignGroupStats: [
-        "impressions", "clicks", "dateRange", "pivotValues", "costInUsd", 
+        "impressions", "clicks", "dateRange", "pivotValues", "costInUsd",
         "externalWebsiteConversions", "landingPageClicks", "totalEngagements",
         "videoViews", "videoCompletions", "oneClickLeads", "follows"
     ],

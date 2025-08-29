@@ -57,14 +57,14 @@ class LinkedinAdsSource(BaseSource[LinkedinAdsSourceConfig], OAuthMixin):
 
     def validate_credentials(self, config: LinkedinAdsSourceConfig, team_id: int) -> tuple[bool, str | None]:
         try:
+            from posthog.exceptions_capture import capture_exception
             from posthog.models.integration import Integration
             from posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads import (
-                LinkedinAdsClient, 
-                LinkedinAdsAuthError, 
-                LinkedinAdsRateLimitError, 
-                LinkedinAdsError
+                LinkedinAdsAuthError,
+                LinkedinAdsClient,
+                LinkedinAdsError,
+                LinkedinAdsRateLimitError,
             )
-            from posthog.exceptions_capture import capture_exception
 
             # Validate config
             if not config.account_id:
@@ -84,14 +84,14 @@ class LinkedinAdsSource(BaseSource[LinkedinAdsSourceConfig], OAuthMixin):
             # Test API access
             client = LinkedinAdsClient(integration.access_token)
             accounts = client.get_accounts()
-            
+
             # Verify the specified account exists
             account_ids = [str(acc.get('id')) for acc in accounts if acc.get('id')]
             if config.account_id not in account_ids:
                 return False, f"Account ID '{config.account_id}' not found in accessible accounts: {account_ids[:5]}"
 
             return True, None
-            
+
         except LinkedinAdsAuthError as e:
             return False, f"LinkedIn authentication failed: {str(e)}"
         except LinkedinAdsRateLimitError as e:

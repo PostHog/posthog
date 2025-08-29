@@ -1,17 +1,14 @@
-import datetime as dt
 import time
 import random
+import datetime as dt
 from typing import Any, Optional
-from urllib.parse import urlencode, quote
 
 import requests
 import structlog
 
 from posthog.exceptions_capture import capture_exception
-
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
-from posthog.warehouse.types import IncrementalFieldType
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.linkedin_ads.schemas import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -19,6 +16,7 @@ from posthog.temporal.data_imports.sources.linkedin_ads.schemas import (
     LINKEDIN_ADS_FIELDS,
     LinkedinAdsResource,
 )
+from posthog.warehouse.types import IncrementalFieldType
 
 logger = structlog.get_logger(__name__)
 
@@ -28,21 +26,21 @@ LINKEDIN_SPONSORED_URN_PREFIX = "urn:li:sponsored"
 
 def extract_linkedin_id_from_urn(urn: str) -> str:
     """Extract the ID from a LinkedIn URN.
-    
+
     Args:
         urn: LinkedIn URN like "urn:li:sponsoredCampaign:185129613"
-        
+
     Returns:
         The extracted ID like "185129613"
     """
     if not urn:
         return urn
-    
+
     # Split by ':' and take the last part which is the ID
     parts = urn.split(':')
     if len(parts) >= 4 and parts[0] == 'urn' and parts[1] == 'li' and parts[2].startswith('sponsored'):
         return parts[3]
-    
+
     # If not a recognized LinkedIn URN format, return as-is
     return urn
 
@@ -84,9 +82,9 @@ class LinkedinAdsClient:
         """
         if not access_token:
             raise ValueError("Access token is required")
-            
+
         self.access_token = access_token
-        
+
         # Set up proper requests session
         self.session = requests.Session()
         self.session.headers.update({
@@ -132,7 +130,7 @@ class LinkedinAdsClient:
         for attempt in range(self.MAX_RETRIES + 1):
             try:
                 response = self.session.get(url, headers=headers, timeout=self.REQUEST_TIMEOUT)
-                
+
                 # Handle specific status codes
                 if response.status_code == 401:
                     error_msg = "LinkedIn API authentication failed. Please check your access token."
@@ -142,12 +140,12 @@ class LinkedinAdsClient:
                             error_msg += f" Details: {error_detail}"
                     except ValueError:
                         pass
-                    logger.error("LinkedIn API auth error", 
-                               endpoint=endpoint, 
+                    logger.error("LinkedIn API auth error",
+                               endpoint=endpoint,
                                status_code=response.status_code)
                     capture_exception(LinkedinAdsAuthError(error_msg))
                     raise LinkedinAdsAuthError(error_msg)
-                
+
                 elif response.status_code == 429:
                     # Rate limit exceeded
                     retry_after = int(response.headers.get('Retry-After', self.RATE_LIMIT_DELAY))
@@ -163,7 +161,7 @@ class LinkedinAdsClient:
                         logger.error("LinkedIn API rate limit exceeded", endpoint=endpoint)
                         capture_exception(LinkedinAdsRateLimitError(error_msg))
                         raise LinkedinAdsRateLimitError(error_msg)
-                
+
                 elif response.status_code >= 500:
                     # Server error - retry with exponential backoff
                     if attempt < self.MAX_RETRIES:
@@ -177,13 +175,13 @@ class LinkedinAdsClient:
                         continue
                     else:
                         error_msg = f"LinkedIn API server error: {response.status_code}"
-                        logger.error("LinkedIn API server error", 
+                        logger.error("LinkedIn API server error",
                                    endpoint=endpoint,
                                    status_code=response.status_code,
                                    response_text=response.text[:500])
                         capture_exception(LinkedinAdsError(error_msg))
                         raise LinkedinAdsError(error_msg)
-                
+
                 elif response.status_code >= 400:
                     # Client error
                     error_msg = f"LinkedIn API client error: {response.status_code}"
@@ -193,24 +191,24 @@ class LinkedinAdsClient:
                             error_msg += f" Details: {error_detail}"
                     except ValueError:
                         error_msg += f" Response: {response.text[:200]}"
-                    
+
                     logger.error("LinkedIn API client error",
                                endpoint=endpoint,
                                status_code=response.status_code,
                                response_text=response.text[:500])
                     capture_exception(LinkedinAdsError(error_msg))
                     raise LinkedinAdsError(error_msg)
-                
+
                 # Success
                 try:
                     return response.json()
                 except ValueError as e:
-                    logger.error("Failed to parse JSON response", 
+                    logger.exception("Failed to parse JSON response",
                                endpoint=endpoint,
                                status_code=response.status_code,
                                response_text=response.text[:200])
                     raise LinkedinAdsError(f"Invalid JSON response from LinkedIn API: {str(e)}")
-                
+
             except requests.exceptions.Timeout:
                 if attempt < self.MAX_RETRIES:
                     delay = self.RETRY_DELAY * (2 ** attempt)
@@ -222,10 +220,10 @@ class LinkedinAdsClient:
                     continue
                 else:
                     error_msg = "LinkedIn API request timeout"
-                    logger.error("LinkedIn API request timeout", endpoint=endpoint)
+                    logger.exception("LinkedIn API request timeout", endpoint=endpoint)
                     capture_exception(LinkedinAdsError(error_msg))
                     raise LinkedinAdsError(error_msg)
-                    
+
             except requests.exceptions.RequestException as e:
                 if attempt < self.MAX_RETRIES:
                     delay = self.RETRY_DELAY * (2 ** attempt)
@@ -237,22 +235,22 @@ class LinkedinAdsClient:
                     time.sleep(delay)
                     continue
                 else:
-                    logger.exception("LinkedIn API request failed", 
-                                   error=str(e), 
+                    logger.exception("LinkedIn API request failed",
+                                   error=str(e),
                                    endpoint=endpoint)
                     capture_exception(e)
                     raise
-        
+
         # This should never be reached
         raise LinkedinAdsError("Max retries exceeded")
 
     def _get_paginated_data(self, endpoint: str, params: dict) -> list[dict]:
         """Get all paginated data from LinkedIn API.
-        
+
         Args:
             endpoint: API endpoint path
             params: Query parameters
-            
+
         Returns:
             List of all elements from all pages
         """
@@ -260,61 +258,61 @@ class LinkedinAdsClient:
         page_token = None
         page_size = 100  # LinkedIn's default/recommended page size
         page_number = 1
-        
-        logger.debug("Starting pagination", 
-                    endpoint=endpoint, 
+
+        logger.debug("Starting pagination",
+                    endpoint=endpoint,
                     page_size=page_size)
-        
+
         while True:
             page_params = params.copy()
             page_params["pageSize"] = page_size
-            
+
             if page_token:
                 page_params["pageToken"] = page_token
-            
-            logger.debug("Fetching page", 
-                        endpoint=endpoint, 
+
+            logger.debug("Fetching page",
+                        endpoint=endpoint,
                         page_number=page_number)
-            
+
             data = self._make_request(endpoint, page_params)
-            
+
             # Validate response structure
             if not data or "elements" not in data:
-                logger.error("Invalid API response structure", 
+                logger.error("Invalid API response structure",
                            endpoint=endpoint,
                            response_keys=list(data.keys()) if data else None)
                 raise LinkedinAdsError(f"Invalid response structure from {endpoint}: missing 'elements' field")
-            
+
             elements = data.get("elements", [])
             all_elements.extend(elements)
-            
+
             # Check if we have more pages - LinkedIn uses metadata.nextPageToken
             metadata = data.get("metadata", {})
             page_token = metadata.get("nextPageToken")
-            
-            logger.debug("Page processed", 
+
+            logger.debug("Page processed",
                         endpoint=endpoint,
                         page_number=page_number,
                         elements_count=len(elements),
                         total_so_far=len(all_elements),
                         has_next_page=bool(page_token))
-            
+
             # Stop if no pageToken (LinkedIn returns null when done)
             if not page_token:
                 break
-            
+
             page_number += 1
-            
+
             # Safety check to prevent infinite loops
             if page_number > 1000:
-                logger.error("Pagination safety limit reached", 
+                logger.error("Pagination safety limit reached",
                            endpoint=endpoint,
                            page_number=page_number,
                            total_elements=len(all_elements))
                 break
-            
-        logger.info("Pagination complete", 
-                   endpoint=endpoint, 
+
+        logger.info("Pagination complete",
+                   endpoint=endpoint,
                    total_pages=page_number,
                    total_elements=len(all_elements))
         return all_elements
@@ -344,7 +342,7 @@ class LinkedinAdsClient:
         """
         if not account_id:
             raise ValueError("account_id is required")
-            
+
         endpoint = f"adAccounts/{account_id}/adCampaigns"
 
         params = {
@@ -367,7 +365,7 @@ class LinkedinAdsClient:
         """
         if not account_id:
             raise ValueError("account_id is required")
-            
+
         endpoint = f"adAccounts/{account_id}/adCampaignGroups"
         params = {
             "q": "search",
@@ -395,7 +393,7 @@ class LinkedinAdsClient:
             raise ValueError("account_id is required")
         if not pivot:
             raise ValueError("pivot is required")
-            
+
         # Validate pivot value
         valid_pivots = ["CAMPAIGN", "CAMPAIGN_GROUP", "CREATIVE", "ACCOUNT"]
         if pivot not in valid_pivots:
@@ -411,11 +409,11 @@ class LinkedinAdsClient:
                 try:
                     start_date = dt.datetime.strptime(date_start, "%Y-%m-%d")
                     end_date = dt.datetime.now() - dt.timedelta(days=1)  # Yesterday
-                    logger.info("Using incremental date range", 
+                    logger.info("Using incremental date range",
                                start_date=start_date.strftime("%Y-%m-%d"),
                                end_date=end_date.strftime("%Y-%m-%d"))
                 except ValueError as e:
-                    logger.warning("Invalid start date format, using default range", 
+                    logger.warning("Invalid start date format, using default range",
                                  date_start=date_start, error=str(e))
                     end_date = dt.datetime.now() - dt.timedelta(days=1)
                     start_date = end_date - dt.timedelta(days=30)
@@ -425,7 +423,7 @@ class LinkedinAdsClient:
                     end_date = dt.datetime.strptime(date_end, "%Y-%m-%d")
                     start_date = end_date - dt.timedelta(days=30)
                 except ValueError as e:
-                    logger.warning("Invalid end date format, using default range", 
+                    logger.warning("Invalid end date format, using default range",
                                  date_end=date_end, error=str(e))
                     end_date = dt.datetime.now() - dt.timedelta(days=1)
                     start_date = end_date - dt.timedelta(days=30)
@@ -441,7 +439,7 @@ class LinkedinAdsClient:
                         start_date = end_date - dt.timedelta(days=30)
 
                 except ValueError as e:
-                    logger.warning("Invalid date format, using default range", 
+                    logger.warning("Invalid date format, using default range",
                                  date_start=date_start, date_end=date_end, error=str(e))
                     end_date = dt.datetime.now() - dt.timedelta(days=1)
                     start_date = end_date - dt.timedelta(days=30)
@@ -464,8 +462,8 @@ class LinkedinAdsClient:
             "fields": ",".join(LINKEDIN_ADS_FIELDS[LinkedinAdsResource.CampaignStats])
         }
 
-        logger.debug("LinkedIn Analytics request", 
-                    account_id=account_id, 
+        logger.debug("LinkedIn Analytics request",
+                    account_id=account_id,
                     pivot=pivot,
                     start_date=start_date.strftime("%Y-%m-%d"),
                     end_date=end_date.strftime("%Y-%m-%d"))
@@ -480,8 +478,7 @@ def get_incremental_fields() -> dict[str, list[tuple[str, IncrementalFieldType]]
     Returns:
         Dictionary mapping endpoint names to lists of (field_name, field_type) tuples
     """
-    from posthog.warehouse.types import IncrementalFieldType
-    
+
     return {
         endpoint: [(field["field"], field["field_type"]) for field in fields]
         for endpoint, fields in INCREMENTAL_FIELDS.items()
@@ -526,7 +523,7 @@ def linkedin_ads_source(
         team_id: PostHog team ID
         should_use_incremental_field: Whether to use incremental sync
         incremental_field: Field name for incremental sync
-        incremental_field_type: Field type for incremental sync  
+        incremental_field_type: Field type for incremental sync
         db_incremental_field_last_value: Last value for incremental sync
         last_modified_since: Filter data modified since this datetime
         date_start: Start date for analytics data (YYYY-MM-DD format)
@@ -586,13 +583,13 @@ def linkedin_ads_source(
             if should_use_incremental_field and incremental_field and incremental_field_type:
                 if incremental_field_type is None:
                     raise ValueError("incremental_field_type can't be None when should_use_incremental_field is True")
-                
+
                 # Determine last value using incremental_field_type
                 if db_incremental_field_last_value is None:
                     last_value = incremental_type_to_initial_value(incremental_field_type)
                 else:
                     last_value = db_incremental_field_last_value
-                
+
                 # For analytics (date-based), use incremental value as start date
                 if incremental_field_type == IncrementalFieldType.Date and incremental_field == "dateRange.start" and not date_start:
                     # If sync frequency interval is provided, limit the lookback period
@@ -601,16 +598,16 @@ def linkedin_ads_source(
                         now = dt.datetime.now()
                         max_lookback_days = max(1, sync_frequency_interval.total_seconds() / 86400)  # Convert to days, minimum 1 day
                         calculated_start = now - dt.timedelta(days=max_lookback_days)
-                        
+
                         # Use the later of: last_value or calculated_start (don't go further back than sync frequency)
                         if hasattr(last_value, 'strftime'):
                             last_value_date = last_value if isinstance(last_value, dt.datetime) else dt.datetime.combine(last_value, dt.time.min)
                         else:
                             last_value_date = dt.datetime.strptime(str(last_value), "%Y-%m-%d")
-                        
+
                         effective_start = max(last_value_date, calculated_start)
                         date_start = effective_start.strftime("%Y-%m-%d")
-                        
+
                         logger.info("Using incremental date with sync frequency limit for analytics",
                                    incremental_field=incremental_field,
                                    incremental_field_type=incremental_field_type,
@@ -647,7 +644,7 @@ def linkedin_ads_source(
         flattened_data = []
         for item in data:
             flattened_item = item.copy()
-            
+
             # Flatten dateRange structure for analytics data
             if "dateRange" in item:
                 if "start" in item["dateRange"]:
@@ -656,7 +653,7 @@ def linkedin_ads_source(
                 if "end" in item["dateRange"]:
                     end = item["dateRange"]["end"]
                     flattened_item["date_range_end"] = dt.date(end['year'], end['month'], end['day'])
-            
+
             # Transform pivotValues from array to specific pivot columns
             if "pivotValues" in item and isinstance(item["pivotValues"], list):
                 # Extract IDs and create specific columns based on pivot type
@@ -665,20 +662,20 @@ def linkedin_ads_source(
                         # Remove the LinkedIn URN prefix to get the type and ID part
                         # "urn:li:sponsoredCampaign:185129613" -> "Campaign:185129613"
                         cleaned = pivot_value.replace(LINKEDIN_SPONSORED_URN_PREFIX, "")
-                        
+
                         if ":" in cleaned:
                             pivot_type, pivot_id_str = cleaned.split(":", 1)
-                            
+
                             # Convert ID to integer (LinkedIn IDs are always integers)
                             try:
                                 pivot_id = int(pivot_id_str)
                             except ValueError:
-                                logger.warning("Failed to convert pivot ID to int", 
-                                             pivot_id=pivot_id_str, 
+                                logger.warning("Failed to convert pivot ID to int",
+                                             pivot_id=pivot_id_str,
                                              pivot_type=pivot_type,
                                              resource_name=resource_name)
                                 pivot_id = pivot_id_str  # Keep as string if conversion fails
-                            
+
                             # Convert pivot type to lowercase column name
                             if pivot_type == "Campaign":
                                 flattened_item["campaign_id"] = pivot_id
@@ -692,27 +689,27 @@ def linkedin_ads_source(
                                 # For any other pivot types, use a generic pattern
                                 column_name = pivot_type.lower() + "_id"
                                 flattened_item[column_name] = pivot_id
-                
-            
+
+
             # Convert cost_in_usd from String to Float
             if "costInUsd" in item:
                 try:
                     flattened_item["cost_in_usd"] = float(item["costInUsd"]) if item["costInUsd"] is not None else None
                 except (ValueError, TypeError):
-                    logger.warning("Failed to convert costInUsd to float", 
-                                 cost_in_usd=item["costInUsd"], 
+                    logger.warning("Failed to convert costInUsd to float",
+                                 cost_in_usd=item["costInUsd"],
                                  resource_name=resource_name)
                     flattened_item["cost_in_usd"] = None
                 # Remove the original camelCase field since we've converted it
                 flattened_item.pop("costInUsd", None)
-            
+
             # Flatten changeAuditStamps structure for campaigns/campaign groups
             if "changeAuditStamps" in item:
                 if "lastModified" in item["changeAuditStamps"] and "time" in item["changeAuditStamps"]["lastModified"]:
                     flattened_item["last_modified_time"] = item["changeAuditStamps"]["lastModified"]["time"]
                 if "created" in item["changeAuditStamps"] and "time" in item["changeAuditStamps"]["created"]:
                     flattened_item["created_time"] = item["changeAuditStamps"]["created"]["time"]
-            
+
             flattened_data.append(flattened_item)
 
         # Determine primary keys based on resource type
