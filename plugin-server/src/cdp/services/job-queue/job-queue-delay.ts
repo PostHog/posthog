@@ -51,7 +51,14 @@ export class CyclotronJobQueueDelay {
         const topic = `cdp_cyclotron_${this.queue}`
 
         // NOTE: As there is only ever one consumer per process we use the KAFKA_CONSUMER_ vars as with any other consumer
-        this.kafkaConsumer = new KafkaConsumer({ groupId, topic, callEachBatchWhenEmpty: true })
+        // Disable auto-commit for manual control over long-running batches
+        this.kafkaConsumer = new KafkaConsumer({ 
+            groupId, 
+            topic, 
+            callEachBatchWhenEmpty: true,
+            autoCommit: true,
+            autoOffsetStore: false
+        })
 
         logger.info('🔄', 'Connecting kafka consumer', { groupId, topic })
         await this.kafkaConsumer.connect(async (messages) => {
@@ -103,37 +110,48 @@ export class CyclotronJobQueueDelay {
         const maxDelayMs = 10 * 60 * 1000// 10 minutes
 
         for (const message of messages) {
-            const returnTopic = this.getHeaderValue(message.headers, 'returnTopic') as CyclotronJobQueueKind
-            const queueScheduledAt = this.getHeaderValue(message.headers, 'queueScheduledAt')
+            try {
+                const returnTopic = this.getHeaderValue(message.headers, 'returnTopic') as CyclotronJobQueueKind
+                const queueScheduledAt = this.getHeaderValue(message.headers, 'queueScheduledAt')
 
-            if (!returnTopic || !queueScheduledAt) {
-                logger.warn('Missing required headers', { 
-                    returnTopic, 
-                    queueScheduledAt, 
-                    messageKey: message.key 
+                if (!returnTopic || !queueScheduledAt) {
+                    logger.warn('Missing required headers', { 
+                        returnTopic, 
+                        queueScheduledAt, 
+                        messageKey: message.key 
+                    })
+                    this.kafkaConsumer?.offsetsStore([message])
+                    continue
+                }
+
+                const now = new Date().getTime()
+                const scheduledTime = new Date(queueScheduledAt)
+                let delayMs = Math.max(0, scheduledTime.getTime() - now)
+                const waitTime = Math.min(delayMs, maxDelayMs)
+
+                console.log('CdpCyclotronDelayConsumer', `Waiting for ${waitTime}ms before processing ${messages.indexOf(message) + 1}/${messages.length} invocation ${message.key}`)
+
+                delayMs -= waitTime
+
+                await new Promise((resolve) => setTimeout(resolve, waitTime))
+
+                const producer = this.getKafkaProducer()
+
+                await producer.produce({
+                    value: message.value,
+                    key: message.key as string,
+                    topic: delayMs === 0 ? returnTopic : `cdp_cyclotron_${getDelayQueue(DateTime.fromMillis(scheduledTime.getTime()))}`,
+                    headers: message.headers as unknown as Record<string, string>,
                 })
-                continue
+
+                this.kafkaConsumer?.offsetsStore([message])
+
+                logger.info('CdpCyclotronDelayConsumer', `Successfully processed and committed message ${message.key}`)
+            } catch (error) {
+                logger.error('CdpCyclotronDelayConsumer', `Error processing message ${message.key}`, { error })
+                this.kafkaConsumer?.offsetsStore([message])
+                throw error
             }
-
-            const now = new Date().getTime()
-            const scheduledTime = new Date(queueScheduledAt)
-            let delayMs = Math.max(0, scheduledTime.getTime() - now)
-            const waitTime = Math.min(delayMs, maxDelayMs)
-
-            console.log('CdpCyclotronDelayConsumer', `Waiting for ${waitTime}ms before processing ${messages.indexOf(message) + 1}/${messages.length} invocation ${message.key}`)
-
-            await new Promise((resolve) => setTimeout(resolve, waitTime))
-
-            const producer = this.getKafkaProducer()
-
-            await producer.produce({
-                value: message.value,
-                key: message.key as string,
-                topic: delayMs === 0 ? returnTopic : getDelayQueue(DateTime.fromMillis(scheduledTime.getTime())),
-                headers: message.headers as unknown as Record<string, string>,
-            })
-
-            this.kafkaConsumer?.offsetsStore([message])
         }
 
         console.log('CdpCyclotronDelayConsumer', 'Consumed full delay batch', messages.length)
