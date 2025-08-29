@@ -270,7 +270,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
 
     return (
         <>
-            <SceneContent className="feature-flag" forceNewSpacing>
+            <div className="feature-flag">
                 {isNewFeatureFlag || isEditingFlag ? (
                     <Form
                         id="feature-flag"
@@ -691,7 +691,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                         </SceneContent>
                     </>
                 )}
-            </SceneContent>
+            </div>
         </>
     )
 }
