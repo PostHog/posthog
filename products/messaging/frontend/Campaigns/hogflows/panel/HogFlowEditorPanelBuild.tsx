@@ -3,9 +3,9 @@ import { useActions } from 'kea'
 import { IconDrag } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
-import { hogFlowEditorLogic } from './hogFlowEditorLogic'
-import { getHogFlowStep } from './steps/HogFlowSteps'
-import { HogFlowAction } from './types'
+import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
+import { getHogFlowStep } from '../steps/HogFlowSteps'
+import { HogFlowAction } from '../types'
 
 export const ACTION_NODES_TO_SHOW: HogFlowAction['type'][] = [
     'function_email',
@@ -42,7 +42,7 @@ function HogFlowEditorToolbarNode({ type }: { type: HogFlowAction['type'] }): JS
     )
 }
 
-export function HogFlowEditorToolbar(): JSX.Element {
+export function HogFlowEditorPanelBuild(): JSX.Element {
     return (
         <div className="flex overflow-y-auto flex-col gap-px p-2 max-h-120">
             <span className="flex gap-2 text-sm font-semibold mt-2 items-center">

@@ -17,8 +17,8 @@ import { useEffect, useRef } from 'react'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { campaignLogic } from '../campaignLogic'
-import { HogFlowEditorRightPanel } from './HogFlowEditorRightPanel'
 import { hogFlowEditorLogic } from './hogFlowEditorLogic'
+import { HogFlowEditorPanel } from './panel/HogFlowEditorPanel'
 import { REACT_FLOW_NODE_TYPES } from './steps/Nodes'
 import { REACT_FLOW_EDGE_TYPES } from './steps/SmartEdge'
 import { HogFlowActionNode } from './types'
@@ -70,7 +70,7 @@ function HogFlowEditorContent(): JSX.Element {
 
                 <Controls showInteractive={false} />
 
-                <HogFlowEditorRightPanel />
+                <HogFlowEditorPanel />
             </ReactFlow>
         </div>
     )
