@@ -69,39 +69,43 @@ export function SavedFilters({
         >,
         nameColumn() as LemonTableColumn<SessionRecordingPlaylistType, keyof SessionRecordingPlaylistType | undefined>,
         {
-            width: 0,
-            className: 'w-40',
+            title: 'Share',
+            width: 40,
             render: function Render(_, playlist) {
                 return (
-                    <div className="flex justify-between gap-x-1">
-                        <LemonButton
-                            onClick={() => {
-                                const combinedURL = urls.absolute(
-                                    combineUrl(urls.replay(ReplayTabs.Home), { savedFilterId: playlist.short_id }).url
-                                )
-                                void copyToClipboard(combinedURL, 'link to ' + (playlist.name || playlist.derived_name))
-                            }}
-                            title="Copy link to saved filter"
-                            tooltip="Copy link to saved filter"
-                            icon={<IconShare />}
-                            size="small"
-                        >
-                            Share link
-                        </LemonButton>
-                        <LemonButton
-                            status="danger"
-                            onClick={() => {
-                                deletePlaylist(playlist)
-                                if (savedFilters.results?.length === 1) {
-                                    setActiveFilterTab('filters')
-                                }
-                            }}
-                            title="Delete saved filter"
-                            tooltip="Delete saved filter"
-                            icon={<IconTrash />}
-                            size="small"
-                        />
-                    </div>
+                    <LemonButton
+                        onClick={() => {
+                            const combinedURL = urls.absolute(
+                                combineUrl(urls.replay(ReplayTabs.Home), { savedFilterId: playlist.short_id }).url
+                            )
+                            void copyToClipboard(combinedURL, 'link to ' + (playlist.name || playlist.derived_name))
+                        }}
+                        title="Copy link to saved filter"
+                        tooltip="Copy link to saved filter"
+                        icon={<IconShare />}
+                        size="small"
+                    />
+                )
+            },
+        },
+        {
+            title: 'Delete',
+            width: 40,
+            render: function Render(_, playlist) {
+                return (
+                    <LemonButton
+                        status="danger"
+                        onClick={() => {
+                            deletePlaylist(playlist)
+                            if (savedFilters.results?.length === 1) {
+                                setActiveFilterTab('filters')
+                            }
+                        }}
+                        title="Delete saved filter"
+                        tooltip="Delete saved filter"
+                        icon={<IconTrash />}
+                        size="small"
+                    />
                 )
             },
         },
