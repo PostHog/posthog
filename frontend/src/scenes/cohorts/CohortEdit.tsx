@@ -348,17 +348,31 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                             <SceneDivider />
                             <SceneSection
                                 title={isNewCohort ? 'Upload users' : 'Add users'}
-                                description="Upload a CSV file to add users to your cohort. For single-column files, include
+                                description={
+                                    isNewCohort
+                                        ? `Upload a CSV file to add users to your cohort. For single-column files, include
                                         one distinct ID per row (all rows will be processed as data). For multi-column
                                         files, include a header row with a 'distinct_id' column containing the user
-                                        identifiers."
+                                        identifiers.`
+                                        : undefined
+                                }
                                 className={cn('ph-ignore-input', !newSceneLayout && 'mt-4')}
                             >
+                                {!isNewCohort && (
+                                    <div className="flex flex-col gap-y-0 flex-1 justify-center">
+                                        <h3 className="text-sm">Upload a CSV</h3>
+                                        <span className="max-w-prose">
+                                            Upload a CSV file to add users to your cohort. For single-column files,
+                                            include one distinct ID per row (all rows will be processed as data). For
+                                            multi-column files, include a header row with a 'distinct_id' column
+                                            containing the user identifiers.
+                                        </span>
+                                    </div>
+                                )}
                                 {/* TODO: @adamleithp Allow users to download a template CSV file */}
                                 {/* TODO: @adamleithp Tell users that adding ANOTHER file will NOT(?) replace the current one */}
                                 {/* TODO: @adamleithp Render the csv file and validate it */}
                                 {/* TODO: @adamleithp Adding a csv file doesn't show up with cohort.csv... */}
-
                                 <LemonField
                                     name="csv"
                                     label={newSceneLayout ? null : isNewCohort ? 'Upload users' : 'Add users'}
@@ -431,18 +445,19 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                             {!isNewCohort && (
                                 <>
                                     <LemonDivider label="OR" />
-                                    <SceneSection
-                                        title="Add users manually"
-                                        description="Select the users that you would like to add to the cohort."
-                                    >
+                                    <div>
+                                        <h3 className="text-sm">Add users manually</h3>
+                                        <span className="max-w-prose">
+                                            Select the users that you would like to add to the cohort.
+                                        </span>
                                         <LemonButton
-                                            className="w-fit"
+                                            className="w-fit mt-4"
                                             type="primary"
                                             onClick={showAddPersonToCohortModal}
                                         >
                                             Add Users
                                         </LemonButton>
-                                    </SceneSection>
+                                    </div>
                                 </>
                             )}
                         </>
