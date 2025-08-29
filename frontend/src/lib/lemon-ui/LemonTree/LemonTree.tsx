@@ -505,6 +505,8 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                         )
                     }
 
+                    const renderedItemSideAction = itemSideAction?.(item)
+
                     const content = (
                         <AccordionPrimitive.Root
                             type="multiple"
@@ -571,8 +573,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             button
                                         )}
 
-                                        {itemSideAction &&
-                                            itemSideAction(item) !== undefined &&
+                                        {renderedItemSideAction !== undefined &&
                                             !isEmptyFolder &&
                                             size === 'default' && (
                                                 <DropdownMenu>
@@ -585,16 +586,14 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     </DropdownMenuTrigger>
 
                                                     {/* The Dropdown content menu */}
-                                                    {!!itemSideAction(item) && (
-                                                        <DropdownMenuContent
-                                                            loop
-                                                            align="end"
-                                                            side="bottom"
-                                                            className="max-w-[250px]"
-                                                        >
-                                                            {itemSideAction(item)}
-                                                        </DropdownMenuContent>
-                                                    )}
+                                                    <DropdownMenuContent
+                                                        loop
+                                                        align="end"
+                                                        side="bottom"
+                                                        className="max-w-[250px]"
+                                                    >
+                                                        {renderedItemSideAction}
+                                                    </DropdownMenuContent>
                                                 </DropdownMenu>
                                             )}
                                     </ButtonGroupPrimitive>

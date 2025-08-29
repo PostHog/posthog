@@ -11,6 +11,13 @@
     border-width: 1px;
     border-radius: var(--radius-sm);
 
+    &.LemonTag--size-xsmall {
+        padding: 0 0.125rem;
+        font-size: 0.5rem;
+        line-height: 0.625rem;
+        border-radius: var(--radius-xs);
+    }
+
     &.LemonTag--size-small {
         padding: 0 0.1875rem;
         font-size: 0.625rem;

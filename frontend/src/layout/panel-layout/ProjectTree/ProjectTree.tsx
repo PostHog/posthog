@@ -2,7 +2,14 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { RefObject, useEffect, useRef, useState } from 'react'
 
-import { IconCheckbox, IconChevronRight, IconExternal, IconFolderPlus, IconPlusSmall } from '@posthog/icons'
+import {
+    IconCheckbox,
+    IconChevronRight,
+    IconEllipsis,
+    IconExternal,
+    IconFolderPlus,
+    IconPlusSmall,
+} from '@posthog/icons'
 
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
@@ -582,7 +589,26 @@ export function ProjectTree({
                     (root === 'shortcuts://' && item.record?.href && item.record.href.split('/').length - 1 === 1)
 
                 if (showProductMenuItems) {
-                    if (item.name === 'Product analytics') {
+                    if (item.tags && item.tags.length > 0) {
+                        const tag = item.tags[0]
+                        return (
+                            <ButtonPrimitive
+                                iconOnly
+                                isSideActionRight
+                                className="z-2 group justify-end hover:justify-center"
+                            >
+                                <LemonTag
+                                    key={tag}
+                                    type={tag === 'alpha' ? 'completion' : tag === 'beta' ? 'warning' : 'success'}
+                                    size="xsmall"
+                                    className="group-hover:hidden group-data-[state=open]/button-primitive:hidden mr-2"
+                                >
+                                    {tag.toUpperCase()}
+                                </LemonTag>
+                                <IconEllipsis className="size-3 text-tertiary hidden group-hover:block" />
+                            </ButtonPrimitive>
+                        )
+                    } else if (item.name === 'Product analytics') {
                         return (
                             <ButtonPrimitive iconOnly isSideActionRight className="z-2">
                                 <IconPlusSmall className="text-tertiary" />
@@ -792,21 +818,6 @@ export function ProjectTree({
                             <span className="text-tertiary text-xxs pt-[3px] ml-1">
                                 {dayjs(item.record?.created_at).fromNow()}
                             </span>
-                        )}
-
-                        {item.record?.protocol === 'products://' && item.tags?.length && (
-                            <>
-                                {item.tags?.map((tag) => (
-                                    <LemonTag
-                                        key={tag}
-                                        type={tag === 'alpha' ? 'completion' : tag === 'beta' ? 'warning' : 'success'}
-                                        size="small"
-                                        className="ml-2 relative top-[-1px]"
-                                    >
-                                        {tag.toUpperCase()}
-                                    </LemonTag>
-                                ))}
-                            </>
                         )}
 
                         {isExternalLinkItem(item) && <IconExternal className="size-4 text-tertiary relative" />}
