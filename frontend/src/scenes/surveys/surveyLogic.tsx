@@ -29,6 +29,7 @@ import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepa
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
 import { CompareFilter, DataTableNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { SurveyAnalysisData, SurveyAnalysisResponseItem } from '~/queries/schema/schema-surveys'
 import { HogQLQueryString } from '~/queries/utils'
 import {
     AnyPropertyFilter,
@@ -1250,6 +1251,12 @@ export const surveyLogic = kea<surveyLogicType>([
                         )`
             },
         ],
+        isSurveyAnalysisMaxToolEnabled: [
+            (s) => [s.enabledFlags],
+            (enabledFlags: FeatureFlagsSet): boolean => {
+                return !!enabledFlags[FEATURE_FLAGS.SURVEY_ANALYSIS_MAX_TOOL]
+            },
+        ],
         isExternalSurveyFFEnabled: [
             (s) => [s.enabledFlags],
             (enabledFlags: FeatureFlagsSet): boolean => {
@@ -1726,6 +1733,78 @@ export const surveyLogic = kea<surveyLogicType>([
             (s) => [s.survey],
             (survey: Survey | NewSurvey): SurveyDemoData => {
                 return getDemoDataForSurvey(survey)
+            },
+        ],
+        formattedOpenEndedResponses: [
+            (s) => [s.consolidatedSurveyResults, s.survey],
+            (consolidatedResults: ConsolidatedSurveyResults, survey: Survey | NewSurvey): SurveyAnalysisData => {
+                if (!consolidatedResults?.responsesByQuestion || !survey.questions) {
+                    return []
+                }
+
+                // Helper function to extract user information consistently
+                const extractUserInfo = (
+                    response: any
+                ): { email: string | null; userDistinctId: string; timestamp: string } => ({
+                    email: response.personProperties?.email || null,
+                    userDistinctId: response.distinctId,
+                    timestamp: response.timestamp,
+                })
+
+                const responsesByQuestion: SurveyAnalysisData = []
+
+                Object.entries(consolidatedResults.responsesByQuestion).forEach(([questionId, processedData]) => {
+                    const question = survey.questions.find((q) => q.id === questionId)
+                    if (!question) {
+                        return
+                    }
+
+                    const questionResponses: SurveyAnalysisResponseItem[] = []
+
+                    if (processedData.type === SurveyQuestionType.Open) {
+                        // Pure open questions
+                        const openData = processedData as OpenQuestionProcessedResponses
+
+                        openData.data.forEach((response) => {
+                            if (response.response?.trim()) {
+                                const userInfo = extractUserInfo(response)
+                                questionResponses.push({
+                                    responseText: response.response.trim(),
+                                    ...userInfo,
+                                    isOpenEnded: true,
+                                })
+                            }
+                        })
+                    } else if (
+                        processedData.type === SurveyQuestionType.SingleChoice ||
+                        processedData.type === SurveyQuestionType.MultipleChoice
+                    ) {
+                        // Choice questions with open input (isPredefined = false)
+                        const choiceData = processedData as ChoiceQuestionProcessedResponses
+
+                        choiceData.data.forEach((item) => {
+                            if (!item.isPredefined && item.label?.trim()) {
+                                const userInfo = extractUserInfo(item)
+                                questionResponses.push({
+                                    responseText: item.label.trim(),
+                                    ...userInfo,
+                                    isOpenEnded: true,
+                                })
+                            }
+                        })
+                    }
+
+                    // Only add question if it has open-ended responses
+                    if (questionResponses.length > 0) {
+                        responsesByQuestion.push({
+                            questionName: question.question,
+                            questionId,
+                            responses: questionResponses,
+                        })
+                    }
+                })
+
+                return responsesByQuestion
             },
         ],
     }),

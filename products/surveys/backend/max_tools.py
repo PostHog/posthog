@@ -6,11 +6,12 @@ from typing import Any
 
 import django.utils.timezone
 
+import orjson
 from asgiref.sync import async_to_sync
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
-from posthog.schema import SurveyCreationSchema
+from posthog.schema import SurveyAnalysisQuestionGroup, SurveyAnalysisResponseItem, SurveyCreationSchema
 
 from posthog.constants import DEFAULT_SURVEY_APPEARANCE
 from posthog.exceptions_capture import capture_exception
@@ -21,9 +22,10 @@ from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsN
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
 from ee.hogai.graph.taxonomy.tools import base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
+from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool import MaxTool
 
-from .prompts import SURVEY_CREATION_SYSTEM_PROMPT
+from .prompts import SURVEY_ANALYSIS_SYSTEM_PROMPT, SURVEY_CREATION_SYSTEM_PROMPT
 
 
 class SurveyCreatorArgs(BaseModel):
@@ -115,7 +117,7 @@ class CreateSurveyTool(MaxTool):
 
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
-            return f"❌ Failed to create survey", {"error": "creation_failed", "details": str(e)}
+            return "❌ Failed to create survey", {"error": "creation_failed", "details": str(e)}
 
     def _prepare_survey_data(self, survey_schema: SurveyCreationSchema, team: Team) -> dict[str, Any]:
         """Prepare survey data with appearance defaults applied."""
@@ -282,3 +284,305 @@ class FeatureFlagLookupGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentStat
             tools_node_class=SurveyLookupToolsNode,
             toolkit_class=SurveyToolkit,
         )
+
+
+class SurveyAnalysisArgs(BaseModel):
+    """
+    Analyze survey responses to extract themes, sentiment, and actionable insights from open-ended questions.
+    All survey data and responses are automatically provided from context.
+    """
+
+
+class SurveyAnalysisOutput(BaseModel):
+    themes: list[str] = Field(description="Key themes identified from responses")
+    sentiment: str = Field(description="Overall sentiment analysis (positive/negative/neutral)")
+    insights: list[str] = Field(description="Actionable insights derived from the data")
+    recommendations: list[str] = Field(description="Specific recommendations based on analysis")
+    response_count: int = Field(description="Total number of open-ended responses analyzed")
+    question_breakdown: dict[str, dict[str, Any]] = Field(
+        description="Analysis breakdown by question ID", default_factory=dict
+    )
+
+
+class SurveyAnalysisTool(MaxTool):
+    name: str = "analyze_survey_responses"
+    description: str = (
+        "Analyze survey responses to extract themes, sentiment, and actionable insights from open-ended questions"
+    )
+    thinking_message: str = "Analyzing your survey responses"
+    root_system_prompt_template: str = (
+        "You have access to a survey analysis tool that can analyze open-ended responses to identify themes, sentiment, and actionable insights. "
+        "When users ask about analyzing survey responses, summarizing feedback, finding patterns in responses, or extracting insights from survey data, "
+        "use the analyze_survey_responses tool. Survey data includes: {formatted_responses}"
+    )
+
+    args_schema: type[BaseModel] = SurveyAnalysisArgs
+
+    def _extract_open_ended_responses(self) -> list[SurveyAnalysisQuestionGroup]:
+        """
+        Extract all open-ended text responses from the context data provided by frontend.
+
+        The frontend provides responses grouped by question in this format:
+        [
+          {
+            questionName: "What do you think?",
+            questionId: "123",
+            responses: [
+              {responseText: "Great!", userDistinctId: "user1", email: "user@example.com", isOpenEnded: true},
+              {responseText: "Good", userDistinctId: "user2", email: null, isOpenEnded: true}
+            ]
+          }
+        ]
+        """
+        try:
+            context = self.context or {}
+            raw_responses = context.get("formatted_responses", [])
+
+            if not raw_responses:
+                return []
+
+            # Convert to proper typed format
+
+            typed_responses: list[SurveyAnalysisQuestionGroup] = []
+            for group in raw_responses:
+                if isinstance(group, dict):
+                    # Convert dict to proper typed object
+                    responses_data = []
+                    for response in group.get("responses", []):
+                        if isinstance(response, dict):
+                            responses_data.append(
+                                SurveyAnalysisResponseItem(
+                                    responseText=response.get("responseText", ""),
+                                    userDistinctId=response.get("userDistinctId", "anonymous"),
+                                    email=response.get("email"),
+                                    timestamp=response.get("timestamp", ""),
+                                    isOpenEnded=response.get("isOpenEnded", True),
+                                )
+                            )
+                        else:
+                            responses_data.append(response)
+
+                    typed_responses.append(
+                        SurveyAnalysisQuestionGroup(
+                            questionName=group.get("questionName", "Unknown question"),
+                            questionId=group.get("questionId", "unknown"),
+                            responses=responses_data,
+                        )
+                    )
+                else:
+                    # Already typed
+                    typed_responses.append(group)
+
+            return typed_responses
+        except Exception as e:
+            capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
+            return []
+
+    async def _analyze_responses(
+        self, question_groups: list[SurveyAnalysisQuestionGroup], analysis_focus: str
+    ) -> SurveyAnalysisOutput:
+        """
+        Analyze the extracted responses using LLM to generate themes, sentiment, and insights.
+
+        Expected format:
+        [
+          {
+            questionName: "What do you think?",
+            questionId: "123",
+            responses: [
+              {responseText: "Great!", userDistinctId: "user1", email: "user@example.com", isOpenEnded: true},
+              {responseText: "Good", userDistinctId: "user2", email: null, isOpenEnded: true}
+            ]
+          }
+        ]
+        """
+        if not question_groups:
+            return SurveyAnalysisOutput(
+                themes=[],
+                sentiment="neutral",
+                insights=["No open-ended responses found to analyze."],
+                recommendations=["Consider adding open-ended questions to gather more detailed feedback."],
+                response_count=0,
+                question_breakdown={},
+            )
+
+        # Count total responses across all questions
+        total_response_count = sum(len(group.responses) for group in question_groups)
+
+        try:
+            # Format the data for LLM analysis
+            formatted_data = self._format_responses_for_llm(question_groups)
+
+            # Initialize LLM with PostHog context
+            llm = MaxChatOpenAI(
+                user=self._user,
+                team=self._team,
+                model="gpt-4.1",
+                temperature=0.1,  # Lower temperature for consistent analysis
+            )
+
+            # Create the analysis prompt by directly substituting the data
+            formatted_prompt = SURVEY_ANALYSIS_SYSTEM_PROMPT.replace("{{{survey_responses}}}", formatted_data)
+
+            # Generate analysis
+            response = await llm.ainvoke([{"role": "system", "content": formatted_prompt}])
+
+            # Parse the LLM response
+            try:
+                content = response.content if isinstance(response.content, str) else str(response.content)
+                analysis_result = orjson.loads(content.strip())
+
+                return SurveyAnalysisOutput(
+                    themes=analysis_result.get("themes", []),
+                    sentiment=analysis_result.get("sentiment", "neutral"),
+                    insights=analysis_result.get("insights", []),
+                    recommendations=analysis_result.get("recommendations", []),
+                    response_count=analysis_result.get("response_count", total_response_count),
+                    question_breakdown=analysis_result.get("question_breakdown", {}),
+                )
+            except orjson.JSONDecodeError:
+                # Fallback if LLM doesn't return valid JSON
+                return SurveyAnalysisOutput(
+                    themes=["Analysis completed"],
+                    sentiment="neutral",
+                    insights=[f"LLM Analysis: {response.content[:200]}..."],
+                    recommendations=["Review the full analysis for detailed insights"],
+                    response_count=total_response_count,
+                    question_breakdown={},
+                )
+
+        except Exception as e:
+            # Don't mask the error - let the user know something went wrong
+            capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
+
+            # Return an error message instead of a fake success
+            error_message = f"❌ Survey analysis failed: {str(e)}"
+            return SurveyAnalysisOutput(
+                themes=[],
+                sentiment="neutral",
+                insights=[error_message],
+                recommendations=["Try the analysis again, or contact support if the issue persists"],
+                response_count=total_response_count,
+                question_breakdown={},
+            )
+
+    def _format_responses_for_llm(self, question_groups: list[SurveyAnalysisQuestionGroup]) -> str:
+        """Format the grouped responses into a clean string for LLM analysis."""
+        formatted_sections = []
+
+        for group in question_groups:
+            # Access typed properties directly
+            question_name = group.questionName
+            responses = group.responses
+
+            formatted_sections.append(f'Question: "{question_name}"')
+            formatted_sections.append("Responses:")
+
+            for response in responses:
+                # Access typed properties directly
+                response_text = response.responseText
+                user_id = response.userDistinctId
+                email = response.email
+
+                # Format user identifier
+                user_identifier = email if email else f"user:{user_id}"
+                formatted_sections.append(f'- "{response_text}" ({user_identifier})')
+
+            formatted_sections.append("")  # Empty line between questions
+
+        return "\n".join(formatted_sections)
+
+    def _format_analysis_for_user(self, analysis: SurveyAnalysisOutput, survey_name: str) -> str:
+        """Format the structured analysis into a user-friendly message."""
+        lines = []
+
+        # Header with response count
+        header = f"✅ **Survey Analysis: '{survey_name}'**"
+        lines.append(header)
+        lines.append(f"*Analyzed {analysis.response_count} open-ended responses*")
+        lines.append("")
+
+        # Key themes
+        if analysis.themes:
+            lines.append("**Key Themes:**")
+            for theme in analysis.themes[:5]:  # Limit to top 5 themes
+                lines.append(f"• {theme}")
+            lines.append("")
+
+        # Sentiment
+        sentiment_emoji = {"positive": "😊", "negative": "😞", "mixed": "🤔", "neutral": "😐"}.get(
+            analysis.sentiment, "😐"
+        )
+        lines.append(f"**Overall Sentiment:** {sentiment_emoji} {analysis.sentiment.title()}")
+        lines.append("")
+
+        # Key insights
+        if analysis.insights:
+            lines.append("**Key Insights:**")
+            for insight in analysis.insights[:3]:  # Limit to top 3 insights
+                lines.append(f"• {insight}")
+            lines.append("")
+
+        # Recommendations
+        if analysis.recommendations:
+            lines.append("**Recommendations:**")
+            for i, rec in enumerate(analysis.recommendations[:3], 1):  # Top 3 recommendations
+                lines.append(f"{i}. {rec}")
+            lines.append("")
+
+        # Question breakdown summary
+        if analysis.question_breakdown:
+            lines.append("**Question Breakdown:**")
+            for question, breakdown in list(analysis.question_breakdown.items())[:3]:  # Top 3 questions
+                lines.append(
+                    f"• **{question}**: {breakdown.get('theme', 'No theme')} ({breakdown.get('sentiment', 'neutral')})"
+                )
+            lines.append("")
+
+        lines.append("💡 *Need more detail? Ask me to dive deeper into any specific aspect.*")
+
+        return "\n".join(lines)
+
+    async def _arun_impl(self) -> tuple[str, dict[str, Any]]:
+        """
+        Analyze survey responses to extract actionable insights from open-ended questions.
+        All survey data and responses come from the context provided by the frontend.
+        """
+        analysis_focus = "comprehensive"  # Default analysis type
+
+        try:
+            # Get survey info from context
+            survey_id = self.context.get("survey_id")
+            survey_name = self.context.get("survey_name", "Unknown Survey")
+            # responses has to be JSON-parsed from the context
+            responses = self._extract_open_ended_responses()
+
+            if not survey_id or not responses:
+                return "❌ No survey data provided", {
+                    "error": "no_survey_data",
+                    "details": "Survey information not found in context",
+                }
+
+            # Analyze the responses
+            analysis_result = await self._analyze_responses(responses, analysis_focus)
+
+            if analysis_result.response_count == 0:
+                success_message = f"ℹ️ No open-ended responses found in survey '{survey_name}' to analyze"
+                return success_message, {
+                    "survey_id": survey_id,
+                    "survey_name": survey_name,
+                    "analysis": analysis_result.model_dump(),
+                }
+
+            # Format the analysis as a user-friendly message
+            user_message = self._format_analysis_for_user(analysis_result, survey_name)
+
+            return user_message, {
+                "survey_id": survey_id,
+                "survey_name": survey_name,
+                "analysis": analysis_result.model_dump(),
+            }
+
+        except Exception as e:
+            capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
+            return f"❌ Failed to analyze survey responses: {str(e)}", {"error": "analysis_failed", "details": str(e)}

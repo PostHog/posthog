@@ -85,6 +85,7 @@ class AssistantContextualTool(StrEnum):
     FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST = "find_error_tracking_impactful_issue_event_list"
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
     CREATE_SURVEY = "create_survey"
+    ANALYZE_SURVEY_RESPONSES = "analyze_survey_responses"
     SEARCH_DOCS = "search_docs"
     SEARCH_INSIGHTS = "search_insights"
     SESSION_SUMMARIZATION = "session_summarization"
@@ -2485,6 +2486,17 @@ class SuggestedQuestionsQueryResponse(BaseModel):
     questions: list[str]
 
 
+class SurveyAnalysisResponseItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    email: Optional[str] = None
+    isOpenEnded: bool
+    responseText: str
+    timestamp: str
+    userDistinctId: str
+
+
 class Value(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4732,6 +4744,15 @@ class SuggestedQuestionsQuery(BaseModel):
     response: Optional[SuggestedQuestionsQueryResponse] = None
     tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class SurveyAnalysisQuestionGroup(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    questionId: str
+    questionName: str
+    responses: list[SurveyAnalysisResponseItem]
 
 
 class SurveyAppearanceSchema(BaseModel):
@@ -10644,6 +10665,10 @@ class SessionsTimelineQuery(BaseModel):
     response: Optional[SessionsTimelineQueryResponse] = None
     tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class SurveyAnalysisData(RootModel[list[SurveyAnalysisQuestionGroup]]):
+    root: list[SurveyAnalysisQuestionGroup]
 
 
 class SurveyCreationSchema(BaseModel):

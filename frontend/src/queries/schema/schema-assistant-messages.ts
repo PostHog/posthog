@@ -172,6 +172,7 @@ export type AssistantContextualTool =
     | 'find_error_tracking_impactful_issue_event_list'
     | 'experiment_results_summary'
     | 'create_survey'
+    | 'analyze_survey_responses'
     | 'search_docs'
     | 'search_insights'
     | 'session_summarization'

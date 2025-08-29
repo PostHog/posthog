@@ -1,7 +1,7 @@
 import './SurveyView.scss'
 
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { IconGraph, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDivider } from '@posthog/lemon-ui'
@@ -19,6 +19,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
+import { MaxTool } from 'scenes/max/MaxTool'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { DuplicateToProjectModal, DuplicateToProjectTrigger } from 'scenes/surveys/DuplicateToProjectModal'
 import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
@@ -449,11 +450,30 @@ function SurveyResponsesByQuestionV2(): JSX.Element {
     )
 }
 
+const NUM_OF_RESPONSES_FOR_MAX_ANALYSIS_TOOL = 10
+
 export function SurveyResult({ disableEventsTable }: { disableEventsTable?: boolean }): JSX.Element {
-    const { dataTableQuery, surveyLoading, surveyAsInsightURL, isAnyResultsLoading, processedSurveyStats } =
-        useValues(surveyLogic)
+    const {
+        dataTableQuery,
+        surveyLoading,
+        surveyAsInsightURL,
+        isAnyResultsLoading,
+        processedSurveyStats,
+        survey,
+        formattedOpenEndedResponses,
+        isSurveyAnalysisMaxToolEnabled,
+    } = useValues(surveyLogic)
 
     const atLeastOneResponse = !!processedSurveyStats?.[SurveyEventName.SENT].total_count
+
+    const maxToolContext = useMemo(
+        () => ({
+            survey_id: survey.id,
+            survey_name: survey.name,
+            formatted_responses: formattedOpenEndedResponses,
+        }),
+        [survey.id, survey.name, formattedOpenEndedResponses]
+    )
 
     return (
         <div className="deprecated-space-y-4">
@@ -461,7 +481,17 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
             <SurveyStatsSummary />
             {isAnyResultsLoading || atLeastOneResponse ? (
                 <>
-                    <SurveyResponsesByQuestionV2 />
+                    <MaxTool
+                        identifier="analyze_survey_responses"
+                        context={maxToolContext}
+                        active={
+                            isSurveyAnalysisMaxToolEnabled &&
+                            formattedOpenEndedResponses.reduce((acc, curr) => acc + curr.responses.length, 0) >=
+                                NUM_OF_RESPONSES_FOR_MAX_ANALYSIS_TOOL
+                        }
+                    >
+                        <SurveyResponsesByQuestionV2 />
+                    </MaxTool>
                     <LemonButton
                         type="primary"
                         data-attr="survey-results-explore"
