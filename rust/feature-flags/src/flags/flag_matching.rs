@@ -1455,7 +1455,7 @@ impl FeatureFlagMatcher {
         }
     }
 
-    /// If experience continuity is enabled, we need to process the hash key override if it's provided.
+    /// If experience continuity is enabled, we need to process the hash key override.
     /// See [`FeatureFlagMatcher::process_hash_key_override`] for more details.
     async fn process_hash_key_override_if_needed(
         &self,
@@ -1463,7 +1463,6 @@ impl FeatureFlagMatcher {
         hash_key_override: Option<String>,
     ) -> (Option<HashMap<String, String>>, bool) {
         let hash_key_timer = common_metrics::timing_guard(FLAG_HASH_KEY_PROCESSING_TIME, &[]);
-        // If experience continuity is enabled, we need to process the hash key override if it's provided.
         let (hash_key_overrides, flag_hash_key_override_error) =
             if flags_have_experience_continuity_enabled {
                 match hash_key_override {
@@ -1472,9 +1471,25 @@ impl FeatureFlagMatcher {
                         self.process_hash_key_override(hash_key, target_distinct_ids)
                             .await
                     }
-                    // if a flag has experience continuity enabled but no hash key override is provided,
-                    // we don't need to write an override, we can just use the distinct_id
-                    None => (None, false),
+                    // If no hash key override is provided, we need to look up existing overrides
+                    None => {
+                        match get_feature_flag_hash_key_overrides(
+                            self.reader.clone(),
+                            self.team_id,
+                            vec![self.distinct_id.clone()],
+                        )
+                        .await
+                        {
+                            Ok(overrides) => (Some(overrides), false),
+                            Err(e) => {
+                                error!(
+                                    "Failed to get feature flag hash key overrides for team {} project {} distinct_id {}: {:?}",
+                                    self.team_id, self.project_id, self.distinct_id, e
+                                );
+                                (None, true)
+                            }
+                        }
+                    }
                 }
             } else {
                 // if experience continuity is not enabled, we don't need to worry about hash key overrides
