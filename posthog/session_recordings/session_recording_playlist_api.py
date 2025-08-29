@@ -321,15 +321,13 @@ class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
             .values_list("recording_id", flat=True)
         )
 
-        data_dict = query_as_params_to_dict(request.GET.dict())
-        query = RecordingsQuery.model_validate(data_dict)
-
+        # For collections, create a minimal query with only session_ids
         if playlist.type == SessionRecordingPlaylist.PlaylistType.COLLECTION:
-            # For collections, override the date filter to get ALL recordings
-            query.date_from = None
-            query.date_to = None
-
-        query.session_ids = playlist_items
+            query = RecordingsQuery(session_ids=playlist_items, date_from=None, date_to=None)
+        else:
+            data_dict = query_as_params_to_dict(request.GET.dict())
+            query = RecordingsQuery.model_validate(data_dict)
+            query.session_ids = playlist_items
 
         return list_recordings_response(
             list_recordings_from_query(query, cast(User, request.user), team=self.team),

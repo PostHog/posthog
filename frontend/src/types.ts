@@ -9,6 +9,7 @@ import { LogLevel } from '@posthog/rrweb-plugin-console-record'
 import { eventWithTime } from '@posthog/rrweb-types'
 
 import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
+import { AlertType } from 'lib/components/Alerts/types'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import {
@@ -346,6 +347,7 @@ export interface UserType extends UserBaseType {
     is_email_verified?: boolean | null
     pending_email?: string | null
     is_2fa_enabled: boolean
+    has_sso_enforcement: boolean
     has_social_auth: boolean
     has_seen_product_intro_for?: Record<string, boolean>
     scene_personalisation?: SceneDashboardChoice[]
@@ -2096,6 +2098,7 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     /** Only used in the frontend to toggle showing Baseline in funnels or not */
     disable_baseline?: boolean
     filters: Partial<FilterType>
+    alerts?: AlertType[]
     query?: Node | null
     query_status?: QueryStatus
     /** Only used when creating objects */
@@ -2143,6 +2146,8 @@ export interface DashboardType<T = InsightModel> extends DashboardBasicType {
     tiles: DashboardTile<T>[]
     filters: DashboardFilter
     variables?: Record<string, HogQLVariable>
+    persisted_filters?: DashboardFilter | null
+    persisted_variables?: Record<string, HogQLVariable> | null
     breakdown_colors?: BreakdownColorConfig[]
     data_color_theme_id?: number | null
 }
@@ -2408,6 +2413,7 @@ export enum ChartDisplayType {
     ActionsBarValue = 'ActionsBarValue',
     ActionsTable = 'ActionsTable',
     WorldMap = 'WorldMap',
+    CalendarHeatmap = 'CalendarHeatmap',
 }
 export enum ChartDisplayCategory {
     TimeSeries = 'TimeSeries',
@@ -2426,6 +2432,7 @@ export type BreakdownType =
     | 'data_warehouse'
     | 'data_warehouse_person_property'
 export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
+export type SimpleIntervalType = 'day' | 'month'
 export type SmoothingType = number
 
 export enum InsightType {
@@ -2438,7 +2445,6 @@ export enum InsightType {
     JSON = 'JSON',
     SQL = 'SQL',
     HOG = 'HOG',
-    CALENDAR_HEATMAP = 'CALENDAR_HEATMAP',
 }
 
 export enum PathType {
@@ -2651,11 +2657,6 @@ export interface PathsFilterType extends FilterType {
     path_dropoff_key?: string // Paths People Dropoff Key
 }
 
-export interface CalendarHeatmapFilterType extends FilterType {
-    // Reserved for future filter properties
-    dummy?: string
-}
-
 export type RetentionEntityKind = NodeKind.ActionsNode | NodeKind.EventsNode
 
 export interface RetentionEntity {
@@ -2710,7 +2711,6 @@ export type AnyFilterType =
     | StickinessFilterType
     | FunnelsFilterType
     | PathsFilterType
-    | CalendarHeatmapFilterType
     | RetentionFilterType
     | LifecycleFilterType
     | FilterType
@@ -2723,7 +2723,6 @@ export type AnyPartialFilterType =
     | Partial<RetentionFilterType>
     | Partial<LifecycleFilterType>
     | Partial<FilterType>
-    | Partial<CalendarHeatmapFilterType>
 
 export interface EventsListQueryParams {
     event?: string
@@ -3813,6 +3812,8 @@ export interface Experiment {
     filters: TrendsFilterType | FunnelsFilterType
     metrics: (ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
     metrics_secondary: (ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
+    primary_metrics_ordered_uuids: string[] | null
+    secondary_metrics_ordered_uuids: string[] | null
     saved_metrics_ids: { id: number; metadata: { type: 'primary' | 'secondary' } }[]
     saved_metrics: any[]
     parameters: {
@@ -4175,6 +4176,8 @@ export enum ExperimentMetricMathType {
     Min = 'min',
     Max = 'max',
     Avg = 'avg',
+    UniqueUsers = 'dau',
+    UniqueGroup = 'unique_group',
     HogQL = 'hogql',
 }
 
@@ -4609,6 +4612,8 @@ export enum ActivityScope {
     USER_INTERVIEW = 'UserInterview',
     TAG = 'Tag',
     TAGGED_ITEM = 'TaggedItem',
+    EXTERNAL_DATA_SOURCE = 'ExternalDataSource',
+    EXTERNAL_DATA_SCHEMA = 'ExternalDataSchema',
 }
 
 export type CommentType = {

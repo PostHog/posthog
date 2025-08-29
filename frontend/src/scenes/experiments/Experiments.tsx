@@ -11,6 +11,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { ExperimentsHog } from 'lib/components/hedgehogs'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -25,6 +26,9 @@ import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ActivityScope, Experiment, ExperimentsTabs, ProductKey, ProgressStatus } from '~/types'
 
 import { DuplicateExperimentModal } from './DuplicateExperimentModal'
@@ -60,7 +64,7 @@ const ExperimentsTableFilters = ({
     onFiltersChange: (filters: ExperimentsFilters, replace?: boolean) => void
 }): JSX.Element => {
     return (
-        <div className="flex justify-between mb-4 gap-2 flex-wrap">
+        <div className="flex justify-between gap-2 flex-wrap">
             <LemonInput
                 type="search"
                 placeholder="Search experiments"
@@ -309,7 +313,7 @@ const ExperimentsTable = ({
     ]
 
     return (
-        <div>
+        <SceneContent forceNewSpacing>
             {match(tab)
                 .with(ExperimentsTabs.All, () => (
                     <ProductIntroduction
@@ -321,6 +325,7 @@ const ExperimentsTable = ({
                         action={() => router.actions.push(urls.experiment('new'))}
                         isEmpty={shouldShowEmptyState}
                         customHog={ExperimentsHog}
+                        className="my-0"
                     />
                 ))
                 .with(ExperimentsTabs.Archived, () => (
@@ -331,20 +336,21 @@ const ExperimentsTable = ({
                         description={EXPERIMENTS_PRODUCT_DESCRIPTION}
                         docsURL="https://posthog.com/docs/experiments"
                         isEmpty={shouldShowEmptyState}
+                        className="my-0"
                     />
                 ))
                 .otherwise(() => null)}
             <ExperimentsTableFilters tab={tab} filters={filters} onFiltersChange={setExperimentsFilters} />
-            <LemonDivider className="my-4" />
-            <div className="mb-4">
-                <span className="text-secondary">
-                    {count
-                        ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} experiment${
-                              count === 1 ? '' : 's'
-                          }`
-                        : null}
-                </span>
-            </div>
+            <LemonDivider className="my-0" />
+            {count ? (
+                <div>
+                    <span className="text-secondary">
+                        {`${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} experiment${
+                            count === 1 ? '' : 's'
+                        }`}
+                    </span>
+                </div>
+            ) : null}
             <LemonTable
                 dataSource={experiments.results}
                 columns={columns}
@@ -366,18 +372,19 @@ const ExperimentsTable = ({
                     })
                 }
             />
-        </div>
+        </SceneContent>
     )
 }
 
 export function Experiments(): JSX.Element {
     const { tab } = useValues(experimentsLogic)
     const { setExperimentsTab } = useActions(experimentsLogic)
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const [duplicateModalExperiment, setDuplicateModalExperiment] = useState<Experiment | null>(null)
 
     return (
-        <div>
+        <SceneContent forceNewSpacing>
             <PageHeader
                 buttons={
                     <LemonButton type="primary" data-attr="create-experiment" to={urls.experiment('new')}>
@@ -385,22 +392,35 @@ export function Experiments(): JSX.Element {
                     </LemonButton>
                 }
                 caption={
-                    <>
-                        <Link
-                            data-attr="experiment-help"
-                            to="https://posthog.com/docs/experiments/installation?utm_medium=in-product&utm_campaign=new-experiment"
-                            target="_blank"
-                        >
-                            &nbsp; Visit the guide
-                        </Link>
-                        &nbsp; to learn more.
-                    </>
+                    !newSceneLayout && (
+                        <>
+                            <Link
+                                data-attr="experiment-help"
+                                to="https://posthog.com/docs/experiments/installation?utm_medium=in-product&utm_campaign=new-experiment"
+                                target="_blank"
+                            >
+                                &nbsp; Visit the guide
+                            </Link>
+                            &nbsp; to learn more.
+                        </>
+                    )
                 }
                 tabbedPage={true}
             />
+            <SceneTitleSection
+                name="Experiments"
+                description={EXPERIMENTS_PRODUCT_DESCRIPTION}
+                docsURL="https://posthog.com/docs/experiments/installation?utm_medium=in-product&utm_campaign=new-experiment"
+                resourceType={{
+                    type: 'experiment',
+                    typePlural: 'experiments',
+                }}
+            />
+            <SceneDivider />
             <LemonTabs
                 activeKey={tab}
                 onChange={(newKey) => setExperimentsTab(newKey)}
+                sceneInset={newSceneLayout}
                 tabs={[
                     {
                         key: ExperimentsTabs.All,
@@ -437,6 +457,6 @@ export function Experiments(): JSX.Element {
                     experiment={duplicateModalExperiment}
                 />
             )}
-        </div>
+        </SceneContent>
     )
 }

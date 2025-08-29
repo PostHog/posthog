@@ -1,6 +1,6 @@
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import ReplacingMergeTree
-from posthog.settings.data_stores import CLICKHOUSE_PASSWORD, CLICKHOUSE_USER
+from posthog.settings.data_stores import CLICKHOUSE_DATABASE, CLICKHOUSE_PASSWORD, CLICKHOUSE_USER
 
 WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_NAME = "web_pre_aggregated_teams"
 WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME = "web_pre_aggregated_teams_dict"
@@ -73,7 +73,7 @@ def WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_QUERY():
 SELECT
     team_id
 FROM
-    `{WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_NAME}`
+    `{CLICKHOUSE_DATABASE}`.`{WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_NAME}`
 FINAL
 WHERE version > 0
 """.replace("\n", " ").strip()

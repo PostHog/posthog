@@ -7,7 +7,6 @@ import {
     ActionsNode,
     ActorsQuery,
     BreakdownFilter,
-    CalendarHeatmapQuery,
     CompareFilter,
     DataTableNode,
     DataVisualizationNode,
@@ -44,10 +43,11 @@ import {
     ResultCustomizationByPosition,
     ResultCustomizationByValue,
     RetentionQuery,
+    RevenueAnalyticsGrossRevenueQuery,
     RevenueAnalyticsGrowthRateQuery,
+    RevenueAnalyticsMRRQuery,
     RevenueAnalyticsMetricsQuery,
     RevenueAnalyticsOverviewQuery,
-    RevenueAnalyticsRevenueQuery,
     RevenueAnalyticsTopCustomersQuery,
     RevenueExampleDataWarehouseTablesQuery,
     RevenueExampleEventsQuery,
@@ -156,6 +156,12 @@ export function isHogQLMetadata(node?: Record<string, any> | null): node is HogQ
     return node?.kind === NodeKind.HogQLMetadata
 }
 
+export function isRevenueAnalyticsGrossRevenueQuery(
+    node?: Record<string, any> | null
+): node is RevenueAnalyticsGrossRevenueQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsGrossRevenueQuery
+}
+
 export function isRevenueAnalyticsGrowthRateQuery(
     node?: Record<string, any> | null
 ): node is RevenueAnalyticsGrowthRateQuery {
@@ -168,16 +174,14 @@ export function isRevenueAnalyticsMetricsQuery(
     return node?.kind === NodeKind.RevenueAnalyticsMetricsQuery
 }
 
+export function isRevenueAnalyticsMRRQuery(node?: Record<string, any> | null): node is RevenueAnalyticsMRRQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsMRRQuery
+}
+
 export function isRevenueAnalyticsOverviewQuery(
     node?: Record<string, any> | null
 ): node is RevenueAnalyticsOverviewQuery {
     return node?.kind === NodeKind.RevenueAnalyticsOverviewQuery
-}
-
-export function isRevenueAnalyticsRevenueQuery(
-    node?: Record<string, any> | null
-): node is RevenueAnalyticsRevenueQuery {
-    return node?.kind === NodeKind.RevenueAnalyticsRevenueQuery
 }
 
 export function isRevenueAnalyticsTopCustomersQuery(
@@ -261,10 +265,6 @@ export function isTrendsQuery(node?: Record<string, any> | null): node is Trends
     return node?.kind === NodeKind.TrendsQuery
 }
 
-export function isCalendarHeatmapQuery(node?: Record<string, any> | null): node is CalendarHeatmapQuery {
-    return node?.kind === NodeKind.CalendarHeatmapQuery
-}
-
 export function isFunnelsQuery(node?: Record<string, any> | null): node is FunnelsQuery {
     return node?.kind === NodeKind.FunnelsQuery
 }
@@ -336,8 +336,7 @@ export function isInsightQueryNode(node?: Record<string, any> | null): node is I
         isRetentionQuery(node) ||
         isPathsQuery(node) ||
         isStickinessQuery(node) ||
-        isLifecycleQuery(node) ||
-        isCalendarHeatmapQuery(node)
+        isLifecycleQuery(node)
     )
 }
 
@@ -513,7 +512,10 @@ export function getResultCustomizations(
 export const getGoalLines = (query: InsightQueryNode): GoalLine[] | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.goalLines
+    } else if (isFunnelsQuery(query)) {
+        return query.funnelsFilter?.goalLines
     }
+
     return undefined
 }
 
@@ -530,7 +532,6 @@ export const nodeKindToFilterProperty: Record<InsightNodeKind, InsightFilterProp
     [NodeKind.PathsQuery]: 'pathsFilter',
     [NodeKind.StickinessQuery]: 'stickinessFilter',
     [NodeKind.LifecycleQuery]: 'lifecycleFilter',
-    [NodeKind.CalendarHeatmapQuery]: 'calendarHeatmapFilter',
 }
 
 export function filterKeyForQuery(node: InsightQueryNode): InsightFilterProperty {

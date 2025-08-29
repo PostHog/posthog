@@ -28,6 +28,7 @@ from rest_framework import mixins, permissions, serializers, status, viewsets
 from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
+from social_django.strategy import DjangoStrategy
 from social_django.views import auth
 from two_factor.utils import default_device
 from two_factor.views.core import REMEMBER_COOKIE_PREFIX
@@ -39,6 +40,7 @@ from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
 from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
+from posthog.helpers.two_factor_session import clear_two_factor_session_flags, set_two_factor_verified_in_session
 from posthog.models import OrganizationDomain, User
 from posthog.rate_limit import UserPasswordResetThrottle
 from posthog.tasks.email import (
@@ -71,6 +73,8 @@ def logout(request):
     if request.user.is_authenticated:
         request.user.temporary_token = None
         request.user.save()
+
+    clear_two_factor_session_flags(request)
 
     if is_impersonated_session(request):
         restore_original_login(request)
@@ -173,12 +177,17 @@ class LoginSerializer(serializers.Serializer):
                     code="not_verified",
                 )
 
+        clear_two_factor_session_flags(request)
+
         if self._check_if_2fa_required(user):
             request.session["user_authenticated_but_no_2fa"] = user.pk
             request.session["user_authenticated_time"] = time.time()
             raise TwoFactorRequired()
 
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+
+        if not self._check_if_2fa_required(user):
+            set_two_factor_verified_in_session(request)
 
         # Trigger login notification (password, no-2FA) and skip re-auth
         if not was_authenticated_before_login_attempt:
@@ -239,6 +248,7 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     def _token_is_valid(self, request, user: User, device) -> Response:
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         otp_login(request, device)
+        set_two_factor_verified_in_session(request)
         report_user_logged_in(user, social_provider="")
         device.throttle_reset()
 
@@ -439,3 +449,20 @@ class PasswordResetTokenGenerator(DefaultPasswordResetTokenGenerator):
 
 
 password_reset_token_generator = PasswordResetTokenGenerator()
+
+
+def social_login_notification(strategy: DjangoStrategy, backend, user: Optional[User] = None, **kwargs):
+    """Final pipeline step to notify on OAuth/SAML login"""
+    if not user:
+        return
+
+    request = strategy.request
+
+    # If the user is re-authenticating, we don't want to send a notification
+    reauth = strategy.session_get("reauth")
+    if reauth == "true":
+        return
+
+    short_user_agent = get_short_user_agent(request)
+    ip_address = get_ip_address(request)
+    login_from_new_device_notification.delay(user.id, timezone.now(), short_user_agent, ip_address)
