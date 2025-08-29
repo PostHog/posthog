@@ -1,5 +1,5 @@
 use core::str;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use anyhow::{anyhow, bail, Context, Ok, Result};
@@ -10,6 +10,7 @@ use sha2::Digest;
 use tracing::{info, warn};
 
 use crate::utils::auth::load_token;
+use crate::utils::fetch::{fetch_paginated, Paginated};
 use crate::utils::posthog::capture_command_invoked;
 use crate::utils::release::{create_release, CreateReleaseResponse};
 use crate::utils::sourcemaps::{read_pairs, ChunkUpload, SourcePair};
@@ -44,6 +45,31 @@ struct BulkUploadFinishRequest {
     content_hashes: HashMap<String, String>,
 }
 
+#[derive(Deserialize)]
+struct GetSymbolSetsResponse {
+    pub next: Option<String>,
+    pub results: Vec<SymbolSet>,
+}
+
+#[derive(Deserialize)]
+pub struct SymbolSet {
+    pub r#ref: String,
+}
+
+impl Paginated<SymbolSet> for GetSymbolSetsResponse {
+    fn next(&self) -> Option<&str> {
+        self.next.as_deref()
+    }
+
+    fn into_items(self) -> Vec<SymbolSet> {
+        self.results
+    }
+}
+
+pub fn get_symbol_sets(client: &Client, url: &str, token: &str) -> Result<Vec<SymbolSet>> {
+    fetch_paginated::<SymbolSet, GetSymbolSetsResponse>(client, url, token)
+}
+
 pub fn upload(
     host: Option<String>,
     directory: &PathBuf,
@@ -63,20 +89,33 @@ pub fn upload(
         host, token.env_id
     );
 
+    let client = reqwest::blocking::Client::builder()
+        .danger_accept_invalid_certs(skip_ssl_verification)
+        .build()?;
+
     let pairs = read_pairs(directory, ignore_globs)?;
     let sourcemap_paths = pairs
         .iter()
         .map(|pair| pair.sourcemap.path.clone())
         .collect::<Vec<_>>();
 
-    let uploads = collect_uploads(pairs).context("While preparing files for upload")?;
+    let symbol_sets = get_symbol_sets(&client, &base_url, &token.token)?;
+    let existing_refs: HashSet<_> = symbol_sets.iter().map(|s| s.r#ref.as_str()).collect();
+
+    let uploads: Vec<_> = collect_uploads(pairs)
+        .context("While preparing files for upload")?
+        .into_iter()
+        .filter(|upload| !existing_refs.contains(upload.chunk_id.as_str()))
+        .collect();
+
+    if uploads.is_empty() {
+        info!("There is no new data to upload!");
+        return Ok(());
+    }
     info!("Found {} chunks to upload", uploads.len());
 
-    // See if we have enough information to create a release object
-    // TODO - The use of a hash_id here means repeated attempts to upload the same data will fail.
-    //        We could relax this, such that we instead replace the existing release with the new one,
-    //        or we could even just allow adding new chunks to an existing release, but for now I'm
-    //        leaving it like this... Reviewers, lets chat about the right approach here
+    // We create a release only for the objects that are yet not uploaded.
+    // This way, we would never create a release for the same data twice.
     let release = create_release(
         &host,
         &token,
@@ -88,13 +127,7 @@ pub fn upload(
     )
     .context("While creating release")?;
 
-    upload_chunks(
-        &base_url,
-        &token.token,
-        uploads,
-        release.as_ref(),
-        skip_ssl_verification,
-    )?;
+    upload_chunks(&client, &base_url, &token.token, uploads, release.as_ref())?;
 
     if delete_after {
         delete_files(sourcemap_paths).context("While deleting sourcemaps")?;
@@ -114,16 +147,12 @@ fn collect_uploads(pairs: Vec<SourcePair>) -> Result<Vec<ChunkUpload>> {
 }
 
 fn upload_chunks(
+    client: &Client,
     base_url: &str,
     token: &str,
     uploads: Vec<ChunkUpload>,
     release: Option<&CreateReleaseResponse>,
-    skip_ssl_verification: bool,
 ) -> Result<()> {
-    let client = reqwest::blocking::Client::builder()
-        .danger_accept_invalid_certs(skip_ssl_verification)
-        .build()?;
-
     let release_id = release.map(|r| r.id.to_string());
     let chunk_ids = uploads
         .iter()
