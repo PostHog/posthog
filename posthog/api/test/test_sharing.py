@@ -68,8 +68,11 @@ class TestSharing(APIBaseTest):
     @freeze_time("2022-01-01")
     @patch("posthog.api.exports.exporter.export_asset.delay")
     def test_gets_sharing_config(self, patched_exporter_task: Mock):
+        from posthog.models.share_password import SharePassword
+
         assert SharingConfiguration.objects.count() == 0
 
+        # First get the initial config (not saved yet)
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing")
         assert SharingConfiguration.objects.count() == 0
         assert response.status_code == status.HTTP_200_OK
@@ -82,6 +85,36 @@ class TestSharing(APIBaseTest):
             "settings": None,
             "share_passwords": [],
         }
+
+        # Enable sharing and password protection
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"enabled": True, "password_required": True},
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        # Create a sharing configuration instance
+        sharing_config = SharingConfiguration.objects.get(dashboard=self.dashboard)
+
+        # Add a share password directly via model
+        share_password, raw_password = SharePassword.create_password(
+            sharing_configuration=sharing_config, created_by=self.user, note="Test password"
+        )
+
+        # Get config again and verify share password appears
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+
+        assert data["enabled"] is True
+        assert data["password_required"] is True
+        assert len(data["share_passwords"]) == 1
+
+        password_data = data["share_passwords"][0]
+        assert password_data["id"] == share_password.id
+        assert password_data["note"] == "Test password"
+        assert password_data["created_by_email"] == self.user.email
+        assert "created_at" in password_data
 
     @freeze_time("2022-01-01")
     @patch("posthog.api.exports.exporter.export_asset.delay")
