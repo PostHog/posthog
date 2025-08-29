@@ -341,7 +341,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
         """
         DEPRECATED - use resource_access_controls instead.
         """
-        return self.resource_access_controls(self, request, *args, **kwargs)
+        return self.resource_access_controls(request, *args, **kwargs)
 
     @extend_schema(exclude=True)
     @action(methods=["GET"], detail=True)
