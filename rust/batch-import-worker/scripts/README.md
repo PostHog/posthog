@@ -35,6 +35,31 @@ AMPLITUDE_API_KEY=your_real_api_key npm run generate
 AMPLITUDE_API_KEY=your_real_api_key AMPLITUDE_CLUSTER=eu npm run generate
 ```
 
+#### Custom Time Range
+
+```bash
+# Specify custom time range using environment variables
+AMPLITUDE_START_TIME='2024-01-01T00:00:00Z' AMPLITUDE_END_TIME='2024-01-07T23:59:59Z' npm run generate
+
+# Use relative time ranges
+AMPLITUDE_START_TIME='1 week ago' AMPLITUDE_END_TIME='now' npm run generate
+
+# Single day range
+AMPLITUDE_START_TIME='2024-01-15' AMPLITUDE_END_TIME='2024-01-15T23:59:59Z' npm run generate
+
+# Combined with API key and cluster
+AMPLITUDE_API_KEY=your_key AMPLITUDE_CLUSTER=eu AMPLITUDE_START_TIME='2024-01-01' AMPLITUDE_END_TIME='2024-01-02' npm run generate
+```
+
+#### Environment Variables
+
+- `AMPLITUDE_API_KEY`: Your Amplitude API key (required for sending to Amplitude)
+- `AMPLITUDE_CLUSTER`: Choose 'us' (default) or 'eu' for the Amplitude cluster
+- `AMPLITUDE_START_TIME`: Start timestamp for events (ISO format or relative, e.g., '2024-01-01T00:00:00Z', '1 week ago')
+- `AMPLITUDE_END_TIME`: End timestamp for events (ISO format or relative, e.g., '2024-01-07T23:59:59Z', 'now')
+
+**Note:** If no time range is specified, events will be generated for a 24-hour period starting from yesterday.
+
 ### Test Scenarios Covered
 
 The generator creates **7 comprehensive scenarios** to test identify event logic:
@@ -87,11 +112,14 @@ Based on the generated data, you should see identify events for:
 
 1. **Generate Test Data:**
    ```bash
-   # US cluster (default)
+   # US cluster (default) with default time range
    npm run generate
 
    # EU cluster
    AMPLITUDE_CLUSTER=eu npm run generate
+
+   # With custom time range for specific migration window
+   AMPLITUDE_START_TIME='2024-01-01' AMPLITUDE_END_TIME='2024-01-07' npm run generate
    ```
 
 2. **Export from Amplitude:**

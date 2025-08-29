@@ -13,11 +13,87 @@
  */
 
 const amplitude = require('@amplitude/analytics-node');
-const crypto = require('crypto');
+
+function showHelp() {
+    console.log(`
+Amplitude Test Data Generator
+
+Usage: node amplitude-test-generator.js
+
+Environment Variables:
+  AMPLITUDE_API_KEY           Your Amplitude API key (required for sending)
+  AMPLITUDE_CLUSTER           Cluster: 'us' (default) or 'eu'
+  AMPLITUDE_START_TIME        Start timestamp for events (ISO format or relative)
+                              Examples: '2024-01-01T00:00:00Z', '2024-01-01', '1 week ago'
+  AMPLITUDE_END_TIME          End timestamp for events (ISO format or relative)
+                              Examples: '2024-01-07T23:59:59Z', '2024-01-07', 'now'
+
+Examples:
+  # Generate events for a specific week
+  AMPLITUDE_START_TIME='2024-01-01T00:00:00Z' AMPLITUDE_END_TIME='2024-01-07T23:59:59Z' node amplitude-test-generator.js
+
+  # Generate events using relative dates
+  AMPLITUDE_START_TIME='1 week ago' AMPLITUDE_END_TIME='now' node amplitude-test-generator.js
+
+  # Generate events for a specific day
+  AMPLITUDE_START_TIME='2024-01-15' AMPLITUDE_END_TIME='2024-01-15T23:59:59Z' node amplitude-test-generator.js
+`);
+}
+
+function parseTimestamp(input) {
+    if (!input) return null;
+
+    // Handle relative timestamps
+    if (input === 'now') {
+        return new Date();
+    }
+
+    // Handle "X time ago" format
+    const relativeMatch = input.match(/^(\d+)\s+(minute|hour|day|week|month|year)s?\s+ago$/i);
+    if (relativeMatch) {
+        const amount = parseInt(relativeMatch[1]);
+        const unit = relativeMatch[2].toLowerCase();
+        const now = new Date();
+
+        switch (unit) {
+            case 'minute':
+                return new Date(now.getTime() - amount * 60 * 1000);
+            case 'hour':
+                return new Date(now.getTime() - amount * 60 * 60 * 1000);
+            case 'day':
+                return new Date(now.getTime() - amount * 24 * 60 * 60 * 1000);
+            case 'week':
+                return new Date(now.getTime() - amount * 7 * 24 * 60 * 60 * 1000);
+            case 'month':
+                const monthsAgo = new Date(now);
+                monthsAgo.setMonth(monthsAgo.getMonth() - amount);
+                return monthsAgo;
+            case 'year':
+                const yearsAgo = new Date(now);
+                yearsAgo.setFullYear(yearsAgo.getFullYear() - amount);
+                return yearsAgo;
+        }
+    }
+
+    // Handle date-only format (add time if missing)
+    if (/^\d{4}-\d{2}-\d{2}$/.test(input)) {
+        return new Date(input + 'T00:00:00Z');
+    }
+
+    // Try parsing as ISO timestamp
+    const parsed = new Date(input);
+    if (isNaN(parsed.getTime())) {
+        throw new Error(`Invalid timestamp format: ${input}`);
+    }
+
+    return parsed;
+}
 
 // Configuration
 const AMPLITUDE_API_KEY = process.env.AMPLITUDE_API_KEY || 'test_amplitude_key';
 const AMPLITUDE_CLUSTER = process.env.AMPLITUDE_CLUSTER || 'us'; // 'us' or 'eu'
+const AMPLITUDE_START_TIME = process.env.AMPLITUDE_START_TIME;
+const AMPLITUDE_END_TIME = process.env.AMPLITUDE_END_TIME;
 
 // Initialize Amplitude
 if (AMPLITUDE_API_KEY !== 'test_amplitude_key') {
@@ -141,14 +217,29 @@ function log(scenario, description, event) {
 
 // Test scenario generators
 class AmplitudeTestGenerator {
-    constructor() {
-        this.baseTime = new Date('2024-01-01T00:00:00Z');
+    constructor(startTime = null, endTime = null) {
+        // Use provided time range or default to a 24-hour period starting yesterday
+        this.baseTime = startTime || new Date(Date.now() - 24 * 60 * 60 * 1000);
+        this.endTime = endTime || new Date(this.baseTime.getTime() + 24 * 60 * 60 * 1000);
         this.currentTime = new Date(this.baseTime);
+        this.totalDuration = this.endTime.getTime() - this.baseTime.getTime();
         this.events = [];
+
+        console.log(`📅 Time Range: ${this.baseTime.toISOString()} to ${this.endTime.toISOString()}`);
+        console.log(`⏱️  Duration: ${Math.round(this.totalDuration / (1000 * 60 * 60))} hours\n`);
     }
 
     addEvent(eventType, userId, deviceId, properties = {}, offsetMinutes = 0) {
-        const timestamp = generateTimestamp(this.currentTime, offsetMinutes);
+        let timestamp = generateTimestamp(this.currentTime, offsetMinutes);
+
+        // Ensure timestamp stays within bounds
+        if (timestamp.getTime() > this.endTime.getTime()) {
+            timestamp = this.endTime;
+        }
+        if (timestamp.getTime() < this.baseTime.getTime()) {
+            timestamp = this.baseTime;
+        }
+
         this.currentTime = new Date(timestamp.getTime() + 1000); // Advance by 1 second for next event
 
         const event = {
@@ -156,7 +247,11 @@ class AmplitudeTestGenerator {
             user_id: userId,
             device_id: deviceId,
             time: timestamp.getTime(),
-            event_properties: properties,
+            event_properties: {
+                ...properties,
+                time_range_start: this.baseTime.toISOString(),
+                time_range_end: this.endTime.toISOString()
+            },
             user_properties: {
                 test_scenario: true,
                 generated_at: new Date().toISOString()
@@ -477,7 +572,24 @@ class AmplitudeTestGenerator {
 
 // Main execution
 async function main() {
-    const generator = new AmplitudeTestGenerator();
+    // Parse time range from environment variables
+    let startTime = null;
+    let endTime = null;
+
+    try {
+        if (AMPLITUDE_START_TIME) {
+            startTime = parseTimestamp(AMPLITUDE_START_TIME);
+        }
+        if (AMPLITUDE_END_TIME) {
+            endTime = parseTimestamp(AMPLITUDE_END_TIME);
+        }
+    } catch (error) {
+        console.error(`❌ Error parsing timestamps: ${error.message}`);
+        showHelp();
+        process.exit(1);
+    }
+
+    const generator = new AmplitudeTestGenerator(startTime, endTime);
 
     try {
         // Generate all test scenarios
