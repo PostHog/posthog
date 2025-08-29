@@ -175,6 +175,7 @@ import {
 } from './components/Errors/types'
 import {
     ACTIVITY_PAGE_SIZE,
+    COHORT_PERSONS_QUERY_LIMIT,
     DashboardPrivilegeLevel,
     EVENT_DEFINITIONS_PER_PAGE,
     EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
@@ -2135,7 +2136,10 @@ const api = {
             return await new ApiRequest().cohorts().withQueryString(toParams(params)).get()
         },
         async getCohortPersons(cohortId: CohortType['id']): Promise<PaginatedResponse<PersonType>> {
-            return await new ApiRequest().cohortsDetailPersons(cohortId).get()
+            return await new ApiRequest()
+                .cohortsDetailPersons(cohortId)
+                .withQueryString(toParams({ limit: COHORT_PERSONS_QUERY_LIMIT }))
+                .get()
         },
         async addPersonsToStaticCohort(cohortId: CohortType['id'], ids: string[]): Promise<{ success: boolean }> {
             return await new ApiRequest().cohortsAddPersonsToStatic(cohortId).update({ data: { person_ids: ids } })
