@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconOpenSidebar, IconPlus, IconX } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { cn } from 'lib/utils/css-classes'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductKey } from '~/types'
@@ -33,6 +34,7 @@ export type ProductIntroductionProps = {
     actionElementOverride?: JSX.Element
     docsURL?: string
     customHog?: React.ComponentType<{ className?: string }>
+    className?: string
 }
 
 export const ProductIntroduction = ({
@@ -46,6 +48,7 @@ export const ProductIntroduction = ({
     actionElementOverride,
     docsURL,
     customHog: CustomHog,
+    className,
 }: ProductIntroductionProps): JSX.Element | null => {
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
     const { user } = useValues(userLogic)
@@ -62,7 +65,10 @@ export const ProductIntroduction = ({
     const actionable = action || actionElementOverride
     return (
         <div
-            className="border-2 border-dashed border-primary w-full p-8 justify-center rounded mt-2 mb-4"
+            className={cn(
+                'border-2 border-dashed border-primary w-full p-8 justify-center rounded mt-2 mb-4',
+                className
+            )}
             data-attr={`product-introduction-${thingName}`}
         >
             {!isEmpty && (

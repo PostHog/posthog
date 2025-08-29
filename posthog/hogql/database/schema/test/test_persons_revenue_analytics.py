@@ -132,7 +132,6 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             last_synced_at="2024-01-01",
         )
 
-        # We also need a join between the persons table and the view
         self.join = DataWarehouseJoin.objects.create(
             team=self.team,
             source_table_name=f"stripe.posthog_test.{SCHEMA.source_suffix}",
@@ -172,7 +171,6 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
 
     def test_get_revenue_for_schema_source_for_id_join(self):
         self.setup_schema_sources()
-
         self.join.source_table_key = "id"
         self.join.save()
 
@@ -206,7 +204,6 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
 
     def test_get_revenue_for_schema_source_for_email_join(self):
         self.setup_schema_sources()
-
         self.join.source_table_key = "email"
         self.join.save()
 
@@ -258,7 +255,6 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
 
     def test_get_revenue_for_schema_source_for_metadata_join(self):
         self.setup_schema_sources()
-
         self.join.source_table_key = "JSONExtractString(metadata, 'id')"
         self.join.save()
 
@@ -298,7 +294,6 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
 
     def test_get_revenue_for_schema_source_for_customer_with_multiple_distinct_ids(self):
         self.setup_schema_sources()
-
         self.join.source_table_key = "email"
         self.join.save()
 

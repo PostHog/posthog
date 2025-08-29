@@ -44,10 +44,10 @@ export function WinningVariantText({
 }
 
 export function SignificanceText({
-    metricIndex,
+    metricUuid,
     isSecondary = false,
 }: {
-    metricIndex: number
+    metricUuid: string
     isSecondary?: boolean
 }): JSX.Element {
     /**
@@ -60,7 +60,7 @@ export function SignificanceText({
             <span>Your results are&nbsp;</span>
             <span className="font-semibold">
                 {`${
-                    (isSecondary ? isSecondaryMetricSignificant(metricIndex) : isPrimaryMetricSignificant(metricIndex))
+                    (isSecondary ? isSecondaryMetricSignificant(metricUuid) : isPrimaryMetricSignificant(metricUuid))
                         ? 'significant'
                         : 'not significant'
                 }`}
@@ -70,10 +70,12 @@ export function SignificanceText({
     )
 }
 
-export function Overview({ metricIndex = 0 }: { metricIndex?: number }): JSX.Element {
-    const { experimentId, legacyPrimaryMetricsResults } = useValues(experimentLogic)
+export function Overview({ metricUuid }: { metricUuid: string }): JSX.Element {
+    const { experimentId, legacyPrimaryMetricsResults, experiment } = useValues(experimentLogic)
 
-    const result = legacyPrimaryMetricsResults?.[metricIndex]
+    // Find metric index by UUID
+    const index = experiment.metrics.findIndex((m) => m.uuid === metricUuid)
+    const result = index >= 0 ? legacyPrimaryMetricsResults?.[index] : null
     if (!result) {
         return <></>
     }
@@ -82,7 +84,7 @@ export function Overview({ metricIndex = 0 }: { metricIndex?: number }): JSX.Ele
         <div>
             <div className="items-center inline-flex flex-wrap">
                 <WinningVariantText result={result} experimentId={experimentId} />
-                <SignificanceText metricIndex={metricIndex} />
+                <SignificanceText metricUuid={metricUuid} />
             </div>
         </div>
     )
