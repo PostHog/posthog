@@ -82,7 +82,7 @@ class TestMemoryInitializerContextMixin(ClickhouseTestMixin, BaseTest):
         mixin = self.get_mixin()
         self.assertEqual(
             mixin._retrieve_context(),
-            [EventTaxonomyItem(property="$host", sample_values=["us.posthog.com", "eu.posthog.com"], sample_count=2)],
+            EventTaxonomyItem(property="$host", sample_values=["us.posthog.com", "eu.posthog.com"], sample_count=2),
         )
 
     def test_app_bundle_id_retrieval(self):
@@ -117,11 +117,9 @@ class TestMemoryInitializerContextMixin(ClickhouseTestMixin, BaseTest):
         mixin = self.get_mixin()
         self.assertEqual(
             mixin._retrieve_context(),
-            [
-                EventTaxonomyItem(
-                    property="$app_namespace", sample_values=["com.posthog.app", "com.posthog"], sample_count=2
-                )
-            ],
+            EventTaxonomyItem(
+                property="$app_namespace", sample_values=["com.posthog.app", "com.posthog"], sample_count=2
+            ),
         )
 
 
@@ -265,45 +263,15 @@ class TestMemoryInitializerNode(ClickhouseTestMixin, BaseTest):
             properties={"$app_namespace": "com.posthog.app"},
         )
 
-    def test_router_with_failed_scraping_message(self):
+    def test_router_with_heres_what_i_found_scraping_message(self):
         node = MemoryInitializerNode(team=self.team, user=self.user)
-        state = AssistantState(messages=[AssistantMessage(content=prompts.SCRAPING_SUCCESS_MESSAGE)])
-        self.assertEqual(node.router(state), "interrupt")
+        state = AssistantState(messages=[AssistantMessage(content="Here's what I found on acme.inc: ...")])
+        self.assertEqual(node.router(state), "interrupt")  # We check for "Here's what I found" in the message content
 
     def test_router_with_other_message(self):
         node = MemoryInitializerNode(team=self.team, user=self.user)
         state = AssistantState(messages=[AssistantMessage(content="Some other message")])
         self.assertEqual(node.router(state), "continue")
-
-    def test_should_process_message_chunk_with_no_data_available(self):
-        from langchain_core.messages import AIMessageChunk
-
-        chunk = AIMessageChunk(content="no data available.")
-        self.assertFalse(MemoryInitializerNode.should_process_message_chunk(chunk))
-
-        chunk = AIMessageChunk(content="NO DATA AVAILABLE for something")
-        self.assertFalse(MemoryInitializerNode.should_process_message_chunk(chunk))
-
-    def test_should_process_message_chunk_with_valid_data(self):
-        from langchain_core.messages import AIMessageChunk
-
-        chunk = AIMessageChunk(content="PostHog is an open-source product analytics platform")
-        self.assertTrue(MemoryInitializerNode.should_process_message_chunk(chunk))
-
-        chunk = AIMessageChunk(content="This is a valid message that should be processed")
-        self.assertTrue(MemoryInitializerNode.should_process_message_chunk(chunk))
-
-    def test_format_message_removes_reference_tags(self):
-        message = "PostHog[1] is a product analytics platform[2]. It helps track user behavior[3]."
-        expected = (
-            prompts.SCRAPING_SUCCESS_MESSAGE + "PostHog is a product analytics platform. It helps track user behavior."
-        )
-        self.assertEqual(MemoryInitializerNode.format_message(message), expected)
-
-    def test_format_message_with_no_reference_tags(self):
-        message = "PostHog is a product analytics platform. It helps track user behavior."
-        expected = prompts.SCRAPING_SUCCESS_MESSAGE + message
-        self.assertEqual(MemoryInitializerNode.format_message(message), expected)
 
     def test_run_with_url_based_initialization(self):
         with patch.object(MemoryInitializerNode, "_model") as model_mock:
@@ -317,7 +285,7 @@ class TestMemoryInitializerNode(ClickhouseTestMixin, BaseTest):
             self.assertIsInstance(new_state.messages[0], AssistantMessage)
             self.assertEqual(
                 new_state.messages[0].content,
-                prompts.SCRAPING_SUCCESS_MESSAGE + "PostHog is a product analytics platform.",
+                "PostHog is a product analytics platform.",
             )
 
             core_memory = CoreMemory.objects.get(team=self.team)
@@ -330,9 +298,9 @@ class TestMemoryInitializerNode(ClickhouseTestMixin, BaseTest):
             patch.object(MemoryInitializerNode, "_model") as model_mock,
             patch.object(MemoryInitializerNode, "_retrieve_context") as context_mock,
         ):
-            context_mock.return_value = [
-                EventTaxonomyItem(property="$app_namespace", sample_values=["com.posthog.app"], sample_count=1)
-            ]
+            context_mock.return_value = EventTaxonomyItem(
+                property="$app_namespace", sample_values=["com.posthog.app"], sample_count=1
+            )
             model_mock.return_value = RunnableLambda(lambda _: "PostHog mobile app description.")
 
             self._set_up_app_bundle_id_events()
@@ -341,35 +309,12 @@ class TestMemoryInitializerNode(ClickhouseTestMixin, BaseTest):
             new_state = node.run(AssistantState(messages=[HumanMessage(content="Hello")]), {})
             self.assertEqual(len(new_state.messages), 1)
             self.assertIsInstance(new_state.messages[0], AssistantMessage)
-            self.assertEqual(
-                new_state.messages[0].content, prompts.SCRAPING_SUCCESS_MESSAGE + "PostHog mobile app description."
-            )
+            self.assertEqual(new_state.messages[0].content, "PostHog mobile app description.")
 
             core_memory = CoreMemory.objects.get(team=self.team)
             self.assertEqual(core_memory.scraping_status, CoreMemory.ScrapingStatus.PENDING)
 
         flush_persons_and_events()
-
-    def test_run_with_no_data_available(self):
-        with (
-            patch.object(MemoryInitializerNode, "_model") as model_mock,
-            patch.object(MemoryInitializerNode, "_retrieve_context") as context_mock,
-        ):
-            node = MemoryInitializerNode(team=self.team, user=self.user)
-
-            model_mock.return_value = RunnableLambda(lambda _: "no data available.")
-            context_mock.return_value = []
-            new_state = node.run(AssistantState(messages=[HumanMessage(content="Hello")]), {})
-            self.assertEqual(new_state, None)
-
-            context_mock.return_value = [
-                EventTaxonomyItem(property="$host", sample_values=["us.posthog.com"], sample_count=1)
-            ]
-
-            new_state = node.run(AssistantState(messages=[HumanMessage(content="Hello")]), {})
-            self.assertEqual(len(new_state.messages), 1)
-            self.assertTrue(isinstance(new_state.messages[0], AssistantMessage))
-            self.assertEqual(new_state.messages[0].content, prompts.SCRAPING_TERMINATION_MESSAGE)
 
 
 @override_settings(IN_UNIT_TESTING=True)

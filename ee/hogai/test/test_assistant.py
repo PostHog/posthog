@@ -966,7 +966,9 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         await self._set_up_onboarding_tests()
 
         # Mock the memory initializer to return a product description
-        model_mock.return_value = RunnableLambda(lambda x: "PostHog is a product analytics platform.")
+        model_mock.return_value = RunnableLambda(
+            lambda x: "Here's what I found on posthog.com: PostHog is a product analytics platform."
+        )
 
         def mock_response(input_dict):
             input_str = str(input_dict)
@@ -991,13 +993,14 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             (
                 "message",
                 AssistantMessage(
-                    content=memory_prompts.SCRAPING_INITIAL_MESSAGE,
+                    content="Let me find information about your product to help me understand your project better. Looking at your event data, **`us.posthog.com`** may be relevant. This may take a minute…",
                 ),
             ),
             (
                 "message",
+                # Kinda dirty but currently we determine the routing based on "Here's what I found" appearing in content
                 AssistantMessage(
-                    content=memory_prompts.SCRAPING_SUCCESS_MESSAGE + "PostHog is a product analytics platform."
+                    content="Here's what I found on posthog.com: PostHog is a product analytics platform."
                 ),
             ),
             ("message", AssistantMessage(content=memory_prompts.SCRAPING_VERIFICATION_MESSAGE)),
@@ -1023,7 +1026,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         core_memory = await CoreMemory.objects.aget(team=self.team)
         self.assertEqual(
             core_memory.initial_text,
-            "Question: What does the company do?\nAnswer: PostHog is a product analytics platform.\nQuestion: What is your target market?\nAnswer:",
+            "Question: What does the company do?\nAnswer: Here's what I found on posthog.com: PostHog is a product analytics platform.\nQuestion: What is your target market?\nAnswer:",
         )
 
     @patch("ee.hogai.graph.memory.nodes.MemoryInitializerNode._model")
@@ -1032,7 +1035,9 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         await self._set_up_onboarding_tests()
 
         # Mock the memory initializer to return a product description
-        model_mock.return_value = RunnableLambda(lambda _: "PostHog is a product analytics platform.")
+        model_mock.return_value = RunnableLambda(
+            lambda _: "Here's what I found on posthog.com: PostHog is a product analytics platform."
+        )
         onboarding_enquiry_model_mock.return_value = RunnableLambda(lambda _: "===What is your target market?")
 
         # Create a graph with memory initialization flow
@@ -1050,13 +1055,14 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             (
                 "message",
                 AssistantMessage(
-                    content=memory_prompts.SCRAPING_INITIAL_MESSAGE,
+                    content="Let me find information about your product to help me understand your project better. Looking at your event data, **`us.posthog.com`** may be relevant. This may take a minute…",
                 ),
             ),
             (
                 "message",
+                # Kinda dirty but currently we determine the routing based on "Here's what I found" appearing in content
                 AssistantMessage(
-                    content=memory_prompts.SCRAPING_SUCCESS_MESSAGE + "PostHog is a product analytics platform."
+                    content="Here's what I found on posthog.com: PostHog is a product analytics platform."
                 ),
             ),
             ("message", AssistantMessage(content=memory_prompts.SCRAPING_VERIFICATION_MESSAGE)),
