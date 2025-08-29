@@ -33,10 +33,34 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
         return <></>
     }
 
-    const results = isSecondary ? secondaryMetricsResults : primaryMetricsResults
-    const errors = isSecondary ? secondaryMetricsResultsErrors : primaryMetricsResultsErrors
+    const unorderedResults = isSecondary ? secondaryMetricsResults : primaryMetricsResults
+    const unorderedErrors = isSecondary ? secondaryMetricsResultsErrors : primaryMetricsResultsErrors
 
     const metrics = getOrderedMetrics(!!isSecondary)
+
+    // Create maps of UUID -> result/error from original arrays
+    const resultsMap = new Map()
+    const errorsMap = new Map()
+
+    // Get original metrics in their original order
+    const originalMetrics = isSecondary ? experiment.metrics_secondary : experiment.metrics
+    const sharedMetrics = (experiment.saved_metrics || [])
+        .filter((sharedMetric) => sharedMetric.metadata.type === (isSecondary ? 'secondary' : 'primary'))
+        .map((sharedMetric) => sharedMetric.query)
+    const allOriginalMetrics = [...originalMetrics, ...sharedMetrics]
+
+    // Map results and errors by UUID
+    allOriginalMetrics.forEach((metric, index) => {
+        const uuid = metric.uuid || metric.query?.uuid
+        if (uuid) {
+            resultsMap.set(uuid, unorderedResults[index])
+            errorsMap.set(uuid, unorderedErrors[index])
+        }
+    })
+
+    // Reorder results and errors to match the ordered metrics
+    const results = metrics.map((metric) => resultsMap.get(metric.uuid))
+    const errors = metrics.map((metric) => errorsMap.get(metric.uuid))
 
     const showResultDetails = metrics.length === 1 && results[0] && hasMinimumExposureForResults && !isSecondary
 
