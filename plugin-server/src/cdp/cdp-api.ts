@@ -467,7 +467,8 @@ export class CdpApi {
             const invocation = this.hogFlowExecutor.createHogFlowInvocation(
                 triggerGlobals,
                 compoundConfiguration,
-                filterGlobals
+                filterGlobals,
+                true // debug mode
             )
             const response = await this.hogFlowExecutor.executeTest(invocation)
 
