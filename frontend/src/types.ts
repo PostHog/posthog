@@ -2413,6 +2413,7 @@ export enum ChartDisplayType {
     ActionsBarValue = 'ActionsBarValue',
     ActionsTable = 'ActionsTable',
     WorldMap = 'WorldMap',
+    CalendarHeatmap = 'CalendarHeatmap',
 }
 export enum ChartDisplayCategory {
     TimeSeries = 'TimeSeries',
@@ -2444,7 +2445,6 @@ export enum InsightType {
     JSON = 'JSON',
     SQL = 'SQL',
     HOG = 'HOG',
-    CALENDAR_HEATMAP = 'CALENDAR_HEATMAP',
 }
 
 export enum PathType {
@@ -2657,11 +2657,6 @@ export interface PathsFilterType extends FilterType {
     path_dropoff_key?: string // Paths People Dropoff Key
 }
 
-export interface CalendarHeatmapFilterType extends FilterType {
-    // Reserved for future filter properties
-    dummy?: string
-}
-
 export type RetentionEntityKind = NodeKind.ActionsNode | NodeKind.EventsNode
 
 export interface RetentionEntity {
@@ -2716,7 +2711,6 @@ export type AnyFilterType =
     | StickinessFilterType
     | FunnelsFilterType
     | PathsFilterType
-    | CalendarHeatmapFilterType
     | RetentionFilterType
     | LifecycleFilterType
     | FilterType
@@ -2729,7 +2723,6 @@ export type AnyPartialFilterType =
     | Partial<RetentionFilterType>
     | Partial<LifecycleFilterType>
     | Partial<FilterType>
-    | Partial<CalendarHeatmapFilterType>
 
 export interface EventsListQueryParams {
     event?: string
@@ -3819,6 +3812,8 @@ export interface Experiment {
     filters: TrendsFilterType | FunnelsFilterType
     metrics: (ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
     metrics_secondary: (ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
+    primary_metrics_ordered_uuids: string[] | null
+    secondary_metrics_ordered_uuids: string[] | null
     saved_metrics_ids: { id: number; metadata: { type: 'primary' | 'secondary' } }[]
     saved_metrics: any[]
     parameters: {
@@ -4181,6 +4176,8 @@ export enum ExperimentMetricMathType {
     Min = 'min',
     Max = 'max',
     Avg = 'avg',
+    UniqueUsers = 'dau',
+    UniqueGroup = 'unique_group',
     HogQL = 'hogql',
 }
 

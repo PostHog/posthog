@@ -5,7 +5,7 @@ import { S3SessionBatchFileStorage } from '../sessions/s3-session-batch-writer'
 import {
     SessionBatchFileStorage,
     SessionBatchFileWriter,
-    SessionData,
+    WriteSessionData,
     WriteSessionResult,
 } from '../sessions/session-batch-file-storage'
 import { RetentionPeriod } from '../types'
@@ -27,7 +27,7 @@ class RetentionAwareBatchFileWriter implements SessionBatchFileWriter {
         )
     }
 
-    public async writeSession(sessionData: SessionData): Promise<WriteSessionResult> {
+    public async writeSession(sessionData: WriteSessionData): Promise<WriteSessionResult> {
         const retentionPeriod = await this.retentionService.getSessionRetention(
             sessionData.teamId,
             sessionData.sessionId
@@ -41,7 +41,13 @@ class RetentionAwareBatchFileWriter implements SessionBatchFileWriter {
             this.writerMap[retentionPeriod] = writer
         }
 
-        return writer.writeSession(sessionData)
+        const { bytesWritten, url } = await writer.writeSession(sessionData)
+
+        return {
+            bytesWritten,
+            url,
+            retentionPeriod,
+        }
     }
 
     public async finish(): Promise<void> {
