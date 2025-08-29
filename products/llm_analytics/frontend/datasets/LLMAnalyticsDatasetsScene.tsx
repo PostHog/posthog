@@ -79,7 +79,7 @@ export function LLMAnalyticsDatasetsScene(): JSX.Element {
                                     data-attr={`dataset-item-${dataset.id}-dropdown-delete`}
                                     fullWidth
                                 >
-                                    Delete dataset
+                                    Delete
                                 </LemonButton>
                             </>
                         }

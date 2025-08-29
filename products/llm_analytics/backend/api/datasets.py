@@ -1,4 +1,4 @@
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 
 import structlog
 import django_filters
@@ -74,10 +74,15 @@ class DatasetFilter(django_filters.FilterSet):
 class DatasetViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSet):
     scope_object = "dataset"
     serializer_class = DatasetSerializer
-    queryset = Dataset.objects.all().exclude(deleted=True)
+    queryset = Dataset.objects.all()
     param_derived_from_user_current_team = "team_id"
     filter_backends = [DjangoFilterBackend]
     filterset_class = DatasetFilter
+
+    def safely_get_queryset(self, queryset: QuerySet[Dataset, Dataset]) -> QuerySet[Dataset, Dataset]:
+        if self.action in {"list", "retrieve"}:
+            return queryset.exclude(deleted=True)
+        return queryset
 
 
 class DatasetItemSerializer(serializers.ModelSerializer):
@@ -117,7 +122,12 @@ class DatasetItemSerializer(serializers.ModelSerializer):
 class DatasetItemViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSet):
     scope_object = "dataset"
     serializer_class = DatasetItemSerializer
-    queryset = DatasetItem.objects.all().exclude(deleted=True)
+    queryset = DatasetItem.objects.all()
     param_derived_from_user_current_team = "team_id"
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["dataset"]
+
+    def safely_get_queryset(self, queryset: QuerySet[DatasetItem, DatasetItem]) -> QuerySet[DatasetItem, DatasetItem]:
+        if self.action in {"list", "retrieve"}:
+            return queryset.exclude(deleted=True)
+        return queryset

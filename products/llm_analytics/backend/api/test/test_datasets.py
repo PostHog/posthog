@@ -87,6 +87,53 @@ class TestDatasetsApi(APIBaseTest):
         list_response = self.client.get(f"/api/environments/{self.team.id}/datasets/")
         self.assertEqual(len(list_response.data["results"]), 0)
 
+    def test_can_undelete_dataset_with_patch(self):
+        dataset = Dataset.objects.create(name="Test Dataset", team=self.team, created_by=self.user)
+
+        # First soft delete the dataset
+        response = self.client.patch(f"/api/environments/{self.team.id}/datasets/{dataset.id}/", {"deleted": True})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        dataset.refresh_from_db()
+        self.assertTrue(dataset.deleted)
+
+        # Verify it's not in the list
+        list_response = self.client.get(f"/api/environments/{self.team.id}/datasets/")
+        self.assertEqual(len(list_response.data["results"]), 0)
+
+        # Now undelete it
+        response = self.client.patch(f"/api/environments/{self.team.id}/datasets/{dataset.id}/", {"deleted": False})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        dataset.refresh_from_db()
+        self.assertFalse(dataset.deleted)
+
+        # Verify it's back in the list
+        list_response = self.client.get(f"/api/environments/{self.team.id}/datasets/")
+        self.assertEqual(len(list_response.data["results"]), 1)
+        self.assertEqual(list_response.data["results"][0]["id"], str(dataset.id))
+
+    def test_deleted_dataset_can_be_retrieved_for_updates(self):
+        dataset = Dataset.objects.create(name="Test Dataset", team=self.team, created_by=self.user)
+
+        # Soft delete the dataset
+        response = self.client.patch(f"/api/environments/{self.team.id}/datasets/{dataset.id}/", {"deleted": True})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Should not be able to retrieve via GET
+        response = self.client.get(f"/api/environments/{self.team.id}/datasets/{dataset.id}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+        # But should be able to update it via PATCH (which allows undeleting)
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/datasets/{dataset.id}/", {"name": "Updated Name"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        dataset.refresh_from_db()
+        self.assertEqual(dataset.name, "Updated Name")
+        self.assertTrue(dataset.deleted)  # Still deleted unless explicitly undeleted
+
     def test_cannot_create_dataset_for_another_team(self):
         another_team = Team.objects.create(name="Another Team", organization=self.organization)
 
@@ -499,6 +546,59 @@ class TestDatasetItemsApi(APIBaseTest):
 
         list_response = self.client.get(f"/api/environments/{self.team.id}/dataset_items/")
         self.assertEqual(len(list_response.data["results"]), 0)
+
+    def test_can_undelete_dataset_item_with_patch(self):
+        item = DatasetItem.objects.create(dataset=self.dataset, team=self.team, created_by=self.user)
+
+        # First soft delete the item
+        response = self.client.patch(f"/api/environments/{self.team.id}/dataset_items/{item.id}/", {"deleted": True})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        item.refresh_from_db()
+        self.assertTrue(item.deleted)
+
+        # Verify it's not in the list
+        list_response = self.client.get(f"/api/environments/{self.team.id}/dataset_items/")
+        self.assertEqual(len(list_response.data["results"]), 0)
+
+        # Now undelete it
+        response = self.client.patch(f"/api/environments/{self.team.id}/dataset_items/{item.id}/", {"deleted": False})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        item.refresh_from_db()
+        self.assertFalse(item.deleted)
+
+        # Verify it's back in the list
+        list_response = self.client.get(f"/api/environments/{self.team.id}/dataset_items/")
+        self.assertEqual(len(list_response.data["results"]), 1)
+        self.assertEqual(list_response.data["results"][0]["id"], str(item.id))
+
+    def test_deleted_dataset_item_can_be_retrieved_for_updates(self):
+        item = DatasetItem.objects.create(
+            dataset=self.dataset,
+            team=self.team,
+            created_by=self.user,
+            input={"prompt": "original"},
+            output={"response": "original"},
+        )
+
+        # Soft delete the item
+        response = self.client.patch(f"/api/environments/{self.team.id}/dataset_items/{item.id}/", {"deleted": True})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Should not be able to retrieve via GET
+        response = self.client.get(f"/api/environments/{self.team.id}/dataset_items/{item.id}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+        # But should be able to update it via PATCH (which allows undeleting)
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/dataset_items/{item.id}/", {"input": {"prompt": "updated"}}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        item.refresh_from_db()
+        self.assertEqual(item.input, {"prompt": "updated"})
+        self.assertTrue(item.deleted)  # Still deleted unless explicitly undeleted
 
     def test_cannot_create_dataset_item_for_another_team(self):
         another_team = Team.objects.create(name="Another Team", organization=self.organization)

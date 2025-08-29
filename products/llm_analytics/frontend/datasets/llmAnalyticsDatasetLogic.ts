@@ -11,6 +11,7 @@ import { sceneLogic } from '~/scenes/sceneLogic'
 import { urls } from '~/scenes/urls'
 import { Breadcrumb, Dataset, DatasetItem } from '~/types'
 
+import { formatIdForDisplay } from '../utils'
 import type { llmAnalyticsDatasetLogicType } from './llmAnalyticsDatasetLogicType'
 import { llmAnalyticsDatasetsLogic } from './llmAnalyticsDatasetsLogic'
 import { EMPTY_JSON, corseJsonToObject, isStringJsonObject, prettifyJson } from './utils'
@@ -260,7 +261,15 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
             if (props.datasetId !== 'new') {
                 try {
                     await api.datasets.update(props.datasetId, { deleted: true })
-                    lemonToast.success('Dataset deleted successfully')
+                    lemonToast.info(`${values.dataset?.name || 'Dataset'} has been deleted.`, {
+                        button: {
+                            label: 'Undo',
+                            dataAttr: 'undo-delete-dataset',
+                            action: async () => {
+                                await api.datasets.update(props.datasetId, { deleted: false })
+                            },
+                        },
+                    })
                     router.actions.replace(urls.llmAnalyticsDatasets())
                 } catch {
                     lemonToast.error('Failed to delete dataset')
@@ -272,8 +281,17 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
             if (props.datasetId !== 'new') {
                 try {
                     await api.datasetItems.update(itemId, { deleted: true })
-                    lemonToast.success('Dataset item deleted successfully')
-                    actions.loadDatasetItems()
+                    lemonToast.info(`Dataset item ${formatIdForDisplay(itemId)} has been deleted.`, {
+                        button: {
+                            label: 'Undo',
+                            dataAttr: 'undo-delete-dataset-item',
+                            action: async () => {
+                                await api.datasetItems.update(itemId, { deleted: false })
+                                await asyncActions.loadDatasetItems(false)
+                            },
+                        },
+                    })
+                    await asyncActions.loadDatasetItems(false)
                 } catch {
                     lemonToast.error('Failed to delete dataset item')
                 }
