@@ -247,10 +247,10 @@ class TestWebPreaggregatedInserts(WebAnalyticsPreAggregatedTestBase):
             date_end=date_end,
             team_ids=[self.team.pk],
         )
+
+        # Basic smoke test - ensures both insert queries execute without errors
         sync_execute(stats_insert)
         sync_execute(bounces_insert)
-
-        # Very basic smoke test - ensures both insert queries execute without errors
         assert True
 
     def test_insert_queries_contain_all_columns_for_stats(self):
