@@ -19,7 +19,7 @@ import { PropertyFilterType } from '~/types'
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 
-const isReplayTaxonomicFilterProperty = (x: TaxonomicDefinitionTypes): x is ReplayTaxonomicFilterProperty => {
+export const isReplayTaxonomicFilterProperty = (x: TaxonomicDefinitionTypes): x is ReplayTaxonomicFilterProperty => {
     return (x as ReplayTaxonomicFilterProperty).taxonomicFilterGroup !== undefined
 }
 
@@ -27,7 +27,7 @@ export type ReplayTaxonomicFiltersProps = Pick<TaxonomicFilterRenderProps, 'onCh
 
 export interface ReplayTaxonomicFilterProperty {
     key: string
-    label: string
+    name: string
     propertyFilterType: PropertyFilterType
     taxonomicFilterGroup: TaxonomicFilterGroupType
 }
@@ -35,31 +35,31 @@ export interface ReplayTaxonomicFilterProperty {
 export const replayTaxonomicFiltersProperties: ReplayTaxonomicFilterProperty[] = [
     {
         key: 'visited_page',
-        label: getFilterLabel('visited_page', TaxonomicFilterGroupType.Replay),
+        name: getFilterLabel('visited_page', TaxonomicFilterGroupType.Replay),
         propertyFilterType: PropertyFilterType.Recording,
         taxonomicFilterGroup: TaxonomicFilterGroupType.Replay,
     },
     {
         key: 'snapshot_source',
-        label: getFilterLabel('snapshot_source', TaxonomicFilterGroupType.Replay),
+        name: getFilterLabel('snapshot_source', TaxonomicFilterGroupType.Replay),
         propertyFilterType: PropertyFilterType.Recording,
         taxonomicFilterGroup: TaxonomicFilterGroupType.Replay,
     },
     {
         key: 'level',
-        label: getFilterLabel('level', TaxonomicFilterGroupType.LogEntries),
+        name: getFilterLabel('level', TaxonomicFilterGroupType.LogEntries),
         propertyFilterType: PropertyFilterType.LogEntry,
         taxonomicFilterGroup: TaxonomicFilterGroupType.LogEntries,
     },
     {
         key: 'message',
-        label: getFilterLabel('message', TaxonomicFilterGroupType.LogEntries),
+        name: getFilterLabel('message', TaxonomicFilterGroupType.LogEntries),
         propertyFilterType: PropertyFilterType.LogEntry,
         taxonomicFilterGroup: TaxonomicFilterGroupType.LogEntries,
     },
     {
         key: 'comment_text',
-        label: getFilterLabel('comment_text', TaxonomicFilterGroupType.Replay),
+        name: getFilterLabel('comment_text', TaxonomicFilterGroupType.Replay),
         propertyFilterType: PropertyFilterType.Recording,
         taxonomicFilterGroup: TaxonomicFilterGroupType.Replay,
     },
@@ -86,7 +86,7 @@ export function ReplayTaxonomicFilters({ onChange, infiniteListLogicProps }: Rep
             <section>
                 <h5 className="mt-1 mb-0">Replay properties</h5>
                 <ul className="gap-y-px">
-                    {propsToShow.map(({ key, label, propertyFilterType }) => {
+                    {propsToShow.map(({ key, name, propertyFilterType }) => {
                         return (
                             <LemonButton
                                 key={key}
@@ -94,9 +94,9 @@ export function ReplayTaxonomicFilters({ onChange, infiniteListLogicProps }: Rep
                                 size="small"
                                 fullWidth
                                 onClick={() => onChange(key, { propertyFilterType: propertyFilterType })}
-                                disabledReason={hasFilter(key) ? `${label} filter already added` : undefined}
+                                disabledReason={hasFilter(key) ? `${name} filter already added` : undefined}
                             >
-                                {label}
+                                {name}
                             </LemonButton>
                         )
                     })}
