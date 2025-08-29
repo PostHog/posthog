@@ -13,7 +13,7 @@ export function ColorCustomizationColumnTitle(): JSX.Element {
 }
 
 export function ColorCustomizationColumnItem({ item }: { item: IndexedTrendResult }): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, editingDisabledReason } = useValues(insightLogic)
     const { getTrendsColor } = useValues(trendsDataLogic(insightProps))
     const { openModal } = useActions(resultCustomizationsModalLogic(insightProps))
 
@@ -30,6 +30,7 @@ export function ColorCustomizationColumnItem({ item }: { item: IndexedTrendResul
             }}
             type="tertiary"
             size="small"
+            disabledReason={editingDisabledReason}
         />
     )
 }
