@@ -3,7 +3,7 @@ from typing import Any
 from django.conf import settings
 from django.contrib import admin
 from django.contrib.admin.sites import NotRegistered  # type: ignore[attr-defined]
-from django.urls import include, re_path
+from django.urls import include
 from django.urls.conf import path
 from django.views.decorators.csrf import csrf_exempt
 
@@ -125,8 +125,8 @@ if settings.ADMIN_PORTAL_ENABLED:
             pass
 
     admin_urlpatterns = [
-        re_path(r"^admin/redisvalues$", redis_values_view, name="redis_values"),
-        path(r"admin/apikeysearch", api_key_search_view, name="api_key_search"),
+        path("admin/redisvalues", redis_values_view, name="redis_values"),
+        path("admin/apikeysearch", api_key_search_view, name="api_key_search"),
         path("admin/", include("loginas.urls")),
         path("admin/", admin.site.urls),
     ]
