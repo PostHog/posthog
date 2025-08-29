@@ -99,12 +99,18 @@ def disable_migrations() -> None:
 
     class MigrateSilentCommand(migrate.Command):
         def handle(self, *args, **kwargs):
-            from django.db import connection
+            from django.db import connections
 
             # :TRICKY: Create extension and function depended on by models.
-            with connection.cursor() as cursor:
-                cursor.execute("CREATE EXTENSION pg_trgm")
-                cursor.execute("CREATE EXTENSION ltree")
+            # need to create extensions on all configured databases
+            for db_alias in connections:
+                with connections[db_alias].cursor() as cursor:
+                    try:
+                        cursor.execute("CREATE EXTENSION pg_trgm")
+                        cursor.execute("CREATE EXTENSION ltree")
+                    except Exception:
+                        # Some databases might not need these extensions
+                        pass  # noqa: T201
 
             return super().handle(*args, **kwargs)
 

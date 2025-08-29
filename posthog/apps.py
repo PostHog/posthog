@@ -20,6 +20,15 @@ class PostHogConfig(AppConfig):
     verbose_name = "PostHog"
 
     def ready(self):
+        # Apply migration router monkey patch only in TEST or DEBUG mode AND when cutoff is configured
+        cutoff = os.environ.get("PERSONS_DB_MIGRATION_CUTOFF", "")
+        if (settings.TEST or settings.DEBUG) and cutoff:
+            from django.db.migrations import executor
+
+            from posthog.migration_router import RoutingMigrationExecutor
+
+            executor.MigrationExecutor = RoutingMigrationExecutor
+
         posthoganalytics.api_key = "sTMFPsFhdP1Ssg"
         posthoganalytics.personal_api_key = os.environ.get("POSTHOG_PERSONAL_API_KEY")
         posthoganalytics.poll_interval = 90

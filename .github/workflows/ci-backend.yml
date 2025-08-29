@@ -147,6 +147,7 @@ jobs:
             - name: Run migrations up to master
               run: |
                   python manage.py migrate
+                  python manage.py migrate --database=persons_db_writer
 
             # Now we can consider this PR's migrations
             - name: Checkout this PR

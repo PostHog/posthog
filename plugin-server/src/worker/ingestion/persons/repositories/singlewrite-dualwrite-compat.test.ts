@@ -3,7 +3,7 @@
 import { DateTime } from 'luxon'
 
 import { TopicMessage } from '~/kafka/producer'
-import { resetTestDatabase } from '~/tests/helpers/sql'
+import { resetTestDatabaseWithMigration } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 import { InternalPerson } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
@@ -24,7 +24,6 @@ import {
     cleanupPrepared,
     getFirstTeam,
     mockDatabaseError,
-    setupMigrationDb,
 } from './test-helpers'
 
 jest.mock('../../../../utils/logger')
@@ -66,10 +65,10 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
 
     beforeEach(async () => {
         hub = await createHub()
-        await resetTestDatabase(undefined, {}, {}, { withExtendedTestData: false })
+        await resetTestDatabaseWithMigration(undefined, {}, {}, { withExtendedTestData: false })
         postgres = hub.db.postgres
         migrationPostgres = hub.db.postgresPersonMigration
-        await setupMigrationDb(migrationPostgres)
+        // No need to call setupMigrationDb anymore since resetTestDatabaseWithMigration handles it
 
         dualWriteRepository = new PostgresDualWritePersonRepository(postgres, migrationPostgres)
         singleWriteRepository = new PostgresPersonRepository(postgres)

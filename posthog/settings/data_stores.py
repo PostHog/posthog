@@ -129,6 +129,24 @@ if os.getenv("PERSONS_DB_WRITER_URL"):
         DATABASES["persons_db_reader"]["DISABLE_SERVER_SIDE_CURSORS"] = True
 
     DATABASE_ROUTERS.insert(0, "posthog.person_db_router.PersonDBRouter")
+# we should always setup the persons_db_writer in test environments, using the config from docker compose
+elif DEBUG or TEST:
+    # For local development and testing, configure like the main database so Django can properly handle test database creation
+    DATABASES["persons_db_writer"] = {
+        "ENGINE": "django.db.backends.postgresql_psycopg2",
+        "NAME": "posthog_persons",
+        "USER": "posthog",
+        "PASSWORD": "posthog",
+        "HOST": "localhost",
+        "PORT": "5434",
+        "CONN_MAX_AGE": 0,
+        "DISABLE_SERVER_SIDE_CURSORS": DISABLE_SERVER_SIDE_CURSORS,
+        "TEST": {
+            "NAME": "test_posthog_persons",
+        },
+    }
+    DATABASE_ROUTERS.insert(0, "posthog.person_db_router.PersonDBRouter")
+
 
 # Opt-in to using the read replica
 # Models using this will likely see better query latency, and better performance.
