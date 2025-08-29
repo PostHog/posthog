@@ -562,7 +562,8 @@ export function DeltaChart({
                 if (!metric.uuid) {
                     return
                 }
-                duplicateMetric({ uuid: metric.uuid, isSecondary })
+                const newUuid = crypto.randomUUID()
+                duplicateMetric({ uuid: metric.uuid, isSecondary, newUuid })
                 updateExperimentMetrics()
             }}
         />

@@ -32,6 +32,7 @@ from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset, asset_for_token, get_content_response
 from posthog.models.insight import Insight
 from posthog.models.user import User
+from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
 from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
 from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
@@ -57,8 +58,30 @@ def check_can_edit_sharing_configuration(
     if request.method in SAFE_METHODS:
         return True
 
-    if sharing.dashboard and not view.user_permissions.dashboard(sharing.dashboard).can_edit:
-        raise PermissionDenied("You don't have edit permissions for this dashboard.")
+    # Check if organization allows publicly shared resources
+    if (
+        request.data.get("enabled")
+        and sharing.team.organization.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS)
+        and not sharing.team.organization.allow_publicly_shared_resources
+    ):
+        raise PermissionDenied("Public sharing is disabled for this organization.")
+
+    user_access_control = UserAccessControl(cast(User, request.user), team=view.team)
+
+    if sharing.dashboard:
+        # Legacy check: remove once all users are on the new access control
+        if sharing.dashboard.restriction_level > Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT:
+            if not view.user_permissions.dashboard(sharing.dashboard).can_edit:
+                raise PermissionDenied("You don't have edit permissions for this dashboard.")
+        else:
+            access_level = user_access_control.get_user_access_level(sharing.dashboard)
+            if not access_level or not access_level_satisfied_for_resource("dashboard", access_level, "editor"):
+                raise PermissionDenied("You don't have edit permissions for this dashboard.")
+
+    if sharing.insight:
+        access_level = user_access_control.get_user_access_level(sharing.insight)
+        if not access_level or not access_level_satisfied_for_resource("insight", access_level, "editor"):
+            raise PermissionDenied("You don't have edit permissions for this insight.")
 
     return True
 

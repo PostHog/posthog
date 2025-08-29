@@ -101,6 +101,8 @@ const NEW_EXPERIMENT: Experiment = {
     filters: {},
     metrics: [],
     metrics_secondary: [],
+    primary_metrics_ordered_uuids: null,
+    secondary_metrics_ordered_uuids: null,
     saved_metrics_ids: [],
     saved_metrics: [],
     parameters: {
@@ -368,7 +370,6 @@ export const experimentLogic = kea<experimentLogicType>([
             variantPreviewMediaIds,
         }),
         setExposureCriteria: (exposureCriteria: ExperimentExposureCriteria) => ({ exposureCriteria }),
-        setTabKey: (tabKey: string) => ({ tabKey }),
         createExperimentDashboard: true,
         setIsCreatingExperimentDashboard: (isCreating: boolean) => ({ isCreating }),
         setUnmodifiedExperiment: (experiment: Experiment) => ({ experiment }),
@@ -459,9 +460,10 @@ export const experimentLogic = kea<experimentLogicType>([
             metadata,
         }),
         removeSharedMetricFromExperiment: (sharedMetricId: SharedMetric['id']) => ({ sharedMetricId }),
-        duplicateMetric: ({ uuid, isSecondary }: { uuid: string; isSecondary: boolean }) => ({
+        duplicateMetric: ({ uuid, isSecondary, newUuid }: { uuid: string; isSecondary: boolean; newUuid: string }) => ({
             uuid,
             isSecondary,
+            newUuid,
         }),
         // METRICS RESULTS
         setLegacyPrimaryMetricsResults: (
@@ -671,7 +673,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         [metricsKey]: metrics,
                     }
                 },
-                duplicateMetric: (state, { uuid, isSecondary }) => {
+                duplicateMetric: (state, { uuid, isSecondary, newUuid }) => {
                     const metricsKey = isSecondary ? 'metrics_secondary' : 'metrics'
                     const metrics = [...(state?.[metricsKey] || [])]
 
@@ -689,7 +691,7 @@ export const experimentLogic = kea<experimentLogicType>([
                           ? `${getDefaultMetricTitle(originalMetric)} (copy)`
                           : undefined
 
-                    const newMetric = { ...originalMetric, uuid: crypto.randomUUID(), name }
+                    const newMetric = { ...originalMetric, uuid: newUuid, name }
                     metrics.splice(originalIndex + 1, 0, newMetric)
 
                     return {
@@ -709,12 +711,6 @@ export const experimentLogic = kea<experimentLogicType>([
             null as Experiment | null,
             {
                 setUnmodifiedExperiment: (_, { experiment }) => experiment,
-            },
-        ],
-        tabKey: [
-            'results',
-            {
-                setTabKey: (_, { tabKey }) => tabKey,
             },
         ],
         // PRIMARY METRICS
@@ -994,6 +990,8 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.updateExperiment({
                 metrics: values.experiment.metrics,
                 metrics_secondary: values.experiment.metrics_secondary,
+                primary_metrics_ordered_uuids: values.experiment.primary_metrics_ordered_uuids,
+                secondary_metrics_ordered_uuids: values.experiment.secondary_metrics_ordered_uuids,
             })
         },
         updateExperimentCollectionGoal: async () => {
@@ -1111,6 +1109,8 @@ export const experimentLogic = kea<experimentLogicType>([
 
             await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
                 saved_metrics_ids: combinedMetricsIds,
+                primary_metrics_ordered_uuids: values.experiment.primary_metrics_ordered_uuids,
+                secondary_metrics_ordered_uuids: values.experiment.secondary_metrics_ordered_uuids,
             })
 
             actions.loadExperiment()
@@ -1124,6 +1124,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 }))
             await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
                 saved_metrics_ids: sharedMetricsIds,
+                primary_metrics_ordered_uuids: values.experiment.primary_metrics_ordered_uuids,
+                secondary_metrics_ordered_uuids: values.experiment.secondary_metrics_ordered_uuids,
             })
 
             actions.loadExperiment()
@@ -1371,6 +1373,32 @@ export const experimentLogic = kea<experimentLogicType>([
                                 created_at: null,
                                 updated_at: null,
                             }
+                        }
+
+                        // Initialize primary_metrics_ordered_uuids if it's null
+                        if (response.primary_metrics_ordered_uuids === null) {
+                            const primaryMetrics = response.metrics || []
+                            const sharedPrimaryMetrics = (response.saved_metrics || []).filter(
+                                (sharedMetric: any) => sharedMetric.metadata.type === 'primary'
+                            )
+
+                            const allMetrics = [...primaryMetrics, ...sharedPrimaryMetrics]
+                            response.primary_metrics_ordered_uuids = allMetrics
+                                .map((metric: any) => metric.uuid || metric.query?.uuid)
+                                .filter(Boolean)
+                        }
+
+                        // Initialize secondary_metrics_ordered_uuids if it's null
+                        if (response.secondary_metrics_ordered_uuids === null) {
+                            const secondaryMetrics = response.metrics_secondary || []
+                            const sharedSecondaryMetrics = (response.saved_metrics || []).filter(
+                                (sharedMetric: any) => sharedMetric.metadata.type === 'secondary'
+                            )
+
+                            const allMetrics = [...secondaryMetrics, ...sharedSecondaryMetrics]
+                            response.secondary_metrics_ordered_uuids = allMetrics
+                                .map((metric: any) => metric.uuid || metric.query?.uuid)
+                                .filter(Boolean)
                         }
 
                         actions.setUnmodifiedExperiment(structuredClone(response))
@@ -1964,6 +1992,45 @@ export const experimentLogic = kea<experimentLogicType>([
             (experiment: Experiment): ExperimentExposureCriteria | undefined => {
                 return experiment.exposure_criteria
             },
+        ],
+        getOrderedMetrics: [
+            (s) => [s.experiment],
+            (experiment: Experiment) =>
+                (isSecondary: boolean): ExperimentMetric[] => {
+                    if (!experiment) {
+                        return []
+                    }
+
+                    const metricType = isSecondary ? 'secondary' : 'primary'
+                    const regularMetrics = isSecondary
+                        ? ((experiment.metrics_secondary || []) as ExperimentMetric[])
+                        : ((experiment.metrics || []) as ExperimentMetric[])
+
+                    const sharedMetrics = (experiment.saved_metrics || [])
+                        .filter((sharedMetric) => sharedMetric.metadata.type === metricType)
+                        .map((sharedMetric) => ({
+                            ...sharedMetric.query,
+                            name: sharedMetric.name,
+                            sharedMetricId: sharedMetric.saved_metric,
+                            isSharedMetric: true,
+                        })) as ExperimentMetric[]
+
+                    const allMetrics = [...regularMetrics, ...sharedMetrics]
+
+                    const metricsMap = new Map()
+                    allMetrics.forEach((metric: any) => {
+                        const uuid = metric.uuid || metric.query?.uuid
+                        if (uuid) {
+                            metricsMap.set(uuid, metric)
+                        }
+                    })
+
+                    const orderedUuids = isSecondary
+                        ? experiment.secondary_metrics_ordered_uuids || []
+                        : experiment.primary_metrics_ordered_uuids || []
+
+                    return orderedUuids.map((uuid) => metricsMap.get(uuid)).filter(Boolean) as ExperimentMetric[]
+                },
         ],
         statsMethod: [
             (s) => [s.experiment],

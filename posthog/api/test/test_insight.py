@@ -2131,7 +2131,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(
             response_retrieve.json(),
             self.unauthenticated_response(
-                "Sharing access token can only be used for GET requests.",
+                "Sharing " "access token can only be used for GET requests.",
                 "authentication_failed",
             ),
         )

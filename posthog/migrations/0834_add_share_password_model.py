@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0832_alter_exportedasset_export_format"),
+        ("posthog", "0833_experiment_primary_metrics_ordered_uuids_and_more"),
     ]
 
     operations = [
