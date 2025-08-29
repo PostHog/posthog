@@ -202,6 +202,10 @@ class _SharedAssistantState(BaseState):
     """
     Whether to use current filters from user's UI to find relevant sessions.
     """
+    session_ids: Optional[list[str]] = Field(default=None)
+    """
+    Optional list of specific session IDs to summarize directly.
+    """
     notebook_id: Optional[str] = Field(default=None)
     """
     The ID of the notebook being used.

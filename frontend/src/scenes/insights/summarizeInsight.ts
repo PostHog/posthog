@@ -29,6 +29,7 @@ import {
     isEventsQuery,
     isFunnelsQuery,
     isHogQLQuery,
+    isInsightQueryNode,
     isInsightVizNode,
     isLifecycleQuery,
     isPathsQuery,
@@ -262,9 +263,11 @@ export interface SummaryContext {
 export function summarizeInsight(query: Node | undefined | null, context: SummaryContext): string {
     return isInsightVizNode(query)
         ? summarizeInsightQuery(query.source, context)
-        : !!query && !isInsightVizNode(query)
-          ? summarizeQuery(query)
-          : ''
+        : isInsightQueryNode(query)
+          ? summarizeInsightQuery(query, context)
+          : !!query && !isInsightVizNode(query)
+            ? summarizeQuery(query)
+            : ''
 }
 
 export function useSummarizeInsight(): (query: Node | undefined | null) => string {

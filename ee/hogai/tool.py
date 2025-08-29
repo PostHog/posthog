@@ -60,6 +60,9 @@ class session_summarization(BaseModel):
       * When users asks to update, change, or adjust session recordings filters
     """
 
+    session_ids: list[str] | None = Field(
+        description="Optional list of specific, already-provided session IDs to summarize. If provided, these sessions will be summarized directly without generating recording filters from the query. In that case, should_use_current_filters should be false, and session_summarization_query empty.",
+    )
     session_summarization_query: str = Field(
         description="""
         - The user's complete query for session recordings summarization.

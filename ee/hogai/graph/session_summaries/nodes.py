@@ -306,31 +306,34 @@ class SessionSummarizationNode(AssistantNode):
         current_filters = self._get_contextual_tools(config).get("search_session_recordings", {}).get("current_filters")
         try:
             # Use current filters, if provided
-            if state.should_use_current_filters:
-                if not current_filters:
-                    self._log_failure(
-                        f"Use current filters decision was set to True, but current filters were not provided when summarizing sessions: {state.should_use_current_filters}",
-                        conversation_id,
-                        start_time,
-                    )
-                    return self._create_error_response(self._base_error_instructions, state)
-                current_filters = cast(dict[str, Any], current_filters)
-                replay_filters = self._convert_current_filters_to_recordings_query(current_filters)
-            # If not - generate filters to get session ids from DB
+            if state.session_ids:
+                session_ids = state.session_ids
             else:
-                generated_filters = await self._generate_replay_filters(state.session_summarization_query)
-                if not generated_filters:
-                    self._log_failure(
-                        f"No Replay filters were generated for session summarization: {state.session_summarization_query}",
-                        conversation_id,
-                        start_time,
-                    )
-                    return self._create_error_response(self._base_error_instructions, state)
-                replay_filters = self._convert_max_filters_to_recordings_query(generated_filters)
-            # Query the filters to get session ids
-            session_ids = await database_sync_to_async(self._get_session_ids_with_filters, thread_sensitive=False)(
-                replay_filters
-            )
+                if state.should_use_current_filters:
+                    if not current_filters:
+                        self._log_failure(
+                            f"Use current filters decision was set to True, but current filters were not provided when summarizing sessions: {state.should_use_current_filters}",
+                            conversation_id,
+                            start_time,
+                        )
+                        return self._create_error_response(self._base_error_instructions, state)
+                    current_filters = cast(dict[str, Any], current_filters)
+                    replay_filters = self._convert_current_filters_to_recordings_query(current_filters)
+                # If not - generate filters to get session ids from DB
+                else:
+                    generated_filters = await self._generate_replay_filters(state.session_summarization_query)
+                    if not generated_filters:
+                        self._log_failure(
+                            f"No Replay filters were generated for session summarization: {state.session_summarization_query}",
+                            conversation_id,
+                            start_time,
+                        )
+                        return self._create_error_response(self._base_error_instructions, state)
+                    replay_filters = self._convert_max_filters_to_recordings_query(generated_filters)
+                # Query the filters to get session ids
+                session_ids = await database_sync_to_async(self._get_session_ids_with_filters, thread_sensitive=False)(
+                    replay_filters
+                )
             if not session_ids:
                 return PartialAssistantState(
                     messages=[
