@@ -60,7 +60,7 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
         deleteDatasetItem: (itemId: string) => ({ itemId }),
         triggerDatasetItemModal: (open: boolean) => ({ open }),
         setSelectedDatasetItem: (datasetItem: DatasetItem) => ({ datasetItem }),
-        closeModalAndRefetchDatasetItems: (action?: 'create' | 'update') => ({ action }),
+        closeModalAndRefetchDatasetItems: (refetchDatasetItems?: boolean) => ({ refetchDatasetItems }),
     }),
 
     reducers(({ props }) => ({
@@ -310,8 +310,8 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
             }
         },
 
-        closeModalAndRefetchDatasetItems: ({ action }) => {
-            if (action) {
+        closeModalAndRefetchDatasetItems: ({ refetchDatasetItems }) => {
+            if (refetchDatasetItems) {
                 actions.loadDatasetItems()
             }
         },

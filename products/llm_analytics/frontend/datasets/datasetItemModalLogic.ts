@@ -20,7 +20,7 @@ export interface DatasetItemModalLogicProps {
     /**
      * @param action - Whether the item was created, updated, or no action was taken.
      */
-    closeModal: (action?: 'create' | 'update') => void
+    closeModal: (refetchDatasetItems?: boolean) => void
     isModalOpen: boolean
 }
 
@@ -52,6 +52,7 @@ export const datasetItemModalLogic = kea<datasetItemModalLogicType>([
 
     actions({
         setShouldCloseModal: (shouldCloseModal: boolean) => ({ shouldCloseModal }),
+        setRefetchDatasetItems: (refetchDatasetItems: boolean) => ({ refetchDatasetItems }),
     }),
 
     reducers(() => ({
@@ -59,6 +60,13 @@ export const datasetItemModalLogic = kea<datasetItemModalLogicType>([
             true as boolean,
             {
                 setShouldCloseModal: (_, { shouldCloseModal }) => shouldCloseModal,
+            },
+        ],
+
+        refetchDatasetItems: [
+            false as boolean,
+            {
+                setRefetchDatasetItems: (_, { refetchDatasetItems }) => refetchDatasetItems,
             },
         ],
     })),
@@ -84,7 +92,9 @@ export const datasetItemModalLogic = kea<datasetItemModalLogicType>([
                         })
                         lemonToast.success('Dataset item created successfully')
                         if (values.shouldCloseModal) {
-                            props.closeModal('create')
+                            props.closeModal(true)
+                        } else {
+                            actions.setRefetchDatasetItems(true)
                         }
                         actions.setShouldCloseModal(true)
                     } else {
@@ -94,7 +104,7 @@ export const datasetItemModalLogic = kea<datasetItemModalLogicType>([
                             metadata: corseJsonToObject(formValues.metadata),
                         })
                         lemonToast.success('Dataset item updated successfully')
-                        props.closeModal('update')
+                        props.closeModal(true)
                         actions.setDatasetItemFormValues(getDatasetItemFormDefaults(updatedItem))
                     }
                 } catch (error) {
@@ -112,6 +122,10 @@ export const datasetItemModalLogic = kea<datasetItemModalLogicType>([
     propsChanged(({ props, actions }) => {
         if (!props.datasetItem && props.isModalOpen) {
             actions.resetDatasetItemForm()
+        }
+
+        if (props.isModalOpen) {
+            actions.setRefetchDatasetItems(false)
         }
     }),
 ])

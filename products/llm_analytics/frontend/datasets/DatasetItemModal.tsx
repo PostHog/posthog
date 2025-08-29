@@ -14,7 +14,7 @@ import { DatasetItemModalLogicProps, TraceMetadata, datasetItemModalLogic } from
 
 export interface DatasetItemModalProps {
     isOpen: boolean
-    onClose: (action?: 'create' | 'update') => void
+    onClose: (refetchDatasetItems?: boolean) => void
     datasetId: string
     datasetItem?: DatasetItem | null
     traceMetadata?: TraceMetadata
@@ -34,11 +34,17 @@ export const DatasetItemModal = React.memo(function DatasetItemModal({
         closeModal: onClose,
         isModalOpen: isOpen,
     }
-    const { isDatasetItemFormSubmitting } = useValues(datasetItemModalLogic(logicProps))
+    const { isDatasetItemFormSubmitting, refetchDatasetItems } = useValues(datasetItemModalLogic(logicProps))
     const { submitDatasetItemForm, setShouldCloseModal } = useActions(datasetItemModalLogic(logicProps))
 
     return (
-        <LemonModal isOpen={isOpen} onClose={() => onClose()} maxWidth="40rem" simple className="w-full">
+        <LemonModal
+            isOpen={isOpen}
+            onClose={() => onClose(refetchDatasetItems)}
+            maxWidth="40rem"
+            simple
+            className="w-full"
+        >
             <Form
                 logic={datasetItemModalLogic}
                 props={logicProps}
