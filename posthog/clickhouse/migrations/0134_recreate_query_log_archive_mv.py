@@ -11,12 +11,12 @@ operations = [
     # Drop the old materialized view
     run_sql_with_exceptions(
         DROP_QUERY_LOG_ARCHIVE_MV(on_cluster=False),
-        node_role=NodeRole.ALL,
+        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
     ),
     run_sql_with_exceptions(
         QUERY_LOG_ARCHIVE_NEW_MV_SQL(
             view_name=QUERY_LOG_ARCHIVE_MV, dest_table=QUERY_LOG_ARCHIVE_DATA_TABLE, on_cluster=False
         ),
-        node_role=NodeRole.ALL,
+        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
     ),
 ]
