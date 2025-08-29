@@ -73,6 +73,16 @@ class TestBatchImportConfigBuilder(BaseTest):
         self.assertEqual(self.batch_import.import_config, expected_config)
         self.assertEqual(self.batch_import.secrets["urls"], urls)
 
+    def test_with_generate_identify_events_configuration(self):
+        """Test that generate_identify_events is added as a top-level config field"""
+        self.batch_import.config.json_lines(ContentType.AMPLITUDE).with_generate_identify_events(True)
+
+        expected_config = {
+            "data_format": {"type": "json_lines", "skip_blanks": True, "content": {"type": "amplitude"}},
+            "generate_identify_events": True,
+        }
+        self.assertEqual(self.batch_import.import_config, expected_config)
+
 
 class TestBatchImportAPI(APIBaseTest):
     def test_model_creation_only(self):

@@ -127,6 +127,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                         start_date: values.start_date,
                         end_date: values.end_date,
                         is_eu_region: values.is_eu_region,
+                        generate_identify_events: values.generate_identify_events,
                     }
                 }
                 try {

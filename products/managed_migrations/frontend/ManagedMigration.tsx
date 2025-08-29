@@ -138,6 +138,17 @@ export function ManagedMigration(): JSX.Element {
                             label="Use EU region endpoint"
                         />
                     </LemonField>
+
+                    {managedMigration.source_type === 'amplitude' && (
+                        <LemonField name="generate_identify_events">
+                            <LemonCheckbox
+                                checked={managedMigration.generate_identify_events || false}
+                                onChange={(checked) => setManagedMigrationValue('generate_identify_events', checked)}
+                                label="Generate identify events to link user IDs with device IDs"
+                                tooltip="Creates PostHog $identify events to connect Amplitude user_id and device_id, enabling better user journey tracking"
+                            />
+                        </LemonField>
+                    )}
                 </>
             )}
 
