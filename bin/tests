@@ -7,6 +7,17 @@ then
     exit
 fi
 
+# Function to get changed test files
+get_changed_test_files() {
+    (
+        git diff --name-only master...HEAD; 
+        git status --porcelain | cut -c4-
+    ) | \
+    grep -E '/test_[^/]*\.py$' | \
+    grep -v '__pycache__' | \
+    sort -u
+}
+
 # Check if --changed option is used
 CHANGED_ONLY=false
 FILTERED_ARGS=()
@@ -27,12 +38,7 @@ if [ "$CHANGED_ONLY" = true ]; then
     fi
     
     # Get changed test files
-    CHANGED_TEST_FILES=$(
-        (git diff --name-only master...HEAD; git status --porcelain | cut -c4-) | \
-        grep -E '/test_[^/]*\.py$' | \
-        grep -v '__pycache__' | \
-        sort -u
-    )
+    CHANGED_TEST_FILES=$(get_changed_test_files)
     
     if [ -z "$CHANGED_TEST_FILES" ]; then
         echo "No changed test files found in branch $CURRENT_BRANCH"
@@ -70,12 +76,7 @@ elif [ $# -eq 0 ]; then
             fi
             
             # Get changed test files
-            CHANGED_TEST_FILES=$(
-                (git diff --name-only master...HEAD; git status --porcelain | cut -c4-) | \
-                grep -E '/test_[^/]*\.py$' | \
-                grep -v '__pycache__' | \
-                sort -u
-            )
+            CHANGED_TEST_FILES=$(get_changed_test_files)
             
             if [ -z "$CHANGED_TEST_FILES" ]; then
                 echo "No changed test files found in branch $CURRENT_BRANCH"
@@ -87,7 +88,7 @@ elif [ $# -eq 0 ]; then
             echo ""
             
             # Set the test files to run
-            set -- $CHANGED_TEST_FILES
+            set -- "${FILTERED_ARGS[@]}" $CHANGED_TEST_FILES
             ;;
         3)
             echo "Please specify the tests you want to run:"
