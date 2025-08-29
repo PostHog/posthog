@@ -2848,6 +2848,8 @@ class YAxisSettings(BaseModel):
         extra="forbid",
     )
     scale: Optional[Scale] = None
+    showGridLines: Optional[bool] = None
+    showTicks: Optional[bool] = None
     startAtZero: Optional[bool] = Field(default=None, description="Whether the Y axis should start at zero")
 
 
@@ -3407,6 +3409,9 @@ class ChartSettings(BaseModel):
     seriesBreakdownColumn: Optional[str] = None
     showLegend: Optional[bool] = None
     showTotalRow: Optional[bool] = None
+    showXAxisBorder: Optional[bool] = None
+    showXAxisTicks: Optional[bool] = None
+    showYAxisBorder: Optional[bool] = None
     stackBars100: Optional[bool] = Field(default=None, description="Whether we fill the bars to 100% in stacked mode")
     xAxis: Optional[ChartAxis] = None
     yAxis: Optional[list[ChartAxis]] = None
