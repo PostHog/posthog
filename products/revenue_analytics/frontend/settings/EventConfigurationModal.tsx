@@ -152,7 +152,6 @@ export function EventConfigurationModal({ event, onClose }: EventConfigurationMo
                     <hr />
 
                     {/* Currency Configuration */}
-                    <div className="space-y-3" />
                     <h4 className="text-md font-semibold">Currency Configuration</h4>
                     <p className="text-sm text-muted-alt">
                         Choose how to handle currency for this event. You can either use a dynamic property that

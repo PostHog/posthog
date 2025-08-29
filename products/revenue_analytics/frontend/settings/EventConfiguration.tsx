@@ -180,8 +180,10 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
                                     status="danger"
                                     icon={<IconTrash />}
                                     onClick={() => {
-                                        deleteEvent(item.eventName)
-                                        save()
+                                        if (confirm('Are you sure you want to remove this event?')) {
+                                            deleteEvent(item.eventName)
+                                            save()
+                                        }
                                     }}
                                     tooltip="Remove event"
                                 />
