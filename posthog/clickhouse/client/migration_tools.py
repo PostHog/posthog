@@ -34,7 +34,7 @@ def run_sql_with_exceptions(
         The SQL query to be executed.
     node_roles: List of roles to execute the migration on, optional (default is NodeRole.DATA if not specified)
         Specifies which type of node the query should target during execution.
-        In general, run everything on NodeRole.ALL except changes to sharded tables / writable distributed tables.
+        In general, run everything on NodeRole.DATA and NodeRole.COORDINATOR except changes to sharded tables / writable distributed tables.
     sharded: bool, optional (default is False)
         Indicates if the migration is on a sharded table
     is_alter_on_replicated_table: bool, optional (default is False)
