@@ -77,16 +77,34 @@ class TestErrorTracking(BaseTest):
     def test_splitting_fingerprints(self):
         issue = self.create_issue(["fingerprint_one", "fingerprint_two", "fingerprint_three"])
 
-        issue.split(fingerprints=["fingerprint_one", "fingerprint_two"])
+        issue.split(fingerprints=["fingerprint_one", "fingerprint_two"], exclusive=True)
 
         # creates two new issues
         assert ErrorTrackingIssue.objects.count() == 3
 
         # bumps the version but no longer points to the old issue
-        override = ErrorTrackingIssueFingerprintV2.objects.filter(fingerprint="fingerprint_one").first()
-        assert override
-        assert override.issue_id != issue.id
-        assert override.version == 1
+        override_one = ErrorTrackingIssueFingerprintV2.objects.filter(fingerprint="fingerprint_one").first()
+        assert override_one
+        assert override_one.issue_id != issue.id
+        assert override_one.version == 1
+
+        override_two = ErrorTrackingIssueFingerprintV2.objects.filter(fingerprint="fingerprint_two").first()
+        # the overrides point to different issues
+        assert override_one.issue_id != override_two.issue_id
+
+    def test_splitting_fingerprints_non_exclusively(self):
+        issue = self.create_issue(["fingerprint_one", "fingerprint_two", "fingerprint_three"])
+
+        issue.split(fingerprints=["fingerprint_one", "fingerprint_two"], exclusive=False)
+
+        # creates two new issues
+        assert ErrorTrackingIssue.objects.count() == 2
+
+        override_one = ErrorTrackingIssueFingerprintV2.objects.filter(fingerprint="fingerprint_one").first()
+        override_two = ErrorTrackingIssueFingerprintV2.objects.filter(fingerprint="fingerprint_two").first()
+
+        # the overrides point to the same new issue
+        assert override_one.issue_id == override_two.issue_id
 
     def test_error_tracking_issue_assignment_cascade_deletes(self):
         issue = ErrorTrackingIssue.objects.create(team=self.team)
