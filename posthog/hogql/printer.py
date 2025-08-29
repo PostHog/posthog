@@ -818,7 +818,7 @@ class _Printer(Visitor[str]):
 
         return None  # nothing to optimize
 
-    def _get_ops_format(self, node: ast.CompareOperation, left: str, right: str) -> str:
+    def __get_ops_format(self, node: ast.CompareOperation, left: str, right: str) -> str:
         beautified_ops = {
             ast.CompareOperationOp.Eq: f"{left} = {right}",
             ast.CompareOperationOp.NotEq: f"{left} != {right}",
