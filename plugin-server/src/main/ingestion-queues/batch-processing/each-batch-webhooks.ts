@@ -1,14 +1,13 @@
 import { EachBatchPayload, KafkaMessage } from 'kafkajs'
-import { QueryResult } from 'pg'
 import { Counter } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import type { ActionMatcher } from '~/worker/ingestion/action-matcher'
 import type { GroupTypeManager } from '~/worker/ingestion/group-type-manager'
+import type { GroupRepository } from '~/worker/ingestion/groups/repositories/group-repository.interface'
 
-import { GroupTypeToColumnIndex, PostIngestionEvent, RawKafkaEvent } from '../../../types'
+import { GroupTypeIndex, GroupTypeToColumnIndex, PostIngestionEvent, RawKafkaEvent, TeamId } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
-import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
 import { convertToPostIngestionEvent } from '../../../utils/event'
 import { parseJSON } from '../../../utils/json-parse'
 import { logger } from '../../../utils/logger'
@@ -66,13 +65,20 @@ export async function eachBatchWebhooksHandlers(
     concurrency: number,
     groupTypeManager: GroupTypeManager,
     teamManager: TeamManager,
-    postgres: PostgresRouter
+    groupRepository: GroupRepository
 ): Promise<void> {
     await eachBatchHandlerHelper(
         payload,
         (teamId) => actionMatcher.hasWebhooks(teamId),
         (event) =>
-            eachMessageWebhooksHandlers(event, actionMatcher, hookCannon, groupTypeManager, teamManager, postgres),
+            eachMessageWebhooksHandlers(
+                event,
+                actionMatcher,
+                hookCannon,
+                groupTypeManager,
+                teamManager,
+                groupRepository
+            ),
         concurrency,
         'webhooks'
     )
@@ -136,7 +142,7 @@ async function addGroupPropertiesToPostIngestionEvent(
     event: PostIngestionEvent,
     groupTypeManager: GroupTypeManager,
     teamManager: TeamManager,
-    postgres: PostgresRouter
+    groupRepository: GroupRepository
 ): Promise<PostIngestionEvent> {
     let groupTypes: GroupTypeToColumnIndex | null = null
     if (await teamManager.hasAvailableFeature(event.teamId, 'group_analytics')) {
@@ -154,16 +160,13 @@ async function addGroupPropertiesToPostIngestionEvent(
                 continue
             }
 
-            const queryString = `SELECT group_properties FROM posthog_group WHERE team_id = $1 AND group_type_index = $2 AND group_key = $3`
-
-            const selectResult: QueryResult = await postgres.query(
-                PostgresUse.PERSONS_READ,
-                queryString,
-                [event.teamId, columnIndex, groupKey],
-                'fetchGroup'
+            const group = await groupRepository.fetchGroup(
+                event.teamId as TeamId,
+                columnIndex as GroupTypeIndex,
+                groupKey
             )
 
-            const groupProperties = selectResult.rows.length > 0 ? selectResult.rows[0].group_properties : {}
+            const groupProperties = group ? group.group_properties : {}
 
             if (groupKey && groupProperties) {
                 groups[groupType] = {
@@ -188,7 +191,7 @@ export async function eachMessageWebhooksHandlers(
     hookCannon: HookCommander,
     groupTypeManager: GroupTypeManager,
     teamManager: TeamManager,
-    postgres: PostgresRouter
+    groupRepository: GroupRepository
 ): Promise<void> {
     if (!actionMatcher.hasWebhooks(kafkaEvent.team_id)) {
         // exit early if no webhooks nor resthooks
@@ -204,7 +207,7 @@ export async function eachMessageWebhooksHandlers(
         eventWithoutGroups,
         groupTypeManager,
         teamManager,
-        postgres
+        groupRepository
     )
 
     await instrumentFn(

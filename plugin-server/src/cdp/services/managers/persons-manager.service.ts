@@ -1,7 +1,6 @@
-import { Hub, RawPerson } from '../../../types'
-import { PostgresUse } from '../../../utils/db/postgres'
 import { LazyLoader } from '../../../utils/lazy-loader'
 import { logger } from '../../../utils/logger'
+import { PersonRepository } from '../../../worker/ingestion/persons/repositories/person-repository'
 
 export type PersonGetArgs = {
     teamId: number
@@ -15,11 +14,6 @@ const fromKey = (key: string): PersonGetArgs => {
     return { teamId: parseInt(teamId), distinctId }
 }
 
-// Type for the query result that includes distinct_id
-type PersonWithDistinctId = RawPerson & {
-    distinct_id: string
-}
-
 export type PersonManagerPerson = {
     id: string
     properties: Record<string, any>
@@ -30,7 +24,7 @@ export type PersonManagerPerson = {
 export class PersonsManagerService {
     private lazyLoader: LazyLoader<PersonManagerPerson>
 
-    constructor(private hub: Hub) {
+    constructor(private personRepository: PersonRepository) {
         this.lazyLoader = new LazyLoader({
             name: 'person_manager',
             loader: async (ids) => await this.fetchPersons(ids),
@@ -57,43 +51,7 @@ export class PersonsManagerService {
 
         logger.debug('[PersonManager]', 'Fetching persons', { teamPersons })
 
-        // Build the WHERE clause for multiple team_id, distinct_id pairs
-        const conditions = teamPersons
-            .map((_, index) => {
-                const teamIdParam = index * 2 + 1
-                const distinctIdParam = index * 2 + 2
-                // NOTE: We have an index on posthog_persondistinctid (team_id, distinct_id) so filtering at that level should be more efficient
-                return `(posthog_persondistinctid.team_id = $${teamIdParam} AND posthog_persondistinctid.distinct_id = $${distinctIdParam})`
-            })
-            .join(' OR ')
-
-        const queryString = `SELECT
-                posthog_person.id,
-                posthog_person.uuid,
-                posthog_person.created_at,
-                posthog_person.team_id,
-                posthog_person.properties,
-                posthog_person.properties_last_updated_at,
-                posthog_person.properties_last_operation,
-                posthog_person.is_user_id,
-                posthog_person.version,
-                posthog_person.is_identified,
-                posthog_persondistinctid.distinct_id
-            FROM posthog_person
-            JOIN posthog_persondistinctid ON (posthog_persondistinctid.person_id = posthog_person.id)
-            WHERE ${conditions}`
-
-        // Flatten the parameters: [teamId1, distinctId1, teamId2, distinctId2, ...]
-        const params = teamPersons.flatMap((person) => [person.teamId, person.distinctId])
-
-        const response = await this.hub.postgres.query<PersonWithDistinctId>(
-            PostgresUse.PERSONS_READ,
-            queryString,
-            params,
-            'fetchCDPPersons'
-        )
-
-        const personRows = response.rows
+        const personRows = await this.personRepository.fetchPersonsByDistinctIds(teamPersons)
 
         // Map results back to the original keys
         const result: Record<string, PersonManagerPerson | undefined> = {}

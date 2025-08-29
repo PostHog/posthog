@@ -3,8 +3,7 @@ import LRUCache from 'lru-cache'
 import { sanitizeString } from '~/utils/db/utils'
 import { logger } from '~/utils/logger'
 
-import { Hub, Team } from '../../../types'
-import { PostgresUse } from '../../../utils/db/postgres'
+import { GroupTypeIndex, Hub, Team } from '../../../types'
 import { GroupType, HogFunctionInvocationGlobals } from '../../types'
 
 export type GroupsMap = Record<string, GroupType>
@@ -25,7 +24,7 @@ type Group = {
 const GROUP_TYPES_CACHE_AGE_MS = 60 * 10 * 1000 // 10 minutes
 
 export class GroupsManagerService {
-    groupTypesMappingCache: LRUCache<number, { type: string; index: number }[]>
+    groupTypesMappingCache: LRUCache<number, { group_type: string; group_type_index: number }[]>
 
     constructor(private hub: Hub) {
         // There is only 5 per team so we can have a very high cache and a very long cooldown
@@ -59,7 +58,7 @@ export class GroupsManagerService {
 
             if (cached) {
                 cached.forEach((row) => {
-                    groupTypesMapping[`${teamId}:${row.type}`] = row.index
+                    groupTypesMapping[`${teamId}:${row.group_type}`] = row.group_type_index
                 })
             }
         })
@@ -67,26 +66,12 @@ export class GroupsManagerService {
         const teamsToLoad = teamsWithGroupAnalytics.filter((teamId) => !this.groupTypesMappingCache.get(teamId))
 
         if (teamsToLoad.length) {
-            const result = await this.hub.postgres.query(
-                PostgresUse.PERSONS_READ,
-                `SELECT team_id, group_type, group_type_index FROM posthog_grouptypemapping WHERE team_id = ANY($1)`,
-                [teamsToLoad],
-                'fetchGroupTypes'
-            )
-
-            const groupedByTeam: Record<number, { type: string; index: number }[]> = result.rows.reduce((acc, row) => {
-                if (!acc[row.team_id]) {
-                    acc[row.team_id] = []
-                }
-                acc[row.team_id].push({ type: row.group_type, index: row.group_type_index })
-                return acc
-            }, {})
-
-            // Save to cache
-            Object.entries(groupedByTeam).forEach(([teamId, groupTypes]) => {
-                this.groupTypesMappingCache.set(parseInt(teamId), groupTypes)
+            const result = await this.hub.groupRepository.fetchGroupTypesByTeamIds(teamsToLoad)
+            Object.entries(result).forEach(([teamIdStr, groupTypes]) => {
+                const teamId = parseInt(teamIdStr)
+                this.groupTypesMappingCache.set(teamId, groupTypes)
                 groupTypes.forEach((row) => {
-                    groupTypesMapping[`${teamId}:${row.type}`] = row.index
+                    groupTypesMapping[`${teamId}:${row.group_type}`] = row.group_type_index
                 })
             })
         }
@@ -110,16 +95,11 @@ export class GroupsManagerService {
         )
 
         try {
-            return (
-                await this.hub.postgres.query(
-                    PostgresUse.PERSONS_READ,
-                    `SELECT team_id, group_type_index, group_key, group_properties
-            FROM posthog_group
-            WHERE team_id = ANY($1) AND group_type_index = ANY($2) AND group_key = ANY($3)`,
-                    [teamIds, groupIndexes, groupKeys],
-                    'fetchGroups'
-                )
-            ).rows
+            return await this.hub.groupRepository.fetchGroupsByKeys(
+                teamIds,
+                groupIndexes as GroupTypeIndex[],
+                groupKeys
+            )
         } catch (e) {
             logger.error('[GroupsManagerService] Error fetching group properties', {
                 error: e,

@@ -10,11 +10,12 @@ describe('Groups Manager', () => {
     let mockGroups: { team_id: number; group_key: string; group_type_index: number; group_properties?: any }[] = []
 
     const mockHub = {
-        postgres: {
-            query: jest.fn(),
-        },
         teamManager: {
             hasAvailableFeature: jest.fn(() => Promise.resolve(true)),
+        },
+        groupRepository: {
+            fetchGroupTypesByTeamIds: jest.fn(),
+            fetchGroupsByKeys: jest.fn(),
         },
     }
 
@@ -24,18 +25,49 @@ describe('Groups Manager', () => {
 
     describe('unit tests', () => {
         beforeEach(() => {
-            mockHub.postgres.query.mockImplementation((_, query): Promise<any> => {
-                if (query.includes('posthog_grouptypemapping')) {
-                    return Promise.resolve({ rows: mockGroupTypes })
-                }
+            // Setup mock repository responses based on the repository interface format
+            mockHub.groupRepository.fetchGroupTypesByTeamIds.mockImplementation((teamIds: number[]): Promise<any> => {
+                const result: Record<string, { group_type: string; group_type_index: number }[]> = {}
 
-                if (query.includes('posthog_group')) {
-                    return Promise.resolve({ rows: mockGroups })
-                }
-                return Promise.resolve({
-                    rows: [],
+                // Initialize empty arrays for all requested team IDs
+                teamIds.forEach((teamId) => {
+                    result[teamId.toString()] = []
                 })
+
+                // Add the mock data for teams that have group types
+                mockGroupTypes.forEach((gt) => {
+                    if (teamIds.includes(gt.team_id)) {
+                        if (!result[gt.team_id.toString()]) {
+                            result[gt.team_id.toString()] = []
+                        }
+                        result[gt.team_id.toString()].push({
+                            group_type: gt.group_type,
+                            group_type_index: gt.group_type_index,
+                        })
+                    }
+                })
+
+                return Promise.resolve(result)
             })
+
+            mockHub.groupRepository.fetchGroupsByKeys.mockImplementation(
+                (teamIds: number[], groupIndexes: number[], groupKeys: string[]): Promise<any> => {
+                    const results = mockGroups.filter((group) => {
+                        // Check if this group matches any of the requested combinations
+                        for (let i = 0; i < teamIds.length; i++) {
+                            if (
+                                teamIds[i] === group.team_id &&
+                                groupIndexes[i] === group.group_type_index &&
+                                groupKeys[i] === group.group_key
+                            ) {
+                                return true
+                            }
+                        }
+                        return false
+                    })
+                    return Promise.resolve(results)
+                }
+            )
 
             mockGroupTypes = [
                 { team_id: 1, group_type: 'GroupA', group_type_index: 0 },
@@ -201,40 +233,12 @@ describe('Groups Manager', () => {
             })
             await groupsManager.enrichGroups([globals])
 
-            expect(mockHub.postgres.query).toHaveBeenCalledTimes(2)
+            expect(mockHub.groupRepository.fetchGroupTypesByTeamIds).toHaveBeenCalledTimes(1)
+            expect(mockHub.groupRepository.fetchGroupsByKeys).toHaveBeenCalledTimes(1)
+
             // Validate that only the correct ID values were used
-            expect(mockHub.postgres.query.mock.calls).toMatchInlineSnapshot(`
-                [
-                  [
-                    3,
-                    "SELECT team_id, group_type, group_type_index FROM posthog_grouptypemapping WHERE team_id = ANY($1)",
-                    [
-                      [
-                        1,
-                      ],
-                    ],
-                    "fetchGroupTypes",
-                  ],
-                  [
-                    3,
-                    "SELECT team_id, group_type_index, group_key, group_properties
-                            FROM posthog_group
-                            WHERE team_id = ANY($1) AND group_type_index = ANY($2) AND group_key = ANY($3)",
-                    [
-                      [
-                        1,
-                      ],
-                      [
-                        1,
-                      ],
-                      [
-                        "id-2",
-                      ],
-                    ],
-                    "fetchGroups",
-                  ],
-                ]
-            `)
+            expect(mockHub.groupRepository.fetchGroupTypesByTeamIds).toHaveBeenCalledWith([1])
+            expect(mockHub.groupRepository.fetchGroupsByKeys).toHaveBeenCalledWith([1], [1], ['id-2'])
         })
     })
 
@@ -252,12 +256,17 @@ describe('Groups Manager', () => {
             }),
         ]
         await groupsManager.enrichGroups(globals)
-        expect(mockHub.postgres.query).toHaveBeenCalledTimes(2)
-        mockHub.postgres.query.mockClear()
+        expect(mockHub.groupRepository.fetchGroupTypesByTeamIds).toHaveBeenCalledTimes(1)
+        expect(mockHub.groupRepository.fetchGroupsByKeys).toHaveBeenCalledTimes(1)
+        mockHub.groupRepository.fetchGroupTypesByTeamIds.mockClear()
+        mockHub.groupRepository.fetchGroupsByKeys.mockClear()
 
         await groupsManager.enrichGroups(globals)
-        expect(mockHub.postgres.query).toHaveBeenCalledTimes(1)
-        mockHub.postgres.query.mockClear()
+        // Should use cache, not call repository again for the same teams
+        expect(mockHub.groupRepository.fetchGroupTypesByTeamIds).toHaveBeenCalledTimes(0)
+        expect(mockHub.groupRepository.fetchGroupsByKeys).toHaveBeenCalledTimes(1)
+        mockHub.groupRepository.fetchGroupTypesByTeamIds.mockClear()
+        mockHub.groupRepository.fetchGroupsByKeys.mockClear()
 
         globals.push(
             createHogExecutionGlobals({
@@ -268,6 +277,8 @@ describe('Groups Manager', () => {
         )
 
         await groupsManager.enrichGroups(globals)
-        expect(mockHub.postgres.query).toHaveBeenCalledTimes(2)
+        // New team should trigger repository call, plus groups fetch
+        expect(mockHub.groupRepository.fetchGroupTypesByTeamIds).toHaveBeenCalledTimes(1)
+        expect(mockHub.groupRepository.fetchGroupsByKeys).toHaveBeenCalledTimes(1)
     })
 })

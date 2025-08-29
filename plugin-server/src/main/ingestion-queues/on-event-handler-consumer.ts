@@ -17,7 +17,17 @@ export const startAsyncWebhooksHandlerConsumer = async (hub: Hub): Promise<Plugi
     */
     logger.info('🔁', `Starting webhooks handler consumer`)
 
-    const { kafka, postgres, teamManager, actionMatcher, actionManager, rustyHook, appMetrics, groupTypeManager } = hub
+    const {
+        kafka,
+        postgres,
+        teamManager,
+        actionMatcher,
+        actionManager,
+        rustyHook,
+        appMetrics,
+        groupTypeManager,
+        groupRepository,
+    } = hub
 
     const consumer = kafka.consumer({
         // NOTE: This should never clash with the group ID specified for the kafka engine posthog/ee/clickhouse/sql/clickhouse.py
@@ -42,7 +52,7 @@ export const startAsyncWebhooksHandlerConsumer = async (hub: Hub): Promise<Plugi
                 concurrency,
                 groupTypeManager,
                 teamManager,
-                postgres
+                groupRepository
             ),
     })
 
