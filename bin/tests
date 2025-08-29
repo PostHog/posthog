@@ -46,18 +46,59 @@ if [ "$CHANGED_ONLY" = true ]; then
     # Set the test files to run
     set -- "${FILTERED_ARGS[@]}" $CHANGED_TEST_FILES
 elif [ $# -eq 0 ]; then
-    echo "Are you sure you want to run all backend tests? You can run specific tests by doing:"
+    echo "What tests would you like to run?"
     echo " "
-    echo "bin/tests posthog/api/test/test_user.py::TestUserAPI::test_retrieve_current_user"
-    echo "bin/tests --changed  # Run tests for files changed in current branch"
+    echo "1. All tests (will take a long time)"
+    echo "2. Changed tests only (files changed in current branch)"
+    echo "3. Specify tests manually"
     echo " "
-    read -r -p "Run all tests? [y/N] " response
-    if [[ "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]
-    then
-        echo "OK!"
-    else
-        exit
-    fi
+    echo "Examples of specifying tests manually:"
+    echo "  bin/tests posthog/api/test/test_user.py"
+    echo "  bin/tests posthog/api/test/test_user.py::TestUserAPI::test_retrieve_current_user"
+    echo " "
+    read -r -p "Choose option [1/2/3]: " choice
+    
+    case $choice in
+        1)
+            echo "Running all tests..."
+            ;;
+        2)
+            CURRENT_BRANCH=$(git branch --show-current)
+            if [ "$CURRENT_BRANCH" = "master" ]; then
+                echo "Cannot run changed tests on master branch"
+                exit 1
+            fi
+            
+            # Get changed test files
+            CHANGED_TEST_FILES=$(
+                (git diff --name-only master...HEAD; git status --porcelain | cut -c4-) | \
+                grep -E '/test_[^/]*\.py$' | \
+                grep -v '__pycache__' | \
+                sort -u
+            )
+            
+            if [ -z "$CHANGED_TEST_FILES" ]; then
+                echo "No changed test files found in branch $CURRENT_BRANCH"
+                exit 0
+            fi
+            
+            echo "Running tests for changed files in branch $CURRENT_BRANCH:"
+            echo "$CHANGED_TEST_FILES"
+            echo ""
+            
+            # Set the test files to run
+            set -- $CHANGED_TEST_FILES
+            ;;
+        3)
+            echo "Please specify the tests you want to run:"
+            echo "  bin/tests <test_path>"
+            exit 0
+            ;;
+        *)
+            echo "Invalid choice. Exiting."
+            exit 1
+            ;;
+    esac
 fi
 
 export REDIS_URL='redis:///'
