@@ -16,9 +16,9 @@ import {
     CyclotronJobQueueKind,
     CyclotronJobQueueSource,
 } from '../../types'
+import { CyclotronJobQueueDelay, getDelayQueue } from './job-queue-delay'
 import { CyclotronJobQueueKafka } from './job-queue-kafka'
 import { CyclotronJobQueuePostgres } from './job-queue-postgres'
-import { CyclotronJobQueueDelay, getDelayQueue } from './job-queue-delay'
 
 const cyclotronBatchUtilizationGauge = new Gauge({
     name: 'cdp_cyclotron_batch_utilization',
@@ -154,10 +154,18 @@ export class CyclotronJobQueue {
 
     public async stop() {
         // Important - first shut down the consumers so we aren't processing anything
-        await Promise.all([this.jobQueuePostgres.stopConsumer(), this.jobQueueKafka.stopConsumer(), this.jobQueueDelay.stopConsumer()])
+        await Promise.all([
+            this.jobQueuePostgres.stopConsumer(),
+            this.jobQueueKafka.stopConsumer(),
+            this.jobQueueDelay.stopConsumer(),
+        ])
 
         // Only then do we shut down the producers
-        await Promise.all([this.jobQueuePostgres.stopProducer(), this.jobQueueKafka.stopProducer(), this.jobQueueDelay.stopProducer()])
+        await Promise.all([
+            this.jobQueuePostgres.stopProducer(),
+            this.jobQueueKafka.stopProducer(),
+            this.jobQueueDelay.stopProducer(),
+        ])
     }
 
     public isHealthy() {
@@ -183,9 +191,10 @@ export class CyclotronJobQueue {
 
         if (
             invocation.queueScheduledAt &&
-            invocation.queueScheduledAt > DateTime.now().plus({ milliseconds: JOB_SCHEDULED_AT_FUTURE_THRESHOLD_MS })
+            invocation.queueScheduledAt > DateTime.now().plus({ milliseconds: JOB_SCHEDULED_AT_FUTURE_THRESHOLD_MS }) &&
+            invocation.state
         ) {
-            (invocation.state as any).returnTopic = invocation.queue
+            invocation.state.returnTopic = invocation.queue
             invocation.queue = getDelayQueue(invocation.queueScheduledAt)
         }
 
