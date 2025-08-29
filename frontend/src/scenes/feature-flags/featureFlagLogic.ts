@@ -1349,12 +1349,21 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         ],
     }),
-    urlToAction(({ actions, props }) => ({
-        [urls.featureFlag(props.id ?? 'new')]: (_, __, ___, { method }) => {
+    urlToAction(({ actions, props, values }) => ({
+        [urls.featureFlag(props.id ?? 'new')]: (_, searchParams, ___, { method }) => {
             // If the URL was pushed (user clicked on a link), reset the scene's data.
             // This avoids resetting form fields if you click back/forward.
             if (method === 'PUSH') {
                 if (props.id) {
+                    // When there is sourceId, we load the feature flag
+                    if (props.id === 'new' && searchParams.sourceId != null) {
+                        actions.loadFeatureFlag()
+                        return
+                    }
+                    // When pushing to `/new` and the feature flag has no id, do not load the flag again
+                    if (props.id === 'new' && values.featureFlag.id == null) {
+                        return
+                    }
                     actions.loadFeatureFlag()
                 } else {
                     actions.resetFeatureFlag()
