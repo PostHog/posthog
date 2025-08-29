@@ -351,8 +351,9 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
             }
 
             // Set default filters if they're not set yet
-            if (values.rawFilters === null) {
-                actions.setFilters(cleanFilters(searchParams), false)
+            const newFilters = cleanFilters(searchParams)
+            if (values.rawFilters === null || !objectsEqual(values.filters, newFilters)) {
+                actions.setFilters(newFilters, false)
             }
 
             // Open the dataset item modal if the item is set in the URL

@@ -146,20 +146,16 @@ export const llmAnalyticsDatasetsLogic = kea<llmAnalyticsDatasetsLogicType>([
     }),
 
     listeners(({ asyncActions, values, selectors }) => ({
-        setFilters: async ({ debounce }, breakpoint, __, previousState) => {
+        setFilters: async ({ debounce }, _, __, previousState) => {
             const oldFilters = selectors.filters(previousState)
             const firstLoad = selectors.rawFilters(previousState) === null
             const { filters } = values
 
-            if (
-                debounce &&
-                !firstLoad &&
-                typeof filters.search !== 'undefined' &&
-                filters.search !== oldFilters.search
-            ) {
-                await breakpoint(300)
+            if (firstLoad) {
+                return
             }
-            if (firstLoad || !objectsEqual(oldFilters, filters)) {
+
+            if (!objectsEqual(oldFilters, filters)) {
                 await asyncActions.loadDatasets(debounce)
             }
         },
@@ -200,8 +196,9 @@ export const llmAnalyticsDatasetsLogic = kea<llmAnalyticsDatasetsLogicType>([
 
     urlToAction(({ actions, values }) => ({
         [urls.llmAnalyticsDatasets()]: (_, searchParams) => {
-            if (values.rawFilters === null) {
-                actions.setFilters(cleanFilters(searchParams), false)
+            const newFilters = cleanFilters(searchParams)
+            if (values.rawFilters === null || !objectsEqual(values.filters, newFilters)) {
+                actions.setFilters(newFilters, false)
             }
         },
     })),
