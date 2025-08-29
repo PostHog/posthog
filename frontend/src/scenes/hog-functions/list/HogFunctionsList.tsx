@@ -101,6 +101,10 @@ export function HogFunctionList({
                 title: 'Last 7 days',
                 width: 0,
                 render: (_, hogFunction) => {
+                    if (hogFunction.id.startsWith('batch-export-')) {
+                        return <>N/A</>
+                    }
+
                     if (isManualFunction(hogFunction) || hogFunction.type === 'site_app') {
                         return <>N/A</>
                     }
