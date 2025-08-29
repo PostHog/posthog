@@ -1,4 +1,5 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
+import { useState } from 'react'
 
 import { LemonTabs } from '@posthog/lemon-ui'
 
@@ -43,13 +44,12 @@ import {
     StopExperimentModal,
 } from './components'
 
-const ResultsTab = (): JSX.Element => {
+const MetricsTab = (): JSX.Element => {
     const {
         experiment,
         legacyPrimaryMetricsResults,
         firstPrimaryMetric,
         primaryMetricsLengthWithSharedMetrics,
-        primaryMetricsResultsLoading,
         hasMinimumExposureForResults,
     } = useValues(experimentLogic)
     /**
@@ -82,15 +82,6 @@ const ResultsTab = (): JSX.Element => {
 
     return (
         <>
-            {!experiment.start_date && !primaryMetricsResultsLoading && (
-                <>
-                    {experiment.type === 'web' ? (
-                        <WebExperimentImplementationDetails experiment={experiment} />
-                    ) : (
-                        <ExperimentImplementationDetails experiment={experiment} />
-                    )}
-                </>
-            )}
             {/* Show overview if there's only a single primary metric */}
             {hasSinglePrimaryMetric && hasMinimumExposureForResults && (
                 <div className="mb-4 mt-2">
@@ -172,6 +163,19 @@ const ResultsTab = (): JSX.Element => {
         </>
     )
 }
+const CodeTab = (): JSX.Element => {
+    const { experiment } = useValues(experimentLogic)
+
+    return (
+        <>
+            {experiment.type === 'web' ? (
+                <WebExperimentImplementationDetails experiment={experiment} />
+            ) : (
+                <ExperimentImplementationDetails experiment={experiment} />
+            )}
+        </>
+    )
+}
 
 const VariantsTab = (): JSX.Element => {
     return (
@@ -183,9 +187,9 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView(): JSX.Element {
-    const { experimentLoading, experimentId, tabKey, usesNewQueryRunner } = useValues(experimentLogic)
+    const { experimentLoading, experimentId, usesNewQueryRunner } = useValues(experimentLogic)
 
-    const { setTabKey } = useActions(experimentLogic)
+    const [activeTabKey, setActiveTabKey] = useState<string>('metrics')
 
     return (
         <>
@@ -198,13 +202,18 @@ export function ExperimentView(): JSX.Element {
                         <Info />
                         {usesNewQueryRunner ? <ExperimentHeader /> : <LegacyExperimentHeader />}
                         <LemonTabs
-                            activeKey={tabKey}
-                            onChange={(key) => setTabKey(key)}
+                            activeKey={activeTabKey}
+                            onChange={(key) => setActiveTabKey(key)}
                             tabs={[
                                 {
-                                    key: 'results',
-                                    label: 'Results',
-                                    content: <ResultsTab />,
+                                    key: 'metrics',
+                                    label: 'Metrics',
+                                    content: <MetricsTab />,
+                                },
+                                {
+                                    key: 'code',
+                                    label: 'Code',
+                                    content: <CodeTab />,
                                 },
                                 {
                                     key: 'variants',
