@@ -64,7 +64,7 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
         closeModalAndRefetchDatasetItems: (refetchDatasetItems?: boolean) => ({ refetchDatasetItems }),
     }),
 
-    reducers(({ props }) => ({
+    reducers({
         dataset: [
             null as Dataset | DatasetFormValues | null,
             {
@@ -74,7 +74,7 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
         ],
 
         isEditingDataset: [
-            props.datasetId === 'new',
+            false as boolean,
             {
                 editDataset: (_, { editing }) => editing,
             },
@@ -117,7 +117,7 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
                 closeModalAndRefetchDatasetItems: () => null,
             },
         ],
-    })),
+    }),
 
     loaders(({ props, values }) => ({
         dataset: {
@@ -202,9 +202,9 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
                             metadata: corseJsonToObject(formValues.metadata),
                         })
                         lemonToast.success('Dataset updated successfully')
-                        actions.editDataset(false)
                     }
                     actions.setDataset(savedDataset)
+                    actions.editDataset(false)
                     actions.setDatasetFormValues(getDatasetFormDefaults(savedDataset))
                 } catch (error: any) {
                     const message = error?.detail || 'Failed to save dataset'
@@ -317,7 +317,7 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
                 await breakpoint(300)
             }
 
-            if (firstLoad || !objectsEqual(oldFilters, filters)) {
+            if (!objectsEqual(oldFilters, filters)) {
                 await asyncActions.loadDatasetItems(debounce)
             }
         },
