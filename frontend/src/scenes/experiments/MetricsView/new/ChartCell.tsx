@@ -1,3 +1,5 @@
+import { ExperimentMetric } from '~/queries/schema/schema-general'
+
 import { generateViolinPath } from '../legacy/violinUtils'
 import { useChartColors } from '../shared/colors'
 import {
@@ -23,6 +25,7 @@ import { useAxisScale } from './useAxisScale'
 
 interface ChartCellProps {
     variantResult: ExperimentVariantResult
+    metric: ExperimentMetric
     axisRange: number
     metricUuid?: string
     showGridLines?: boolean
