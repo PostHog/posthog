@@ -198,6 +198,10 @@ class _SharedAssistantState(BaseState):
     """
     The user's query for summarizing sessions.
     """
+    session_ids: Optional[list[str]] = Field(default=None)
+    """
+    Optional list of specific session IDs to summarize directly.
+    """
     notebook_id: Optional[str] = Field(default=None)
     """
     The ID of the notebook being used.

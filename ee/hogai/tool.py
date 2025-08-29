@@ -57,6 +57,10 @@ class session_summarization(BaseModel):
     session_summarization_query: str = Field(
         description="The user's complete query for session summarization. This will be used to find relevant sessions. Examples: 'summarize sessions from yesterday', 'watch what user X did on the checkout page', 'analyze mobile user sessions from last week'"
     )
+    session_ids: list[str] | None = Field(
+        default=None,
+        description="Optional list of specific session IDs to summarize. If provided, these sessions will be summarized directly without generating recording filters from the query.",
+    )
 
 
 class search_documentation(BaseModel):

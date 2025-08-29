@@ -1,12 +1,14 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useCallback } from 'react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { maxThreadLogic } from 'scenes/max/maxThreadLogic'
 import { urls } from 'scenes/urls'
 
-import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { performQuery } from '~/queries/query'
+import { ActorsQuery, FunnelsActorsQuery, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { FunnelPathType, PathType } from '~/types'
 
 import { funnelDataLogic } from './funnelDataLogic'
@@ -18,6 +20,7 @@ type FunnelStepMoreProps = {
 export function FunnelStepMore({ stepIndex }: FunnelStepMoreProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { querySource } = useValues(funnelDataLogic(insightProps))
+    const { askMax } = useActions(maxThreadLogic)
 
     const stepNumber = stepIndex + 1
     const getPathUrl = useCallback(
@@ -44,6 +47,60 @@ export function FunnelStepMore({ stepIndex }: FunnelStepMoreProps): JSX.Element 
         },
         [querySource, stepNumber]
     )
+
+    const summarizeDropoffSessions = useCallback(async (): Promise<void> => {
+        if (!querySource) {
+            return
+        }
+
+        try {
+            // Create a query to get users who dropped off at this step
+            const funnelsActorsQuery: FunnelsActorsQuery = {
+                kind: NodeKind.FunnelsActorsQuery,
+                source: querySource,
+                funnelStep: -stepNumber, // Negative step number for drop-offs
+                includeRecordings: true,
+            }
+
+            const actorsQuery: ActorsQuery = {
+                kind: NodeKind.ActorsQuery,
+                source: funnelsActorsQuery,
+                select: ['person', 'matched_recordings'],
+            }
+
+            // Execute the query to get dropped-off users and their session recordings
+            const result = await performQuery(actorsQuery)
+
+            // Extract session IDs from the matched recordings
+            const sessionIds: string[] = []
+            if (result?.results) {
+                for (const row of result.results) {
+                    const matchedRecordings = row[1] // matched_recordings is the second column
+                    if (Array.isArray(matchedRecordings)) {
+                        for (const recording of matchedRecordings) {
+                            if (recording?.session_id) {
+                                sessionIds.push(recording.session_id)
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (sessionIds.length === 0) {
+                // TODO: Show a user-friendly message that no sessions were found
+                console.info('No session recordings found for dropped-off users at this step')
+                return
+            }
+
+            // Call Max with session summarization using the extracted session IDs
+            const query = `Summarize sessions of users who dropped off at step ${stepNumber} of this funnel. Use the session_summarization tool with these specific session IDs: [${sessionIds.join(', ')}]. The session_summarization_query should be "Analyze sessions of users who dropped off at step ${stepNumber}" and the session_ids parameter should contain these exact session IDs.`
+
+            // Call Max with the session summarization request
+            askMax(query)
+        } catch (error) {
+            console.error('Failed to get session IDs for dropped-off users:', error)
+        }
+    }, [querySource, stepNumber, askMax])
 
     // Don't show paths modal if aggregating by groups - paths is user-based!
     if (querySource?.aggregation_group_type_index != undefined) {
@@ -77,6 +134,11 @@ export function FunnelStepMore({ stepIndex }: FunnelStepMoreProps): JSX.Element 
                     {stepNumber > 1 && (
                         <LemonButton fullWidth to={getPathUrl(FunnelPathType.before, true)}>
                             Show user paths before dropoff
+                        </LemonButton>
+                    )}
+                    {stepNumber > 1 && (
+                        <LemonButton fullWidth onClick={summarizeDropoffSessions}>
+                            Summarize sessions of users who dropped off
                         </LemonButton>
                     )}
                 </>

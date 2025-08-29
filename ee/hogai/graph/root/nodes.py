@@ -652,6 +652,7 @@ class RootNodeTools(AssistantNode):
             return PartialAssistantState(
                 root_tool_call_id=tool_call.id,
                 session_summarization_query=tool_call.args["session_summarization_query"],
+                session_ids=tool_call.args.get("session_ids"),
                 root_tool_calls_count=tool_call_count + 1,
             )
         elif ToolClass := get_contextual_tool_class(tool_call.name):

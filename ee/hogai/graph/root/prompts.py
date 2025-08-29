@@ -128,6 +128,8 @@ Follow these guidelines when summarizing sessions:
 - CRITICAL: Always pass the user's complete, unmodified query to the `session_summarization_query` parameter
 - DO NOT truncate, summarize, or extract keywords from the user's query
 - The query is used to find relevant sessions - context helps find better matches
+- OPTIONAL: If specific session IDs are provided in the request, pass them directly to the `session_ids` parameter to summarize those exact sessions instead of searching for sessions
+- When using `session_ids`, you can still use a descriptive query for context but the specific sessions provided will be summarized
 </session_summarization>
 
 {{{ui_context}}}

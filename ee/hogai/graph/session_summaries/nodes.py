@@ -265,19 +265,23 @@ class SessionSummarizationNode(AssistantNode):
             )
             return self._create_error_response(self._base_error_instructions, state)
         try:
-            # Generate filters to get session ids from DB
-            replay_filters = await self._generate_replay_filters(state.session_summarization_query)
-            if not replay_filters:
-                self._log_failure(
-                    f"No Replay filters were generated for session summarization: {state.session_summarization_query}",
-                    conversation_id,
-                    start_time,
+            # Check if session IDs were provided directly
+            if state.session_ids:
+                session_ids = state.session_ids
+            else:
+                # Generate filters to get session ids from DB
+                replay_filters = await self._generate_replay_filters(state.session_summarization_query)
+                if not replay_filters:
+                    self._log_failure(
+                        f"No Replay filters were generated for session summarization: {state.session_summarization_query}",
+                        conversation_id,
+                        start_time,
+                    )
+                    return self._create_error_response(self._base_error_instructions, state)
+                # Query the filters to get session ids
+                session_ids = await database_sync_to_async(self._get_session_ids_with_filters, thread_sensitive=False)(
+                    replay_filters
                 )
-                return self._create_error_response(self._base_error_instructions, state)
-            # Query the filters to get session ids
-            session_ids = await database_sync_to_async(self._get_session_ids_with_filters, thread_sensitive=False)(
-                replay_filters
-            )
             if not session_ids:
                 return PartialAssistantState(
                     messages=[
