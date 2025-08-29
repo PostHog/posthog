@@ -47,7 +47,7 @@ export class HogFlowExecutorService {
         globals: HogFunctionInvocationGlobals,
         hogFlow: HogFlow,
         filterGlobals: HogFunctionFilterGlobals,
-        debugMode?: boolean
+        currentActionId?: HogFlow['actions'][number]['id']
     ): CyclotronJobInvocationHogFlow {
         return {
             id: new UUIDT().toString(),
@@ -62,7 +62,13 @@ export class HogFlowExecutorService {
             filterGlobals,
             queue: 'hogflow',
             queuePriority: 1,
-            debugMode,
+            debugMode: Boolean(currentAction),
+            state: {
+                currentAction: {
+                    id: currentActionId,
+                    startedAtTimestamp: Date.now()
+                },
+            },
         }
     }
 

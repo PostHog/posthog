@@ -250,10 +250,11 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                         configuration: {},
                         globals: JSON.parse(testInvocation.globals),
                         mock_async_functions: testInvocation.mock_async_functions,
+                        current_action_id:
                     })
 
                     actions.setTestResult(apiResponse)
-                    return values.testInvocation
+                    return { current_action_id: values.testResult.result?.state?.currentAction?.id, ...values.testInvocation }
                 } catch (error: any) {
                     console.error('Workflow test error:', error)
                     lemonToast.error('Error testing workflow')
