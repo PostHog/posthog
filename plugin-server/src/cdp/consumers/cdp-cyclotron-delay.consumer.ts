@@ -1,5 +1,4 @@
 import { Hub } from '../../types'
-import { HogDelayService } from '../services/hog-delay.service'
 import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../types'
@@ -10,12 +9,9 @@ import { logger } from '~/utils/logger'
  */
 export class CdpCyclotronDelayConsumer extends CdpCyclotronWorker {
     protected name = 'CdpCyclotronDelayConsumer'
-    private hogDelayService: HogDelayService
 
     constructor(hub: Hub) {
         super(hub, 'delay_10m')
-        this.hogDelayService = new HogDelayService(10 * 60 * 1000) // 10 minutes
-
         this.cyclotronJobQueue = new CyclotronJobQueue(hub, this.queue, (batch) => this.processBatch(batch), 'delay')
     }
 
