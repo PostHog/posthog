@@ -128,9 +128,7 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
                     return dataset
                 } catch (error) {
                     if (error instanceof ApiError && error.status === 404) {
-                        lemonToast.error('Dataset not found')
-                    } else {
-                        lemonToast.error('Failed to load dataset')
+                        return
                     }
                     throw error
                 }
@@ -157,17 +155,12 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
                         window.scrollTo(0, 0)
                     }
 
-                    try {
-                        const response = await api.datasetItems.list({
-                            dataset: props.datasetId,
-                            offset: Math.max(0, (filters.page - 1) * DATASET_ITEMS_PER_PAGE),
-                            limit: DATASET_ITEMS_PER_PAGE,
-                        })
-                        return response
-                    } catch (error) {
-                        lemonToast.error('Failed to load dataset items')
-                        throw error
-                    }
+                    const response = await api.datasetItems.list({
+                        dataset: props.datasetId,
+                        offset: Math.max(0, (filters.page - 1) * DATASET_ITEMS_PER_PAGE),
+                        limit: DATASET_ITEMS_PER_PAGE,
+                    })
+                    return response
                 },
             },
         ],
