@@ -1,4 +1,4 @@
-import { actions, defaults, kea, key, path, props, reducers } from 'kea'
+import { actions, defaults, kea, key, path, props, propsChanged, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import 'kea-router'
 
@@ -21,6 +21,7 @@ export interface DatasetItemModalLogicProps {
      * @param action - Whether the item was created, updated, or no action was taken.
      */
     closeModal: (action?: 'create' | 'update') => void
+    isModalOpen: boolean
 }
 
 export enum DatasetTab {
@@ -85,19 +86,19 @@ export const datasetItemModalLogic = kea<datasetItemModalLogicType>([
                         if (values.shouldCloseModal) {
                             props.closeModal('create')
                         }
-                        actions.setDatasetItemFormValues(FORM_DEFAULT_VALUE)
                         actions.setShouldCloseModal(true)
                     } else {
                         const updatedItem = await api.datasetItems.update(props.datasetItem.id, {
-                            input: formValues.input,
-                            output: formValues.output,
-                            metadata: formValues.metadata,
+                            input: corseJsonToObject(formValues.input),
+                            output: corseJsonToObject(formValues.output),
+                            metadata: corseJsonToObject(formValues.metadata),
                         })
                         lemonToast.success('Dataset item updated successfully')
                         props.closeModal('update')
                         actions.setDatasetItemFormValues(getDatasetItemFormDefaults(updatedItem))
                     }
-                } catch {
+                } catch (error) {
+                    console.error(error)
                     lemonToast.error('Failed to save a dataset item.')
                 }
             },
@@ -107,6 +108,12 @@ export const datasetItemModalLogic = kea<datasetItemModalLogicType>([
     defaults(({ props }): { datasetItemForm: DatasetItemFormValues } => ({
         datasetItemForm: props.datasetItem ? getDatasetItemFormDefaults(props.datasetItem) : FORM_DEFAULT_VALUE,
     })),
+
+    propsChanged(({ props, actions }) => {
+        if (!props.datasetItem && props.isModalOpen) {
+            actions.resetDatasetItemForm()
+        }
+    }),
 ])
 
 export function getDatasetItemFormDefaults(datasetItem: DatasetItem): DatasetItemFormValues {

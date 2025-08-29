@@ -32,12 +32,13 @@ export const DatasetItemModal = React.memo(function DatasetItemModal({
         datasetItem,
         traceMetadata,
         closeModal: onClose,
+        isModalOpen: isOpen,
     }
     const { isDatasetItemFormSubmitting } = useValues(datasetItemModalLogic(logicProps))
     const { submitDatasetItemForm, setShouldCloseModal } = useActions(datasetItemModalLogic(logicProps))
 
     return (
-        <LemonModal isOpen={isOpen} onClose={onClose} maxWidth="40rem" simple className="w-full">
+        <LemonModal isOpen={isOpen} onClose={() => onClose()} maxWidth="40rem" simple className="w-full">
             <Form
                 logic={datasetItemModalLogic}
                 props={logicProps}

@@ -310,7 +310,7 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
             }
         },
 
-        closeModalAndRefetchDatasetItems: (action) => {
+        closeModalAndRefetchDatasetItems: ({ action }) => {
             if (action) {
                 actions.loadDatasetItems()
             }
