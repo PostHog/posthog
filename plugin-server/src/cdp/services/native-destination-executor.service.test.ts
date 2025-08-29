@@ -1,4 +1,4 @@
-import { DateTime, Settings } from 'luxon'
+import { DateTime } from 'luxon'
 
 import { defaultConfig } from '~/config/config'
 import { forSnapshot } from '~/tests/helpers/snapshots'
@@ -25,7 +25,6 @@ describe('NativeDestinationExecutorService', () => {
     let mockFetch: jest.Mock<Promise<FetchResponse>, Parameters<typeof fetch>>
 
     beforeEach(() => {
-        Settings.defaultZone = 'UTC'
         service = new NativeDestinationExecutorService(defaultConfig)
 
         service.fetch = mockFetch = jest.fn((_url, _options) =>
