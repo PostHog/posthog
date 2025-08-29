@@ -1,8 +1,8 @@
-import { actions, connect, kea, key, path, props, reducers, selectors, useActions, useValues } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors, useActions, useValues } from 'kea'
 import { loaders } from 'kea-loaders'
 import { useEffect } from 'react'
 
-import { LemonCheckbox, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonSelect, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { JSONViewer } from 'lib/components/JSONViewer'
@@ -14,7 +14,6 @@ import { Breadcrumb } from '~/types'
 import type { errorTrackingIssueFingerprintsSceneLogicType } from './ErrorTrackingIssueFingerprintsSceneType'
 import { ErrorTrackingSetupPrompt } from './components/ErrorTrackingSetupPrompt/ErrorTrackingSetupPrompt'
 import { issueActionsLogic } from './components/IssueActions/issueActionsLogic'
-import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { errorTrackingIssueFingerprintsQuery } from './queries'
 
 export interface ErrorTrackingIssueFingerprintsSceneProps {
@@ -30,13 +29,13 @@ export const errorTrackingIssueFingerprintsSceneLogic = kea<errorTrackingIssueFi
 
     actions({
         loadIssue: true,
+        split: (exclusive: boolean) => ({ exclusive }),
         setSelectedFingerprints: (fingerprints: string[]) => ({ fingerprints }),
     }),
 
-    connect((props: ErrorTrackingIssueFingerprintsSceneProps) => ({
-        values: [errorTrackingIssueSceneLogic(props), ['issue']],
+    connect({
         actions: [issueActionsLogic, ['splitIssue']],
-    })),
+    }),
 
     reducers({
         selectedFingerprints: [
@@ -66,6 +65,7 @@ export const errorTrackingIssueFingerprintsSceneLogic = kea<errorTrackingIssueFi
                     }
                     return []
                 },
+                split: () => values.fingerprints.filter((f) => !values.selectedFingerprints.includes(f.fingerprint)),
             },
         ],
     })),
@@ -112,6 +112,13 @@ export const errorTrackingIssueFingerprintsSceneLogic = kea<errorTrackingIssueFi
             },
         ],
     }),
+
+    listeners(({ actions, props, values }) => ({
+        split: ({ exclusive }) => {
+            actions.splitIssue(props.id, values.selectedFingerprints, exclusive)
+            actions.setSelectedFingerprints([])
+        },
+    })),
 ])
 
 export const scene: SceneExport = {
@@ -124,7 +131,7 @@ export function ErrorTrackingIssueFingerprintsScene(): JSX.Element {
     const { selectedFingerprints, fingerprints, fingerprintsLoading } = useValues(
         errorTrackingIssueFingerprintsSceneLogic
     )
-    const { loadIssue, setSelectedFingerprints } = useActions(errorTrackingIssueFingerprintsSceneLogic)
+    const { loadIssue, setSelectedFingerprints, split } = useActions(errorTrackingIssueFingerprintsSceneLogic)
 
     useEffect(() => {
         loadIssue()
@@ -143,11 +150,21 @@ export function ErrorTrackingIssueFingerprintsScene(): JSX.Element {
                             : selectedFingerprints.filter((f) => f !== fingerprint)
                         setSelectedFingerprints(newSelectedFingerprints)
                     }}
+                    disabledReason={
+                        fingerprints.length === 1
+                            ? 'You cannot split an issue that only has one fingerprint'
+                            : undefined
+                    }
                 />
             ),
-            title: () => (
+            title: (
                 <LemonCheckbox
                     checked={fingerprints.length > 0 && selectedFingerprints.length === fingerprints.length}
+                    disabledReason={
+                        fingerprints.length === 1
+                            ? 'You cannot split an issue that only has one fingerprint'
+                            : undefined
+                    }
                     onChange={(checked) => {
                         const newSelectedFingerprints = checked ? fingerprints.map((f) => f.fingerprint) : []
                         setSelectedFingerprints(newSelectedFingerprints)
@@ -174,19 +191,34 @@ export function ErrorTrackingIssueFingerprintsScene(): JSX.Element {
 
     return (
         <ErrorTrackingSetupPrompt>
-            <p>
-                Select the fingerprints that you want to split out from this issue. An individual issue will be created
-                for each of the fingerprints.
-            </p>
-            <LemonTable
-                className="w-full"
-                loading={fingerprintsLoading}
-                dataSource={fingerprints}
-                columns={columns}
-                expandable={{
-                    expandedRowRender: (record) => <JSONViewer src={record} />,
-                }}
-            />
+            <div className="space-y-2">
+                <div>
+                    Select the fingerprints that you want to split out from this issue. An individual issue will be
+                    created for each of the fingerprints.
+                </div>
+
+                <LemonSelect
+                    size="small"
+                    type="primary"
+                    placeholder="Split"
+                    disabledReason={selectedFingerprints.length === 0 ? 'Select at least one fingerprint' : undefined}
+                    options={[
+                        { value: false, label: 'Split into a single issue' },
+                        { value: true, label: 'Split into multiple issues' },
+                    ]}
+                    onSelect={(value) => split(value)}
+                />
+
+                <LemonTable
+                    className="w-full"
+                    loading={fingerprintsLoading}
+                    dataSource={fingerprints}
+                    columns={columns}
+                    expandable={{
+                        expandedRowRender: (record) => <JSONViewer src={record} />,
+                    }}
+                />
+            </div>
         </ErrorTrackingSetupPrompt>
     )
 }

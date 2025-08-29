@@ -243,7 +243,8 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     def split(self, request, **kwargs):
         issue: ErrorTrackingIssue = self.get_object()
         fingerprints: list[str] = request.data.get("fingerprints", [])
-        issue.split(fingerprints=fingerprints)
+        exclusive: bool = request.data.get("exclusive", True)
+        issue.split(fingerprints=fingerprints, exclusive=exclusive)
         return Response({"success": True})
 
     @action(methods=["PATCH"], detail=True)

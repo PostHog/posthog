@@ -6,6 +6,7 @@ import { router } from 'kea-router'
 import { IconEllipsis } from '@posthog/icons'
 
 import { PageHeader } from 'lib/components/PageHeader'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
@@ -45,32 +46,37 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const { issue, issueId, issueLoading, selectedEvent, initialEventLoading } = useValues(errorTrackingIssueSceneLogic)
     const { selectEvent } = useActions(errorTrackingIssueSceneLogic)
     const tagRenderer = useErrorTagRenderer()
+    const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
 
     return (
         <ErrorTrackingSetupPrompt>
-            <PageHeader
-                buttons={
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <ButtonPrimitive iconOnly>
-                                <IconEllipsis />
-                            </ButtonPrimitive>
-                        </DropdownMenuTrigger>
-
-                        <DropdownMenuContent loop>
-                            <DropdownMenuItem asChild>
-                                <ButtonPrimitive
-                                    size="base"
-                                    menuItem
-                                    onClick={() => router.actions.push(urls.errorTrackingIssueFingerprints(issueId))}
-                                >
-                                    Split issue
+            {hasIssueSplitting && (
+                <PageHeader
+                    buttons={
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <ButtonPrimitive iconOnly>
+                                    <IconEllipsis />
                                 </ButtonPrimitive>
-                            </DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                }
-            />
+                            </DropdownMenuTrigger>
+
+                            <DropdownMenuContent loop>
+                                <DropdownMenuItem asChild>
+                                    <ButtonPrimitive
+                                        size="base"
+                                        menuItem
+                                        onClick={() =>
+                                            router.actions.push(urls.errorTrackingIssueFingerprints(issueId))
+                                        }
+                                    >
+                                        Split issue
+                                    </ButtonPrimitive>
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    }
+                />
+            )}
             <div className="ErrorTracking grid grid-cols-4 gap-4">
                 <div className="space-y-2 col-span-3">
                     <ExceptionCard

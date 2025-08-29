@@ -2715,10 +2715,14 @@ const api = {
                 .create({ data: { ids: mergingIssueIds } })
         },
 
-        async split(issueId: ErrorTrackingIssue['id'], fingerprints: string[]): Promise<{ content: string }> {
+        async split(
+            issueId: ErrorTrackingIssue['id'],
+            fingerprints: string[],
+            exclusive: boolean
+        ): Promise<{ content: string }> {
             return await new ApiRequest()
                 .errorTrackingIssueMerge(issueId)
-                .create({ data: { fingerprints: fingerprints } })
+                .create({ data: { fingerprints: fingerprints, exclusive } })
         },
 
         symbolSets: {
