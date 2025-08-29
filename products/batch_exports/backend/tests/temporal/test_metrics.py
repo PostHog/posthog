@@ -8,7 +8,6 @@ from unittest import mock
 from django.conf import settings
 
 import psycopg
-import pytest_asyncio
 import temporalio.client
 from structlog.testing import capture_logs
 from temporalio.common import RetryPolicy
@@ -40,7 +39,7 @@ def postgres_config():
     }
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def postgres_connection(postgres_config, setup_postgres_test_db):
     connection = await psycopg.AsyncConnection.connect(
         user=postgres_config["user"],
@@ -56,7 +55,7 @@ async def postgres_connection(postgres_config, setup_postgres_test_db):
     await connection.close()
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def postgres_batch_export(ateam, table_name, postgres_config, interval, exclude_events, temporal_client):
     destination_data = {
         "type": "Postgres",
