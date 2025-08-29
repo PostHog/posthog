@@ -37,7 +37,9 @@ pub async fn check_billing_quota_and_filter(
         let (retained_events, dropped_events): (Vec<_>, Vec<_>) = events
             .into_iter()
             // TODO: remove retention of $exception events once we have a billing limiter for exceptions
-            .partition(|e| e.event == "$exception");
+            .partition(|e| {
+                e.event == "$exception" || is_survey_event(&e.event) || is_ai_event(&e.event)
+            });
 
         let dropped_count = dropped_events.len() as u64;
         if dropped_count > 0 {
