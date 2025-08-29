@@ -63,6 +63,15 @@ class HogQLContext:
 
     property_swapper: Optional["PropertySwapper"] = None
 
+    # Whether to correct function names to lowercase
+    case_insensitive_function_names: bool = False
+
+    # Whether to preserve placeholders
+    preserve_placeholders: bool = False
+
+    # Whether or not to beautify the query
+    beautify: bool = False
+
     def __post_init__(self):
         if self.team:
             self.team_id = self.team.id
