@@ -136,7 +136,7 @@ export async function createHub(
               comparisonEnabled: serverConfig.GROUPS_DUAL_WRITE_COMPARISON_ENABLED,
           })
         : new PostgresGroupRepository(postgres)
-    const groupTypeManager = new GroupTypeManager(postgres, teamManager, groupRepository)
+    const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
     const clickhouseGroupRepository = new ClickhouseGroupRepository(kafkaProducer)
     const cookielessManager = new CookielessManager(serverConfig, cookielessRedisPool, teamManager)
     const geoipService = new GeoIPService(serverConfig)

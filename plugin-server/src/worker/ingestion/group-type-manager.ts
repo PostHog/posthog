@@ -1,5 +1,4 @@
 import { GroupTypeIndex, GroupTypeToColumnIndex, ProjectId, Team, TeamId } from '../../types'
-import { PostgresRouter } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
 import { LazyLoader } from '../../utils/lazy-loader'
 import { captureTeamEvent } from '../../utils/posthog'
@@ -15,9 +14,8 @@ export class GroupTypeManager {
     private loader: LazyLoader<GroupTypeToColumnIndex>
 
     constructor(
-        private postgres: PostgresRouter,
-        private teamManager: TeamManager,
-        private groupRepository: GroupRepository
+        private groupRepository: GroupRepository,
+        private teamManager: TeamManager
     ) {
         this.loader = new LazyLoader({
             name: 'GroupTypeManager',

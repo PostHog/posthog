@@ -15,7 +15,7 @@ describe('GroupTypeManager()', () => {
     beforeEach(async () => {
         hub = await createHub()
         await resetTestDatabase()
-        groupTypeManager = new GroupTypeManager(hub.postgres, hub.teamManager, hub.groupRepository)
+        groupTypeManager = new GroupTypeManager(hub.groupRepository, hub.teamManager)
 
         jest.spyOn(hub.db.postgres, 'query')
         jest.spyOn(hub.groupRepository, 'insertGroupType')

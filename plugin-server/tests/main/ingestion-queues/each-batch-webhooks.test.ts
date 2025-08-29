@@ -92,7 +92,7 @@ describe('eachMessageWebhooksHandlers', () => {
             hub.appMetrics,
             hub.EXTERNAL_REQUEST_TIMEOUT_MS
         )
-        const groupTypeManager = new GroupTypeManager(hub.postgres, hub.teamManager, hub.groupRepository)
+        const groupTypeManager = new GroupTypeManager(hub.groupRepository, hub.teamManager)
         await hub.groupRepository.insertGroupType(2, 2 as ProjectId, 'organization', 0)
 
         const team = await hub.teamManager.getTeam(2)
