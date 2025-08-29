@@ -874,11 +874,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         effectiveDashboardVariableOverrides: [
             (s) => [s.dashboard, s.urlVariables],
-            (dashboard, urlVariables) => ({ ...dashboard?.variables, ...urlVariables }),
+            (dashboard, urlVariables) => ({ ...dashboard?.persisted_variables, ...urlVariables }),
         ],
         effectiveVariablesAndAssociatedInsights: [
-            (s) => [s.dashboard, s.variables],
-            (dashboard: DashboardType, variables: Variable[]): { variable: Variable; insightNames: string[] }[] => {
+            (s) => [s.dashboard, s.variables, s.urlVariables],
+            (
+                dashboard: DashboardType,
+                variables: Variable[],
+                urlVariables: Record<string, HogQLVariable>
+            ): { variable: Variable; insightNames: string[] }[] => {
                 const dataVizNodes = (dashboard?.tiles ?? [])
                     .map((n) => ({ query: n.insight?.query, title: n.insight?.name }))
                     .filter((n) => n.query?.kind === NodeKind.DataVisualizationNode)
@@ -896,16 +900,35 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 const effectiveVariables = uniqueVariables
                     .map((v) => {
                         const variable = variables.find((n) => n.id === v.variableId)
+                        const urlVariable = urlVariables[v.variableId]
 
                         if (!variable) {
                             return null
                         }
 
+                        const urlValueOverride = urlVariable?.value
+                        const dashboardValueOverride = dashboard.persisted_variables?.[v.variableId]?.value
+                        const insightValueOverride = v.value
+                        const defaultVariableValue = variable.default_value
+
+                        const urlIsNullOverride = urlVariable?.isNull
+                        const dashboardIsNullOverride = dashboard.persisted_variables?.[v.variableId]?.isNull
+                        const insightIsNullOverride = v.isNull
+                        const defaultVariableIsNull = variable.isNull
+
                         // determine effective variable state
                         const resultVar: Variable = {
                             ...variable,
-                            value: dashboard.variables?.[v.variableId]?.value || v.value || variable.default_value,
-                            isNull: dashboard.variables?.[v.variableId]?.isNull || variable.isNull,
+                            value:
+                                urlValueOverride ||
+                                dashboardValueOverride ||
+                                insightValueOverride ||
+                                defaultVariableValue,
+                            isNull:
+                                urlIsNullOverride ||
+                                dashboardIsNullOverride ||
+                                insightIsNullOverride ||
+                                defaultVariableIsNull,
                         }
 
                         // get insights using variable
