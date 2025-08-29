@@ -3,6 +3,7 @@
  * To make this easier this class is designed to abstract the queue as much as possible from
  * the underlying implementation.
  */
+import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { KafkaConsumer } from '../../../kafka/consumer'
@@ -10,9 +11,10 @@ import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { PluginsServerConfig } from '../../../types'
 import { logger } from '../../../utils/logger'
 import { CyclotronJobInvocation, CyclotronJobQueueKind } from '../../types'
-import { DateTime } from 'luxon'
 
-export const getDelayQueue = (queueScheduledAt: DateTime): Extract<CyclotronJobQueueKind, 'delay_24h' | 'delay_60m' | 'delay_10m'> => {
+export const getDelayQueue = (
+    queueScheduledAt: DateTime
+): Extract<CyclotronJobQueueKind, 'delay_24h' | 'delay_60m' | 'delay_10m'> => {
     // if (queueScheduledAt > DateTime.now().plus({ hours: 24 })) {
     //     return 'delay_24h'
     // }
@@ -52,12 +54,12 @@ export class CyclotronJobQueueDelay {
 
         // NOTE: As there is only ever one consumer per process we use the KAFKA_CONSUMER_ vars as with any other consumer
         // Disable auto-commit for manual control over long-running batches
-        this.kafkaConsumer = new KafkaConsumer({ 
-            groupId, 
-            topic, 
+        this.kafkaConsumer = new KafkaConsumer({
+            groupId,
+            topic,
             callEachBatchWhenEmpty: true,
             autoCommit: true,
-            autoOffsetStore: false
+            autoOffsetStore: false,
         })
 
         logger.info('🔄', 'Connecting kafka consumer', { groupId, topic })
@@ -90,7 +92,7 @@ export class CyclotronJobQueueDelay {
         if (!headers || !Array.isArray(headers)) {
             return undefined
         }
-        
+
         for (const header of headers) {
             if (header[key]) {
                 // Convert Uint8Array to string
@@ -107,7 +109,7 @@ export class CyclotronJobQueueDelay {
 
         console.log('CdpCyclotronDelayConsumer', `Consuming batch ${messages.length}`)
 
-        const maxDelayMs = 10 * 60 * 1000// 10 minutes
+        const maxDelayMs = 10 * 60 * 1000 // 10 minutes
 
         for (const message of messages) {
             try {
@@ -115,10 +117,10 @@ export class CyclotronJobQueueDelay {
                 const queueScheduledAt = this.getHeaderValue(message.headers, 'queueScheduledAt')
 
                 if (!returnTopic || !queueScheduledAt) {
-                    logger.warn('Missing required headers', { 
-                        returnTopic, 
-                        queueScheduledAt, 
-                        messageKey: message.key 
+                    logger.warn('Missing required headers', {
+                        returnTopic,
+                        queueScheduledAt,
+                        messageKey: message.key,
                     })
                     this.kafkaConsumer?.offsetsStore([message])
                     continue
@@ -129,7 +131,10 @@ export class CyclotronJobQueueDelay {
                 let delayMs = Math.max(0, scheduledTime.getTime() - now)
                 const waitTime = Math.min(delayMs, maxDelayMs)
 
-                console.log('CdpCyclotronDelayConsumer', `Waiting for ${waitTime}ms before processing ${messages.indexOf(message) + 1}/${messages.length} invocation ${message.key}`)
+                console.log(
+                    'CdpCyclotronDelayConsumer',
+                    `Waiting for ${waitTime}ms before processing ${messages.indexOf(message) + 1}/${messages.length} invocation ${message.key}`
+                )
 
                 delayMs -= waitTime
 
@@ -140,7 +145,10 @@ export class CyclotronJobQueueDelay {
                 await producer.produce({
                     value: message.value,
                     key: message.key as string,
-                    topic: delayMs === 0 ? returnTopic : `cdp_cyclotron_${getDelayQueue(DateTime.fromMillis(scheduledTime.getTime()))}`,
+                    topic:
+                        delayMs === 0
+                            ? returnTopic
+                            : `cdp_cyclotron_${getDelayQueue(DateTime.fromMillis(scheduledTime.getTime()))}`,
                     headers: message.headers as unknown as Record<string, string>,
                 })
 

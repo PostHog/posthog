@@ -1,8 +1,9 @@
+import { logger } from '~/utils/logger'
+
 import { Hub } from '../../types'
-import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../types'
-import { logger } from '~/utils/logger'
+import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 
 /**
  * Consumer for delayed invocations
