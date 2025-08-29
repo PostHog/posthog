@@ -19,7 +19,6 @@ import {
     RoleType,
 } from '~/types'
 
-import { resourcesAccessControlLogic } from './resourcesAccessControlLogic'
 import type { roleAccessControlLogicType } from './roleAccessControlLogicType'
 
 export type DefaultResourceAccessControls = {
@@ -35,24 +34,8 @@ export type RoleResourceAccessControls = DefaultResourceAccessControls & {
 export const roleAccessControlLogic = kea<roleAccessControlLogicType>([
     path(['scenes', 'accessControl', 'roleAccessControlLogic']),
     connect(() => ({
-        values: [
-            membersLogic,
-            ['sortedMembers'],
-            teamLogic,
-            ['currentTeam'],
-            userLogic,
-            ['hasAvailableFeature'],
-            resourcesAccessControlLogic,
-            ['resourceAccessControls'],
-        ],
-        actions: [
-            membersLogic,
-            ['ensureAllMembersLoaded'],
-            organizationLogic,
-            ['loadCurrentOrganization'],
-            resourcesAccessControlLogic,
-            ['loadResourceAccessControls'],
-        ],
+        values: [membersLogic, ['sortedMembers'], teamLogic, ['currentTeam'], userLogic, ['hasAvailableFeature']],
+        actions: [membersLogic, ['ensureAllMembersLoaded'], organizationLogic, ['loadCurrentOrganization']],
     })),
     actions({
         selectRoleId: (roleId: RoleType['id'] | null) => ({ roleId }),
@@ -111,6 +94,18 @@ export const roleAccessControlLogic = kea<roleAccessControlLogicType>([
                     await api.roles.delete(role.id)
                     lemonToast.success(`Role "${role.name}" deleted`)
                     return values.roles?.filter((r) => r.id !== role.id) || []
+                },
+            },
+        ],
+
+        resourceAccessControls: [
+            null as AccessControlResponseType | null,
+            {
+                loadResourceAccessControls: async () => {
+                    const response = await api.get<AccessControlResponseType>(
+                        'api/projects/@current/global_access_controls'
+                    )
+                    return response
                 },
             },
         ],
