@@ -1,4 +1,3 @@
-import re
 from typing import Literal, Optional, Union, cast
 from uuid import uuid4
 
@@ -6,7 +5,6 @@ from django.utils import timezone
 
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
-    AIMessageChunk,
     BaseMessage,
     HumanMessage as LangchainHumanMessage,
     ToolMessage as LangchainToolMessage,
@@ -23,6 +21,7 @@ from posthog.schema import (
     AssistantMessage,
     AssistantMessageMetadata,
     CachedEventTaxonomyQueryResponse,
+    EventTaxonomyItem,
     EventTaxonomyQuery,
     HumanMessage,
     VisualizationMessage,
@@ -31,6 +30,7 @@ from posthog.schema import (
 from posthog.event_usage import report_user_action
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.utils import human_list
 
 from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT, SLASH_COMMAND_REMEMBER
@@ -44,10 +44,9 @@ from ..base import AssistantNode
 from .parsers import MemoryCollectionCompleted, compressed_memory_parser, raise_memory_updated
 from .prompts import (
     ENQUIRY_INITIAL_MESSAGE,
-    INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_PROMPT,
+    INITIALIZE_CORE_MEMORY_SYSTEM_PROMPT,
     INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_USER_PROMPT,
-    INITIALIZE_CORE_MEMORY_WITH_URL_PROMPT,
-    INITIALIZE_CORE_MEMORY_WITH_URL_USER_PROMPT,
+    INITIALIZE_CORE_MEMORY_WITH_DOMAINS_USER_PROMPT,
     MEMORY_COLLECTOR_PROMPT,
     MEMORY_COLLECTOR_WITH_VISUALIZATION_PROMPT,
     MEMORY_ONBOARDING_ENQUIRY_PROMPT,
@@ -56,7 +55,6 @@ from .prompts import (
     SCRAPING_INITIAL_MESSAGE,
     SCRAPING_MEMORY_SAVED_MESSAGE,
     SCRAPING_REJECTION_MESSAGE,
-    SCRAPING_SUCCESS_MESSAGE,
     SCRAPING_TERMINATION_MESSAGE,
     SCRAPING_VERIFICATION_MESSAGE,
     TOOL_CALL_ERROR_PROMPT,
@@ -64,7 +62,7 @@ from .prompts import (
 
 
 class MemoryInitializerContextMixin(AssistantContextMixin):
-    def _retrieve_context(self):
+    def _retrieve_context(self) -> EventTaxonomyItem | None:
         # Retrieve the origin domain.
         runner = EventTaxonomyQueryRunner(
             team=self._team, query=EventTaxonomyQuery(event="$pageview", properties=["$host"])
@@ -80,7 +78,14 @@ class MemoryInitializerContextMixin(AssistantContextMixin):
             response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
         if not isinstance(response, CachedEventTaxonomyQueryResponse):
             raise ValueError("Failed to query the event taxonomy.")
-        return response.results
+        item = response.results[0] if response.results and response.results[0].sample_count else None
+        if item:
+            item.sample_values = [
+                v
+                for v in item.sample_values  # Exclude localhost
+                if v != "localhost" and not v.startswith("localhost:") and not v.startswith("127.0.0.1")
+            ]
+        return item
 
 
 class MemoryOnboardingShouldRunMixin(AssistantNode):
@@ -127,10 +132,10 @@ class MemoryOnboardingNode(MemoryInitializerContextMixin, MemoryOnboardingShould
                 ]
             )
 
-        retrieved_properties = self._retrieve_context()
+        retrieved_prop = self._retrieve_context()
 
         # No host or app bundle ID found
-        if not retrieved_properties or retrieved_properties[0].sample_count == 0:
+        if not retrieved_prop:
             return PartialAssistantState(
                 messages=[
                     AssistantMessage(
@@ -143,7 +148,9 @@ class MemoryOnboardingNode(MemoryInitializerContextMixin, MemoryOnboardingShould
         return PartialAssistantState(
             messages=[
                 AssistantMessage(
-                    content=SCRAPING_INITIAL_MESSAGE,
+                    content=SCRAPING_INITIAL_MESSAGE.format(
+                        domains_or_bundle_ids_formatted=human_list([f"`{x}`" for x in retrieved_prop.sample_values])
+                    ),
                     id=str(uuid4()),
                 )
             ]
@@ -163,70 +170,51 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
-        retrieved_properties = self._retrieve_context()
+        retrieved_prop = self._retrieve_context()
         # No host or app bundle ID found, continue.
-        if not retrieved_properties or retrieved_properties[0].sample_count == 0:
+        if not retrieved_prop:
             return None
 
-        retrieved_prop = retrieved_properties[0]
+        prompt = ChatPromptTemplate.from_messages(
+            [("system", INITIALIZE_CORE_MEMORY_SYSTEM_PROMPT)], template_format="mustache"
+        )
         if retrieved_prop.property == "$host":
-            prompt = ChatPromptTemplate.from_messages(
-                [
-                    ("system", INITIALIZE_CORE_MEMORY_WITH_URL_PROMPT),
-                    ("human", INITIALIZE_CORE_MEMORY_WITH_URL_USER_PROMPT),
-                ],
-                template_format="mustache",
-            ).partial(url=retrieved_prop.sample_values[0])
+            prompt += ChatPromptTemplate.from_messages(
+                [("human", INITIALIZE_CORE_MEMORY_WITH_DOMAINS_USER_PROMPT)], template_format="mustache"
+            ).partial(domains=retrieved_prop.sample_values)
         else:
-            prompt = ChatPromptTemplate.from_messages(
-                [
-                    ("system", INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_PROMPT),
-                    ("human", INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_USER_PROMPT),
-                ],
-                template_format="mustache",
+            prompt += ChatPromptTemplate.from_messages(
+                [("human", INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_USER_PROMPT)], template_format="mustache"
             ).partial(bundle_ids=retrieved_prop.sample_values)
 
         chain = prompt | self._model() | StrOutputParser()
         answer = chain.invoke({}, config=config)
         # The model has failed to scrape the data, continue.
-        if "no data available." in answer.lower():
-            return PartialAssistantState(
-                messages=[AssistantMessage(content=SCRAPING_TERMINATION_MESSAGE, id=str(uuid4()))]
-            )
-
+        if SCRAPING_TERMINATION_MESSAGE in answer:
+            return PartialAssistantState(messages=[AssistantMessage(content=answer, id=str(uuid4()))])
         # Otherwise, proceed to confirmation that the memory is correct.
         core_memory.append_question_to_initial_text("What does the company do?")
         core_memory.append_answer_to_initial_text(answer)
-        return PartialAssistantState(messages=[AssistantMessage(content=self.format_message(answer), id=str(uuid4()))])
+        return PartialAssistantState(messages=[AssistantMessage(content=answer, id=str(uuid4()))])
 
     def router(self, state: AssistantState) -> Literal["interrupt", "continue"]:
         last_message = state.messages[-1]
-        if (
-            isinstance(last_message, AssistantMessage)
-            and SCRAPING_SUCCESS_MESSAGE.lower() in last_message.content.lower()
-        ):
+        if isinstance(last_message, AssistantMessage) and "Here's what I found" in last_message.content:
             return "interrupt"
         return "continue"
-
-    @classmethod
-    def should_process_message_chunk(cls, message: AIMessageChunk) -> bool:
-        placeholder = "no data available"
-        content = cast(str, message.content)
-        return placeholder not in content.lower() and len(content) > len(placeholder)
-
-    @classmethod
-    def format_message(cls, message: str) -> str:
-        return SCRAPING_SUCCESS_MESSAGE + re.sub(r"\[\d+\]", "", message)
 
     def _model(self):
         return MaxChatOpenAI(
             model="gpt-5-mini",
-            disable_streaming=True,
+            streaming=True,
             use_responses_api=True,
-            store=False,
+            store=False,  # We can't store, because we want zero data retention
+            reasoning={
+                "summary": "auto",  # Without this, there's no reasoning summaries! Only works with reasoning models
+            },
             user=self._user,
             team=self._team,
-        ).bind_tools([{"type": "web_search"}])
+        ).bind_tools([{"type": "web_search_preview"}])
 
 
 class MemoryInitializerInterruptNode(AssistantNode):
@@ -305,12 +293,6 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
         if state.onboarding_question and core_memory.answers_left > 0:
             return "interrupt"
         return "continue"
-
-    def _format_memory(self, memory: str) -> str:
-        """
-        Remove markdown and source reference tags like [1], [2], etc.
-        """
-        return remove_markdown(memory)
 
     def _format_question(self, question: str) -> str:
         if "===" in question:

@@ -19,7 +19,7 @@ export function SidebarQuestionInputWithSuggestions(): JSX.Element {
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 
     const tip =
-        !coreMemoryLoading && coreMemory === null
+        !coreMemoryLoading && !coreMemory?.text
             ? "Tip: Run /init to intialize Max's project knowledge"
             : 'Ask Max about…'
 
