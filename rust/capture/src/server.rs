@@ -138,41 +138,15 @@ where
             .expect("failed to create redis client"),
     );
 
-    let billing_limiter = RedisLimiter::new(
-        Duration::from_secs(5),
-        redis_client.clone(),
-        QUOTA_LIMITER_CACHE_KEY.to_string(),
-        config.redis_key_prefix.clone(),
-        match config.capture_mode {
-            CaptureMode::Events => QuotaResource::Events,
-            CaptureMode::Recordings => QuotaResource::Recordings,
-        },
-        ServiceName::Capture,
-    )
-    .expect("failed to create billing limiter");
+    let quota_limiter = CaptureQuotaLimiter::new(&config, redis_client.clone())
+        .add_scoped_limiter(QuotaResource::Surveys, |e| matches!(
+            e.event_name,
+            "survey sent" | "survey shown" | "survey dismissed"
+        ))
+        .add_scoped_limiter(QuotaResource::LLM_Events, |e| e.event_name.starts_with("$ai_"))
+        .add_scoped_limiter(QuotaResource::Exceptions, |e| e.event_name == "$exception");
 
-    // Survey quota limiting - create for all capture modes (won't be used for recordings but required by router)
-    let survey_limiter = RedisLimiter::new(
-        Duration::from_secs(5),
-        redis_client.clone(),
-        QUOTA_LIMITER_CACHE_KEY.to_string(),
-        config.redis_key_prefix.clone(),
-        QuotaResource::Surveys,
-        ServiceName::Capture,
-    )
-    .expect("failed to create survey limiter");
-
-    // LLM events quota limiting - create for all capture modes
-    let llm_events_limiter = RedisLimiter::new(
-        Duration::from_secs(5),
-        redis_client.clone(),
-        QUOTA_LIMITER_CACHE_KEY.to_string(),
-        config.redis_key_prefix.clone(),
-        QuotaResource::LLMEvents,
-        ServiceName::Capture,
-    )
-    .expect("failed to create AI events limiter");
-
+    // TODO: remove this once we have a billing limiter
     let token_dropper = config
         .drop_events_by_token_distinct_id
         .clone()

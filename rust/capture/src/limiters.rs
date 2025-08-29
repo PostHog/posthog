@@ -1,4 +1,5 @@
 use common_types::RawEvent;
+use limiters::redis::QuotaResource;
 
 use crate::{
     api::CaptureError,
@@ -7,124 +8,161 @@ use crate::{
     v0_request::ProcessingContext,
 };
 
+struct ScopedLimiter {
+    resource: QuotaResource,
+    limiter: RedisLimiter,
+    // predicate supplied here should match RawEvents TO BE DROPPED
+    // if the limit for this team/token has been exceeded
+    event_matcher: Fn(&RawEvent) -> bool,
+}
+
+impl ScopedLimiter {
+    fn new(resource: QuotaResource, event_matcher: Fn(&RawEvent) -> bool) -> Self {
+        Self { resource, limiter, event_matcher }
+    }
+
+    async fn is_limited(&self, context: &ProcessingContext) -> bool {
+        self.limiter.is_limited(context.token.as_str()).await
+    }
+
+    async fn filter_events(&self, events: Vec<RawEvent>) -> Vec<RawEvent> {
+        events.into_iter().partition(|e| !self.event_matcher(context, e)).collect()
+    }
+}
+
+pub struct CaptureQuotaLimiter {
+    capture_mode: CaptureMode,
+
+    // these are scoped to a specific event subset (e.g. survey events, AI events, etc.)
+    // and ONLY filter out those events if the quota is exceeded. Add new scoped limiters
+    // to this list as needed
+    scoped_limiters: Vec<CaptureLimiter>,
+
+    // this is the global billing limiter - if a token matches this limiter bucket,
+    // all events are dropped for the incoming payload. Due to this, this limiter
+    // IS ALWAYS APPLIED LAST in the chain.
+    billing_limiter: RedisLimiter,
+}
+
+impl CaptureQuotaLimiter {
+    pub fn new(config: &Config, redis_client: Arc<RedisClient>) -> Self {
+        let global_billing_limiter = RedisLimiter::new(
+            Duration::from_secs(5),
+            redis_client.clone(),
+            QUOTA_LIMITER_CACHE_KEY.to_string(),
+            config.redis_key_prefix.clone(),
+            Self::get_resource_for_mode(config.capture_mode),
+            ServiceName::Capture,
+        )
+        .expect("failed to create billing limiter");
+
+        // Survey quota limiting - create for all capture modes (won't be used for recordings but required by router)
+        let survey_limiter = RedisLimiter::new(
+            Duration::from_secs(5),
+            redis_client.clone(),
+            QUOTA_LIMITER_CACHE_KEY.to_string(),
+            config.redis_key_prefix.clone(),
+            QuotaResource::Surveys,
+            ServiceName::Capture,
+        )
+        .expect("failed to create survey limiter");
+
+        // LLM events quota limiting - create for all capture modes
+        let llm_events_limiter = RedisLimiter::new(
+            Duration::from_secs(5),
+            redis_client.clone(),
+            QUOTA_LIMITER_CACHE_KEY.to_string(),
+            config.redis_key_prefix.clone(),
+            QuotaResource::LLMEvents,
+            ServiceName::Capture,
+        )
+        .expect("failed to create AI events limiter");
+
+        Self {
+            capture_mode: config.capture_mode,
+            billing_limiter,
+            scoped_limiters: vec![],
+        }
+    }
+
+    pub fn add_scoped_limiter(&mut self, resource: QuotaResource, event_matcher: Fn(&RawEvent) -> bool) -> Self {
+        let limiter = CaptureLimiter::new(
+            resource,
+            RedisLimiter::new(
+                Duration::from_secs(5),
+                redis_client.clone(),
+                QUOTA_LIMITER_CACHE_KEY.to_string(),
+                config.redis_key_prefix.clone(),
+                resource,
+                ServiceName::Capture,
+            ),
+            event_matcher,
+        );
+        self.scoped_limiters.push(limiter);
+
+        self
+    }
+
+    pub async fn check_and_filter(&self, token: Option<&str>, events: Vec<RawEvent>) -> Result<Vec<RawEvent>, CaptureError> {
+        let token = match token {
+            Some(token) => token,
+            None => return Ok(events),
+        };
+
+        let mut filtered_events = events;
+
+        // for each scoped limiter, if the token is found in Redis,
+        // only drop events matching the limiter's filter predicate
+        for limiter in self.scoped_limiters.iter() {
+            if !limiter.limiter.is_limited(context.token.as_str()).await {
+                continue;
+            }
+            let prior_count = filtered_events.len();
+            filtered_events = limiter.filter_events(filtered_events).await;
+            let dropped_count = prior_count - filtered_events.len();
+            if dropped_count > 0 {
+                let dropped_events_tag = format!("{}_over_quota", limiter.resource.to_string());
+                report_quota_limit_exceeded(limiter.resource.to_string(), dropped_count);
+                report_dropped_events(dropped_events_tag, dropped_count);
+            }
+            // if this filtering pass resulted in an empty batch, throw sentinel error
+            if filtered_events.is_empty() {
+                // TODO(eli): tag these with QuotaResource type?
+                return Err(CaptureError::BillingLimit);
+            }
+        }
+
+        // drop everything if this limiter is exceeded after all others have filtered the batch
+        if self.billing_limiter.is_limited(token).await {
+            let dropped_count = filtered_events.len() as u64;
+            let global_resource_tag = Self::get_resource_for_mode(self.capture_mode).to_string();
+            let dropped_events_tag = format!("{}_over_quota", global_resource_tag);
+
+            report_quota_limit_exceeded(global_resource_tag, dropped_count);
+            report_dropped_events(dropped_events_tag, dropped_count);
+
+            return Err(CaptureError::BillingLimit);
+        }
+
+        Ok(filtered_events)
+    }
+
+    fn get_resource_for_mode(mode: CaptureMode) -> QuotaResource {
+        match mode {
+            CaptureMode::Events => QuotaResource::Events,
+            CaptureMode::Recordings => QuotaResource::Recordings,
+        }
+    }
+}
+
 /// Check if an event is a survey-related event that should be subject to survey quota limiting
 fn is_survey_event(event_name: &str) -> bool {
-    matches!(
-        event_name,
-        "survey sent" | "survey shown" | "survey dismissed"
-    )
+
 }
 
 /// Check if an event is an AI-related event that should be subject to AI quota limiting
 fn is_ai_event(event_name: &str) -> bool {
     event_name.starts_with("$ai_")
-}
-
-/// Check for billing quota limiting and filter out billing events if quota exceeded
-/// IMPORTANT: this should be the LAST LIMITER CHECK APPLIED in the event processing pipeline!
-/// TODO: remove EXCEPTION EVENT filtering and replace with a billing limiter for exceptions
-pub async fn check_billing_quota_and_filter(
-    state: &State,
-    context: &ProcessingContext,
-    events: Vec<RawEvent>,
-) -> Result<Vec<RawEvent>, CaptureError> {
-    let billing_limited = state
-        .billing_limiter
-        .is_limited(context.token.as_str())
-        .await;
-
-    if billing_limited {
-        let (retained_events, dropped_events): (Vec<_>, Vec<_>) = events
-            .into_iter()
-            // TODO: remove retention of $exception events once we have a billing limiter for exceptions
-            .partition(|e| {
-                e.event == "$exception" || is_survey_event(&e.event) || is_ai_event(&e.event)
-            });
-
-        let dropped_count = dropped_events.len() as u64;
-        if dropped_count > 0 {
-            report_quota_limit_exceeded("billing", dropped_count);
-            report_dropped_events("billing_over_quota", dropped_count);
-        }
-
-        if retained_events.is_empty() {
-            return Err(CaptureError::BillingLimit);
-        }
-
-        return Ok(retained_events);
-    }
-
-    Ok(events)
-}
-
-/// Check for survey quota limiting and filter out survey events if quota exceeded
-/// Simple all-or-nothing operation: if survey quota is exceeded, drop all survey events.
-pub async fn check_survey_quota_and_filter(
-    state: &State,
-    context: &ProcessingContext,
-    events: Vec<RawEvent>,
-) -> Result<Vec<RawEvent>, CaptureError> {
-    let survey_limited = state
-        .survey_limiter
-        .is_limited(context.token.as_str())
-        .await;
-
-    if survey_limited {
-        // Drop all survey events when quota is exceeded
-        let (survey_events, non_survey_events): (Vec<_>, Vec<_>) = events
-            .into_iter()
-            .partition(|event| is_survey_event(&event.event));
-
-        let dropped_count = survey_events.len() as u64;
-        if dropped_count > 0 {
-            report_quota_limit_exceeded("survey", dropped_count);
-            report_dropped_events("survey_over_quota", dropped_count);
-        }
-
-        // If no events remain, return billing limit error
-        if non_survey_events.is_empty() {
-            return Err(CaptureError::BillingLimit);
-        }
-
-        return Ok(non_survey_events);
-    }
-
-    Ok(events)
-}
-
-/// Check for AI events quota limiting and filter out AI events if quota exceeded
-/// Simple all-or-nothing operation: if AI quota is exceeded, drop all AI events.
-pub async fn check_llm_events_quota_and_filter(
-    state: &State,
-    context: &ProcessingContext,
-    events: Vec<RawEvent>,
-) -> Result<Vec<RawEvent>, CaptureError> {
-    let ai_limited = state
-        .llm_events_limiter
-        .is_limited(context.token.as_str())
-        .await;
-
-    if ai_limited {
-        // Drop all AI events when quota is exceeded
-        let (llm_events, non_llm_events): (Vec<_>, Vec<_>) = events
-            .into_iter()
-            .partition(|event| is_ai_event(&event.event));
-
-        let dropped_count = llm_events.len() as u64;
-        if dropped_count > 0 {
-            report_quota_limit_exceeded("llm_events", dropped_count);
-            report_dropped_events("llm_events_over_quota", dropped_count);
-        }
-
-        // If no events remain, return billing limit error
-        if non_llm_events.is_empty() {
-            return Err(CaptureError::BillingLimit);
-        }
-
-        return Ok(non_llm_events);
-    }
-
-    Ok(events)
 }
 
 #[cfg(test)]
