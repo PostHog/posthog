@@ -35,8 +35,8 @@ impl ScopedLimiter {
         }
     }
 
-    async fn is_limited(&self, context: &ProcessingContext) -> bool {
-        self.limiter.is_limited(context.token.as_str()).await
+    async fn is_limited(&self, token: &str) -> bool {
+        self.limiter.is_limited(token).await
     }
 
     async fn partition_events(&self, events: &Vec<RawEvent>) -> (Vec<&RawEvent>, Vec<&RawEvent>) {
@@ -60,12 +60,12 @@ pub struct CaptureQuotaLimiter {
     // this is the global billing limiter - if a token matches this limiter bucket,
     // all events are dropped for the incoming payload. Due to this, this limiter
     // IS ALWAYS APPLIED LAST in the chain.
-    billing_limiter: RedisLimiter,
+    global_limiter: RedisLimiter,
 }
 
 impl CaptureQuotaLimiter {
     pub fn new(config: &Config, redis_client: Arc<RedisClient>) -> Self {
-        let global_billing_limiter = RedisLimiter::new(
+        let global_limiter = RedisLimiter::new(
             Duration::from_secs(5),
             redis_client.clone(),
             QUOTA_LIMITER_CACHE_KEY.to_string(),
@@ -82,7 +82,7 @@ impl CaptureQuotaLimiter {
             capture_mode: config.capture_mode,
             redis_key_prefix: config.redis_key_prefix.clone(),
             redis_client: redis_client.clone(),
-            billing_limiter,
+            global_limiter,
             scoped_limiters: vec![],
         }
     }
@@ -112,13 +112,12 @@ impl CaptureQuotaLimiter {
 
     pub async fn check_and_filter(
         &self,
-        token: Option<&str>,
+        context: &ProcessingContext,
         events: Vec<RawEvent>,
     ) -> Result<Vec<RawEvent>, CaptureError> {
-        let token = match token {
-            Some(token) => token,
-            None => return Ok(events),
-        };
+        // in the future, we make bucket quotas by more than token (team)
+        // so we accept the whole ProcessingContext here
+        let token = context.token.as_str();
 
         let mut filtered_events = events;
         let mut retained_events: Vec<&RawEvent> = vec![];
@@ -155,7 +154,7 @@ impl CaptureQuotaLimiter {
         }
 
         // drop everything if this limiter is exceeded after all others have filtered the batch
-        if self.billing_limiter.is_limited(token).await {
+        if self.global_limiter.is_limited(token).await {
             let dropped_count = filtered_events.len() as u64;
             let global_resource_tag = Self::get_resource_for_mode(self.capture_mode);
             let dropped_events_tag = format!("{:?}_over_quota", global_resource_tag.as_str());

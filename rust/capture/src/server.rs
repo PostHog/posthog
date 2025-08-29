@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common_redis::RedisClient;
+use common_types::RawEvent;
 use health::{ComponentStatus, HealthRegistry};
 use limiters::redis::ServiceName;
 use tokio::net::TcpListener;
@@ -141,18 +142,23 @@ where
     // to PostHog! Here a "scoped" limiter is one that should be INDEPENDENT of the
     // global billing limiter applied here to every event batch
     let quota_limiter = CaptureQuotaLimiter::new(&config, redis_client.clone())
-        .add_scoped_limiter(QuotaResource::Exceptions, |e: &RawEvent| {
-            e.event_name == "$exception"
-        })
-        .add_scoped_limiter(QuotaResource::Surveys, |e: &RawEvent| {
-            matches!(
-                e.event_name,
-                "survey sent" | "survey shown" | "survey dismissed"
-            )
-        })
-        .add_scoped_limiter(QuotaResource::LLMEvents, |e: &RawEvent| {
-            e.event_name.starts_with("$ai_")
-        });
+        .add_scoped_limiter(
+            QuotaResource::Exceptions,
+            Box::new(|e: &RawEvent| e.event.as_str() == "$exception"),
+        )
+        .add_scoped_limiter(
+            QuotaResource::Surveys,
+            Box::new(|e: &RawEvent| {
+                matches!(
+                    e.event.as_str(),
+                    "survey sent" | "survey shown" | "survey dismissed"
+                )
+            }),
+        )
+        .add_scoped_limiter(
+            QuotaResource::LLMEvents,
+            Box::new(|e: &RawEvent| e.event.starts_with("$ai_")),
+        );
 
     // TODO: remove this once we have a billing limiter
     let token_dropper = config
