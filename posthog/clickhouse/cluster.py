@@ -191,7 +191,7 @@ class ClickhouseCluster:
         return {
             host
             for host in hosts
-            if (host.host_cluster_role == node_role.value or node_role == NodeRole.ALL)
+            if (host.host_cluster_role == node_role or node_role == NodeRole.ALL)
             and (host.host_cluster_type == workload.value.lower() or workload == Workload.DEFAULT)
         }
 
