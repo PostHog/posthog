@@ -75,12 +75,14 @@ class TestSingleSessionSummary(BaseTest):
             summary=summary_serializer,
             exception_event_ids=self.exception_event_ids,
             extra_summary_context=self.extra_context,
+            created_by=self.user,
         )
         SingleSessionSummary.objects.add_summary(
             team_id=self.team.id,
             session_id=self.session_id,
             summary=summary_serializer,
             exception_event_ids=[],
+            created_by=self.user,
         )
 
         # Get the one with context
@@ -113,6 +115,7 @@ class TestSingleSessionSummary(BaseTest):
             session_id=self.session_id,
             summary=summary_serializer,
             exception_event_ids=long_exception_list,
+            created_by=self.user,
         )
 
         # Retrieve the created summary
@@ -135,6 +138,7 @@ class TestSingleSessionSummary(BaseTest):
             session_id=self.session_id,
             summary=summary_serializer,
             exception_event_ids=self.exception_event_ids,
+            created_by=self.user,
         )
 
         result: SingleSessionSummary | None = SingleSessionSummary.objects.get_summary(
@@ -157,6 +161,7 @@ class TestSingleSessionSummary(BaseTest):
             session_id=self.session_id,
             summary=summary_serializer_1,
             exception_event_ids=[],
+            created_by=self.user,
         )
 
         summary_data_2: dict[str, Any] = {
@@ -172,6 +177,7 @@ class TestSingleSessionSummary(BaseTest):
             session_id=self.session_id,
             summary=summary_serializer_2,
             exception_event_ids=[],
+            created_by=self.user,
         )
 
         retrieved: SingleSessionSummary | None = SingleSessionSummary.objects.get_summary(
@@ -193,6 +199,7 @@ class TestSingleSessionSummary(BaseTest):
             summary=summary_serializer,
             exception_event_ids=[],
             run_metadata=run_metadata_gpt5,
+            created_by=self.user,
         )
 
         run_metadata_claude = SessionSummaryRunMeta(model_used="claude-4-1-opus", visual_confirmation=False)
@@ -202,6 +209,7 @@ class TestSingleSessionSummary(BaseTest):
             summary=summary_serializer,
             exception_event_ids=[],
             run_metadata=run_metadata_claude,
+            created_by=self.user,
         )
 
         # Test with no run metadata (should store None)
@@ -211,6 +219,7 @@ class TestSingleSessionSummary(BaseTest):
             summary=summary_serializer,
             exception_event_ids=[],
             run_metadata=None,
+            created_by=self.user,
         )
 
         # Verify GPT-5 metadata
@@ -272,6 +281,7 @@ class TestSingleSessionSummaryBulk(BaseTest):
                 summary=summary_serializer,
                 exception_event_ids=[],
                 extra_summary_context=None,
+                created_by=self.user,
             )
 
         for session_id in self.session_ids[3:5]:
@@ -284,6 +294,7 @@ class TestSingleSessionSummaryBulk(BaseTest):
                 summary=summary_serializer_1,
                 exception_event_ids=[],
                 extra_summary_context=None,
+                created_by=self.user,
             )
             summary_data_2 = create_summary_data(f"Summary for {session_id} with auth context - newer")
             summary_serializer_2 = SessionSummarySerializer(data=summary_data_2)
@@ -294,6 +305,7 @@ class TestSingleSessionSummaryBulk(BaseTest):
                 summary=summary_serializer_2,
                 exception_event_ids=[],
                 extra_summary_context=self.extra_context,
+                created_by=self.user,
             )
 
         for session_id in self.session_ids[5:8]:
@@ -306,6 +318,7 @@ class TestSingleSessionSummaryBulk(BaseTest):
                 summary=summary_serializer,
                 exception_event_ids=[],
                 extra_summary_context=self.extra_context,
+                created_by=self.user,
             )
 
         other_context: ExtraSummaryContext = ExtraSummaryContext(focus_area="checkout")
@@ -318,6 +331,7 @@ class TestSingleSessionSummaryBulk(BaseTest):
             summary=summary_serializer,
             exception_event_ids=[],
             extra_summary_context=other_context,
+            created_by=self.user,
         )
 
     def test_get_bulk_summaries_without_context(self) -> None:
@@ -409,6 +423,7 @@ class TestSingleSessionSummaryBulk(BaseTest):
             summary=summary_serializer_1,
             exception_event_ids=[],
             extra_summary_context=None,
+            created_by=self.user,
         )
         summary_data_2: dict[str, Any] = {
             "segments": [],
@@ -424,6 +439,7 @@ class TestSingleSessionSummaryBulk(BaseTest):
             summary=summary_serializer_2,
             exception_event_ids=[],
             extra_summary_context=None,
+            created_by=self.user,
         )
         result: SessionSummaryPage = SingleSessionSummary.objects.get_bulk_summaries(
             team_id=self.team.id,
@@ -452,6 +468,7 @@ class TestSingleSessionSummaryBulk(BaseTest):
                 summary=summary_serializer,
                 exception_event_ids=[],
                 extra_summary_context=None,
+                created_by=self.user,
             )
 
         result: SessionSummaryPage = SingleSessionSummary.objects.get_bulk_summaries(
@@ -498,6 +515,7 @@ class TestSingleSessionSummaryBulk(BaseTest):
             session_id="test-session-1",
             summary=summary_serializer,
             exception_event_ids=[],
+            created_by=self.user,
         )
         result = SingleSessionSummary.objects.summaries_exist(
             team_id=self.team.id,
@@ -573,6 +591,7 @@ class TestSingleSessionSummaryBulk(BaseTest):
             session_id="cross-team-session",
             summary=summary_serializer,
             exception_event_ids=[],
+            created_by=self.user,
         )
         # Should not be visible from our team
         result: dict[str, bool] = SingleSessionSummary.objects.summaries_exist(
@@ -635,6 +654,7 @@ class TestSingleSessionSummaryBulk(BaseTest):
                 session_id=large_session_ids[i],
                 summary=summary_serializer,
                 exception_event_ids=[],
+                created_by=self.user,
             )
         # Check all at once
         result: dict[str, bool] = SingleSessionSummary.objects.summaries_exist(

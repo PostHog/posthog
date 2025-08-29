@@ -18,6 +18,7 @@ from temporalio.exceptions import ApplicationError
 
 from posthog import constants
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.redis import get_async_client, get_client
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.state import (
@@ -181,6 +182,10 @@ async def get_llm_single_session_summary_activity(
     )
     # Store the generated summary in the DB
     exception_event_ids = get_exception_event_ids_from_summary(session_summary)
+    # Getting the user explicitly from the DB as we can't pass models between activities
+    user = await database_sync_to_async(User.objects.get)(id=inputs.user_id)
+    if not user:
+        raise ValueError(f"User with id {inputs.user_id} not found, when trying to add session summary")
     # Disable thread-sensitive as the summary could be pretty heavy and it's a write
     await database_sync_to_async(SingleSessionSummary.objects.add_summary, thread_sensitive=False)(
         session_id=inputs.session_id,
@@ -192,6 +197,7 @@ async def get_llm_single_session_summary_activity(
             model_used=inputs.model_to_use,
             visual_confirmation=False,
         ),
+        created_by=user,
     )
     # Returning nothing as the data is stored in Redis
     return None

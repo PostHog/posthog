@@ -70,7 +70,7 @@ class SingleSessionSummaryManager(models.Manager["SingleSessionSummary"]):
         exception_event_ids: list[str],
         extra_summary_context: ExtraSummaryContext | None = None,
         run_metadata: SessionSummaryRunMeta | None = None,
-        created_by: Optional[User] = None,
+        created_by: User | None = None,
     ) -> None:
         """Store a new session summary"""
         extra_summary_context_dict = asdict(extra_summary_context) if extra_summary_context else None

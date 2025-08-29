@@ -9,6 +9,7 @@ from redis import (
     asyncio as aioredis,
 )
 
+from posthog.models.user import User
 from posthog.redis import TEST_clear_clients, get_async_client, get_client
 from posthog.temporal.ai.session_summary.summarize_session_group import SessionGroupSummaryInputs
 from posthog.temporal.ai.session_summary.types.group import SessionGroupSummaryOfSummariesInputs
@@ -297,7 +298,7 @@ def create_single_session_summary(db) -> Callable:
         exception_event_ids: list[str] | None = None,
         extra_summary_context: ExtraSummaryContext | None = None,
         run_metadata: SessionSummaryRunMeta | None = None,
-        created_by=None,
+        created_by: User | None = None,
     ) -> None:
         SingleSessionSummary.objects.add_summary(
             team_id=team_id,
