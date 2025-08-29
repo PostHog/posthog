@@ -1,12 +1,12 @@
 import { actions, kea, path, reducers, selectors } from 'kea'
 
-import { RevenueAnalyticsRevenueQueryResultItem } from '~/queries/schema/schema-general'
+import { RevenueAnalyticsMRRQueryResultItem } from '~/queries/schema/schema-general'
 import { GraphDataset } from '~/types'
 
 import type { mrrBreakdownModalLogicType } from './mrrBreakdownModalLogicType'
 
 const includeKey =
-    (key: `revenue-analytics-${keyof RevenueAnalyticsRevenueQueryResultItem}`) => (dataset: GraphDataset) => ({
+    (key: `revenue-analytics-${keyof RevenueAnalyticsMRRQueryResultItem}`) => (dataset: GraphDataset) => ({
         ...dataset,
         status: key,
     })
@@ -15,13 +15,13 @@ export const mrrBreakdownModalLogic = kea<mrrBreakdownModalLogicType>([
     path(['products', 'revenueAnalytics', 'mrrBreakdownModalLogic']),
 
     actions({
-        openModal: (data: RevenueAnalyticsRevenueQueryResultItem[]) => data,
+        openModal: (data: RevenueAnalyticsMRRQueryResultItem[]) => data,
         closeModal: true,
     }),
 
     reducers({
         data: [
-            null as RevenueAnalyticsRevenueQueryResultItem[] | null,
+            null as RevenueAnalyticsMRRQueryResultItem[] | null,
             {
                 openModal: (_, data) => data,
                 closeModal: () => null,

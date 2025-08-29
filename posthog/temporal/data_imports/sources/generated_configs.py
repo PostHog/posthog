@@ -136,6 +136,11 @@ class MySQLSourceConfig(config.Config):
 
 
 @config.config
+class PolarSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class PostgresSourceConfig(config.Config):
     host: str
     database: str
@@ -149,6 +154,11 @@ class PostgresSourceConfig(config.Config):
 
 @config.config
 class RedshiftSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class RevenueCatSourceConfig(config.Config):
     pass
 
 
@@ -213,8 +223,10 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.METAADS: MetaAdsSourceConfig,
         ExternalDataSourceType.MONGODB: MongoDBSourceConfig,
         ExternalDataSourceType.MYSQL: MySQLSourceConfig,
+        ExternalDataSourceType.POLAR: PolarSourceConfig,
         ExternalDataSourceType.POSTGRES: PostgresSourceConfig,
         ExternalDataSourceType.REDSHIFT: RedshiftSourceConfig,
+        ExternalDataSourceType.REVENUECAT: RevenueCatSourceConfig,
         ExternalDataSourceType.SALESFORCE: SalesforceSourceConfig,
         ExternalDataSourceType.SNOWFLAKE: SnowflakeSourceConfig,
         ExternalDataSourceType.STRIPE: StripeSourceConfig,

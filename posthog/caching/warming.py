@@ -241,6 +241,7 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
                     event="cache warming - warming insight",
                     properties={
                         "insight_id": insight.pk,
+                        "insight_short_id": insight.short_id,
                         "dashboard_id": dashboard_id,
                         "is_cached": is_cached,
                         "team_id": insight.team_id,

@@ -318,29 +318,20 @@ def get_js_url(request: HttpRequest) -> str:
     return settings.JS_URL
 
 
-def render_template(
-    template_name: str,
+def get_context_for_template(
     request: HttpRequest,
     context: Optional[dict] = None,
-    *,
     team_for_public_context: Optional["Team"] = None,
-    status_code: Optional[int] = None,
-) -> HttpResponse:
-    """Render Django template.
-
-    If team_for_public_context is provided, this means this is a public page such as a shared dashboard.
-    """
-
+) -> dict:
     if context is None:
         context = {}
-    template = get_template(template_name)
 
     context["opt_out_capture"] = settings.OPT_OUT_CAPTURE
     context["self_capture"] = settings.SELF_CAPTURE
     context["region"] = get_instance_region()
 
-    if stripe_public_key := os.environ.get("STRIPE_PUBLIC_KEY"):
-        context["stripe_public_key"] = stripe_public_key
+    if settings.STRIPE_PUBLIC_KEY:
+        context["stripe_public_key"] = settings.STRIPE_PUBLIC_KEY
 
     context["git_rev"] = get_git_commit_short()  # Include commit in prod for the `console.info()` message
     if settings.DEBUG and not settings.TEST:
@@ -349,16 +340,16 @@ def render_template(
         # Add vite dev scripts for development only when explicitly using Vite
         if not settings.E2E_TESTING and os.environ.get("POSTHOG_USE_VITE"):
             context["vite_dev_scripts"] = """
-    <script type="module">
-        import RefreshRuntime from 'http://localhost:8234/@react-refresh'
-        RefreshRuntime.injectIntoGlobalHook(window)
-        window.$RefreshReg$ = () => {}
-        window.$RefreshSig$ = () => (type) => type
-        window.__vite_plugin_react_preamble_installed__ = true
-    </script>
-    <!-- Vite development server -->
-    <script type="module" src="http://localhost:8234/@vite/client"></script>
-    <script type="module" src="http://localhost:8234/src/index.tsx"></script>"""
+        <script type="module">
+            import RefreshRuntime from 'http://localhost:8234/@react-refresh'
+            RefreshRuntime.injectIntoGlobalHook(window)
+            window.$RefreshReg$ = () => {}
+            window.$RefreshSig$ = () => (type) => type
+            window.__vite_plugin_react_preamble_installed__ = true
+        </script>
+        <!-- Vite development server -->
+        <script type="module" src="http://localhost:8234/@vite/client"></script>
+        <script type="module" src="http://localhost:8234/src/index.tsx"></script>"""
 
     context["js_posthog_ui_host"] = ""
 
@@ -496,12 +487,32 @@ def render_template(
 
     context["posthog_js_uuid_version"] = settings.POSTHOG_JS_UUID_VERSION
 
+    return context
+
+
+def render_template(
+    template_name: str,
+    request: HttpRequest,
+    context: Optional[dict] = None,
+    *,
+    team_for_public_context: Optional["Team"] = None,
+    status_code: Optional[int] = None,
+) -> HttpResponse:
+    """Render Django template.
+
+    If team_for_public_context is provided, this means this is a public page such as a shared dashboard.
+    """
+
+    context = get_context_for_template(request, context, team_for_public_context)
+    template = get_template(template_name)
+
     html = template.render(context, request=request)
     response = HttpResponse(html)
     if status_code:
         response.status_code = status_code
     if not request.user.is_anonymous:
         patch_cache_control(response, no_store=True)
+
     return response
 
 

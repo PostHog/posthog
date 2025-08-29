@@ -22,6 +22,8 @@ from posthoganalytics.client import Client as PostHogClient
 from psycopg import sql
 from retry import retry
 
+from posthog.schema import AIEventType
+
 from posthog import version_requirement
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
@@ -49,6 +51,10 @@ from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseTable
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
+
+# AI events dynamically generated from AIEventType TS enum
+# Changes to the AIEventType enum will impact usage reporting
+AI_EVENTS = [event.value for event in AIEventType]
 
 
 class Period(TypedDict):
@@ -90,6 +96,7 @@ class UsageReportCounters:
     # Recordings
     recording_count_in_period: int
     recording_bytes_in_period: int
+    zero_duration_recording_count_in_period: int
     mobile_recording_count_in_period: int
     mobile_recording_bytes_in_period: int
     mobile_billable_recording_count_in_period: int
@@ -465,14 +472,25 @@ def get_teams_with_billable_event_count_in_period(
         distinct_expression = "1"
 
     # We are excluding $exception events during the beta
+    # We also exclude AI events as they are billed separately through ai_event_count_in_period
+    excluded_events = [
+        "$feature_flag_called",
+        "survey sent",
+        "survey shown",
+        "survey dismissed",
+        "$exception",
+        *AI_EVENTS,
+    ]
+
     query_template = f"""
         SELECT team_id, count({distinct_expression}) as count
         FROM events
-        WHERE timestamp >= %(begin)s AND timestamp < %(end)s AND event NOT IN ('$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception')
+        WHERE timestamp >= %(begin)s AND timestamp < %(end)s
+            AND event NOT IN %(excluded_events)s
         GROUP BY team_id
     """
 
-    return _execute_split_query(begin, end, query_template, {}, num_splits=3)
+    return _execute_split_query(begin, end, query_template, {"excluded_events": excluded_events}, num_splits=3)
 
 
 @timed_log()
@@ -491,14 +509,26 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
     else:
         distinct_expression = "1"
 
+    # We exclude AI events as they are billed separately through ai_event_count_in_period
+    excluded_events = [
+        "$feature_flag_called",
+        "survey sent",
+        "survey shown",
+        "survey dismissed",
+        "$exception",
+        *AI_EVENTS,
+    ]
+
     query_template = f"""
         SELECT team_id, count({distinct_expression}) as count
         FROM events
-        WHERE timestamp >= %(begin)s AND timestamp < %(end)s AND event NOT IN ('$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception') AND person_mode IN ('full', 'force_upgrade')
+        WHERE timestamp >= %(begin)s AND timestamp < %(end)s
+            AND event NOT IN %(excluded_events)s
+            AND person_mode IN ('full', 'force_upgrade')
         GROUP BY team_id
     """
 
-    return _execute_split_query(begin, end, query_template, {}, num_splits=3)
+    return _execute_split_query(begin, end, query_template, {"excluded_events": excluded_events}, num_splits=3)
 
 
 @timed_log()
@@ -637,6 +667,42 @@ def get_teams_with_recording_count_in_period(
         GROUP BY team_id
     """,
         {"previous_begin": previous_begin, "begin": begin, "end": end, "snapshot_source": snapshot_source},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
+    )
+
+    return result
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_zero_duration_recording_count_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
+    previous_begin = begin - (end - begin)
+
+    result = sync_execute(
+        """
+        SELECT team_id, count(distinct session_id) as count
+        FROM (
+            SELECT any(team_id) as team_id, session_id
+            FROM session_replay_events
+            WHERE min_first_timestamp >= %(begin)s AND min_first_timestamp < %(end)s
+            GROUP BY session_id
+            HAVING dateDiff('milliseconds', min(min_first_timestamp), max(max_last_timestamp)) = 0
+        )
+        WHERE session_id NOT IN (
+            -- we want to exclude sessions that might have events with timestamps
+            -- before the period we are interested in
+            SELECT DISTINCT session_id
+            FROM session_replay_events
+            -- begin is the very first instant of the period we are interested in
+            -- we assume it is also the very first instant of a day
+            -- so we can to subtract 1 second to get the day before
+            WHERE min_first_timestamp >= %(previous_begin)s AND min_first_timestamp < %(begin)s
+            GROUP BY session_id
+        )
+        GROUP BY team_id
+    """,
+        {"previous_begin": previous_begin, "begin": begin, "end": end},
         workload=Workload.OFFLINE,
         settings=CH_BILLING_SETTINGS,
     )
@@ -841,10 +907,10 @@ def get_teams_with_ai_event_count_in_period(
         """
         SELECT team_id, COUNT() as count
         FROM events
-        WHERE event LIKE '$ai_%%' AND timestamp >= %(begin)s AND timestamp < %(end)s
+        WHERE event IN %(ai_events)s AND timestamp >= %(begin)s AND timestamp < %(end)s
         GROUP BY team_id
     """,
-        {"begin": begin, "end": end},
+        {"begin": begin, "end": end, "ai_events": AI_EVENTS},
         workload=Workload.OFFLINE,
         settings=CH_BILLING_SETTINGS,
     )
@@ -1168,6 +1234,9 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_recording_count_in_period": get_teams_with_recording_count_in_period(
             period_start, period_end, snapshot_source="web"
         ),
+        "teams_with_zero_duration_recording_count_in_period": get_teams_with_zero_duration_recording_count_in_period(
+            period_start, period_end
+        ),
         "teams_with_recording_bytes_in_period": get_teams_with_recording_bytes_in_period(
             period_start, period_end, snapshot_source="web"
         ),
@@ -1376,6 +1445,9 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         ),
         recording_count_in_period=all_data["teams_with_recording_count_in_period"].get(team.id, 0),
         recording_bytes_in_period=all_data["teams_with_recording_bytes_in_period"].get(team.id, 0),
+        zero_duration_recording_count_in_period=all_data["teams_with_zero_duration_recording_count_in_period"].get(
+            team.id, 0
+        ),
         mobile_recording_count_in_period=all_data["teams_with_mobile_recording_count_in_period"].get(team.id, 0),
         mobile_recording_bytes_in_period=all_data["teams_with_mobile_recording_bytes_in_period"].get(team.id, 0),
         mobile_billable_recording_count_in_period=all_data["teams_with_mobile_billable_recording_count_in_period"].get(
