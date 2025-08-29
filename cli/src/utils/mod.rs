@@ -6,3 +6,4 @@ pub mod posthog;
 pub mod query;
 pub mod release;
 pub mod sourcemaps;
+pub mod fetch;
