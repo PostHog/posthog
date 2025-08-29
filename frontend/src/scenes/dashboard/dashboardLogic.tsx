@@ -928,7 +928,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 urlIsNullOverride ||
                                 dashboardIsNullOverride ||
                                 insightIsNullOverride ||
-                                defaultVriableIsNull,
+                                defaultVariableIsNull,
                         }
 
                         // get insights using variable
