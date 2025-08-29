@@ -628,10 +628,10 @@ def linkedin_ads_source(
             if "dateRange" in item:
                 if "start" in item["dateRange"]:
                     start = item["dateRange"]["start"]
-                    flattened_item["date_range_start"] = f"{start['year']}-{start['month']:02d}-{start['day']:02d}"
+                    flattened_item["date_range_start"] = dt.date(start['year'], start['month'], start['day'])
                 if "end" in item["dateRange"]:
                     end = item["dateRange"]["end"]
-                    flattened_item["date_range_end"] = f"{end['year']}-{end['month']:02d}-{end['day']:02d}"
+                    flattened_item["date_range_end"] = dt.date(end['year'], end['month'], end['day'])
             
             # Flatten changeAuditStamps structure for campaigns/campaign groups
             if "changeAuditStamps" in item:
