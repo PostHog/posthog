@@ -10,8 +10,8 @@ export function HogFlowEditorPanel({ position, children, width }: HogFlowEditorP
     return (
         <div
             className={clsx(
-                'absolute flex flex-col m-0 p-2 overflow-hidden transition-[width] max-h-full right-0',
-                position.includes('right') ? 'right' : 'left',
+                'absolute flex flex-col m-0 p-2 overflow-hidden transition-[width] max-h-full',
+                position.includes('right') ? 'right-0' : 'left-0',
                 position.includes('bottom') ? 'justify-end' : 'justify-start'
             )}
             style={{ width }}
