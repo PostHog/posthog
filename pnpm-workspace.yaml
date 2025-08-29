@@ -8,6 +8,7 @@ packages:
     - cypress
     - ee/frontend
     - frontend
+    - packages/*
     - playwright
     - plugin-server
     - products/*
