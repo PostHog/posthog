@@ -51,6 +51,8 @@ class SessionRecording(UUIDTModel):
     # as we might need to know the version before knowing how to load the data
     storage_version = models.CharField(blank=True, null=True, max_length=20)
 
+    retention_period_days = models.IntegerField(blank=True, null=True)
+
     # DYNAMIC FIELDS
 
     viewed: Optional[bool] = False
