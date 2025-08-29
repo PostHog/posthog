@@ -5,6 +5,7 @@ import { combineUrl, router } from 'kea-router'
 import { IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonTab, LemonTabs, Link, ProfilePicture } from '@posthog/lemon-ui'
 
+import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -40,10 +41,11 @@ export const scene: SceneExport<DatasetLogicProps> = {
 
 export function LLMAnalyticsDatasetScene(): JSX.Element {
     const {
+        shouldDisplaySkeleton,
         datasetLoading,
         isDatasetFormSubmitting,
         isEditingDataset,
-        datasetMissing,
+        isDatasetMissing,
         isNewDataset,
         datasetForm,
         dataset,
@@ -53,11 +55,11 @@ export function LLMAnalyticsDatasetScene(): JSX.Element {
 
     const displayEditForm = isNewDataset || isEditingDataset
 
-    if (datasetMissing) {
+    if (isDatasetMissing) {
         return <NotFound object="dataset" />
     }
 
-    if (datasetLoading) {
+    if (shouldDisplaySkeleton) {
         return (
             <div className="flex flex-col gap-2">
                 <LemonSkeleton active className="h-4 w-2/5" />
@@ -72,7 +74,7 @@ export function LLMAnalyticsDatasetScene(): JSX.Element {
         <Form id="dataset-form" formKey="datasetForm" logic={llmAnalyticsDatasetLogic}>
             <PageHeader
                 buttons={
-                    !datasetLoading ? (
+                    !shouldDisplaySkeleton ? (
                         displayEditForm ? (
                             <>
                                 <LemonButton
@@ -200,7 +202,7 @@ function DatasetTabs({ dataset }: { dataset: Dataset }): JSX.Element {
         {
             key: DatasetTab.Metadata,
             label: 'Metadata',
-            content: <DatasetMetadata />,
+            content: <DatasetMetadata dataset={dataset} />,
             link: combineUrl(urls.llmAnalyticsDataset(dataset.id), { ...searchParams, tab: DatasetTab.Metadata }).url,
         },
     ]
@@ -362,28 +364,17 @@ function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
     )
 }
 
-function DatasetMetadata(): JSX.Element {
-    const { dataset } = useValues(llmAnalyticsDatasetLogic)
-
-    if (!dataset || !('metadata' in dataset)) {
-        return (
-            <>
-                <h3 className="text-lg font-semibold mb-2">Metadata</h3>
-                <p className="text-muted">No metadata available.</p>
-            </>
-        )
-    }
-
+function DatasetMetadata({ dataset }: { dataset: Dataset }): JSX.Element {
     return (
-        <>
-            <h3 className="text-lg font-semibold mb-2">Metadata</h3>
+        <div className="flex flex-col gap-4 max-w-160">
+            <h3 className="text-sm font-semibold m-0 p-0">Metadata</h3>
             {dataset.metadata ? (
-                <pre className="bg-bg-light p-4 rounded border text-sm overflow-auto">
-                    {JSON.stringify(dataset.metadata, null, 2)}
-                </pre>
+                <div className="bg-bg-light p-4 rounded border overflow-x-auto">
+                    <HighlightedJSONViewer src={dataset.metadata} />
+                </div>
             ) : (
                 <p className="text-muted">No metadata available.</p>
             )}
-        </>
+        </div>
     )
 }

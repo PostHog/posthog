@@ -218,9 +218,14 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
     selectors({
         isNewDataset: [() => [(_, props) => props], (props) => props.datasetId === 'new'],
 
-        datasetMissing: [
+        isDatasetMissing: [
             (s) => [s.dataset, s.datasetLoading],
             (dataset, datasetLoading) => !datasetLoading && dataset === null,
+        ],
+
+        shouldDisplaySkeleton: [
+            (s) => [s.dataset, s.datasetLoading],
+            (dataset, datasetLoading) => !dataset && datasetLoading,
         ],
 
         filters: [
