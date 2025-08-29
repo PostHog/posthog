@@ -1,6 +1,8 @@
 import {
+    Edge,
     EdgeChange,
     MarkerType,
+    Node,
     NodeChange,
     Position,
     ReactFlowInstance,
@@ -8,14 +10,15 @@ import {
     applyNodeChanges,
     getOutgoers,
 } from '@xyflow/react'
-import { Edge, Node } from '@xyflow/react'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import type { DragEvent } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { uuid } from 'lib/utils'
+import { urls } from 'scenes/urls'
 
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import { CampaignLogicProps, campaignLogic } from '../campaignLogic'
@@ -407,4 +410,28 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             }
         },
     })),
+
+    actionToUrl(({ values }) => ({
+        setSelectedNodeId: () => {
+            console.log('setSelectedNodeId', values.selectedNodeId)
+            return [
+                router.values.location.pathname,
+                {
+                    ...router.values.searchParams,
+                    selectedNodeId: values.selectedNodeId,
+                },
+                router.values.hashParams,
+            ]
+        },
+    })),
+    urlToAction(({ actions, values }) => {
+        const reactToTabChange = (_: any, search: Record<string, string>): void => {
+            actions.setSelectedNodeId(search.selectedNodeId ?? null)
+        }
+
+        return {
+            // All possible routes for this scene need to be listed here
+            [urls.messagingCampaign(':id', ':tab')]: reactToTabChange,
+        }
+    }),
 ])
