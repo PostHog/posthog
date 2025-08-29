@@ -198,7 +198,7 @@ async fn test_experience_continuity_with_merge() -> Result<()> {
         .await;
     assert_eq!(initial_res.status(), StatusCode::OK);
     let initial_json = initial_res.json::<Value>().await?;
-    
+
     assert_eq!(
         initial_json["flags"]["merge-test-flag"]["enabled"],
         json!(false),
@@ -217,7 +217,7 @@ async fn test_experience_continuity_with_merge() -> Result<()> {
         .await;
     assert_eq!(anon_res.status(), StatusCode::OK);
     let anon_json = anon_res.json::<Value>().await?;
-    
+
     assert_eq!(
         anon_json["flags"]["merge-test-flag"]["enabled"],
         json!(true),
@@ -236,7 +236,7 @@ async fn test_experience_continuity_with_merge() -> Result<()> {
         .await;
     assert_eq!(override_res.status(), StatusCode::OK);
     let override_json = override_res.json::<Value>().await?;
-    
+
     assert_eq!(
         override_json["flags"]["merge-test-flag"]["enabled"],
         json!(true),
@@ -245,27 +245,27 @@ async fn test_experience_continuity_with_merge() -> Result<()> {
 
     // Step 4: First verify that the merged_id would naturally evaluate to false
     let merged_id = "false_eval_merged_user";
-    
+
     // Test that this ID naturally evaluates to false (before any association)
     let natural_check = json!({
         "token": team.api_token,
         "distinct_id": merged_id,
     });
-    
+
     let natural_res = server
         .send_flags_request(natural_check.to_string(), Some("2"), None)
         .await;
     assert_eq!(natural_res.status(), StatusCode::OK);
     let natural_json = natural_res.json::<Value>().await?;
-    
+
     assert_eq!(
         natural_json["flags"]["merge-test-flag"]["enabled"],
         json!(false),
         "merged_id should naturally evaluate to false before association"
     );
-    
+
     // Step 5: Simulate a person merge (this would normally happen via $identify event)
-    // Use an ID that would naturally evaluate to false to prove the override is working    
+    // Use an ID that would naturally evaluate to false to prove the override is working
     let mut conn = pg_writer.get_connection().await?;
     sqlx::query(
         "INSERT INTO posthog_persondistinctid (team_id, person_id, distinct_id, version)
@@ -282,7 +282,7 @@ async fn test_experience_continuity_with_merge() -> Result<()> {
     let merged_payload = json!({
         "token": team.api_token,
         "distinct_id": merged_id,
-        // NO $anon_distinct_id 
+        // NO $anon_distinct_id
     });
 
     let res = server
