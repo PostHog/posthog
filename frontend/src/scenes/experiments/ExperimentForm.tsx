@@ -56,23 +56,15 @@ const ExperimentFormFields = (): JSX.Element => {
         <SceneContent forceNewSpacing>
             <SceneTitleSection
                 name={experiment.name}
-                description={experiment.description}
+                description={null}
                 resourceType={{
                     type: 'experiment',
                     typePlural: 'experiments',
                 }}
                 canEdit
                 onNameChange={(name) => {
-                    // bail if feature flag key is already set
-                    if (experiment.feature_flag_key) {
-                        return
-                    }
-                    setExperiment({
-                        name,
-                        feature_flag_key: generateFeatureFlagKey(name, unavailableFeatureFlagKeys),
-                    })
+                    setExperiment({ name })
                 }}
-                onDescriptionChange={(description) => setExperiment({ description })}
                 forceEdit={formMode === 'create'}
             />
             <SceneDivider />
@@ -111,7 +103,6 @@ const ExperimentFormFields = (): JSX.Element => {
                 </LemonField>
             )}
 
-            {/* @TODO: @adamleithp I think the setShowFeatureFlagSelector should be the main CTA here, who really knows the feature flag key off-hand? */}
             <SceneSection
                 title="Feature flag key"
                 description="Each experiment is backed by a feature flag."
@@ -141,15 +132,22 @@ const ExperimentFormFields = (): JSX.Element => {
                     <LemonInput placeholder="pricing-page-conversion" data-attr="experiment-feature-flag-key" />
                 </LemonField>
             </SceneSection>
+
             <SceneDivider />
-            {!newSceneLayout && (
-                <LemonField name="description" label="Description" className="max-w-120">
+            <SceneSection
+                title="Hypothesis / Description"
+                description="Add your hypothesis for this test"
+                hideTitleAndDescription={!newSceneLayout}
+            >
+                <LemonField name="description" label={!newSceneLayout ? 'Description' : null} className="max-w-120">
                     <LemonTextArea
                         placeholder="The goal of this experiment is ..."
                         data-attr="experiment-description"
                     />
                 </LemonField>
-            )}
+            </SceneSection>
+
+            <SceneDivider />
 
             <SelectExistingFeatureFlagModal
                 isOpen={showFeatureFlagSelector}
