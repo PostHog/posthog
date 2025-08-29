@@ -141,6 +141,35 @@ export function getEventPropertiesForExperiment(experiment: Experiment): object 
     }
 }
 
+function sanitizeInsight(insight: QueryBasedInsightModel | null): object | undefined {
+    if (!insight) {
+        return undefined
+    }
+
+    // Remove results
+    const { result, ...sanitizedInsight } = insight
+
+    if (sanitizedInsight.query) {
+        return {
+            ...sanitizedInsight,
+            query: sanitizeQuery(sanitizedInsight.query),
+        }
+    }
+
+    return sanitizedInsight
+}
+
+function sanitizeTile(tile: DashboardTile<QueryBasedInsightModel> | null): object | undefined {
+    if (!tile) {
+        return undefined
+    }
+
+    return {
+        ...tile,
+        insight: tile.insight ? sanitizeInsight(tile.insight) : undefined,
+    }
+}
+
 /** Takes a query and returns an object with "useful" properties that don't contain sensitive data. */
 function sanitizeQuery(query: Node | null): Record<string, string | number | boolean | undefined> {
     const payload: Record<string, string | number | boolean | undefined> = {
@@ -295,8 +324,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportDashboardModeToggled: (mode: DashboardMode, source: DashboardEventSource | null) => ({ mode, source }),
         reportDashboardRefreshed: (
             dashboardId: number,
-            hasFilters: boolean,
-            hasVariables: boolean,
+            dashboard: DashboardType<QueryBasedInsightModel> | null,
+            filters: Record<string, any>,
+            variables: Record<string, any>,
             lastRefreshed: string | Dayjs | null,
             action: string,
             forceRefresh: boolean,
@@ -310,8 +340,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             }
         ) => ({
             dashboardId,
-            hasFilters,
-            hasVariables,
+            dashboard,
+            filters,
+            variables,
             lastRefreshed,
             action,
             forceRefresh,
@@ -320,15 +351,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportDashboardTileRefreshed: (
             dashboardId: number,
             tile: DashboardTile<QueryBasedInsightModel>,
-            hasFilters: boolean,
-            hasVariables: boolean,
+            filters: Record<string, any>,
+            variables: Record<string, any>,
             refreshDurationMs: number,
             individualRefresh: boolean
         ) => ({
             dashboardId,
             tile,
-            hasFilters,
-            hasVariables,
+            filters,
+            variables,
             refreshDurationMs,
             individualRefresh,
         }),
@@ -726,21 +757,30 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportDashboardRefreshed: async ({
             dashboardId,
-            hasFilters,
-            hasVariables,
+            dashboard,
+            filters,
+            variables,
             lastRefreshed,
             action,
             forceRefresh,
             insightsRefreshedInfo,
         }) => {
+            const sanitizedDashboard = dashboard
+                ? {
+                      ...dashboard,
+                      tiles: dashboard.tiles?.map((tile) => sanitizeTile(tile)) || [],
+                  }
+                : null
+
             posthog.capture(`dashboard refreshed`, {
                 dashboard_id: dashboardId,
+                dashboard: sanitizedDashboard,
+                filters,
+                variables,
                 last_refreshed: lastRefreshed?.toString(),
                 refreshAge: lastRefreshed ? now().diff(lastRefreshed, 'seconds') : undefined,
                 action: action,
                 force_refresh: forceRefresh,
-                has_filters: hasFilters,
-                has_variables: hasVariables,
                 refresh_duration_ms: insightsRefreshedInfo.refreshDurationMs,
                 total_tile_count: insightsRefreshedInfo.totalTileCount,
                 tiles_stale_count: insightsRefreshedInfo.tilesStaleCount,
@@ -752,8 +792,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportDashboardTileRefreshed: async ({
             dashboardId,
             tile,
-            hasFilters,
-            hasVariables,
+            filters,
+            variables,
             refreshDurationMs,
             individualRefresh,
         }) => {
@@ -767,10 +807,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 was_cached: tile.is_cached,
                 last_refreshed: insight?.last_refresh?.toString(),
                 refresh_age: insight?.last_refresh ? now().diff(insight?.last_refresh, 'seconds') : undefined,
+                filters,
+                variables,
+                tile: sanitizeTile(tile),
                 refresh_duration_ms: refreshDurationMs,
                 individual_refresh: individualRefresh,
-                has_filters: hasFilters,
-                has_variables: hasVariables,
                 ...sanitizedQuery,
             })
         },

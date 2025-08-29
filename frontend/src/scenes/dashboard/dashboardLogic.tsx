@@ -1401,8 +1401,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 eventUsageLogic.actions.reportDashboardTileRefreshed(
                     dashboardId,
                     tile,
-                    Object.keys(values.urlFilters).length > 0,
-                    Object.keys(values.urlVariables).length > 0,
+                    values.urlFilters,
+                    values.urlVariables,
                     Math.floor(performance.now() - refreshStartTime),
                     true
                 )
@@ -1492,8 +1492,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             eventUsageLogic.actions.reportDashboardTileRefreshed(
                                 dashboardId,
                                 tile,
-                                Object.keys(values.urlFilters).length > 0,
-                                Object.keys(values.urlVariables).length > 0,
+                                values.urlFilters,
+                                values.urlVariables,
                                 Math.floor(performance.now() - insightRefreshStartTime),
                                 true
                             )
@@ -1547,8 +1547,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                 eventUsageLogic.actions.reportDashboardRefreshed(
                     dashboardId,
-                    Object.keys(values.urlFilters).length > 0,
-                    Object.keys(values.urlVariables).length > 0,
+                    values.dashboard,
+                    values.urlFilters,
+                    values.urlVariables,
                     values.lastDashboardRefresh,
                     action,
                     !!forceRefresh,
