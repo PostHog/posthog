@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
@@ -7,7 +8,7 @@ use rocksdb::{ColumnFamilyDescriptor, Options};
 use tracing::{error, info};
 
 use crate::metrics::MetricsHelper;
-use crate::rocksdb::dedup_metadata::{MetadataVersion, VersionedMetadata};
+use crate::rocksdb::dedup_metadata::{MetadataV1, MetadataVersion, VersionedMetadata};
 use crate::rocksdb::{metrics_consts::*, store::RocksDbStore};
 
 const UNKNOWN_STR: &str = "unknown";
@@ -157,7 +158,7 @@ impl From<&RawEvent> for DeduplicationKey {
 
 #[derive(Debug, Clone)]
 pub struct DeduplicationStore {
-    store: RocksDbStore,
+    store: Arc<RocksDbStore>,
     config: DeduplicationStoreConfig,
     topic: String,
     partition: i32,
@@ -181,7 +182,7 @@ impl DeduplicationStore {
         )?;
 
         Ok(Self {
-            store,
+            store: Arc::new(store),
             topic,
             partition,
             config,
@@ -226,22 +227,63 @@ impl DeduplicationStore {
         let key_bytes = key.as_ref().to_vec();
 
         // Check if this is a duplicate
-        let cf = self.store.get_cf_handle(DeduplicationStore::RECORDS_CF)?;
-        let existing_metadata = self.store.db.get_cf(&cf, &key_bytes)?;
+        let existing_metadata = self.store.get(DeduplicationStore::RECORDS_CF, &key_bytes)?;
 
         if let Some(existing_bytes) = existing_metadata {
-            // Key exists - it's a duplicate, update metrics
+            // Key exists - it's a duplicate
             let mut metadata = VersionedMetadata::deserialize_metadata(&existing_bytes)?;
 
-            // Update duplicate metrics using trait method
+            // Calculate similarity between original and new event
+            let similarity = match &metadata {
+                VersionedMetadata::V1(v1) => v1.calculate_similarity(raw_event)?,
+            };
+
+            // Update duplicate metrics using trait method (tracks UUIDs)
             metadata.update_duplicate(raw_event);
 
-            // Log the duplicate metrics using trait method
+            // Log the duplicate with similarity metrics
             info!(
-                "Duplicate detected: {} for key {}",
+                "Duplicate detected: {} for key {}, Similarity: {:.2}, Field diffs: {}, Property diffs: {}",
                 metadata.get_metrics_summary(),
-                key.get_formatted_key()
+                key.get_formatted_key(),
+                similarity.overall_score,
+                similarity.different_field_count,
+                similarity.different_property_count
             );
+
+            // Log detailed differences if similarity is not perfect
+            if !similarity.different_fields.is_empty() {
+                for (field_name, original_val, new_val) in &similarity.different_fields {
+                    info!(
+                        "Different field '{}' for key {}: '{}' -> '{}'",
+                        field_name,
+                        key.get_formatted_key(),
+                        original_val,
+                        new_val
+                    );
+                }
+            }
+            if !similarity.different_properties.is_empty() {
+                for (prop_name, values_opt) in &similarity.different_properties {
+                    if let Some((orig_val, new_val)) = values_opt {
+                        // $ properties - show values
+                        info!(
+                            "Different property '{}' for key {}: '{}' -> '{}'",
+                            prop_name,
+                            key.get_formatted_key(),
+                            orig_val,
+                            new_val
+                        );
+                    } else {
+                        // Non-$ properties - just show key name for privacy
+                        info!(
+                            "Different property '{}' for key {} (values hidden for privacy)",
+                            prop_name,
+                            key.get_formatted_key()
+                        );
+                    }
+                }
+            }
 
             // Extract library info and emit duplicate metric with labels
             let (lib_name, lib_version) = extract_library_info(raw_event);
@@ -250,6 +292,37 @@ impl DeduplicationStore {
                 .with_label("lib", &lib_name)
                 .with_label("lib_version", &lib_version)
                 .increment(1);
+
+            // Emit similarity histogram metric
+            self.metrics
+                .histogram("deduplication_similarity_score")
+                .with_label("lib", &lib_name)
+                .with_label("lib_version", &lib_version)
+                .record(similarity.overall_score);
+
+            // Emit field differences metric
+            self.metrics
+                .histogram("deduplication_field_differences")
+                .with_label("lib", &lib_name)
+                .with_label("lib_version", &lib_version)
+                .record(similarity.different_field_count as f64);
+
+            // Emit property differences metric
+            self.metrics
+                .histogram("deduplication_property_differences")
+                .with_label("lib", &lib_name)
+                .with_label("lib_version", &lib_version)
+                .record(similarity.different_property_count as f64);
+
+            // Emit individual counters for each mismatched field
+            for (field_name, _, _) in &similarity.different_fields {
+                self.metrics
+                    .counter("deduplication_field_mismatch_total")
+                    .with_label("field", field_name)
+                    .with_label("lib", &lib_name)
+                    .with_label("lib_version", &lib_version)
+                    .increment(1);
+            }
 
             // Store updated metrics
             let serialized_metadata = VersionedMetadata::serialize_metadata(&metadata)?;
@@ -263,14 +336,22 @@ impl DeduplicationStore {
         }
 
         // Key doesn't exist - store it with initial metrics
-        let metadata =
-            VersionedMetadata::V1(crate::rocksdb::dedup_metadata::MetadataV1::new(raw_event));
+        let metadata = VersionedMetadata::V1(MetadataV1::new(raw_event));
         let serialized_metadata = VersionedMetadata::serialize_metadata(&metadata)?;
 
         self.store.put_batch(
             DeduplicationStore::RECORDS_CF,
             vec![(&key_bytes, &serialized_metadata)],
         )?;
+
+        // Track unique event with library info
+        let (lib_name, lib_version) = extract_library_info(raw_event);
+        self.metrics
+            .counter(UNIQUE_EVENTS_TOTAL_COUNTER)
+            .with_label("lib", &lib_name)
+            .with_label("lib_version", &lib_version)
+            .increment(1);
+
         Ok(true) // New event
     }
 
@@ -371,6 +452,16 @@ impl DeduplicationStore {
     /// Get the partition this store is responsible for
     pub fn get_partition(&self) -> i32 {
         self.partition
+    }
+
+    /// Flush the store to disk
+    pub fn flush(&self) -> Result<()> {
+        self.store.flush_cf(Self::RECORDS_CF)
+    }
+
+    /// Update metrics for this store (including database size)
+    pub fn update_metrics(&self) -> Result<()> {
+        self.store.update_db_metrics(Self::RECORDS_CF)
     }
 
     /// Create a checkpoint and return the SST files at the time of checkpoint
@@ -1084,5 +1175,56 @@ mod tests {
         for file_name in &after_flush_sst_files {
             assert!(file_name.ends_with(".sst"));
         }
+    }
+
+    #[test]
+    fn test_flush_method() {
+        let (store, _temp_dir) = create_test_store(None);
+
+        // Add some events
+        let event1 = create_test_raw_event("user1", "token1", "event1");
+        let event2 = create_test_raw_event("user2", "token2", "event2");
+
+        store.handle_event_with_raw(&event1).unwrap();
+        store.handle_event_with_raw(&event2).unwrap();
+
+        // Flush should succeed
+        assert!(store.flush().is_ok());
+
+        // Flush again should also succeed (idempotent)
+        assert!(store.flush().is_ok());
+    }
+
+    #[test]
+    fn test_update_metrics_succeeds() {
+        let (store, _temp_dir) = create_test_store(None);
+
+        // Add some events first
+        let event = create_test_raw_event("user1", "token1", "event1");
+        store.handle_event_with_raw(&event).unwrap();
+
+        // Update metrics should succeed
+        assert!(store.update_metrics().is_ok());
+    }
+
+    #[test]
+    fn test_flush_before_checkpoint() {
+        let (store, temp_dir) = create_test_store(None);
+
+        // Add some events
+        let event = create_test_raw_event("user1", "token1", "checkpoint_test");
+        store.handle_event_with_raw(&event).unwrap();
+
+        // Create a checkpoint (which internally calls flush)
+        let checkpoint_path = temp_dir.path().join("checkpoint");
+        let sst_files = store
+            .create_checkpoint_with_metadata(&checkpoint_path)
+            .unwrap();
+
+        // Checkpoint should exist
+        assert!(checkpoint_path.exists());
+
+        // Should have SST files
+        assert!(!sst_files.is_empty());
     }
 }

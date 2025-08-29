@@ -3,11 +3,13 @@ use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
 use rdkafka::Message;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{oneshot, Semaphore};
+use tokio::sync::oneshot;
 use tokio::time::timeout;
 use tracing::{debug, error, info, warn};
 
-use super::message::{AckableMessage, MessageProcessor};
+use crate::kafka::types::Partition;
+
+use super::message::MessageProcessor;
 use super::rebalance_handler::RebalanceHandler;
 use super::stateful_context::StatefulConsumerContext;
 use super::tracker::{InFlightTracker, TrackerStats};
@@ -21,11 +23,8 @@ pub struct StatefulKafkaConsumer<P: MessageProcessor> {
     /// Message processor for handling business logic
     message_processor: Arc<P>,
 
-    /// In-flight message tracker
+    /// In-flight message tracker (owns the semaphore for backpressure)
     tracker: Arc<InFlightTracker>,
-
-    /// Global semaphore to limit total in-flight messages
-    global_semaphore: Arc<Semaphore>,
 
     /// How often to commit offsets
     commit_interval: Duration,
@@ -45,19 +44,16 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
         commit_interval: Duration,
         shutdown_rx: oneshot::Receiver<()>,
     ) -> Result<Self> {
-        let tracker = Arc::new(InFlightTracker::new());
+        let tracker = Arc::new(InFlightTracker::with_capacity(max_in_flight_messages));
         let context = StatefulConsumerContext::new(rebalance_handler, tracker.clone());
 
         let consumer: StreamConsumer<StatefulConsumerContext> =
             config.create_with_context(context)?;
 
-        let global_semaphore = Arc::new(Semaphore::new(max_in_flight_messages));
-
         Ok(Self {
             consumer,
             message_processor,
             tracker,
-            global_semaphore,
             commit_interval,
             shutdown_rx,
         })
@@ -68,6 +64,8 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
         info!("Starting stateful Kafka message consumption");
 
         let mut commit_interval = tokio::time::interval(self.commit_interval);
+        // Publish metrics every 10 seconds for observability
+        let mut metrics_interval = tokio::time::interval(Duration::from_secs(10));
 
         loop {
             tokio::select! {
@@ -92,6 +90,39 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
                             debug!("Consumer poll timeout");
                         }
                     }
+                }
+
+                // Publish metrics every 10 seconds
+                _ = metrics_interval.tick() => {
+                    info!("Starting metrics publication cycle");
+
+                    let stats = self.tracker.get_stats().await;
+                    let available_permits = self.tracker.available_permits();
+                    let partition_health = self.tracker.get_partition_health().await;
+
+                    info!(
+                        "Global Metrics: in_flight={}, completed={}, failed={}, memory={}MB, available_permits={}",
+                        stats.in_flight, stats.completed, stats.failed,
+                        stats.memory_usage / (1024 * 1024),
+                        available_permits
+                    );
+
+                    // Log partition health status
+                    for health in &partition_health {
+                        info!(
+                            "Partition {}-{}: last_committed={}, in_flight={}",
+                            health.topic, health.partition,
+                            health.last_committed_offset, health.in_flight_count
+                        );
+                    }
+
+                    stats.publish_metrics();
+
+                    // Also publish semaphore permit metrics from the tracker
+                    metrics::gauge!("kafka_consumer_available_permits")
+                        .set(available_permits as f64);
+
+                    info!("Metrics published successfully");
                 }
 
                 // Commit offsets periodically
@@ -126,52 +157,98 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
         let topic = msg.topic();
         let partition = msg.partition();
         let offset = msg.offset();
+        let partition = Partition::new(topic.to_string(), partition);
 
         // Check if partition is still active (not revoked)
-        if !self.tracker.is_partition_active(topic, partition).await {
+        if !self.tracker.is_partition_active(&partition).await {
             warn!(
                 "Skipping message from revoked partition {}:{} offset {}",
-                topic, partition, offset
+                partition.topic(),
+                partition.partition_number(),
+                offset
             );
             return Ok(());
         }
 
-        // Acquire permit to control backpressure with timeout to prevent deadlocks
-        let _permit = timeout(Duration::from_secs(30), self.global_semaphore.acquire())
-            .await
-            .map_err(|_| {
-                anyhow::anyhow!("Timeout acquiring semaphore permit after 30s - possible deadlock")
-            })??;
-
-        debug!(
-            "Processing message from topic {} partition {} offset {}",
-            topic, partition, offset
-        );
-
-        // Convert to owned message and create ackable wrapper
-        let owned_msg = msg.detach();
-        let estimated_size = owned_msg.payload().map(|p| p.len()).unwrap_or(0)
-            + owned_msg.key().map(|k| k.len()).unwrap_or(0)
+        // Calculate size before detaching
+        let estimated_size = msg.payload().map(|p| p.len()).unwrap_or(0)
+            + msg.key().map(|k| k.len()).unwrap_or(0)
             + topic.len();
 
-        let (_message_id, message_handle) =
-            self.tracker.track_message(&owned_msg, estimated_size).await;
+        // Try to acquire a permit BEFORE detaching the message
+        // Use try_acquire_owned for immediate response, avoiding blocking
+        let permit = match self.tracker.in_flight_semaphore_clone().try_acquire_owned() {
+            Ok(permit) => permit,
+            Err(_) => {
+                // No permits available - process completions and try once more
+                debug!(
+                    "No permits available, processing completions. Topic {} partition {} offset {}. In-flight: {}",
+                    partition.topic(), partition.partition_number(), offset,
+                    self.tracker.in_flight_count().await
+                );
 
-        let ackable_msg = AckableMessage::new(owned_msg, message_handle);
+                // Give PartitionTrackers a moment to process completions
+                tokio::time::sleep(Duration::from_millis(10)).await;
+
+                // Try once more with a short timeout
+                match tokio::time::timeout(
+                    Duration::from_millis(100),
+                    self.tracker.in_flight_semaphore_clone().acquire_owned(),
+                )
+                .await
+                {
+                    Ok(Ok(permit)) => permit,
+                    Ok(Err(_)) => {
+                        error!("Semaphore was closed - this is a fatal error");
+                        return Err(anyhow::anyhow!("Semaphore closed"));
+                    }
+                    Err(_) => {
+                        // Still no permits - apply backpressure
+                        debug!(
+                            "Still no permits after processing completions, applying backpressure. Topic {} partition {} offset {}",
+                            partition.topic(), partition.partition_number(), offset
+                        );
+                        return Ok(());
+                    }
+                }
+            }
+        };
+
+        // NOW we can safely detach since we have the permit
+        let owned_msg = msg.detach();
+
+        // Track the message and get back an AckableMessage that owns everything
+        let ackable_msg = self
+            .tracker
+            .track_message(owned_msg, estimated_size, permit)
+            .await;
+
+        debug!(
+            "Tracking message from topic {} partition {} offset {} (available permits: {})",
+            partition.topic(),
+            partition.partition_number(),
+            offset,
+            self.tracker.available_permits()
+        );
 
         // Process message through user's processor
         match self.message_processor.process_message(ackable_msg).await {
             Ok(_) => {
                 debug!(
                     "Successfully processed message from topic {} partition {} offset {}",
-                    topic, partition, offset
+                    partition.topic(),
+                    partition.partition_number(),
+                    offset
                 );
                 // Note: AckableMessage handles the actual acking
             }
             Err(e) => {
                 error!(
                     "Failed to process message from topic {} partition {} offset {}: {}",
-                    topic, partition, offset, e
+                    partition.topic(),
+                    partition.partition_number(),
+                    offset,
+                    e
                 );
                 // Note: AckableMessage should handle nacking in this case
             }
@@ -181,32 +258,45 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
     }
 
     async fn commit_offsets(&self) -> Result<()> {
-        debug!("Committing offsets");
+        info!("Starting offset commit process");
 
-        // Get tracker statistics
+        // Get tracker statistics and publish metrics
         let stats = self.tracker.get_stats().await;
-        debug!("Tracker stats before commit: in_flight={}", stats.in_flight);
+        stats.publish_metrics();
+
+        info!(
+            "Tracker stats before commit: in_flight={}, completed={}, failed={}, available_permits={}",
+            stats.in_flight, stats.completed, stats.failed, self.tracker.available_permits()
+        );
 
         // Get safe commit offsets from tracker (only commits completed messages)
         let safe_offsets = self.tracker.get_safe_commit_offsets().await;
 
         if safe_offsets.is_empty() {
-            debug!("No safe offsets to commit");
+            info!(
+                "No safe offsets to commit - this may indicate messages are not being acknowledged"
+            );
             return Ok(());
         }
 
+        info!(
+            "Found {} partition(s) with safe offsets to commit",
+            safe_offsets.len()
+        );
+
         // Build TopicPartitionList with safe offsets
         let mut topic_partition_list = rdkafka::TopicPartitionList::new();
-        for ((topic, partition), offset) in safe_offsets {
-            debug!(
-                "Adding safe commit offset: {}:{} -> {}",
-                topic,
-                partition,
+        for (partition, offset) in safe_offsets {
+            info!(
+                "Adding safe commit offset: topic={}, partition={}, offset={} (will commit {})",
+                partition.topic(),
+                partition.partition_number(),
+                offset,
                 offset + 1
             );
             topic_partition_list.add_partition_offset(
-                &topic,
-                partition,
+                partition.topic(),
+                partition.partition_number(),
                 rdkafka::Offset::Offset(offset + 1),
             )?;
         }
@@ -217,7 +307,10 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
             .commit(&topic_partition_list, CommitMode::Async)
         {
             Ok(_) => {
-                debug!("Successfully committed safe offsets");
+                info!(
+                    "Successfully committed offsets for {} partition(s)",
+                    topic_partition_list.count()
+                );
                 Ok(())
             }
             Err(e) => {
