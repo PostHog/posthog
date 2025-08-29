@@ -16,6 +16,7 @@ from ee.hogai.session_summaries import ExceptionToRetry, SummaryValidationError
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
 from ee.hogai.session_summaries.llm.call import call_llm, stream_llm
 from ee.hogai.session_summaries.session.output_data import (
+    SessionSummarySerializer,
     enrich_raw_session_summary_with_meta,
     load_raw_session_summary_from_llm_content,
 )
@@ -69,7 +70,24 @@ def _get_raw_content(llm_response: ChatCompletion | ChatCompletionChunk) -> str:
     return content if content else ""
 
 
-def _convert_llm_content_to_session_summary_json_str(
+def get_exception_event_ids_from_summary(session_summary: SessionSummarySerializer) -> list[str]:
+    """
+    Extract event UUIDs for all events marked with exceptions (blocking or non-blocking).
+    """
+    exception_event_ids = []
+    summary_data = session_summary.data
+    # Check if key_actions exists and iterate through segments
+    key_actions = summary_data.get("key_actions", [])
+    for segment in key_actions:
+        events = segment.get("events", [])
+        for event in events:
+            # Check if event has an exception (blocking or non-blocking)
+            if event.get("exception") and event.get("event_uuid"):
+                exception_event_ids.append(event["event_uuid"])
+    return exception_event_ids
+
+
+def _convert_llm_content_to_session_summary(
     content: str,
     allowed_event_ids: list[str],
     session_id: str,
@@ -82,8 +100,8 @@ def _convert_llm_content_to_session_summary_json_str(
     session_start_time_str: str,
     session_duration: int,
     final_validation: bool = False,
-) -> str | None:
-    """Parse and enrich LLM YAML output, returning a JSON string."""
+) -> SessionSummarySerializer | None:
+    """Parse and enrich LLM YAML output, returning a schema object."""
     # Try to parse the accumulated text as YAML
     raw_session_summary = load_raw_session_summary_from_llm_content(
         raw_content=content,
@@ -115,7 +133,7 @@ def _convert_llm_content_to_session_summary_json_str(
             session_summary=json.dumps(session_summary.data, indent=4),
             results_base_dir_path=os.environ["LOCAL_SESSION_SUMMARY_RESULTS_DIR"],
         )
-    return json.dumps(session_summary.data)
+    return session_summary
 
 
 async def get_llm_session_group_patterns_extraction(
@@ -199,7 +217,7 @@ async def get_llm_single_session_summary(
     session_duration: int,
     system_prompt: str | None = None,
     trace_id: str | None = None,
-) -> str:
+) -> SessionSummarySerializer:
     """Generate a single session summary in one LLM call."""
     try:
         # TODO: Think about edge-case like one summary too large for o3 (cut some context or use other model)
@@ -214,7 +232,7 @@ async def get_llm_single_session_summary(
         raw_content = _get_raw_content(result)
         if not raw_content:
             raise ValueError(f"No content consumed when calling LLM for session summary, sessions {session_id}")
-        session_summary_str = _convert_llm_content_to_session_summary_json_str(
+        session_summary = _convert_llm_content_to_session_summary(
             content=raw_content,
             allowed_event_ids=allowed_event_ids,
             session_id=session_id,
@@ -228,12 +246,12 @@ async def get_llm_single_session_summary(
             summary_prompt=summary_prompt,
             final_validation=True,
         )
-        if not session_summary_str:
+        if not session_summary:
             raise ValueError(
                 f"Failed to parse LLM response for session summary, session_id {session_id}: {raw_content}"
             )
         # If parsing succeeds, yield the new chunk
-        return session_summary_str
+        return session_summary
     except (SummaryValidationError, ValueError) as err:
         # The only way to raise such errors is data hallucinations and inconsistencies (like missing mapping data).
         # Such exceptions should be retried as early as possible to decrease the latency of the call.
@@ -289,7 +307,7 @@ async def stream_llm_single_session_summary(
                 continue
             accumulated_content += raw_content
             try:
-                intermediate_summary_str = _convert_llm_content_to_session_summary_json_str(
+                intermediate_summary = _convert_llm_content_to_session_summary(
                     content=accumulated_content,
                     allowed_event_ids=allowed_event_ids,
                     session_id=session_id,
@@ -303,8 +321,9 @@ async def stream_llm_single_session_summary(
                     summary_prompt=summary_prompt,
                     final_validation=False,
                 )
-                if not intermediate_summary_str:
+                if not intermediate_summary:
                     continue
+                intermediate_summary_str = json.dumps(intermediate_summary.data)
                 # If parsing succeeds, yield the new chunk
                 yield intermediate_summary_str
             except SummaryValidationError:
@@ -328,11 +347,19 @@ async def stream_llm_single_session_summary(
             user_id=user_id,
         )
         raise ExceptionToRetry() from err
+    finally:
+        # Safety check to prevent hanging connections if the processing fails
+        if stream is not None:
+            try:
+                await stream.close()
+            except Exception:
+                logger.warning("Failed to close LLM stream", session_id=session_id, user_id=user_id)
+
     # Final validation of accumulated content (to decide if to retry the whole stream or not)
     try:
         if accumulated_usage:
             TOKENS_IN_PROMPT_HISTOGRAM.observe(accumulated_usage)
-        final_summary_str = _convert_llm_content_to_session_summary_json_str(
+        final_summary = _convert_llm_content_to_session_summary(
             content=accumulated_content,
             allowed_event_ids=allowed_event_ids,
             session_id=session_id,
@@ -346,14 +373,14 @@ async def stream_llm_single_session_summary(
             summary_prompt=summary_prompt,
             final_validation=True,
         )
-        if not final_summary_str:
+        if not final_summary:
             logger.exception(
                 f"Final LLM content validation failed for session_id {session_id}",
                 session_id=session_id,
                 user_id=user_id,
             )
             raise ValueError("Final content validation failed")
-
+        final_summary_str = json.dumps(final_summary.data)
         # If parsing succeeds, yield the final validated summary
         yield final_summary_str
     # At this stage, when all the chunks are processed, any exception should be retried to ensure valid final content

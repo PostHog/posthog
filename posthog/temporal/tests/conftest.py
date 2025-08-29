@@ -13,6 +13,7 @@ from psycopg import sql
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, Team
+from posthog.models.user import User
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import configure_logger
@@ -60,6 +61,15 @@ async def ateam(aorganization):
     yield team
 
     await sync_to_async(team.delete)()
+
+
+@pytest_asyncio.fixture
+async def auser(aorganization):
+    user = await sync_to_async(User.objects.create_and_join)(
+        aorganization, f"test-{random.randint(1, 99999)}@posthog.com", "testpassword123", "Test"
+    )
+    yield user
+    await sync_to_async(user.delete)()
 
 
 @pytest.fixture
