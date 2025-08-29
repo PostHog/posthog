@@ -299,6 +299,8 @@ async fn test_billing_limit_on_i_endpoint() {
         "pageview",
         "survey dismissed",
         "$exception",
+        "pageleave",
+        "some_other_event",
     ];
     let payload = create_batch_payload_with_token(&events, token);
 
@@ -315,7 +317,9 @@ async fn test_billing_limit_on_i_endpoint() {
 
     // Check that only $exception events were retained
     let captured_events = sink.events();
-    assert_eq!(captured_events.len(), 2);
+
+    // all but the exception, AI, and survey events should be dropped from the input batch
+    assert_eq!(captured_events.len(), 5);
 
     // Parse the event data to check the event names
     let event_names: Vec<String> = captured_events
