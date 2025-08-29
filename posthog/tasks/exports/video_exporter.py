@@ -6,6 +6,7 @@ import tempfile
 import subprocess
 from typing import Literal, Optional
 
+import structlog
 import posthoganalytics
 
 from posthog.exceptions_capture import capture_exception
@@ -14,6 +15,8 @@ from playwright.sync_api import (
     TimeoutError as PlaywrightTimeoutError,
     sync_playwright,
 )
+
+logger = structlog.get_logger(__name__)
 
 ScreenWidth = Literal[800, 1920, 1400]
 HEIGHT_OFFSET = 85
@@ -43,7 +46,7 @@ def record_replay_to_file(
 
     temp_dir_ctx: Optional[tempfile.TemporaryDirectory] = None
     try:
-        temp_dir_ctx = tempfile.TemporaryDirectory(prefix="ph-video-export-")
+        temp_dir_ctx = tempfile.TemporaryDirectory(prefix="ph-video-export-", ignore_cleanup_errors=True)
         record_dir = temp_dir_ctx.name
         with sync_playwright() as p:
             headless = os.getenv("EXPORTER_HEADLESS", "1") != "0"  # TIP: for debugging, set to False
@@ -103,8 +106,8 @@ def record_replay_to_file(
                 width_candidate = dimensions["width"] or width
                 measured_width = max(width, min(1800, int(width_candidate)))
                 page.set_viewport_size({"width": measured_width, "height": int(final_height) + HEIGHT_OFFSET})
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("video_exporter.viewport_resize_failed", error=str(e))
             ready_at = time.monotonic()
             page.wait_for_timeout(500)
 
@@ -218,7 +221,4 @@ def record_replay_to_file(
         raise
     finally:
         if temp_dir_ctx:
-            try:
-                temp_dir_ctx.cleanup()
-            except Exception:
-                pass
+            temp_dir_ctx.cleanup()

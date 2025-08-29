@@ -1,3 +1,4 @@
+import json
 import datetime as dt
 from dataclasses import dataclass
 from typing import Any
@@ -19,8 +20,6 @@ class VideoExportInputs:
 class VideoExportWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(inputs: list[str]) -> VideoExportInputs:
-        import json
-
         return VideoExportInputs(**json.loads(inputs[0]))
 
     @wf.run

@@ -7,6 +7,7 @@ from django.utils.timezone import now
 
 import structlog
 import posthoganalytics
+from asgiref.sync import async_to_sync
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.exceptions import ValidationError
@@ -141,6 +142,8 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                         {"export_format": ["Video export supports session recordings only."]}
                     )
 
+                logger.info("starting_video_export_workflow", asset_id=instance.id)
+
                 async def _start():
                     client = await temporal_connect(TEMPORAL_HOST, TEMPORAL_PORT, TEMPORAL_NAMESPACE)
                     await client.execute_workflow(
@@ -152,29 +155,13 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
                     )
 
-                import asyncio
-
-                def _spawn_workflow():
-                    with VIDEO_EXPORT_SEMAPHORE:
-                        try:
-                            logger.info("starting_video_export_workflow", asset_id=instance.id)
-
-                            # Create a new event loop for this thread
-                            loop = asyncio.new_event_loop()
-                            asyncio.set_event_loop(loop)
-                            try:
-                                loop.run_until_complete(_start())
-                            finally:
-                                loop.close()
-
-                            logger.info("video_export_workflow_dispatched", asset_id=instance.id)
-                        except Exception as e:
-                            logger.exception(
-                                "video_export_workflow_dispatch_failed", asset_id=instance.id, error=str(e)
-                            )
-                            raise
-
-                threading.Thread(target=_spawn_workflow, daemon=True).start()
+                with VIDEO_EXPORT_SEMAPHORE:
+                    try:
+                        async_to_sync(_start)()
+                        logger.info("video_export_workflow_dispatched", asset_id=instance.id)
+                    except Exception as e:
+                        logger.exception("video_export_workflow_dispatch_failed", asset_id=instance.id, error=str(e))
+                        raise
             else:
                 exporter.export_asset(instance.id)
         else:
