@@ -4175,6 +4175,8 @@ export enum ExperimentMetricMathType {
     Min = 'min',
     Max = 'max',
     Avg = 'avg',
+    UniqueUsers = 'dau',
+    UniqueGroup = 'unique_group',
     HogQL = 'hogql',
 }
 
