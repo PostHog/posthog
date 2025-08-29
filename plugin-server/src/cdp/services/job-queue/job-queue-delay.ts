@@ -10,7 +10,19 @@ import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { PluginsServerConfig } from '../../../types'
 import { logger } from '../../../utils/logger'
 import { CyclotronJobInvocation, CyclotronJobQueueKind } from '../../types'
+import { DateTime } from 'luxon'
 
+export const getDelayQueue = (queueScheduledAt: DateTime): Extract<CyclotronJobQueueKind, 'delay_24h' | 'delay_60m' | 'delay_10m'> => {
+    // if (queueScheduledAt > DateTime.now().plus({ hours: 24 })) {
+    //     return 'delay_24h'
+    // }
+
+    // if (queueScheduledAt > DateTime.now().plus({ minutes: 10 })) {
+    //     return 'delay_60m'
+    // }
+
+    return 'delay_10m' // Force everything to the 10m queue for now
+}
 export class CyclotronJobQueueDelay {
     private kafkaConsumer?: KafkaConsumer
     private kafkaProducer?: KafkaProducerWrapper
@@ -39,7 +51,7 @@ export class CyclotronJobQueueDelay {
         const topic = `cdp_cyclotron_${this.queue}`
 
         // NOTE: As there is only ever one consumer per process we use the KAFKA_CONSUMER_ vars as with any other consumer
-        this.kafkaConsumer = new KafkaConsumer({ groupId, topic, callEachBatchWhenEmpty: true, autoCommit: false })
+        this.kafkaConsumer = new KafkaConsumer({ groupId, topic, callEachBatchWhenEmpty: true })
 
         logger.info('🔄', 'Connecting kafka consumer', { groupId, topic })
         await this.kafkaConsumer.connect(async (messages) => {
@@ -117,11 +129,11 @@ export class CyclotronJobQueueDelay {
             await producer.produce({
                 value: message.value,
                 key: message.key as string,
-                topic: returnTopic,
+                topic: delayMs === 0 ? returnTopic : getDelayQueue(DateTime.fromMillis(scheduledTime.getTime())),
                 headers: message.headers as unknown as Record<string, string>,
             })
 
-            await this.kafkaConsumer?.offsetsStore([message])
+            this.kafkaConsumer?.offsetsStore([message])
         }
 
         console.log('CdpCyclotronDelayConsumer', 'Consumed full delay batch', messages.length)

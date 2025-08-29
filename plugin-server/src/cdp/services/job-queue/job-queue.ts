@@ -18,7 +18,7 @@ import {
 } from '../../types'
 import { CyclotronJobQueueKafka } from './job-queue-kafka'
 import { CyclotronJobQueuePostgres } from './job-queue-postgres'
-import { CyclotronJobQueueDelay } from './job-queue-delay'
+import { CyclotronJobQueueDelay, getDelayQueue } from './job-queue-delay'
 
 const cyclotronBatchUtilizationGauge = new Gauge({
     name: 'cdp_cyclotron_batch_utilization',
@@ -186,7 +186,7 @@ export class CyclotronJobQueue {
             invocation.queueScheduledAt > DateTime.now().plus({ milliseconds: JOB_SCHEDULED_AT_FUTURE_THRESHOLD_MS })
         ) {
             (invocation.state as any).returnTopic = invocation.queue
-            invocation.queue = 'delay_10m'
+            invocation.queue = getDelayQueue(invocation.queueScheduledAt)
         }
 
         const teamId = invocation.teamId
