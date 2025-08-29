@@ -818,6 +818,60 @@ class _Printer(Visitor[str]):
 
         return None  # nothing to optimize
 
+    def _get_ops_format(self, node: ast.CompareOperation, left: str, right: str) -> str:
+        beautified_ops = {
+            ast.CompareOperationOp.Eq: f"{left} = {right}",
+            ast.CompareOperationOp.NotEq: f"{left} != {right}",
+            ast.CompareOperationOp.Like: f"{left} LIKE {right}",
+            ast.CompareOperationOp.NotLike: f"{left} NOT LIKE {right}",
+            ast.CompareOperationOp.ILike: f"{left} ILIKE {right}",
+            ast.CompareOperationOp.NotILike: f"{left} NOT ILIKE {right}",
+            ast.CompareOperationOp.In: f"{left} IN {right}",
+            ast.CompareOperationOp.NotIn: f"{left} NOT IN {right}",
+            ast.CompareOperationOp.GlobalIn: f"{left} GLOBAL IN {right}",
+            ast.CompareOperationOp.GlobalNotIn: f"{left} GLOBAL NOT IN {right}",
+            ast.CompareOperationOp.Regex: f"{left} REGEXP {right}",
+            ast.CompareOperationOp.NotRegex: f"{left} NOT REGEXP {right}",
+            ast.CompareOperationOp.IRegex: f"{left} IREGEXP {right}",
+            ast.CompareOperationOp.NotIRegex: f"{left} NOT IREGEXP {right}",
+            ast.CompareOperationOp.Gt: f"{left} > {right}",
+            ast.CompareOperationOp.GtEq: f"{left} >= {right}",
+            ast.CompareOperationOp.Lt: f"{left} < {right}",
+            ast.CompareOperationOp.LtEq: f"{left} <= {right}",
+            ast.CompareOperationOp.InCohort: f"{left} IN COHORT {right}",
+            ast.CompareOperationOp.NotInCohort: f"{left} NOT IN COHORT {right}",
+        }
+
+        clickhouse_ops = {
+            ast.CompareOperationOp.Eq: f"equals({left}, {right})",
+            ast.CompareOperationOp.NotEq: f"notEquals({left}, {right})",
+            ast.CompareOperationOp.Like: f"like({left}, {right})",
+            ast.CompareOperationOp.NotLike: f"notLike({left}, {right})",
+            ast.CompareOperationOp.ILike: f"ilike({left}, {right})",
+            ast.CompareOperationOp.NotILike: f"notILike({left}, {right})",
+            ast.CompareOperationOp.In: f"in({left}, {right})",
+            ast.CompareOperationOp.NotIn: f"notIn({left}, {right})",
+            ast.CompareOperationOp.GlobalIn: f"globalIn({left}, {right})",
+            ast.CompareOperationOp.GlobalNotIn: f"globalNotIn({left}, {right})",
+            ast.CompareOperationOp.Regex: f"match({left}, {right})",
+            ast.CompareOperationOp.NotRegex: f"not(match({left}, {right}))",
+            ast.CompareOperationOp.IRegex: f"match({left}, concat('(?i)', {right}))",
+            ast.CompareOperationOp.NotIRegex: f"not(match({left}, concat('(?i)', {right})))",
+            ast.CompareOperationOp.Gt: f"greater({left}, {right})",
+            ast.CompareOperationOp.GtEq: f"greaterOrEquals({left}, {right})",
+            ast.CompareOperationOp.Lt: f"less({left}, {right})",
+            ast.CompareOperationOp.LtEq: f"lessOrEquals({left}, {right})",
+            ast.CompareOperationOp.InCohort: f"{left} IN COHORT {right}",
+            ast.CompareOperationOp.NotInCohort: f"{left} NOT IN COHORT {right}",
+        }
+
+        try:
+            op = beautified_ops[node.op] if self.context.beautify else clickhouse_ops[node.op]
+        except KeyError:
+            raise ImpossibleASTError(f"Unknown CompareOperationOp: {node.op.name}")
+
+        return op
+
     def visit_compare_operation(self, node: ast.CompareOperation):
         # If either side of the operation is a property that is part of a property group, special optimizations may
         # apply here to ensure that data skipping indexes can be used when possible.
@@ -847,149 +901,49 @@ class _Printer(Visitor[str]):
         value_if_one_side_is_null = False
         value_if_both_sides_are_null = False
 
-        # If beautify is enabled, use original operator syntax instead of function calls
-        if self.context.beautify:
-            if node.op == ast.CompareOperationOp.Eq:
-                op = f"{left} = {right}"
-                constant_lambda = lambda left_op, right_op: left_op == right_op
-                value_if_both_sides_are_null = True
-            elif node.op == ast.CompareOperationOp.NotEq:
-                op = f"{left} != {right}"
-                constant_lambda = lambda left_op, right_op: left_op != right_op
-                value_if_one_side_is_null = True
-            elif node.op == ast.CompareOperationOp.Like:
-                op = f"{left} LIKE {right}"
-                value_if_both_sides_are_null = True
-            elif node.op == ast.CompareOperationOp.NotLike:
-                op = f"{left} NOT LIKE {right}"
-                value_if_one_side_is_null = True
-            elif node.op == ast.CompareOperationOp.ILike:
-                op = f"{left} ILIKE {right}"
-                value_if_both_sides_are_null = True
-            elif node.op == ast.CompareOperationOp.NotILike:
-                op = f"{left} NOT ILIKE {right}"
-                value_if_one_side_is_null = True
-            elif node.op == ast.CompareOperationOp.In:
-                op = f"{left} IN {right}"
-                return op
-            elif node.op == ast.CompareOperationOp.NotIn:
-                op = f"{left} NOT IN {right}"
-                return op
-            elif node.op == ast.CompareOperationOp.GlobalIn:
-                op = f"{left} GLOBAL IN {right}"
-            elif node.op == ast.CompareOperationOp.GlobalNotIn:
-                op = f"{left} GLOBAL NOT IN {right}"
-            elif node.op == ast.CompareOperationOp.Regex:
-                op = f"{left} REGEXP {right}"
-                value_if_both_sides_are_null = True
-            elif node.op == ast.CompareOperationOp.NotRegex:
-                op = f"{left} NOT REGEXP {right}"
-                value_if_one_side_is_null = True
-            elif node.op == ast.CompareOperationOp.IRegex:
-                op = f"{left} IREGEXP {right}"
-                value_if_both_sides_are_null = True
-            elif node.op == ast.CompareOperationOp.NotIRegex:
-                op = f"{left} NOT IREGEXP {right}"
-                value_if_one_side_is_null = True
-            elif node.op == ast.CompareOperationOp.Gt:
-                op = f"{left} > {right}"
-                constant_lambda = lambda left_op, right_op: (
-                    left_op > right_op if left_op is not None and right_op is not None else False
-                )
-            elif node.op == ast.CompareOperationOp.GtEq:
-                op = f"{left} >= {right}"
-                constant_lambda = lambda left_op, right_op: (
-                    left_op >= right_op if left_op is not None and right_op is not None else False
-                )
-            elif node.op == ast.CompareOperationOp.Lt:
-                op = f"{left} < {right}"
-                constant_lambda = lambda left_op, right_op: (
-                    left_op < right_op if left_op is not None and right_op is not None else False
-                )
-            elif node.op == ast.CompareOperationOp.LtEq:
-                op = f"{left} <= {right}"
-                constant_lambda = lambda left_op, right_op: (
-                    left_op <= right_op if left_op is not None and right_op is not None else False
-                )
-            # only used for hogql direct printing (no prepare called)
-            elif node.op == ast.CompareOperationOp.InCohort:
-                op = f"{left} IN COHORT {right}"
-            # only used for hogql direct printing (no prepare called)
-            elif node.op == ast.CompareOperationOp.NotInCohort:
-                op = f"{left} NOT IN COHORT {right}"
-            else:
-                raise ImpossibleASTError(f"Unknown CompareOperationOp: {node.op.name}")
-        else:
-            if node.op == ast.CompareOperationOp.Eq:
-                op = f"equals({left}, {right})"
-                constant_lambda = lambda left_op, right_op: left_op == right_op
-                value_if_both_sides_are_null = True
-            elif node.op == ast.CompareOperationOp.NotEq:
-                op = f"notEquals({left}, {right})"
-                constant_lambda = lambda left_op, right_op: left_op != right_op
-                value_if_one_side_is_null = True
-            elif node.op == ast.CompareOperationOp.Like:
-                op = f"like({left}, {right})"
-                value_if_both_sides_are_null = True
-            elif node.op == ast.CompareOperationOp.NotLike:
-                op = f"notLike({left}, {right})"
-                value_if_one_side_is_null = True
-            elif node.op == ast.CompareOperationOp.ILike:
-                op = f"ilike({left}, {right})"
-                value_if_both_sides_are_null = True
-            elif node.op == ast.CompareOperationOp.NotILike:
-                op = f"notILike({left}, {right})"
-                value_if_one_side_is_null = True
-            elif node.op == ast.CompareOperationOp.In:
-                op = f"in({left}, {right})"
-                return op
-            elif node.op == ast.CompareOperationOp.NotIn:
-                op = f"notIn({left}, {right})"
-                return op
-            elif node.op == ast.CompareOperationOp.GlobalIn:
-                op = f"globalIn({left}, {right})"
-            elif node.op == ast.CompareOperationOp.GlobalNotIn:
-                op = f"globalNotIn({left}, {right})"
-            elif node.op == ast.CompareOperationOp.Regex:
-                op = f"match({left}, {right})"
-                value_if_both_sides_are_null = True
-            elif node.op == ast.CompareOperationOp.NotRegex:
-                op = f"not(match({left}, {right}))"
-                value_if_one_side_is_null = True
-            elif node.op == ast.CompareOperationOp.IRegex:
-                op = f"match({left}, concat('(?i)', {right}))"
-                value_if_both_sides_are_null = True
-            elif node.op == ast.CompareOperationOp.NotIRegex:
-                op = f"not(match({left}, concat('(?i)', {right})))"
-                value_if_one_side_is_null = True
-            elif node.op == ast.CompareOperationOp.Gt:
-                op = f"greater({left}, {right})"
-                constant_lambda = lambda left_op, right_op: (
-                    left_op > right_op if left_op is not None and right_op is not None else False
-                )
-            elif node.op == ast.CompareOperationOp.GtEq:
-                op = f"greaterOrEquals({left}, {right})"
-                constant_lambda = lambda left_op, right_op: (
-                    left_op >= right_op if left_op is not None and right_op is not None else False
-                )
-            elif node.op == ast.CompareOperationOp.Lt:
-                op = f"less({left}, {right})"
-                constant_lambda = lambda left_op, right_op: (
-                    left_op < right_op if left_op is not None and right_op is not None else False
-                )
-            elif node.op == ast.CompareOperationOp.LtEq:
-                op = f"lessOrEquals({left}, {right})"
-                constant_lambda = lambda left_op, right_op: (
-                    left_op <= right_op if left_op is not None and right_op is not None else False
-                )
-            # only used for hogql direct printing (no prepare called)
-            elif node.op == ast.CompareOperationOp.InCohort:
-                op = f"{left} IN COHORT {right}"
-            # only used for hogql direct printing (no prepare called)
-            elif node.op == ast.CompareOperationOp.NotInCohort:
-                op = f"{left} NOT IN COHORT {right}"
-            else:
-                raise ImpossibleASTError(f"Unknown CompareOperationOp: {node.op.name}")
+        op = self._get_ops_format(node, left, right)  # different format for beautify
+        if node.op == ast.CompareOperationOp.Eq:
+            constant_lambda = lambda left_op, right_op: left_op == right_op
+            value_if_both_sides_are_null = True
+        elif node.op == ast.CompareOperationOp.NotEq:
+            constant_lambda = lambda left_op, right_op: left_op != right_op
+            value_if_one_side_is_null = True
+        elif node.op == ast.CompareOperationOp.Like:
+            value_if_both_sides_are_null = True
+        elif node.op == ast.CompareOperationOp.NotLike:
+            value_if_one_side_is_null = True
+        elif node.op == ast.CompareOperationOp.ILike:
+            value_if_both_sides_are_null = True
+        elif node.op == ast.CompareOperationOp.NotILike:
+            value_if_one_side_is_null = True
+        elif node.op == ast.CompareOperationOp.In:
+            return op
+        elif node.op == ast.CompareOperationOp.NotIn:
+            return op
+        elif node.op == ast.CompareOperationOp.Regex:
+            value_if_both_sides_are_null = True
+        elif node.op == ast.CompareOperationOp.NotRegex:
+            value_if_one_side_is_null = True
+        elif node.op == ast.CompareOperationOp.IRegex:
+            value_if_both_sides_are_null = True
+        elif node.op == ast.CompareOperationOp.NotIRegex:
+            value_if_one_side_is_null = True
+        elif node.op == ast.CompareOperationOp.Gt:
+            constant_lambda = lambda left_op, right_op: (
+                left_op > right_op if left_op is not None and right_op is not None else False
+            )
+        elif node.op == ast.CompareOperationOp.GtEq:
+            constant_lambda = lambda left_op, right_op: (
+                left_op >= right_op if left_op is not None and right_op is not None else False
+            )
+        elif node.op == ast.CompareOperationOp.Lt:
+            constant_lambda = lambda left_op, right_op: (
+                left_op < right_op if left_op is not None and right_op is not None else False
+            )
+        elif node.op == ast.CompareOperationOp.LtEq:
+            constant_lambda = lambda left_op, right_op: (
+                left_op <= right_op if left_op is not None and right_op is not None else False
+            )
 
         # Try to see if we can take shortcuts
 
