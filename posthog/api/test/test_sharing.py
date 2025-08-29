@@ -18,7 +18,6 @@ from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
-from posthog.utils import render_template
 
 
 @parameterized.expand(
@@ -79,7 +78,6 @@ class TestSharing(APIBaseTest):
             "access_token": data["access_token"],
             "created_at": None,
             "enabled": False,
-            "password_required": False,
             "settings": None,
         }
 
@@ -98,7 +96,6 @@ class TestSharing(APIBaseTest):
             "access_token": initial_data["access_token"],
             "created_at": "2022-01-01T00:00:00Z",
             "enabled": True,
-            "password_required": False,
             "settings": None,
         }
 
@@ -110,7 +107,6 @@ class TestSharing(APIBaseTest):
             "access_token": initial_data["access_token"],
             "created_at": "2022-01-01T00:00:00Z",
             "enabled": False,
-            "password_required": False,
             "settings": None,
         }
 
@@ -128,48 +124,6 @@ class TestSharing(APIBaseTest):
 
         assert response.json()["is_shared"]
         assert ActivityLog.objects.filter(scope="SharingConfiguration").count() == 0
-
-    @patch("posthog.api.sharing.render_template", wraps=render_template)
-    @patch("posthog.api.exports.exporter.export_asset.delay")
-    def test_can_edit_password(self, patched_exporter_task: Mock, mock_render: Mock):
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
-        ]
-        self.organization.save()
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
-            {"enabled": True, "password": "this is my password", "password_required": True},
-        )
-        data = response.json()
-        assert response.status_code == status.HTTP_200_OK
-        assert data["enabled"]
-        assert "this is my password" == data["password"]
-        assert data["password_required"]
-
-        response = self.client.get(f"/shared_dashboard/{data['access_token']}")
-        assert response.status_code == 200
-        mock_render.assert_called_once()
-        assert '{"type": "login"}' == mock_render.call_args[1]["context"]["exported_data"]
-
-        response = self.client.post(f"/shared_dashboard/{data['access_token']}", {"password": "this is not it"})
-        assert response.status_code == 401
-
-        response = self.client.post(f"/shared_dashboard/{data['access_token']}", {"password": "this is my password"})
-        assert response.status_code == 200
-
-    @patch("posthog.api.exports.exporter.export_asset.delay")
-    def test_password_required_is_premium(self, patched_exporter_task: Mock):
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
-            {"enabled": True, "password": "this is my password", "password_required": True},
-        )
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
-            {"enabled": True, "password": "this is my password", "password_required": False},
-        )
-        assert response.status_code == status.HTTP_200_OK
 
     @patch("posthog.api.exports.exporter.export_asset.delay")
     def test_can_edit_enabled_state_for_insight(self, patched_exporter_task: Mock):
@@ -984,54 +938,3 @@ class TestSharingConfigurationSerializerValidation(APIBaseTest):
 
         response = self.client.get(f"/shared/{access_token}")
         assert response.status_code == 404
-
-    @patch("posthog.api.sharing.render_template")
-    @patch("posthog.api.exports.exporter.export_asset.delay")
-    def test_jwt_token_cannot_be_used_for_different_share(self, patched_exporter_task: Mock, mock_render: Mock):
-        """Test that a JWT token for one password-protected share cannot be used to access a different share"""
-        # Enable advanced permissions feature
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
-        ]
-        self.organization.save()
-
-        # Create two different password-protected shares
-        # First dashboard share
-        response1 = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
-            {"enabled": True, "password": "password1", "password_required": True},
-        )
-        assert response1.status_code == status.HTTP_200_OK
-        share1_token = response1.json()["access_token"]
-
-        # Second dashboard - create another dashboard first
-        dashboard2 = Dashboard.objects.create(team=self.team, name="second dashboard", created_by=self.user)
-        response2 = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard2.id}/sharing",
-            {"enabled": True, "password": "password2", "password_required": True},
-        )
-        assert response2.status_code == status.HTTP_200_OK
-        share2_token = response2.json()["access_token"]
-
-        # Get JWT token for first share by providing correct password
-        auth_response = self.client.post(f"/shared/{share1_token}", {"password": "password1"})
-        assert auth_response.status_code == 200
-        jwt_token = auth_response.json()["shareToken"]
-
-        # Try to use the JWT token from share1 to access share2 - this should fail
-        response = self.client.get(f"/shared/{share2_token}", HTTP_AUTHORIZATION=f"Bearer {jwt_token}")
-        assert response.status_code == 404  # Should be NotFound because JWT doesn't match URL
-
-        # Verify the JWT token still works for its original share
-        response = self.client.get(f"/shared/{share1_token}", HTTP_AUTHORIZATION=f"Bearer {jwt_token}")
-        assert response.status_code == 200  # Should work fine
-
-        # Also test with cookie-based authentication
-        # Set the JWT as a cookie and try to access the wrong share
-        self.client.cookies["posthog_sharing_token"] = jwt_token
-        response = self.client.get(f"/shared/{share2_token}")
-        assert response.status_code == 404  # Should be NotFound
-
-        # But cookie should work for the correct share
-        response = self.client.get(f"/shared/{share1_token}")
-        assert response.status_code == 200  # Should work fine

@@ -334,8 +334,7 @@ class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, Any]]:
         if sharing_access_token := request.GET.get("sharing_access_token"):
             if request.method not in ["GET", "HEAD"]:
-                # Don't raise an exception, just don't authenticate
-                return None
+                raise AuthenticationFailed(detail="Sharing access token can only be used for GET requests.")
             try:
                 sharing_configuration = SharingConfiguration.objects.get(
                     access_token=sharing_access_token, enabled=True
@@ -347,8 +346,7 @@ class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
                     return None
 
             except SharingConfiguration.DoesNotExist:
-                # Don't raise an exception, just don't authenticate
-                return None
+                raise AuthenticationFailed(detail="Sharing access token is invalid.")
             else:
                 self.sharing_configuration = sharing_configuration
                 return (AnonymousUser(), None)
