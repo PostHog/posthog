@@ -27,8 +27,11 @@ class DatasetItem(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFi
     class Meta:
         ordering = ["-created_at", "id"]
         indexes = [
-            models.Index(fields=["dataset", "-created_at", "id"]),
             models.Index(fields=["team", "dataset", "-created_at", "id"]),
+            models.Index(fields=["team", "dataset", "-updated_at", "id"]),
+            GinIndex(name="llm_dataset_item_input_trgm", fields=["input"], opclasses=["gin_trgm_ops"]),
+            GinIndex(name="llm_dataset_item_output_trgm", fields=["output"], opclasses=["gin_trgm_ops"]),
+            GinIndex(name="llm_dataset_item_metadata_trgm", fields=["metadata"], opclasses=["gin_trgm_ops"]),
         ]
 
     objects: models.Manager["DatasetItem"]
