@@ -216,10 +216,10 @@ export interface HogFunctionTiming {
     duration_ms: number
 }
 
-export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'hog_overflow', 'hogflow', 'delay_24h'] as const
+export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'hog_overflow', 'hogflow', 'delay_10m', 'delay_60m', 'delay_24h'] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
 
-export const CYCLOTRON_JOB_QUEUE_SOURCES = ['postgres', 'kafka'] as const
+export const CYCLOTRON_JOB_QUEUE_SOURCES = ['postgres', 'kafka', 'delay'] as const
 export type CyclotronJobQueueSource = (typeof CYCLOTRON_JOB_QUEUE_SOURCES)[number]
 
 // Agnostic job invocation type
