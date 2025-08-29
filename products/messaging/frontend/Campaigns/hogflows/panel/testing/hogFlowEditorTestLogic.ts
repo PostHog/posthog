@@ -17,13 +17,12 @@ import {
     CyclotronJobInvocationGlobals,
     FilterLogicalOperator,
     PropertyFilterType,
+    PropertyGroupFilter,
     PropertyGroupFilterValue,
 } from '~/types'
-import { PropertyGroupFilter } from '~/types'
 
-import { CampaignLogicProps } from '../../campaignLogic'
-import { campaignLogic } from '../../campaignLogic'
-import { HogFlow } from '../types'
+import { CampaignLogicProps, campaignLogic } from '../../../campaignLogic'
+import { HogFlow } from '../../types'
 import type { hogFlowEditorTestLogicType } from './hogFlowEditorTestLogicType'
 
 export interface HogflowTestInvocation {

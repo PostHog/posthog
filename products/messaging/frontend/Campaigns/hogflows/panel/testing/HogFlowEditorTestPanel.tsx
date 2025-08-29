@@ -19,8 +19,8 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { urls } from 'scenes/urls'
 
-import { campaignLogic } from '../../campaignLogic'
-import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
+import { campaignLogic } from '../../../campaignLogic'
+import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import { hogFlowEditorTestLogic } from './hogFlowEditorTestLogic'
 
 export function HogFlowTestPanelNonSelected(): JSX.Element {

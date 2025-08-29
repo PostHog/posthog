@@ -3,9 +3,9 @@ import { useActions } from 'kea'
 import { IconDrag } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
-import { hogFlowEditorLogic } from './hogFlowEditorLogic'
-import { getHogFlowStep } from './steps/HogFlowSteps'
-import { HogFlowAction } from './types'
+import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
+import { getHogFlowStep } from '../steps/HogFlowSteps'
+import { HogFlowAction } from '../types'
 
 export const ACTION_NODES_TO_SHOW: HogFlowAction['type'][] = [
     'function_email',
