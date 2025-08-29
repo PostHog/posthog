@@ -29,6 +29,7 @@ export class SnapshotLoader {
         private sessionId: string,
         private options: SnapshotLoaderOptions,
         private sources: WithId<SessionRecordingSnapshotSource>[],
+        //@ts-expect-error
         private recording: SessionRecordingType
     ) {}
 

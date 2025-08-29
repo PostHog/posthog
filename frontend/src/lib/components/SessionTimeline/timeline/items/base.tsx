@@ -193,7 +193,7 @@ export abstract class SnapshotItemLoader<T extends TimelineItem> implements Item
     }
 
     private addSnapshots(snapshots: WithId<RecordingSnapshot>[]): void {
-        this.cache.add(snapshots.map(this.fromSnapshot).filter((item) => item !== null))
+        this.cache.add(snapshots.map(this.fromSnapshot).filter((item) => item !== null) as Array<T>)
     }
 
     abstract fromSnapshot(snapshot: WithId<RecordingSnapshot>): T | null
