@@ -52,7 +52,7 @@ from posthog.models import Cohort, FeatureFlag, Person
 from posthog.models.activity_logging.activity_log import Detail, dict_changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.cohort import CohortOrEmpty, DEFAULT_COHORT_INSERT_BATCH_SIZE
+from posthog.models.cohort import DEFAULT_COHORT_INSERT_BATCH_SIZE, CohortOrEmpty
 from posthog.models.cohort.util import get_dependent_cohorts, print_cohort_hogql_query
 from posthog.models.cohort.validation import CohortTypeValidationSerializer
 from posthog.models.feature_flag.flag_matching import (
@@ -790,6 +790,16 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         if len(uuids) == 0:
             raise ValidationError("No valid users to add to cohort")
         cohort.insert_users_list_by_uuid(uuids, team_id=self.team_id, insert_in_clickhouse=True)
+        log_activity(
+            organization_id=self.organization_id,
+            team_id=self.team_id,
+            user=request.user,
+            was_impersonated=is_impersonated_session(request),
+            item_id=str(cohort.id),
+            scope="Cohort",
+            activity="persons_added_manually",
+            detail=Detail(changes={"persons_added": len(uuids)}),
+        )
         return Response({"success": True}, status=200)
 
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
