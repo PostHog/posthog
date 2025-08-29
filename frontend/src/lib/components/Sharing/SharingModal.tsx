@@ -208,7 +208,7 @@ export function SharingModalContent({
                                             <div className="mt-1 w-full">
                                                 <SharePasswordsTable
                                                     dashboardId={dashboardId}
-                                                    insightShortId={insightShortId}
+                                                    insightId={insight?.id}
                                                     recordingId={recordingId}
                                                 />
                                             </div>

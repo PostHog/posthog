@@ -12,7 +12,7 @@ import { sharePasswordsLogic } from './sharePasswordsLogic'
 
 interface SharePasswordsTableProps {
     dashboardId?: number
-    insightShortId?: string
+    insightId?: number
     recordingId?: string
 }
 
@@ -23,12 +23,8 @@ export function useSharePasswordCount(props: SharePasswordsTableProps): number {
     return sharePasswords.length
 }
 
-export function SharePasswordsTable({
-    dashboardId,
-    insightShortId,
-    recordingId,
-}: SharePasswordsTableProps): JSX.Element {
-    const logicProps = { dashboardId, insightShortId, recordingId }
+export function SharePasswordsTable({ dashboardId, insightId, recordingId }: SharePasswordsTableProps): JSX.Element {
+    const logicProps = { dashboardId, insightId, recordingId }
     const logic = sharePasswordsLogic(logicProps)
 
     const values = useValues(logic)
@@ -199,7 +195,7 @@ export function SharePasswordsTable({
                                     <div className="text-sm">
                                         <strong>Important:</strong> Store this password securely. Anyone with this
                                         password will be able to access this{' '}
-                                        {dashboardId ? 'dashboard' : insightShortId ? 'insight' : 'recording'}.
+                                        {dashboardId ? 'dashboard' : insightId ? 'insight' : 'recording'}.
                                     </div>
                                 </div>
                             </div>

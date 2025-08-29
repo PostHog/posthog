@@ -3,9 +3,6 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { getInsightId } from 'scenes/insights/utils'
-
-import { InsightShortId } from '~/types'
 
 import type { sharePasswordsLogicType } from './sharePasswordsLogicType'
 
@@ -19,7 +16,7 @@ export interface SharePassword {
 
 export interface SharePasswordsLogicProps {
     dashboardId?: number
-    insightShortId?: string
+    insightId?: number
     recordingId?: string
 }
 
@@ -27,8 +24,8 @@ export const sharePasswordsLogic = kea<sharePasswordsLogicType>([
     path(['lib', 'components', 'Sharing', 'sharePasswordsLogic']),
     props({} as SharePasswordsLogicProps),
     key(
-        ({ dashboardId, insightShortId, recordingId }) =>
-            `${dashboardId || 'no-dashboard'}-${insightShortId || 'no-insight'}-${recordingId || 'no-recording'}`
+        ({ dashboardId, insightId, recordingId }) =>
+            `${dashboardId || 'no-dashboard'}-${insightId || 'no-insight'}-${recordingId || 'no-recording'}`
     ),
 
     actions({
@@ -46,12 +43,9 @@ export const sharePasswordsLogic = kea<sharePasswordsLogicType>([
         sharePasswords: {
             __default: [] as SharePassword[],
             loadSharePasswords: async (): Promise<SharePassword[]> => {
-                const insightId = props.insightShortId
-                    ? await getInsightId(props.insightShortId as InsightShortId)
-                    : undefined
                 const response = await api.sharing.get({
                     dashboardId: props.dashboardId,
-                    insightId,
+                    insightId: props.insightId,
                     recordingId: props.recordingId,
                 })
                 return (response && (response as any).share_passwords) || []
@@ -88,13 +82,10 @@ export const sharePasswordsLogic = kea<sharePasswordsLogicType>([
     listeners(({ actions, props }) => ({
         createPassword: async ({ password, note }) => {
             try {
-                const insightId = props.insightShortId
-                    ? await getInsightId(props.insightShortId as InsightShortId)
-                    : undefined
                 const response = await api.sharing.createPassword(
                     {
                         dashboardId: props.dashboardId,
-                        insightId,
+                        insightId: props.insightId,
                         recordingId: props.recordingId,
                     },
                     {
@@ -123,13 +114,10 @@ export const sharePasswordsLogic = kea<sharePasswordsLogicType>([
 
         deletePassword: async ({ passwordId }) => {
             try {
-                const insightId = props.insightShortId
-                    ? await getInsightId(props.insightShortId as InsightShortId)
-                    : undefined
                 await api.sharing.deletePassword(
                     {
                         dashboardId: props.dashboardId,
-                        insightId,
+                        insightId: props.insightId,
                         recordingId: props.recordingId,
                     },
                     passwordId
