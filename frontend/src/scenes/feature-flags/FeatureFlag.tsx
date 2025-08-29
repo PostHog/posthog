@@ -83,6 +83,7 @@ import {
     ReplayTabs,
 } from '~/types'
 
+import { EditableWebhookForm } from './EditableWebhookForm'
 import { AnalysisTab } from './FeatureFlagAnalysisTab'
 import { FeatureFlagAutoRollback } from './FeatureFlagAutoRollout'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
@@ -90,6 +91,7 @@ import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
 import { FeatureFlagStatusIndicator } from './FeatureFlagStatusIndicator'
+import { FeatureFlagSubscribeTab } from './FeatureFlagSubscribeTab'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 import { FeatureFlagLogicProps, featureFlagLogic, getRecordingFilterForFlagVariant } from './featureFlagLogic'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
@@ -234,6 +236,12 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
             content: <FeatureFlagSchedule />,
         })
     }
+
+    tabs.push({
+        label: 'Subscribe',
+        key: FeatureFlagsTab.SUBSCRIBE,
+        content: <FeatureFlagSubscribeTab featureFlag={featureFlag} />,
+    })
 
     if (featureFlags[FEATURE_FLAGS.FF_DASHBOARD_TEMPLATES] && featureFlag.key && id) {
         tabs.push({
@@ -449,6 +457,8 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                         )}
 
                         <FeatureFlagCodeExample featureFlag={featureFlag} />
+                        <LemonDivider />
+                        <EditableWebhookForm />
                         <LemonDivider />
                         {isNewFeatureFlag && (
                             <>
