@@ -1,4 +1,5 @@
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -24,7 +25,18 @@ from posthog.models.web_preaggregated.sql import (
 class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase, FloatAwareTestCase):
     def setUp(self):
         super().setUp()
+        # Mock the date range validation to return True for easier testing
+        # (In reality, teams can be enabled through multiple strategies - see team_selection_strategies.py)
+        self._date_range_patcher = patch(
+            "posthog.hogql_queries.web_analytics.pre_aggregated.query_builder.WebAnalyticsPreAggregatedQueryBuilder.can_use_date_range",
+            return_value=True,
+        )
+        self._date_range_patcher.start()
         self._create_test_tables()
+
+    def tearDown(self):
+        self._date_range_patcher.stop()
+        super().tearDown()
 
     def _create_test_tables(self):
         sync_execute(WEB_STATS_DAILY_SQL())
@@ -480,3 +492,388 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase, Fl
 
         finally:
             india_team.delete()
+
+    def _add_extra_timezone_boundary_events(self, team):
+        """Add events that extend well into Jan 16 to cover timezone boundaries"""
+        # Add events throughout Jan 16 to ensure PST timezone coverage
+        additional_events = [
+            # Jan 16 early morning (covers PST evening of Jan 15)
+            ("2024-01-16T02:00:00Z", "Chrome", "boundary_user_1", "jan16_02h"),
+            ("2024-01-16T04:00:00Z", "Safari", "boundary_user_2", "jan16_04h"),
+            ("2024-01-16T06:00:00Z", "Firefox", "boundary_user_3", "jan16_06h"),
+            ("2024-01-16T08:00:00Z", "Edge", "boundary_user_4", "jan16_08h"),
+            ("2024-01-16T10:00:00Z", "Chrome", "boundary_user_5", "jan16_10h"),
+            ("2024-01-16T12:00:00Z", "Safari", "boundary_user_6", "jan16_12h"),
+            ("2024-01-16T14:00:00Z", "Firefox", "boundary_user_7", "jan16_14h"),
+            ("2024-01-16T16:00:00Z", "Edge", "boundary_user_8", "jan16_16h"),
+        ]
+
+        sessions = [str(uuid7("2024-01-16")) for _ in range(len(additional_events))]
+
+        # Create additional users
+        for i in range(len(additional_events)):
+            _create_person(team_id=team.pk, distinct_ids=[f"boundary_user_{i+1}"])
+
+        # Create additional events
+        for i, (timestamp, browser, user_id, label) in enumerate(additional_events):
+            _create_event(
+                team=team,
+                event="$pageview",
+                distinct_id=user_id,
+                timestamp=timestamp,
+                properties={
+                    "$session_id": sessions[i],
+                    "$current_url": f"https://example.com/{label}",
+                    "$pathname": f"/{label}",
+                    "$device_type": "Desktop",
+                    "$browser": browser,
+                    "$host": "example.com",
+                    "test_label": label,
+                },
+            )
+
+        flush_persons_and_events()
+
+    def test_can_use_date_range_timezone_integration(self):
+        """Test can_use_date_range function works correctly across different timezones with real data"""
+        utc_team = self._create_timezone_team("UTC")
+        pst_team = self._create_timezone_team("America/Los_Angeles")  # UTC-8
+        tokyo_team = self._create_timezone_team("Asia/Tokyo")  # UTC+9
+
+        try:
+            # Temporarily stop the date range mock for this test
+            self._date_range_patcher.stop()
+
+            # Setup test data that covers timezone boundaries
+            teams = [utc_team, pst_team, tokyo_team]
+            for team in teams:
+                self._setup_cross_timezone_test_data(team)
+                self._add_extra_timezone_boundary_events(team)
+                self._populate_preaggregated_tables(team)
+
+            from posthog.schema import WebOverviewQuery
+
+            from posthog.hogql_queries.web_analytics.pre_aggregated.query_builder import (
+                WebAnalyticsPreAggregatedQueryBuilder,
+            )
+            from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
+
+            # Test 1: Date range that should be available (Jan 15 - within our test data)
+            for team in teams:
+                query = WebOverviewQuery(
+                    dateRange=DateRange(date_from="2024-01-15", date_to="2024-01-15"),
+                    properties=[],
+                )
+                runner = WebOverviewQueryRunner(team=team, query=query)
+                builder = WebAnalyticsPreAggregatedQueryBuilder(runner, supported_props_filters={})
+
+                can_use_available = builder.can_use_date_range()
+                assert can_use_available, f"Should be able to use date range for {team.timezone} - data available"
+
+            # Test 2: Date range that should NOT be available (far in the future)
+            for team in teams:
+                query = WebOverviewQuery(
+                    dateRange=DateRange(date_from="2025-12-01", date_to="2025-12-01"),
+                    properties=[],
+                )
+                runner = WebOverviewQueryRunner(team=team, query=query)
+                builder = WebAnalyticsPreAggregatedQueryBuilder(runner, supported_props_filters={})
+
+                can_use_unavailable = builder.can_use_date_range()
+                assert not can_use_unavailable, f"Should NOT be able to use future date range for {team.timezone}"
+
+            # Test 3: Date range that should NOT be available (far in the past)
+            for team in teams:
+                query = WebOverviewQuery(
+                    dateRange=DateRange(date_from="2020-01-01", date_to="2020-01-01"),
+                    properties=[],
+                )
+                runner = WebOverviewQueryRunner(team=team, query=query)
+                builder = WebAnalyticsPreAggregatedQueryBuilder(runner, supported_props_filters={})
+
+                can_use_past = builder.can_use_date_range()
+                assert not can_use_past, f"Should NOT be able to use past date range for {team.timezone}"
+
+        finally:
+            # Restart the date range mock for other tests
+            self._date_range_patcher.start()
+            for team in teams:
+                team.delete()
+
+    def test_can_use_date_range_v2_tables_integration(self):
+        """Test can_use_date_range works with v2 tables (web_pre_aggregated_*) and timezone handling"""
+        team = self._create_timezone_team("Europe/Berlin")  # UTC+1
+
+        try:
+            # Temporarily stop the date range mock for this test
+            self._date_range_patcher.stop()
+
+            # Create v2 tables
+            from posthog.models.web_preaggregated.sql import WEB_BOUNCES_SQL, WEB_STATS_SQL
+
+            sync_execute(WEB_STATS_SQL())
+            sync_execute(WEB_BOUNCES_SQL())
+
+            # Setup test data and populate v2 tables
+            self._setup_cross_timezone_test_data(team)
+            self._add_extra_timezone_boundary_events(team)
+
+            # For v2 tables, populate with hourly granularity to the v2 table names
+            stats_insert_v2 = WEB_STATS_INSERT_SQL(
+                date_start="2024-01-14",
+                date_end="2024-01-17",
+                team_ids=[team.pk],
+                granularity="hourly",
+                table_name="web_pre_aggregated_stats",
+            )
+            bounces_insert_v2 = WEB_BOUNCES_INSERT_SQL(
+                date_start="2024-01-14",
+                date_end="2024-01-17",
+                team_ids=[team.pk],
+                granularity="hourly",
+                table_name="web_pre_aggregated_bounces",
+            )
+            sync_execute(stats_insert_v2)
+            sync_execute(bounces_insert_v2)
+
+            # Also populate v1 tables for comparison test
+            stats_insert_v1 = WEB_STATS_INSERT_SQL(
+                date_start="2024-01-14",
+                date_end="2024-01-17",
+                team_ids=[team.pk],
+                granularity="daily",
+                table_name="web_stats_daily",
+            )
+            bounces_insert_v1 = WEB_BOUNCES_INSERT_SQL(
+                date_start="2024-01-14",
+                date_end="2024-01-17",
+                team_ids=[team.pk],
+                granularity="daily",
+                table_name="web_bounces_daily",
+            )
+            sync_execute(stats_insert_v1)
+            sync_execute(bounces_insert_v1)
+
+            from posthog.schema import WebOverviewQuery
+
+            from posthog.hogql_queries.web_analytics.pre_aggregated.query_builder import (
+                WebAnalyticsPreAggregatedQueryBuilder,
+            )
+            from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
+
+            # Test 1: v2 tables should work with available dates
+            query = WebOverviewQuery(
+                dateRange=DateRange(date_from="2024-01-15", date_to="2024-01-15"),
+                properties=[],
+            )
+            runner = WebOverviewQueryRunner(team=team, query=query, use_v2_tables=True)
+            builder = WebAnalyticsPreAggregatedQueryBuilder(runner, supported_props_filters={})
+
+            can_use_v2 = builder.can_use_date_range()
+            assert can_use_v2, f"Should be able to use date range with v2 tables for {team.timezone}"
+
+            # Test 2: v1 vs v2 cache keys should be different
+            from posthog.hogql_queries.web_analytics.pre_aggregated.date_range import WebAnalyticsPreAggregatedDateRange
+
+            v2_checker = WebAnalyticsPreAggregatedDateRange(team=team, use_v2_tables=True)
+            v1_checker = WebAnalyticsPreAggregatedDateRange(team=team, use_v2_tables=False)
+
+            v2_cache_key = v2_checker._get_cache_key()
+            v1_cache_key = v1_checker._get_cache_key()
+            assert v2_cache_key != v1_cache_key, "v1 and v2 should have different cache keys"
+
+            # Test 3: Both v1 and v2 should work with the same date range
+            v1_runner = WebOverviewQueryRunner(team=team, query=query, use_v2_tables=False)
+            v1_builder = WebAnalyticsPreAggregatedQueryBuilder(v1_runner, supported_props_filters={})
+
+            can_use_v1 = v1_builder.can_use_date_range()
+            assert can_use_v1, f"Should be able to use date range with v1 tables for {team.timezone}"
+
+        finally:
+            # Restart the date range mock for other tests
+            self._date_range_patcher.start()
+            team.delete()
+
+
+class TestCanUseDateRangeTimezones(WebAnalyticsPreAggregatedTestBase):
+    """Dedicated test class for can_use_date_range timezone functionality without snapshots"""
+
+    def setUp(self):
+        super().setUp()
+        self._create_test_tables()
+
+    def _create_test_tables(self):
+        sync_execute(WEB_STATS_DAILY_SQL())
+        sync_execute(WEB_BOUNCES_DAILY_SQL())
+        sync_execute(WEB_STATS_HOURLY_SQL())
+        sync_execute(WEB_BOUNCES_HOURLY_SQL())
+
+    def _setup_test_data(self):
+        pass  # Each test handles its own data setup
+
+    def _create_timezone_team(self, timezone_name: str):
+        return Team.objects.create(
+            organization=self.organization, name=f"Team {timezone_name.replace('/', '_')}", timezone=timezone_name
+        )
+
+    def _add_extra_timezone_boundary_events(self, team):
+        """Add events that extend well into Jan 16 to cover timezone boundaries"""
+        # Add events throughout Jan 16 to ensure PST timezone coverage
+        additional_events = [
+            # Jan 16 early morning (covers PST evening of Jan 15)
+            ("2024-01-16T02:00:00Z", "Chrome", "boundary_user_1", "jan16_02h"),
+            ("2024-01-16T04:00:00Z", "Safari", "boundary_user_2", "jan16_04h"),
+            ("2024-01-16T06:00:00Z", "Firefox", "boundary_user_3", "jan16_06h"),
+            ("2024-01-16T08:00:00Z", "Edge", "boundary_user_4", "jan16_08h"),
+            ("2024-01-16T10:00:00Z", "Chrome", "boundary_user_5", "jan16_10h"),
+            ("2024-01-16T12:00:00Z", "Safari", "boundary_user_6", "jan16_12h"),
+            ("2024-01-16T14:00:00Z", "Firefox", "boundary_user_7", "jan16_14h"),
+            ("2024-01-16T16:00:00Z", "Edge", "boundary_user_8", "jan16_16h"),
+        ]
+
+        sessions = [str(uuid7("2024-01-16")) for _ in range(len(additional_events))]
+
+        # Create additional users
+        for i in range(len(additional_events)):
+            _create_person(team_id=team.pk, distinct_ids=[f"boundary_user_{i+1}"])
+
+        # Create additional events
+        for i, (timestamp, browser, user_id, label) in enumerate(additional_events):
+            _create_event(
+                team=team,
+                event="$pageview",
+                distinct_id=user_id,
+                timestamp=timestamp,
+                properties={
+                    "$session_id": sessions[i],
+                    "$current_url": f"https://example.com/{label}",
+                    "$pathname": f"/{label}",
+                    "$device_type": "Desktop",
+                    "$browser": browser,
+                    "$host": "example.com",
+                    "test_label": label,
+                },
+            )
+
+        flush_persons_and_events()
+
+    def _setup_cross_timezone_test_data(self, team):
+        # Create events across multiple days with timezone-aware timestamps
+        events = [
+            # Day 1: Jan 14 - Events that will cross timezone boundaries
+            ("2024-01-14T06:00:00Z", "Chrome", "user_1", "early_utc"),
+            ("2024-01-14T12:00:00Z", "Safari", "user_2", "midday_utc"),
+            ("2024-01-14T18:00:00Z", "Firefox", "user_3", "evening_utc"),
+            ("2024-01-14T23:30:00Z", "Edge", "user_4", "late_utc"),
+            # Day 2: Jan 15 - Main test day
+            ("2024-01-15T03:00:00Z", "Chrome", "user_5", "early_jan15"),
+            ("2024-01-15T09:00:00Z", "Safari", "user_6", "morning_jan15"),
+            ("2024-01-15T15:00:00Z", "Firefox", "user_7", "afternoon_jan15"),
+            ("2024-01-15T21:00:00Z", "Edge", "user_8", "night_jan15"),
+            # Day 3: Jan 16 - Events for boundary testing
+            ("2024-01-16T02:00:00Z", "Chrome", "user_9", "jan16_early"),
+            ("2024-01-16T14:00:00Z", "Safari", "user_10", "jan16_afternoon"),
+        ]
+
+        sessions = [str(uuid7("2024-01-15")) for _ in range(len(events))]
+
+        # Create users
+        for i in range(len(events)):
+            _create_person(team_id=team.pk, distinct_ids=[f"user_{i+1}"])
+
+        # Create events with properties
+        for i, (timestamp, browser, user_id, label) in enumerate(events):
+            _create_event(
+                team=team,
+                event="$pageview",
+                distinct_id=user_id,
+                timestamp=timestamp,
+                properties={
+                    "$session_id": sessions[i],
+                    "$current_url": f"https://example.com/{label}",
+                    "$pathname": f"/{label}",
+                    "$device_type": "Desktop",
+                    "$browser": browser,
+                    "$host": "example.com",
+                    "test_label": label,
+                },
+            )
+
+        flush_persons_and_events()
+
+    def _populate_preaggregated_tables(self, team):
+        stats_insert = WEB_STATS_INSERT_SQL(
+            date_start="2024-01-14",  # Start earlier to catch cross-day timezone buckets
+            date_end="2024-01-17",  # End later to catch cross-day timezone buckets
+            team_ids=[team.pk],
+            granularity="hourly",
+        )
+        bounces_insert = WEB_BOUNCES_INSERT_SQL(
+            date_start="2024-01-14",
+            date_end="2024-01-17",
+            team_ids=[team.pk],
+            granularity="hourly",
+        )
+        sync_execute(stats_insert)
+        sync_execute(bounces_insert)
+
+    def test_can_use_date_range_timezone_comprehensive(self):
+        """Comprehensive test of can_use_date_range across timezones and table formats"""
+        utc_team = self._create_timezone_team("UTC")
+        pst_team = self._create_timezone_team("America/Los_Angeles")  # UTC-8
+        tokyo_team = self._create_timezone_team("Asia/Tokyo")  # UTC+9
+
+        try:
+            # Setup test data that covers timezone boundaries
+            teams = [utc_team, pst_team, tokyo_team]
+            for team in teams:
+                self._setup_cross_timezone_test_data(team)
+                self._add_extra_timezone_boundary_events(team)
+                self._populate_preaggregated_tables(team)
+
+            from posthog.schema import WebOverviewQuery
+
+            from posthog.hogql_queries.web_analytics.pre_aggregated.query_builder import (
+                WebAnalyticsPreAggregatedQueryBuilder,
+            )
+            from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
+
+            # Test 1: Available date range should work for all timezones
+            for team in teams:
+                query = WebOverviewQuery(
+                    dateRange=DateRange(date_from="2024-01-15", date_to="2024-01-15"),
+                    properties=[],
+                )
+                runner = WebOverviewQueryRunner(team=team, query=query)
+                builder = WebAnalyticsPreAggregatedQueryBuilder(runner, supported_props_filters={})
+
+                can_use_available = builder.can_use_date_range()
+                assert can_use_available, f"Should be able to use available date range for {team.timezone}"
+
+            # Test 2: Future date should fail for all timezones
+            for team in teams:
+                query = WebOverviewQuery(
+                    dateRange=DateRange(date_from="2025-12-01", date_to="2025-12-01"),
+                    properties=[],
+                )
+                runner = WebOverviewQueryRunner(team=team, query=query)
+                builder = WebAnalyticsPreAggregatedQueryBuilder(runner, supported_props_filters={})
+
+                can_use_future = builder.can_use_date_range()
+                assert not can_use_future, f"Should NOT be able to use future date range for {team.timezone}"
+
+            # Test 3: Past date should fail for all timezones
+            for team in teams:
+                query = WebOverviewQuery(
+                    dateRange=DateRange(date_from="2020-01-01", date_to="2020-01-01"),
+                    properties=[],
+                )
+                runner = WebOverviewQueryRunner(team=team, query=query)
+                builder = WebAnalyticsPreAggregatedQueryBuilder(runner, supported_props_filters={})
+
+                can_use_past = builder.can_use_date_range()
+                assert not can_use_past, f"Should NOT be able to use past date range for {team.timezone}"
+
+        finally:
+            for team in teams:
+                team.delete()
