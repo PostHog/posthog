@@ -3,8 +3,8 @@ import { useActions, useValues } from 'kea'
 import { LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 
+import { JSONEditor } from '../components/JSONEditor'
 import { llmAnalyticsDatasetLogic } from './llmAnalyticsDatasetLogic'
 
 export function EditDatasetForm(): JSX.Element {
@@ -39,12 +39,11 @@ export function EditDatasetForm(): JSX.Element {
                     showOptional
                     help="Additional key-value pairs to store with the dataset"
                 >
-                    <JSONEditorInput
+                    <JSONEditor
                         value={datasetForm.metadata}
                         onChange={(code) => {
                             setDatasetFormValue('metadata', code)
                         }}
-                        placeholder="Enter JSON metadata"
                     />
                 </LemonField>
             </div>

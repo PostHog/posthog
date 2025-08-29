@@ -13,7 +13,7 @@ import { Breadcrumb, Dataset, DatasetItem } from '~/types'
 
 import type { llmAnalyticsDatasetLogicType } from './llmAnalyticsDatasetLogicType'
 import { llmAnalyticsDatasetsLogic } from './llmAnalyticsDatasetsLogic'
-import { EMPTY_JSON, corseJsonToObject, isStringJsonObject } from './utils'
+import { EMPTY_JSON, corseJsonToObject, isStringJsonObject, prettifyJson } from './utils'
 
 export interface DatasetLogicProps {
     datasetId: string | 'new'
@@ -64,6 +64,7 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
         deleteDatasetItem: (itemId: string) => ({ itemId }),
         triggerDatasetItemModal: (open: boolean) => ({ open }),
         setSelectedDatasetItem: (datasetItem: DatasetItem) => ({ datasetItem }),
+        closeModalAndRefetchDatasetItems: (action?: 'create' | 'update') => ({ action }),
     }),
 
     reducers(({ props }) => ({
@@ -106,6 +107,7 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
             false as boolean,
             {
                 triggerDatasetItemModal: (_, { open }) => open,
+                closeModalAndRefetchDatasetItems: () => false,
             },
         ],
 
@@ -115,12 +117,14 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
                 setSelectedDatasetItem: (_, { datasetItem }) => datasetItem,
                 // Reset the selected dataset item when the modal is closed
                 triggerDatasetItemModal: (state, { open }) => (open ? state : null),
+                closeModalAndRefetchDatasetItems: () => null,
             },
         ],
     })),
 
     loaders(({ props, values }) => ({
         dataset: {
+            __default: null as Dataset | DatasetFormValues | null,
             loadDataset: async () => {
                 try {
                     const dataset = await api.datasets.get(props.datasetId)
@@ -311,6 +315,12 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
                 actions.loadDatasetItems()
             }
         },
+
+        closeModalAndRefetchDatasetItems: (action) => {
+            if (action) {
+                actions.loadDatasetItems()
+            }
+        },
     })),
 
     urlToAction(({ actions, values }) => ({
@@ -386,14 +396,9 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
  * @returns The default form values
  */
 function getDatasetFormDefaults(dataset: Dataset): DatasetFormValues {
-    let meta = dataset.metadata ? JSON.stringify(dataset.metadata, null, 2) : null
-    if (meta === '{}') {
-        meta = EMPTY_JSON
-    }
-
     return {
         name: dataset.name,
         description: dataset.description || '',
-        metadata: meta || EMPTY_JSON,
+        metadata: prettifyJson(dataset.metadata) || EMPTY_JSON,
     }
 }

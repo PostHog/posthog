@@ -12,7 +12,7 @@ export function corseJsonToObject(maybeJson: string | null): Record<string, any>
     try {
         const parsedObject = JSON.parse(maybeJson)
         // Regular object or null
-        if (typeof parsedObject === 'object') {
+        if (typeof parsedObject === 'object' && Object.keys(parsedObject).length > 0) {
             return parsedObject as Record<string, any>
         }
         return null
@@ -39,4 +39,17 @@ export function isStringJsonObject(maybeJson: string | null): boolean {
         return false
     }
     return true
+}
+
+/**
+ * Convert a JSON object to a string with pretty formatting.
+ * @param json - The JSON object to convert
+ * @returns The stringified JSON object or null
+ */
+export function prettifyJson(json?: Record<string, any> | null): string | null {
+    let stringified = json ? JSON.stringify(json, null, 2) : null
+    if (stringified === '{}') {
+        stringified = EMPTY_JSON
+    }
+    return stringified
 }

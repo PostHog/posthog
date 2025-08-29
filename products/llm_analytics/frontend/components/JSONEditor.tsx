@@ -1,6 +1,8 @@
-import React, { useCallback, useMemo, useState } from 'react'
+import React, { useCallback, useLayoutEffect, useMemo, useState } from 'react'
 
 import { CodeEditor, CodeEditorProps } from 'lib/monaco/CodeEditor'
+
+import { corseJsonToObject } from '../datasets/utils'
 
 export interface JSONEditorProps {
     onChange?: (val: string | undefined) => void
@@ -9,6 +11,7 @@ export interface JSONEditorProps {
     value?: string
     readOnly?: boolean
     maxNumberOfLines?: number
+    autoFocus?: boolean
 }
 
 export const JSONEditor = React.memo(
@@ -19,14 +22,15 @@ export const JSONEditor = React.memo(
         maxNumberOfLines = 24,
         value = '',
         readOnly = false,
+        autoFocus = false,
     }: JSONEditorProps): JSX.Element => {
         const valString = value?.toString() || ''
         const defaultLines = Math.max(defaultNumberOfLines, valString.split(/\r\n|\r|\n/).length) + 1
         const defaultHeight = lineHeight * defaultLines
         const [height, setHeight] = useState(defaultHeight)
 
-        const onTextChange = useCallback(
-            (val: string | undefined): void => {
+        const updateHeight = useCallback(
+            (val: string | undefined) => {
                 if (val) {
                     const lineCount = val.split(/\r\n|\r|\n/).length
                     const newLineCount = Math.min(Math.max(lineCount, defaultNumberOfLines), maxNumberOfLines) + 1
@@ -34,12 +38,27 @@ export const JSONEditor = React.memo(
                 } else {
                     setHeight(lineHeight * (defaultNumberOfLines + 1))
                 }
+            },
+            [valString, defaultNumberOfLines, lineHeight, maxNumberOfLines]
+        )
+
+        // Reset height if the value was reset.
+        useLayoutEffect(() => {
+            const obj = corseJsonToObject(value)
+            if (!obj && height !== defaultHeight) {
+                updateHeight(value)
+            }
+        }, [value, height, defaultHeight, updateHeight])
+
+        const onTextChange = useCallback(
+            (val: string | undefined): void => {
+                updateHeight(val)
 
                 if (onChange) {
                     onChange(val)
                 }
             },
-            [onChange, defaultNumberOfLines, lineHeight, maxNumberOfLines]
+            [onChange, defaultNumberOfLines, lineHeight, maxNumberOfLines, updateHeight]
         )
 
         const options = useMemo((): CodeEditorProps['options'] => {
@@ -80,6 +99,7 @@ export const JSONEditor = React.memo(
                 value={value}
                 options={options}
                 onChange={onTextChange}
+                autoFocus={autoFocus}
             />
         )
     }

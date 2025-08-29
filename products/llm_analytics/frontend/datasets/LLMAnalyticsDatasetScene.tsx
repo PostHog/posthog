@@ -19,10 +19,11 @@ import { ScenePanel, ScenePanelActions, ScenePanelDivider, ScenePanelMetaInfo } 
 import { SceneTextInput } from '~/lib/components/Scenes/SceneTextInput'
 import { SceneTextarea } from '~/lib/components/Scenes/SceneTextarea'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
-import { DatasetItem } from '~/types'
+import { Dataset, DatasetItem } from '~/types'
 
 import { DatasetItemModal } from './DatasetItemModal'
 import { EditDatasetForm } from './EditDatasetForm'
+import { JSONColumn } from './JSONColumn'
 import { RefreshButton } from './RefreshButton'
 import { DatasetLogicProps, DatasetTab, llmAnalyticsDatasetLogic } from './llmAnalyticsDatasetLogic'
 
@@ -37,8 +38,15 @@ export const scene: SceneExport<DatasetLogicProps> = {
 }
 
 export function LLMAnalyticsDatasetScene(): JSX.Element {
-    const { datasetLoading, isDatasetFormSubmitting, isEditingDataset, datasetMissing, isNewDataset, datasetForm } =
-        useValues(llmAnalyticsDatasetLogic)
+    const {
+        datasetLoading,
+        isDatasetFormSubmitting,
+        isEditingDataset,
+        datasetMissing,
+        isNewDataset,
+        datasetForm,
+        dataset,
+    } = useValues(llmAnalyticsDatasetLogic)
     const { submitDatasetForm, loadDataset, editDataset, deleteDataset, setDatasetFormValue, triggerDatasetItemModal } =
         useActions(llmAnalyticsDatasetLogic)
 
@@ -171,14 +179,14 @@ export function LLMAnalyticsDatasetScene(): JSX.Element {
                 </ScenePanelActions>
             </ScenePanel>
 
-            {displayEditForm ? <EditDatasetForm /> : <DatasetTabs />}
+            {displayEditForm ? <EditDatasetForm /> : dataset ? <DatasetTabs dataset={dataset} /> : null}
         </Form>
     )
 }
 
-function DatasetTabs(): JSX.Element {
-    const { activeTab, dataset, isDatasetItemModalOpen, selectedDatasetItem } = useValues(llmAnalyticsDatasetLogic)
-    const { triggerDatasetItemModal } = useActions(llmAnalyticsDatasetLogic)
+function DatasetTabs({ dataset }: { dataset: Dataset }): JSX.Element {
+    const { activeTab, isDatasetItemModalOpen, selectedDatasetItem } = useValues(llmAnalyticsDatasetLogic)
+    const { closeModalAndRefetchDatasetItems } = useActions(llmAnalyticsDatasetLogic)
     const { searchParams } = useValues(router)
 
     const tabs: LemonTab<DatasetTab>[] = [
@@ -206,8 +214,9 @@ function DatasetTabs(): JSX.Element {
 
             <DatasetItemModal
                 isOpen={isDatasetItemModalOpen}
-                onClose={() => triggerDatasetItemModal(false)}
+                onClose={closeModalAndRefetchDatasetItems}
                 datasetItem={selectedDatasetItem}
+                datasetId={dataset.id}
             />
         </>
     )
@@ -235,7 +244,7 @@ function DatasetItems(): JSX.Element {
             width: '15%',
             render: function renderRefTraceId(_, item) {
                 if (!item.ref_trace_id || !item.ref_span_id || !item.ref_trace_timestamp) {
-                    return <span>–</span>
+                    return <span>—</span>
                 }
 
                 return (
@@ -255,15 +264,8 @@ function DatasetItems(): JSX.Element {
             dataIndex: 'input',
             key: 'input',
             width: '30%',
-            render: function renderInput(input) {
-                if (!input) {
-                    return <span>–</span>
-                }
-                return (
-                    <pre className="bg-bg-light px-2 py-1 rounded text-xs max-h-20 overflow-auto whitespace-pre-wrap">
-                        {JSON.stringify(input, null, 2)}
-                    </pre>
-                )
+            render: function renderInput(_, item) {
+                return <JSONColumn>{item.input}</JSONColumn>
             },
         },
         {
@@ -271,15 +273,8 @@ function DatasetItems(): JSX.Element {
             dataIndex: 'output',
             key: 'output',
             width: '30%',
-            render: function renderOutput(output) {
-                if (!output) {
-                    return <span>–</span>
-                }
-                return (
-                    <pre className="bg-bg-light px-2 py-1 rounded text-xs max-h-20 overflow-auto whitespace-pre-wrap">
-                        {JSON.stringify(output, null, 2)}
-                    </pre>
-                )
+            render: function renderOutput(_, item) {
+                return <JSONColumn>{item.output}</JSONColumn>
             },
         },
         {
@@ -287,15 +282,8 @@ function DatasetItems(): JSX.Element {
             dataIndex: 'metadata',
             key: 'metadata',
             width: '25%',
-            render: function renderMetadata(metadata) {
-                if (!metadata) {
-                    return <span>–</span>
-                }
-                return (
-                    <pre className="bg-bg-light px-2 py-1 rounded text-xs max-h-20 overflow-auto whitespace-pre-wrap">
-                        {JSON.stringify(metadata, null, 2)}
-                    </pre>
-                )
+            render: function renderMetadata(_, item) {
+                return <JSONColumn>{item.metadata}</JSONColumn>
             },
         },
         {

@@ -19,8 +19,23 @@ logger = structlog.get_logger(__name__)
 class DatasetSerializer(serializers.ModelSerializer):
     class Meta:
         model = Dataset
-        fields = ["id", "name", "description", "metadata", "created_at", "updated_at", "deleted", "created_by"]
-        read_only_fields = ["id", "created_at", "updated_at", "team", "created_by"]
+        fields = [
+            "id",
+            "name",
+            "description",
+            "metadata",
+            "created_at",
+            "updated_at",
+            "deleted",
+            "created_by",
+        ]
+        read_only_fields = [
+            "id",
+            "created_at",
+            "updated_at",
+            "team",
+            "created_by",
+        ]
 
     created_by = UserBasicSerializer(read_only=True)
 
@@ -78,8 +93,19 @@ class DatasetItemSerializer(serializers.ModelSerializer):
             "ref_trace_timestamp",
             "ref_span_id",
             "deleted",
+            "created_at",
+            "updated_at",
+            "created_by",
         ]
-        read_only_fields = ["id", "created_at", "updated_at", "team", "created_by"]
+        read_only_fields = [
+            "id",
+            "created_at",
+            "updated_at",
+            "team",
+            "created_by",
+        ]
+
+    created_by = UserBasicSerializer(read_only=True)
 
     def create(self, validated_data: dict, *args, **kwargs):
         request = self.context["request"]
