@@ -49,8 +49,6 @@ SCRAPING_INITIAL_MESSAGE = (
 
 ENQUIRY_INITIAL_MESSAGE = "Let me now ask you a few questions to help me understand your project better…"
 
-SCRAPING_SUCCESS_MESSAGE = "**Here's what I found on {domains_or_bundle_ids}:**\n\n"
-
 SCRAPING_VERIFICATION_MESSAGE = "Does this look like a good summary of what your project does?"
 
 SCRAPING_CONFIRMATION_MESSAGE = "Yes, save this"
