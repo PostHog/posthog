@@ -39,7 +39,7 @@ export class CyclotronJobQueueDelay {
         const topic = `cdp_cyclotron_${this.queue}`
 
         // NOTE: As there is only ever one consumer per process we use the KAFKA_CONSUMER_ vars as with any other consumer
-        this.kafkaConsumer = new KafkaConsumer({ groupId, topic, callEachBatchWhenEmpty: true })
+        this.kafkaConsumer = new KafkaConsumer({ groupId, topic, callEachBatchWhenEmpty: true, autoCommit: false })
 
         logger.info('🔄', 'Connecting kafka consumer', { groupId, topic })
         await this.kafkaConsumer.connect(async (messages) => {
@@ -86,10 +86,7 @@ export class CyclotronJobQueueDelay {
             return await this.consumeBatch([])
         }
 
-        if (!this.kafkaProducer) {
-            logger.warn('Producer not ready yet, skipping batch', { messageCount: messages.length })
-            return await this.consumeBatch([])
-        }
+        console.log('CdpCyclotronDelayConsumer', `Consuming batch ${messages.length}`)
 
         const now = new Date().getTime()
         const maxDelayMs = 10 * 60 * 1000// 10 minutes
@@ -111,7 +108,7 @@ export class CyclotronJobQueueDelay {
             let delayMs = Math.max(0, scheduledTime.getTime() - now)
             const waitTime = Math.min(delayMs, maxDelayMs)
 
-            console.log(`Waiting for ${waitTime}ms before processing invocation ${message.key}`)
+            console.log('CdpCyclotronDelayConsumer', `Waiting for ${waitTime}ms before processing ${messages.indexOf(message) + 1}/${messages.length} invocation ${message.key}`)
 
             await new Promise((resolve) => setTimeout(resolve, waitTime))
 
@@ -126,6 +123,8 @@ export class CyclotronJobQueueDelay {
 
             await this.kafkaConsumer?.offsetsStore([message])
         }
+
+        console.log('CdpCyclotronDelayConsumer', 'Consumed full delay batch', messages.length)
 
         return await this.consumeBatch([])
     }
