@@ -32,7 +32,7 @@ export function AddPersonToCohortModal({ id }: CohortLogicProps): JSX.Element {
                                 Object.keys(personsToAddToCohort).length === 0 ? 'Select at least one user' : undefined
                             }
                         >
-                            Add
+                            Save
                         </LemonButton>
                     </div>
                 }
