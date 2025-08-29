@@ -121,7 +121,8 @@ export const addPersonToCohortModalLogic = kea<addPersonToCohortModalLogicType>(
                 }
                 actions.hideAddPersonToCohortModal()
                 actions.resetPersons()
-            } catch {
+            } catch (error) {
+                console.error('Failed to add person to cohort:', error)
                 lemonToast.error('Unable to add person to cohort')
             } finally {
                 actions.setCohortUpdating(false)
