@@ -25,7 +25,7 @@ export function AddPersonToCohortModalBody(): JSX.Element {
                     const id = props.value as string
                     const isInCohort = cohortPersonsSet.has(id)
                     if (isInCohort) {
-                        return <LemonTag type="success">Added</LemonTag>
+                        return <LemonTag type="success">In Cohort</LemonTag>
                     }
                     const isAdded = personsToAddToCohort[id] != null
                     return (
