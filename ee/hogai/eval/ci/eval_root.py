@@ -1,6 +1,7 @@
 import json
 
 import pytest
+from unittest.mock import patch
 
 from braintrust import EvalCase
 
@@ -46,7 +47,16 @@ def call_root(demo_org_team_user):
 
 
 @pytest.mark.django_db
-async def eval_root(call_root, pytestconfig):
+@patch("posthoganalytics.feature_enabled")
+async def eval_root(mock_feature_enabled, call_root, pytestconfig):
+    # Evaluate tool behind feature flags (as root prompt generation is conditional)
+    def feature_enabled_side_effect(flag_name, *args, **kwargs):
+        if flag_name == "max-session-summarization":
+            return True
+        return False
+
+    mock_feature_enabled.side_effect = feature_enabled_side_effect
+
     await MaxPublicEval(
         experiment_name="root",
         task=call_root,
@@ -479,6 +489,46 @@ async def eval_root(call_root, pytestconfig):
                     args={},
                     id="call_doc_search_35",
                 ),
+            ),
+            # Session summarization tests - positive cases (should call session_summarization)
+            EvalCase(
+                input="summarize sessions from yesterday",
+                expected=AssistantToolCall(
+                    name="session_summarization",
+                    args={
+                        "session_summarization_query": "summarize sessions from yesterday",
+                    },
+                    id="call_session_summary_1",
+                ),
+            ),
+            EvalCase(
+                input="watch what user did in the last 7 days",
+                expected=AssistantToolCall(
+                    name="session_summarization",
+                    args={
+                        "session_summarization_query": "watch what user did in the last 7 days",
+                    },
+                    id="call_session_summary_2",
+                ),
+            ),
+            EvalCase(
+                input="analyze mobile user sessions from last week",
+                expected=AssistantToolCall(
+                    name="session_summarization",
+                    args={
+                        "session_summarization_query": "analyze mobile user sessions from last week",
+                    },
+                    id="call_session_summary_3",
+                ),
+            ),
+            # Session summarization tests - negative cases (should NOT call session_summarization)
+            EvalCase(
+                input="show me recordings from mobile users",
+                expected=None,
+            ),
+            EvalCase(
+                input="filter sessions by browser type",
+                expected=None,
             ),
             # Ensure calls insights, not documentation
             EvalCase(
