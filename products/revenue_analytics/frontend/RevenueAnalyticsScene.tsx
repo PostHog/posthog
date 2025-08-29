@@ -132,6 +132,7 @@ const RevenueAnalyticsSceneContent = (): JSX.Element => {
     }
 
     // Hasn't connected any revenue sources or events yet, so we'll show the onboarding
+
     if (!hasRevenueTables && !hasRevenueEvents) {
         return <RevenueAnalyticsOnboarding />
     }
