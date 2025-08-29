@@ -19,8 +19,10 @@ export function getDefaultConfig(): PluginsServerConfig {
     return {
         INSTRUMENT_THREAD_PERFORMANCE: false,
         OTEL_EXPORTER_OTLP_ENDPOINT: isDevEnv() ? 'http://localhost:4317' : '',
-        OTEL_SDK_DISABLED: isDevEnv() ? true : false,
+        OTEL_SDK_DISABLED: isDevEnv() ? false : true,
         OTEL_TRACES_SAMPLER_ARG: 1,
+        OTEL_MAX_SPANS_PER_GROUP: 2,
+        OTEL_MIN_SPAN_DURATION_MS: 50,
         DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_posthog'
             : isDevEnv()
@@ -181,6 +183,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_WATCHER_SEND_EVENTS: isProdEnv() ? false : true,
         CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS: 500,
         CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS: 500,
+        CDP_RATE_LIMITER_BUCKET_SIZE: 10000,
+        CDP_RATE_LIMITER_REFILL_RATE: 10, // per second request rate limit
+        CDP_RATE_LIMITER_TTL: 60 * 60 * 24, // This is really long as it is essentially only important to make sure the key is eventually deleted
         CDP_HOG_FILTERS_TELEMETRY_TEAMS: '',
         CDP_REDIS_PASSWORD: '',
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
@@ -210,7 +215,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-onevent',
         CDP_LEGACY_EVENT_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
         CDP_LEGACY_EVENT_REDIRECT_TOPIC: '',
-
         CDP_PLUGIN_CAPTURE_EVENTS_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
 
         HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: KAFKA_APP_METRICS_2,

@@ -14,7 +14,7 @@ import { googleAdsCostTile } from './marketingCostTile'
 export type NativeMarketingSource = Extract<ExternalDataSourceType, 'GoogleAds' | 'MetaAds'>
 export type NonNativeMarketingSource = Extract<ExternalDataSourceType, 'BigQuery'>
 
-export const VALID_NATIVE_MARKETING_SOURCES: NativeMarketingSource[] = ['GoogleAds', 'MetaAds']
+export const VALID_NATIVE_MARKETING_SOURCES: NativeMarketingSource[] = ['GoogleAds']
 export const VALID_NON_NATIVE_MARKETING_SOURCES: NonNativeMarketingSource[] = ['BigQuery']
 export const VALID_SELF_MANAGED_MARKETING_SOURCES: ManualLinkSourceType[] = [
     'aws',

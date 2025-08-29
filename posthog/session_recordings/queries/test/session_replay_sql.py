@@ -134,6 +134,7 @@ def produce_replay_summary(
     block_urls: list[str] | None = None,
     block_first_timestamps: list[datetime] | None = None,
     block_last_timestamps: list[datetime] | None = None,
+    retention_period_days: int | None = None,
 ):
     """
     Creates a session replay event in ClickHouse for testing purposes.
@@ -166,6 +167,7 @@ def produce_replay_summary(
         "block_urls": block_urls or [],
         "block_first_timestamps": block_first_timestamps or [],
         "block_last_timestamps": block_last_timestamps or [],
+        "retention_period_days": retention_period_days or 30,
     }
 
     if settings.TEST:

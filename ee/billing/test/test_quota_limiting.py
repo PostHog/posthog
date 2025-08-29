@@ -47,12 +47,16 @@ class TestQuotaLimiting(BaseTest):
         self.redis_client.delete(f"@posthog/quota-limits/rows_synced")
         self.redis_client.delete(f"@posthog/quota-limits/api_queries_read_bytes")
         self.redis_client.delete(f"@posthog/quota-limits/surveys")
+        self.redis_client.delete(f"@posthog/quota-limits/llm_events")
+        self.redis_client.delete(f"@posthog/quota-limits/cdp_invocations")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/events")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/exceptions")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/recordings")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/rows_synced")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/api_queries_read_bytes")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/surveys")
+        self.redis_client.delete(f"@posthog/quota-limiting-suspended/llm_events")
+        self.redis_client.delete(f"@posthog/quota-limiting-suspended/cdp_invocations")
 
     @patch("posthoganalytics.capture")
     @patch("posthoganalytics.feature_enabled", return_value=True)
@@ -339,6 +343,7 @@ class TestQuotaLimiting(BaseTest):
                 "quota_limited_rows_synced": None,
                 "quota_limited_feature_flags": None,
                 "quota_limited_surveys": None,
+                "quota_limited_llm_events": None,
                 "quota_limited_cdp_invocations": None,
             }
             assert org_action_call.kwargs.get("groups") == {
@@ -1399,3 +1404,199 @@ class TestQuotaLimiting(BaseTest):
             # Verify org usage does not have quota_limited_until
             self.organization.refresh_from_db()
             assert self.organization.usage["surveys"].get("quota_limited_until") is None
+
+    @freeze_time("2021-01-25T23:59:59Z")
+    @patch("posthoganalytics.capture")
+    def test_quota_limiting_ai_events(self, mock_capture) -> None:
+        """Test that AI events are properly limited when quota exceeded"""
+        with self.settings(USE_TZ=False):
+            # Set up usage data with AI events over the limit
+            self.organization.usage = {
+                "llm_events": {"usage": 100, "limit": 100, "todays_usage": 5},  # 105 total, over limit
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            self.organization.save()
+
+            # Run quota limiting update
+            update_org_billing_quotas(self.organization)
+
+            # Verify team token was added to quota limited list
+            limited_tokens = list_limited_team_attributes(
+                QuotaResource.LLM_EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            )
+            assert self.team.api_token in limited_tokens
+
+            # Verify org usage was updated with quota_limited_until
+            self.organization.refresh_from_db()
+            assert self.organization.usage["llm_events"].get("quota_limited_until") is not None
+
+            # Verify analytics event was captured
+            mock_capture.assert_called()
+
+            # Check that the correct properties were logged
+            org_action_call = None
+            for call in mock_capture.call_args_list:
+                if len(call) >= 2 and call[1]["event"] == "org_quota_limited_until":
+                    org_action_call = call
+                    break
+
+            assert org_action_call is not None
+            assert org_action_call[1]["properties"]["resource"] == "llm_events"
+            assert org_action_call[1]["properties"]["current_usage"] == 105
+            assert org_action_call[1]["properties"]["event"] == "suspended"
+
+    @freeze_time("2021-01-25T23:59:59Z")
+    def test_quota_limiting_ai_events_under_limit(self) -> None:
+        """Test that AI events under quota limit are not restricted"""
+        with self.settings(USE_TZ=False):
+            # Set up usage data with AI events under the limit
+            self.organization.usage = {
+                "llm_events": {"usage": 80, "limit": 100, "todays_usage": 5},  # 85 total, under limit
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            self.organization.save()
+
+            # Run quota limiting update
+            update_org_billing_quotas(self.organization)
+
+            # Verify team token was NOT added to quota limited list
+            limited_tokens = list_limited_team_attributes(
+                QuotaResource.LLM_EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            )
+            assert self.team.api_token not in limited_tokens
+
+            # Verify org usage does not have quota_limited_until
+            self.organization.refresh_from_db()
+            assert self.organization.usage["llm_events"].get("quota_limited_until") is None
+
+    @freeze_time("2021-01-25T23:59:59Z")
+    def test_ai_events_trust_score_tracking(self) -> None:
+        """Test trust score updates for AI event limiting"""
+        with self.settings(USE_TZ=False):
+            # Set up initial trust scores
+            self.organization.customer_trust_scores = {
+                "events": 0,
+                "exceptions": 0,
+                "recordings": 0,
+                "rows_synced": 0,
+                "feature_flags": 0,
+                "api_queries": 0,
+                "surveys": 0,
+                "llm_events": 0,
+            }
+            self.organization.usage = {
+                "llm_events": {"usage": 100, "limit": 100, "todays_usage": 5},  # Over limit
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            self.organization.save()
+
+            # First run should limit immediately due to trust score 0
+            update_org_billing_quotas(self.organization)
+
+            limited_tokens = list_limited_team_attributes(
+                QuotaResource.LLM_EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            )
+            assert self.team.api_token in limited_tokens
+
+            # Increase trust score
+            self.organization.customer_trust_scores["llm_events"] = 7
+            self.organization.save()
+
+            # Clear the limiting to test suspension behavior
+            self.redis_client.delete(f"@posthog/quota-limits/llm_events")
+            # Also clear the quota_limited_until field to reset state
+            self.organization.usage["llm_events"]["quota_limited_until"] = None
+            # Keep over the limit
+            self.organization.usage["llm_events"]["todays_usage"] = 5
+            self.organization.save()
+
+            # Run again - should be suspended this time
+            update_org_billing_quotas(self.organization)
+
+            # Should be in suspended list, not limited list
+            limited_tokens = list_limited_team_attributes(
+                QuotaResource.LLM_EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            )
+            assert self.team.api_token not in limited_tokens
+
+            suspended_tokens = list_limited_team_attributes(
+                QuotaResource.LLM_EVENTS, QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY
+            )
+            assert self.team.api_token in suspended_tokens
+
+    @freeze_time("2021-01-25T23:59:59Z")
+    def test_ai_events_quota_with_overage_buffer(self) -> None:
+        """Test overage buffer behavior for AI events"""
+        with self.settings(USE_TZ=False):
+            # AI events have 0 overage buffer according to OVERAGE_BUFFER
+            self.organization.usage = {
+                "llm_events": {"usage": 100, "limit": 100, "todays_usage": 0},  # Exactly at limit
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            self.organization.save()
+
+            # Run quota limiting update
+            update_org_billing_quotas(self.organization)
+
+            # Should be limited when exactly at limit (>= comparison with 0 buffer means at limit = over limit)
+            limited_tokens = list_limited_team_attributes(
+                QuotaResource.LLM_EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            )
+            assert self.team.api_token in limited_tokens
+
+            # Reduce usage to be under limit
+            self.organization.usage["llm_events"]["usage"] = 99
+            self.organization.save()
+            update_org_billing_quotas(self.organization)
+
+            # Now should not be limited
+            limited_tokens = list_limited_team_attributes(
+                QuotaResource.LLM_EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            )
+            assert self.team.api_token not in limited_tokens
+
+    @freeze_time("2021-01-25T23:59:59Z")
+    @patch("posthoganalytics.capture")
+    def test_ai_events_quota_suspension_and_resume(self, mock_capture) -> None:
+        """Test suspension and resume mechanics for AI quotas"""
+        with self.settings(USE_TZ=False):
+            # Start with trust score that allows suspension
+            self.organization.customer_trust_scores = {
+                "events": 0,
+                "exceptions": 0,
+                "recordings": 0,
+                "rows_synced": 0,
+                "feature_flags": 0,
+                "api_queries": 0,
+                "surveys": 0,
+                "llm_events": 7,  # High trust score
+            }
+            self.organization.usage = {
+                "llm_events": {"usage": 100, "limit": 100, "todays_usage": 5},  # Over limit
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            self.organization.save()
+
+            # First run should suspend (trust score 7 gets suspension, not immediate limiting)
+            update_org_billing_quotas(self.organization)
+            assert self.team.api_token in list_limited_team_attributes(
+                QuotaResource.LLM_EVENTS, QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY
+            )
+
+            # Now reduce usage below limit to test resume
+            self.organization.usage["llm_events"]["todays_usage"] = 0
+            self.organization.usage["llm_events"]["usage"] = 90  # Under limit
+            self.organization.save()
+
+            # Run again - should clear suspension since under limit
+            update_org_billing_quotas(self.organization)
+            assert self.team.api_token not in list_limited_team_attributes(
+                QuotaResource.LLM_EVENTS, QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY
+            )
+            assert self.team.api_token not in list_limited_team_attributes(
+                QuotaResource.LLM_EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            )
+
+            # Verify analytics events were captured
+            events_captured = [call[1]["event"] for call in mock_capture.call_args_list if len(call) >= 2]
+            assert "org_quota_limited_until" in events_captured  # Should have suspension and removal events

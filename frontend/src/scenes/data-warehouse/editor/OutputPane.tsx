@@ -4,8 +4,7 @@ import 'react-data-grid/lib/styles.css'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useCallback, useMemo, useState } from 'react'
-import DataGrid, { RenderHeaderCellProps, SortColumn } from 'react-data-grid'
-import { DataGridProps } from 'react-data-grid'
+import DataGrid, { DataGridProps, RenderHeaderCellProps, SortColumn } from 'react-data-grid'
 
 import {
     IconBolt,
@@ -20,7 +19,7 @@ import {
     IconPlus,
     IconShare,
 } from '@posthog/icons'
-import { LemonButton, LemonModal, LemonTable, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonModal, LemonTable, Tooltip } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
@@ -41,8 +40,10 @@ import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/L
 import { SideBar } from '~/queries/nodes/DataVisualization/Components/SideBar'
 import { Table } from '~/queries/nodes/DataVisualization/Components/Table'
 import { TableDisplay } from '~/queries/nodes/DataVisualization/Components/TableDisplay'
+import { seriesBreakdownLogic } from '~/queries/nodes/DataVisualization/Components/seriesBreakdownLogic'
 import { DataTableVisualizationProps } from '~/queries/nodes/DataVisualization/DataVisualization'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
+import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
 import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
 import { HogQLQueryResponse } from '~/queries/schema/schema-general'
 import { ChartDisplayType, ExporterFormat } from '~/types'
@@ -633,8 +634,23 @@ export function OutputPane(): JSX.Element {
 function InternalDataTableVisualization(
     props: DataTableVisualizationProps & { onSaveInsight: () => void }
 ): JSX.Element | null {
-    const { query, visualizationType, showEditingUI, response, responseLoading, isChartSettingsPanelOpen } =
-        useValues(dataVisualizationLogic)
+    const {
+        query,
+        visualizationType,
+        showEditingUI,
+        response,
+        responseLoading,
+        isChartSettingsPanelOpen,
+        xData,
+        yData,
+        chartSettings,
+        dashboardId,
+        dataVisualizationProps,
+        presetChartHeight,
+    } = useValues(dataVisualizationLogic)
+
+    const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
+    const { goalLines } = useValues(displayLogic)
 
     let component: JSX.Element | null = null
 
@@ -652,6 +668,7 @@ function InternalDataTableVisualization(
                 query={query}
                 context={props.context}
                 cachedResults={props.cachedResults as HogQLQueryResponse | undefined}
+                embedded
             />
         )
     } else if (
@@ -660,7 +677,19 @@ function InternalDataTableVisualization(
         visualizationType === ChartDisplayType.ActionsAreaGraph ||
         visualizationType === ChartDisplayType.ActionsStackedBar
     ) {
-        component = <LineGraph />
+        component = (
+            <LineGraph
+                className="p-2"
+                xData={xData}
+                yData={yData}
+                seriesBreakdownData={seriesBreakdownData}
+                visualizationType={visualizationType}
+                chartSettings={chartSettings}
+                dashboardId={dashboardId}
+                goalLines={goalLines}
+                presetChartHeight={presetChartHeight}
+            />
+        )
     } else if (visualizationType === ChartDisplayType.BoldNumber) {
         component = <HogQLBoldNumber />
     }
@@ -668,11 +697,12 @@ function InternalDataTableVisualization(
     return (
         <div className="DataVisualization h-full hide-scrollbar flex flex-1 gap-2">
             <div className="relative w-full flex flex-col gap-4 flex-1">
-                <div className="flex flex-1 flex-row gap-4 overflow-auto hide-scrollbar">
+                <div className="flex flex-1 flex-row overflow-auto hide-scrollbar">
                     {isChartSettingsPanelOpen && (
-                        <div>
+                        <>
                             <SideBar />
-                        </div>
+                            <LemonDivider vertical className="h-full" />
+                        </>
                     )}
                     <div className={clsx('w-full h-full flex-1 overflow-auto')}>{component}</div>
                 </div>
@@ -835,7 +865,7 @@ const Content = ({
 
     if (activeTab === OutputTab.Visualization) {
         return (
-            <div className="flex-1 absolute top-0 left-0 right-0 bottom-0 px-4 py-1 hide-scrollbar border-t">
+            <div className="flex-1 absolute inset-0 hide-scrollbar border-t">
                 <InternalDataTableVisualization
                     uniqueKey={vizKey}
                     query={sourceQuery}
