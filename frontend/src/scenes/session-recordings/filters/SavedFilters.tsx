@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
-import { IconCopy, IconTrash } from '@posthog/icons'
+import { IconShare, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -70,9 +70,10 @@ export function SavedFilters({
         nameColumn() as LemonTableColumn<SessionRecordingPlaylistType, keyof SessionRecordingPlaylistType | undefined>,
         {
             width: 0,
+            className: 'w-40',
             render: function Render(_, playlist) {
                 return (
-                    <div className="flex flex-row gap-1">
+                    <div className="flex justify-between gap-x-1">
                         <LemonButton
                             onClick={() => {
                                 const combinedURL = urls.absolute(
@@ -82,8 +83,11 @@ export function SavedFilters({
                             }}
                             title="Copy link to saved filter"
                             tooltip="Copy link to saved filter"
-                            icon={<IconCopy />}
-                        />
+                            icon={<IconShare />}
+                            size="small"
+                        >
+                            Share link
+                        </LemonButton>
                         <LemonButton
                             status="danger"
                             onClick={() => {
@@ -95,6 +99,7 @@ export function SavedFilters({
                             title="Delete saved filter"
                             tooltip="Delete saved filter"
                             icon={<IconTrash />}
+                            size="small"
                         />
                     </div>
                 )
