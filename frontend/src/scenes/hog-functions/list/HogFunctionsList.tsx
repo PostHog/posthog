@@ -102,7 +102,20 @@ export function HogFunctionList({
                 width: 0,
                 render: (_, hogFunction) => {
                     if (hogFunction.id.startsWith('batch-export-')) {
-                        return <>N/A</>
+                        // TODO: Make this less hacky, maybe with some extended type for managing these values
+                        return (
+                            <AppMetricsSparkline
+                                logicKey={hogFunction.id.replace('batch-export-', '')}
+                                forceParams={{
+                                    appSource: 'batch_export',
+                                    appSourceId: hogFunction.id,
+                                    metricKind: ['success', 'failure'],
+                                    breakdownBy: 'metric_kind',
+                                    interval: 'day',
+                                    dateFrom: '-7d',
+                                }}
+                            />
+                        )
                     }
 
                     if (isManualFunction(hogFunction) || hogFunction.type === 'site_app') {
