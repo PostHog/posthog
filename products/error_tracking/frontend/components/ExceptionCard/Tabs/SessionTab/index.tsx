@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { P, match } from 'ts-pattern'
 
 import { Spinner } from '@posthog/lemon-ui'
@@ -7,9 +7,11 @@ import { Spinner } from '@posthog/lemon-ui'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { SessionTimeline, SessionTimelineHandle } from 'lib/components/SessionTimeline/SessionTimeline'
-import { ItemCategory, ItemCollector } from 'lib/components/SessionTimeline/timeline'
+import { SnapshotLoader } from 'lib/components/SessionTimeline/snapshot-loader'
+import { ItemCategory, ItemCollector, ItemLoader, ItemRenderer } from 'lib/components/SessionTimeline/timeline'
 import { customItemLoader, customItemRenderer } from 'lib/components/SessionTimeline/timeline/items/custom'
 import { exceptionLoader, exceptionRenderer } from 'lib/components/SessionTimeline/timeline/items/exceptions'
+import { ConsoleLogItemLoader, consoleLogsRenderer } from 'lib/components/SessionTimeline/timeline/items/log'
 import { pageLoader, pageRenderer } from 'lib/components/SessionTimeline/timeline/items/page'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import {
@@ -22,7 +24,7 @@ import {
 
 import { exceptionCardLogic } from '../../exceptionCardLogic'
 import { SubHeader } from '../SubHeader'
-import { SessionRecordingTab } from './SessionRecordingTab'
+import { SessionLoading, SessionRecordingTab } from './SessionRecordingTab'
 import { sessionTabLogic } from './sessionTabLogic'
 
 export interface SessionTabProps extends TabsPrimitiveContentProps {
@@ -73,8 +75,9 @@ export function SessionTimelineTab(): JSX.Element {
     const { sessionId, timestamp } = useValues(sessionTabLogic)
     const { setRecordingTimestamp } = useActions(sessionTabLogic)
     const { setCurrentSessionTab } = useActions(exceptionCardLogic)
+    const [collector, setCollector] = useState<ItemCollector | undefined>(undefined)
 
-    useEffect(() => {
+    const scrollToItem = useCallback(() => {
         if (currentSessionTab == 'timeline' && sessionTimelineRef.current) {
             sessionTimelineRef.current.scrollToItem(uuid)
         }
@@ -88,24 +91,25 @@ export function SessionTimelineTab(): JSX.Element {
         [setRecordingTimestamp, setCurrentSessionTab]
     )
 
-    const collector = useMemo<ItemCollector | undefined>(() => {
+    useEffect(() => {
         if (!sessionId || !timestamp) {
             return undefined
         }
         const timestampDayJs = dayjs(timestamp).add(1, 'millisecond')
-        const collector = new ItemCollector(sessionId, timestampDayJs)
-        collector.addCategory(
-            ItemCategory.ERROR_TRACKING,
-            exceptionRenderer,
-            exceptionLoader(sessionId, timestampDayJs)
-        )
-        collector.addCategory(ItemCategory.PAGE_VIEWS, pageRenderer, pageLoader(sessionId, timestampDayJs))
-        collector.addCategory(
-            ItemCategory.CUSTOM_EVENTS,
-            customItemRenderer,
-            customItemLoader(sessionId, timestampDayJs)
-        )
-        return collector
+        const categories: [ItemCategory, ItemRenderer<any>, ItemLoader<any>][] = [
+            [ItemCategory.ERROR_TRACKING, exceptionRenderer, exceptionLoader(sessionId, timestampDayJs)],
+            [ItemCategory.PAGE_VIEWS, pageRenderer, pageLoader(sessionId, timestampDayJs)],
+            [ItemCategory.CUSTOM_EVENTS, customItemRenderer, customItemLoader(sessionId, timestampDayJs)],
+        ]
+        SnapshotLoader.build(sessionId, { blob_v2: true, blob_v2_lts: true })
+            .then((loader) => {
+                // Sources are available
+                categories.push([ItemCategory.CONSOLE_LOGS, consoleLogsRenderer, new ConsoleLogItemLoader(loader)])
+            })
+            .catch(() => {})
+            .finally(() => {
+                setCollector(new ItemCollector(sessionId, timestampDayJs, categories))
+            })
     }, [sessionId, timestamp])
 
     return (
@@ -116,8 +120,10 @@ export function SessionTimelineTab(): JSX.Element {
                     collector={collector}
                     selectedItemId={uuid}
                     onTimeClick={onTimeClick}
+                    onFirstLoad={scrollToItem}
                 />
             )}
+            {!collector && <SessionLoading />}
         </TabsPrimitiveContent>
     )
 }
