@@ -34,12 +34,17 @@ export type LogsViewerProps = LogsViewerLogicProps & {
     renderColumns?: (
         columns: LemonTableColumn<GroupedLogEntry, keyof GroupedLogEntry | undefined>[]
     ) => LemonTableColumn<GroupedLogEntry, keyof GroupedLogEntry | undefined>[]
+    renderMessage?: (message: string) => JSX.Element | string
 }
 
 /**
  * NOTE: There is a loose attempt to keeep this generic so we can use it as an abstract log component in the future.
  */
-export function LogsViewer({ renderColumns = (c) => c, ...props }: LogsViewerProps): JSX.Element {
+export function LogsViewer({
+    renderColumns = (c) => c,
+    renderMessage = (m) => m,
+    ...props
+}: LogsViewerProps): JSX.Element {
     const logic = logsViewerLogic(props)
 
     const { logs, logsLoading, hiddenLogs, hiddenLogsLoading, isThereMoreToLoad, expandedRows, filters } =
@@ -173,7 +178,7 @@ export function LogsViewer({ renderColumns = (c) => c, ...props }: LogsViewerPro
                                             setRowExpanded(instanceId, !expandedRows[instanceId])
                                         }}
                                     >
-                                        {lastEntry.message}
+                                        {renderMessage(lastEntry.message)}
                                         {entries.length > 1 && (
                                             <>
                                                 <br />
@@ -223,7 +228,7 @@ export function LogsViewer({ renderColumns = (c) => c, ...props }: LogsViewerPro
                                         key: 'message',
                                         dataIndex: 'message',
                                         render: (_, { message }) => (
-                                            <code className="whitespace-pre-wrap">{message}</code>
+                                            <code className="whitespace-pre-wrap">{renderMessage(message)}</code>
                                         ),
                                     },
                                 ]}

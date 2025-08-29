@@ -10,7 +10,11 @@ export function HogFlowEditorPanelLogsDetail(): JSX.Element | null {
 
     return (
         <div className="p-2 flex flex-col gap-2 overflow-hidden">
-            <LogsViewer sourceType="hog_flow" sourceId={campaign.id} />
+            <LogsViewer
+                sourceType="hog_flow"
+                sourceId={campaign.id}
+                renderColumns={(columns) => columns.filter((c) => c.key !== 'instanceId')}
+            />
         </div>
     )
 }

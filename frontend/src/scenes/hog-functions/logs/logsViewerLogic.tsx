@@ -15,6 +15,7 @@ export const DEFAULT_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WAR
 export type LogsViewerLogicProps = {
     sourceType: 'hog_function' | 'hog_flow'
     sourceId: string
+    // Add forced search params
 }
 
 export type LogsViewerFilters = {
