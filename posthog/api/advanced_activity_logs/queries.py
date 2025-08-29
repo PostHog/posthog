@@ -75,7 +75,7 @@ ORDER BY scope, field_name
 
 class QueryBuilder:
     @staticmethod
-    def build_nested_fields_query(organization_id: str, max_depth: int = MAX_NESTED_DEPTH) -> tuple[str, list]:
+    def build_nested_fields_query(organization_id: str, max_depth: int = MAX_NESTED_DEPTH) -> tuple[str, list[str]]:
         """Build query to find nested fields with their types."""
         return NESTED_FIELDS_RECURSIVE_QUERY, [organization_id, max_depth]
 

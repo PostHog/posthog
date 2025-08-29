@@ -1,3 +1,5 @@
+import logging
+
 from django.db.models import Q, QuerySet
 
 from rest_framework import mixins, viewsets
@@ -6,6 +8,7 @@ from rest_framework.response import Response
 
 from posthog.api.activity_log import ActivityLogPagination, ActivityLogSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from .exporters import ExporterFactory
@@ -17,6 +20,7 @@ from .serializers import AdvancedActivityLogFiltersSerializer
 class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins.ListModelMixin):
     serializer_class = ActivityLogSerializer
     pagination_class = ActivityLogPagination
+    logger = logging.getLogger(__name__)
     filter_rewrite_rules = {"project_id": "team_id"}
     scope_object = "INTERNAL"
 
@@ -24,7 +28,6 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         super().__init__(*args, **kwargs)
         self._filter_manager = None
         self._field_discovery = None
-        self._base_queryset = ActivityLog.objects.select_related("user")
 
     @property
     def filter_manager(self) -> AdvancedActivityLogFilterManager:
@@ -38,13 +41,10 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             self._field_discovery = AdvancedActivityLogFieldDiscovery(str(self.organization.id))
         return self._field_discovery
 
-    def _get_base_queryset(self) -> QuerySet[ActivityLog]:
-        return self.dangerously_get_queryset(self._base_queryset)
-
-    def dangerously_get_queryset(self, queryset) -> QuerySet[ActivityLog]:
+    def dangerously_get_queryset(self) -> QuerySet[ActivityLog]:
         include_organization_scoped = self.request.query_params.get("include_organization_scoped")
 
-        base_queryset = self._base_queryset
+        base_queryset = ActivityLog.objects.select_related("user")
 
         if include_organization_scoped == "1":
             # Filter by team_id OR (team_id is null AND organization_id matches)
@@ -61,7 +61,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         filters_serializer.is_valid(raise_exception=True)
         filters = filters_serializer.validated_data
 
-        queryset = self.filter_manager.apply_filters(self._get_base_queryset(), filters)
+        queryset = self.filter_manager.apply_filters(self.dangerously_get_queryset(), filters)
 
         page = self.paginate_queryset(queryset)
         if page is not None:
@@ -73,7 +73,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
 
     @action(detail=False, methods=["GET"])
     def available_filters(self, request, **kwargs):
-        available_filters = self.field_discovery.get_available_filters(self._get_base_queryset())
+        available_filters = self.field_discovery.get_available_filters(self.dangerously_get_queryset())
         return Response(available_filters)
 
     @action(detail=False, methods=["POST"])
@@ -83,11 +83,13 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         filters_serializer = AdvancedActivityLogFiltersSerializer(data=request.data.get("filters", {}))
         filters_serializer.is_valid(raise_exception=True)
 
-        queryset = self.filter_manager.apply_filters(self._get_base_queryset(), filters_serializer.validated_data)
+        queryset = self.filter_manager.apply_filters(self.dangerously_get_queryset(), filters_serializer.validated_data)
         queryset = queryset[:10000]  # Limit export size for starters
 
         try:
             exporter = ExporterFactory.create_exporter(export_format, queryset)
             return exporter.export()
         except ValueError as e:
-            return Response({"error": str(e)}, status=400)
+            self.logger.exception(f"Invalid export format: {e}")
+            capture_exception(e)
+            return Response({"error": "Invalid export format"}, status=400)

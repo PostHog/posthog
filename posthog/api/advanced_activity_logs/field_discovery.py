@@ -1,9 +1,17 @@
-from typing import Any
+import dataclasses
+from typing import Any, TypedDict
 
 from django.db import connection
 from django.db.models import QuerySet
 
+from posthog.models.activity_logging.activity_log import Change
+from posthog.models.utils import UUIDT
+
 from .queries import QueryBuilder
+
+
+class DetailFieldsResult(TypedDict):
+    fields: list[dict[str, Any]]
 
 
 class AdvancedActivityLogFieldDiscovery:
@@ -14,7 +22,7 @@ class AdvancedActivityLogFieldDiscovery:
     what fields are available for filtering across different scopes.
     """
 
-    def __init__(self, organization_id: str):
+    def __init__(self, organization_id: UUIDT):
         self.organization_id = organization_id
         self.query_builder = QueryBuilder()
 
@@ -63,7 +71,7 @@ class AdvancedActivityLogFieldDiscovery:
         return [{"value": activity} for activity in sorted(activities) if activity]
 
     def _analyze_detail_fields(self) -> dict[str, dict[str, list[dict[str, Any]]]]:
-        result = {}
+        result: DetailFieldsResult = {}
 
         top_level_fields = self._get_top_level_fields()
         self._merge_fields_into_result(result, top_level_fields)
@@ -100,13 +108,8 @@ class AdvancedActivityLogFieldDiscovery:
             result[scope]["fields"].append({"name": field_name, "types": field_types})
 
     def _get_changes_fields(self) -> list[tuple[str, str, list[str]]]:
-        """
-        Keep in sync with the Change dataclass in posthog/models/activity_logging/activity_log.py
-        """
-        return [
-            ("ActivityLog", "changes.type", ["string"]),
-            ("ActivityLog", "changes.action", ["string"]),
-            ("ActivityLog", "changes.field", ["string"]),
-            ("ActivityLog", "changes.before", ["string"]),
-            ("ActivityLog", "changes.after", ["string"]),
-        ]
+        result = []
+        for field in dataclasses.fields(Change):
+            field_name = f"changes.{field.name}"
+            result.append(("ActivityLog", field_name, ["string"]))  # TODO: dynamically generate types
+        return result

@@ -180,7 +180,7 @@ projects_router.register(
     r"activity_log",
     activity_log.ActivityLogViewSet,
     "project_activity_log",
-    parents_query_lookups=["project_id"],
+    ["project_id"],
 )
 projects_router.register(
     r"advanced_activity_logs",
