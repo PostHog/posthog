@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import React from 'react'
 
-import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { IconMinusSmall, IconPlusSmall } from '@posthog/icons'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { Query } from '~/queries/Query/Query'
 import { QueryContext } from '~/queries/types'
@@ -10,8 +10,8 @@ import { QueryContext } from '~/queries/types'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
 
 export function AddPersonToCohortModalBody(): JSX.Element {
-    const { query, cohortPersons, cohortUpdatesInProgress } = useValues(addPersonToCohortModalLogic)
-    const { setQuery, addPersonToCohort } = useActions(addPersonToCohortModalLogic)
+    const { query, cohortPersons, personsToAddToCohort } = useValues(addPersonToCohortModalLogic)
+    const { setQuery, addPerson, removePerson } = useActions(addPersonToCohortModalLogic)
 
     const cohortPersonsSet = React.useMemo(() => {
         return new Set(cohortPersons.results.map((p) => p.id))
@@ -27,20 +27,22 @@ export function AddPersonToCohortModalBody(): JSX.Element {
                     if (isInCohort) {
                         return <LemonTag type="success">Added</LemonTag>
                     }
+                    const isAdded = personsToAddToCohort[id] != null
                     return (
                         <LemonButton
                             type="secondary"
-                            status="default"
+                            status={isAdded ? 'danger' : 'default'}
                             size="small"
                             onClick={(e) => {
-                                if (cohortUpdatesInProgress[id]) {
-                                    return
-                                }
                                 e.preventDefault()
-                                addPersonToCohort(id)
+                                if (isAdded) {
+                                    removePerson(id)
+                                } else {
+                                    addPerson(id)
+                                }
                             }}
                         >
-                            {cohortUpdatesInProgress[id] ? <Spinner textColored /> : <IconPlusSmall />}
+                            {isAdded ? <IconMinusSmall /> : <IconPlusSmall />}
                         </LemonButton>
                     )
                 },
