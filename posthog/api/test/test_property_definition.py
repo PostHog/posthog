@@ -333,8 +333,16 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("Get all group1 properties", "type=group&group_type_index=1", ["group1 another", "group1 property"]),
-            ("Get all group2 properties", "type=group&group_type_index=2", ["group2 property"]),
+            (
+                "Get all group1 properties",
+                "type=group&group_type_index=1",
+                ["group1 another", "group1 property", "$virt_revenue", "$virt_revenue_last_30_days"],
+            ),
+            (
+                "Get all group2 properties",
+                "type=group&group_type_index=2",
+                ["group2 property", "$virt_revenue", "$virt_revenue_last_30_days"],
+            ),
             (
                 "Search group1 properties containing 'prop'",
                 "type=group&search=prop&group_type_index=1",
@@ -716,9 +724,24 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         # Should exclude the specified virtual property
         assert not any(prop["name"] == "$virt_initial_channel_type" for prop in response.json()["results"])
 
+        response = self.client.get(
+            f'/api/projects/{self.team.pk}/property_definitions/?type=group&group_type_index=0&excluded_properties=["$virt_revenue"]'
+        )
+        assert response.status_code == status.HTTP_200_OK
+        # Should exclude the specified virtual property
+        assert not any(prop["name"] == "$virt_revenue" for prop in response.json()["results"])
+
     def test_virtual_property_excluded_by_core(self):
         response = self.client.get(
             f"/api/projects/{self.team.pk}/property_definitions/?type=person&exclude_core_properties=true"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        # Virtual properties should still be included when excluding core properties
+        virtual_props = [prop for prop in response.json()["results"] if prop["name"].startswith("$virt_")]
+        assert len(virtual_props) > 0
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/property_definitions/?type=group&group_type_index=0&exclude_core_properties=true"
         )
         assert response.status_code == status.HTTP_200_OK
         # Virtual properties should still be included when excluding core properties
@@ -729,6 +752,12 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=person")
         assert response.status_code == status.HTTP_200_OK
         # Should include virtual properties when type=person
+        virtual_props = [prop for prop in response.json()["results"] if prop["name"].startswith("$virt_")]
+        assert len(virtual_props) > 0
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=group&group_type_index=0")
+        assert response.status_code == status.HTTP_200_OK
+        # Should include virtual properties when type=group
         virtual_props = [prop for prop in response.json()["results"] if prop["name"].startswith("$virt_")]
         assert len(virtual_props) > 0
 

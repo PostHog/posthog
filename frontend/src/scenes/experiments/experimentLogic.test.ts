@@ -21,6 +21,8 @@ describe('experimentLogic', () => {
         ...experimentJson,
         created_by: { ...experimentJson.created_by, hedgehog_config: undefined },
         holdout: undefined,
+        primary_metrics_ordered_uuids: null,
+        secondary_metrics_ordered_uuids: null,
     } as Experiment
 
     beforeEach(async () => {

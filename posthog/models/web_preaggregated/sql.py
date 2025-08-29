@@ -1,8 +1,14 @@
+from django.conf import settings
+
 from posthog.hogql.database.schema.web_analytics_s3 import get_s3_function_args
 
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
 from posthog.models.web_preaggregated.team_selection import WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME
+
+
+def is_eu_cluster() -> bool:
+    return getattr(settings, "CLOUD_DEPLOYMENT", None) == "EU"
 
 
 def TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True):
@@ -42,6 +48,42 @@ def HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, ttl=None, on_cluster=Tr
     """
 
 
+def _DROP_TABLE_TEMPLATE(table_name: str):
+    return f"DROP TABLE IF EXISTS {table_name} {ON_CLUSTER_CLAUSE()}"
+
+
+def DROP_WEB_STATS_SQL():
+    return _DROP_TABLE_TEMPLATE("web_pre_aggregated_stats")
+
+
+def DROP_WEB_BOUNCES_SQL():
+    return _DROP_TABLE_TEMPLATE("web_pre_aggregated_bounces")
+
+
+def DROP_WEB_STATS_DAILY_SQL():
+    return _DROP_TABLE_TEMPLATE("web_stats_daily")
+
+
+def DROP_WEB_BOUNCES_DAILY_SQL():
+    return _DROP_TABLE_TEMPLATE("web_bounces_daily")
+
+
+def DROP_WEB_STATS_HOURLY_SQL():
+    return _DROP_TABLE_TEMPLATE("web_stats_hourly")
+
+
+def DROP_WEB_BOUNCES_HOURLY_SQL():
+    return _DROP_TABLE_TEMPLATE("web_bounces_hourly")
+
+
+def DROP_WEB_STATS_STAGING_SQL():
+    return _DROP_TABLE_TEMPLATE("web_pre_aggregated_stats_staging")
+
+
+def DROP_WEB_BOUNCES_STAGING_SQL():
+    return _DROP_TABLE_TEMPLATE("web_pre_aggregated_bounces_staging")
+
+
 WEB_ANALYTICS_DIMENSIONS = [
     "entry_pathname",
     "end_pathname",
@@ -62,6 +104,8 @@ WEB_ANALYTICS_DIMENSIONS = [
     "has_gclid",
     "has_gad_source_paid_search",
     "has_fbclid",
+    "mat_metadata_loggedIn",
+    "mat_metadata_backend",
 ]
 
 WEB_STATS_DIMENSIONS = ["pathname", *WEB_ANALYTICS_DIMENSIONS]
@@ -73,7 +117,7 @@ def get_dimension_columns(dimensions):
     for d in dimensions:
         if d in ["viewport_width", "viewport_height"]:
             column_definitions.append(f"{d} Int64")
-        elif d in ["has_gclid", "has_gad_source_paid_search", "has_fbclid"]:
+        elif d in ["has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_loggedIn"]:
             column_definitions.append(f"{d} Bool")
         else:
             column_definitions.append(f"{d} String")
@@ -242,6 +286,25 @@ def get_date_filters(date_start: str, date_end: str, timezone: str, granularity:
     }
 
 
+def get_mat_custom_fields_expressions() -> dict[str, str]:
+    if is_eu_cluster():
+        return {
+            "mat_metadata_loggedIn_expr": "mat_metadata_loggedIn",
+            "mat_metadata_loggedIn_inner_expr": "any(e.mat_metadata_loggedIn) AS mat_metadata_loggedIn",
+            "mat_metadata_backend_expr": "mat_metadata_backend",
+            "mat_metadata_backend_inner_expr": "any(e.mat_metadata_backend) AS mat_metadata_backend",
+            "mat_custom_fields_group_by": "mat_metadata_loggedIn, mat_metadata_backend",
+        }
+    else:
+        return {
+            "mat_metadata_loggedIn_expr": "mat_metadata_loggedIn",
+            "mat_metadata_loggedIn_inner_expr": "CAST(NULL AS Nullable(Bool)) AS mat_metadata_loggedIn",
+            "mat_metadata_backend_expr": "mat_metadata_backend",
+            "mat_metadata_backend_inner_expr": "CAST(NULL AS Nullable(String)) AS mat_metadata_backend",
+            "mat_custom_fields_group_by": "mat_metadata_loggedIn, mat_metadata_backend",
+        }
+
+
 def get_all_filters(
     date_start: str,
     date_end: str,
@@ -252,6 +315,7 @@ def get_all_filters(
 ) -> dict[str, str]:
     team_filters = get_team_filters(team_ids)
     date_filters = get_date_filters(date_start, date_end, timezone, granularity)
+    mat_custom_fields_expressions = get_mat_custom_fields_expressions()
 
     time_bucket_func = "toStartOfHour" if granularity == "hourly" else "toStartOfDay"
     settings_clause = f"SETTINGS {settings}" if settings else ""
@@ -266,6 +330,12 @@ def get_all_filters(
         "date_start": date_start,
         "date_end": date_end,
         **date_filters,
+        **mat_custom_fields_expressions,
+        "mat_custom_fields_outer_group_by_placeholder": (
+            f",\n        {mat_custom_fields_expressions['mat_custom_fields_group_by']}"
+            if mat_custom_fields_expressions["mat_custom_fields_group_by"]
+            else ""
+        ),
     }
 
 
@@ -279,7 +349,6 @@ def WEB_STATS_INSERT_SQL(
     granularity: str = "daily",
     select_only: bool = False,
 ) -> str:
-    # Get all filters and parameters in one place
     filters = get_all_filters(date_start, date_end, timezone, team_ids, granularity, settings)
 
     query = """
@@ -308,6 +377,8 @@ def WEB_STATS_INSERT_SQL(
         has_gclid,
         has_gad_source_paid_search,
         has_fbclid,
+        {mat_metadata_loggedIn_expr},
+        {mat_metadata_backend_expr},
         uniqState(assumeNotNull(session_person_id)) AS persons_uniq_state,
         uniqState(assumeNotNull(session_id)) AS sessions_uniq_state,
         sumState(pageview_count) AS pageviews_count_state
@@ -338,6 +409,8 @@ def WEB_STATS_INSERT_SQL(
             events__session.has_gclid AS has_gclid,
             events__session.has_gad_source_paid_search AS has_gad_source_paid_search,
             events__session.has_fbclid AS has_fbclid,
+            {mat_metadata_loggedIn_inner_expr},
+            {mat_metadata_backend_inner_expr},
             countIf(e.event IN ('$pageview', '$screen')) AS pageview_count,
             e.team_id AS team_id,
             min(events__session.start_timestamp) AS start_timestamp
@@ -441,17 +514,15 @@ def WEB_STATS_INSERT_SQL(
         region_name,
         has_gclid,
         has_gad_source_paid_search,
-        has_fbclid
+        has_fbclid{mat_custom_fields_outer_group_by_placeholder}
     {settings_clause}
     """
 
-    # Format the query with all parameters from centralized filters
     formatted_query = query.format(**filters)
 
     if select_only:
         return formatted_query
     else:
-        # Explicitly specify column names to protect against column order changes
         columns = get_web_stats_insert_columns()
         column_list = ",\n    ".join(columns)
         return f"INSERT INTO {table_name}\n(\n    {column_list}\n)\n{formatted_query}"
@@ -467,7 +538,6 @@ def WEB_BOUNCES_INSERT_SQL(
     granularity: str = "daily",
     select_only: bool = False,
 ) -> str:
-    # Get all filters and parameters in one place
     filters = get_all_filters(date_start, date_end, timezone, team_ids, granularity, settings)
 
     query = """
@@ -495,6 +565,8 @@ def WEB_BOUNCES_INSERT_SQL(
         has_gclid,
         has_gad_source_paid_search,
         has_fbclid,
+        {mat_metadata_loggedIn_expr},
+        {mat_metadata_backend_expr},
         uniqState(assumeNotNull(person_id)) AS persons_uniq_state,
         uniqState(assumeNotNull(session_id)) AS sessions_uniq_state,
         sumState(pageview_count) AS pageviews_count_state,
@@ -527,6 +599,8 @@ def WEB_BOUNCES_INSERT_SQL(
             any(events__session.has_gclid) AS has_gclid,
             any(events__session.has_gad_source_paid_search) AS has_gad_source_paid_search,
             any(events__session.has_fbclid) AS has_fbclid,
+            {mat_metadata_loggedIn_inner_expr},
+            {mat_metadata_backend_inner_expr},
             any(events__session.is_bounce) AS is_bounce,
             any(events__session.session_duration) AS session_duration,
             toUInt64(1) AS total_session_count_state,
@@ -615,7 +689,7 @@ def WEB_BOUNCES_INSERT_SQL(
         viewport_height,
         has_gclid,
         has_gad_source_paid_search,
-        has_fbclid
+        has_fbclid{mat_custom_fields_outer_group_by_placeholder}
     {settings_clause}
     """
 
@@ -624,7 +698,6 @@ def WEB_BOUNCES_INSERT_SQL(
     if select_only:
         return formatted_query
     else:
-        # Explicitly specify column names to protect against column order changes
         columns = get_web_bounces_insert_columns()
         column_list = ",\n    ".join(columns)
         return f"INSERT INTO {table_name}\n(\n    {column_list}\n)\n{formatted_query}"

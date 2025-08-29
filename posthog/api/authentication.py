@@ -28,6 +28,7 @@ from rest_framework import mixins, permissions, serializers, status, viewsets
 from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
+from social_django.strategy import DjangoStrategy
 from social_django.views import auth
 from two_factor.utils import default_device
 from two_factor.views.core import REMEMBER_COOKIE_PREFIX
@@ -439,3 +440,20 @@ class PasswordResetTokenGenerator(DefaultPasswordResetTokenGenerator):
 
 
 password_reset_token_generator = PasswordResetTokenGenerator()
+
+
+def social_login_notification(strategy: DjangoStrategy, backend, user: Optional[User] = None, **kwargs):
+    """Final pipeline step to notify on OAuth/SAML login"""
+    if not user:
+        return
+
+    request = strategy.request
+
+    # If the user is re-authenticating, we don't want to send a notification
+    reauth = strategy.session_get("reauth")
+    if reauth == "true":
+        return
+
+    short_user_agent = get_short_user_agent(request)
+    ip_address = get_ip_address(request)
+    login_from_new_device_notification.delay(user.id, timezone.now(), short_user_agent, ip_address)

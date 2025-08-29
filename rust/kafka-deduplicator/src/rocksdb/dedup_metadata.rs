@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use common_types::RawEvent;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Bincode-compatible version of RawEvent that stores JSON as strings
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -75,6 +75,8 @@ pub struct MetadataV1 {
     pub original_event: SerializableRawEvent,
     /// Duplicate count for simple tracking
     pub duplicate_count: u64,
+    /// Set of UUIDs that have been seen for this dedupe key
+    pub seen_uuids: HashSet<String>,
 }
 
 /// Trait that all metadata versions must implement
@@ -142,12 +144,18 @@ impl MetadataV1 {
             .and_then(|t| t.parse::<u64>().ok())
             .unwrap_or_else(|| chrono::Utc::now().timestamp() as u64);
 
+        let mut seen_uuids = HashSet::new();
+        if let Some(uuid) = original_event.uuid {
+            seen_uuids.insert(uuid.to_string());
+        }
+
         MetadataV1 {
             source: 1, // Default source, can be configured later
             team: 0,   // Default team, can be extracted from token if needed
             timestamp,
             original_event: SerializableRawEvent::from(original_event),
             duplicate_count: 0,
+            seen_uuids,
         }
     }
 
@@ -155,17 +163,218 @@ impl MetadataV1 {
     pub fn get_original_event(&self) -> Result<RawEvent> {
         RawEvent::try_from(&self.original_event)
     }
+
+    /// Calculate similarity between two events
+    pub fn calculate_similarity(&self, new_event: &RawEvent) -> Result<EventSimilarity> {
+        let original_event = self.get_original_event()?;
+        EventSimilarity::calculate(&original_event, new_event)
+    }
+}
+
+/// Type alias for property differences
+type PropertyDifference = (String, Option<(String, String)>);
+
+/// Represents the similarity between two events
+#[derive(Debug)]
+pub struct EventSimilarity {
+    /// Total similarity score (0.0 = completely different, 1.0 = identical)
+    pub overall_score: f64,
+    /// Number of top-level fields that differ (excluding properties)
+    pub different_field_count: u32,
+    /// List of field names that differ with their values (original -> new)
+    pub different_fields: Vec<(String, String, String)>, // (field_name, original_value, new_value)
+    /// Properties similarity score (0.0 = completely different, 1.0 = identical)
+    pub properties_similarity: f64,
+    /// Number of properties that differ
+    pub different_property_count: u32,
+    /// List of properties that differ with values for $ properties, just key names for others
+    /// Format: (property_name, Option<(original_value, new_value)>)
+    pub different_properties: Vec<PropertyDifference>,
+}
+
+impl EventSimilarity {
+    pub fn calculate(original: &RawEvent, new: &RawEvent) -> Result<Self> {
+        let mut different_fields = Vec::new();
+        let mut matching_fields = 0u32;
+        let mut total_fields = 0u32;
+
+        // Helper to format optional values for display
+        let format_opt = |opt: &Option<String>| opt.as_deref().unwrap_or("<none>").to_string();
+        let format_value_opt = |opt: &Option<serde_json::Value>| {
+            opt.as_ref()
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "<none>".to_string())
+        };
+        let format_map_opt = |opt: &Option<HashMap<String, serde_json::Value>>| {
+            opt.as_ref()
+                .map(|m| format!("{} properties", m.len()))
+                .unwrap_or_else(|| "<none>".to_string())
+        };
+
+        // Compare top-level fields (excluding properties and uuid which we expect to differ)
+        total_fields += 1;
+        if original.event == new.event {
+            matching_fields += 1;
+        } else {
+            different_fields.push((
+                "event".to_string(),
+                original.event.clone(),
+                new.event.clone(),
+            ));
+        }
+
+        total_fields += 1;
+        if original.distinct_id == new.distinct_id {
+            matching_fields += 1;
+        } else {
+            different_fields.push((
+                "distinct_id".to_string(),
+                format_value_opt(&original.distinct_id),
+                format_value_opt(&new.distinct_id),
+            ));
+        }
+
+        total_fields += 1;
+        if original.token == new.token {
+            matching_fields += 1;
+        } else {
+            different_fields.push((
+                "token".to_string(),
+                format_opt(&original.token),
+                format_opt(&new.token),
+            ));
+        }
+
+        // Compare timestamps - check if they parse to the same u64 value
+        total_fields += 1;
+        let original_ts = original
+            .timestamp
+            .as_ref()
+            .and_then(|t| t.parse::<u64>().ok());
+        let new_ts = new.timestamp.as_ref().and_then(|t| t.parse::<u64>().ok());
+
+        if original_ts == new_ts {
+            matching_fields += 1;
+        } else {
+            different_fields.push((
+                "timestamp".to_string(),
+                format_opt(&original.timestamp),
+                format_opt(&new.timestamp),
+            ));
+        }
+
+        total_fields += 1;
+        if original.set == new.set {
+            matching_fields += 1;
+        } else {
+            different_fields.push((
+                "set".to_string(),
+                format_map_opt(&original.set),
+                format_map_opt(&new.set),
+            ));
+        }
+
+        total_fields += 1;
+        if original.set_once == new.set_once {
+            matching_fields += 1;
+        } else {
+            different_fields.push((
+                "set_once".to_string(),
+                format_map_opt(&original.set_once),
+                format_map_opt(&new.set_once),
+            ));
+        }
+
+        // Compare properties
+        let (properties_similarity, different_properties) =
+            Self::compare_properties(&original.properties, &new.properties);
+
+        let different_field_count = different_fields.len() as u32;
+        let different_property_count = different_properties.len() as u32;
+
+        // Calculate overall similarity score
+        // Weight: 70% field similarity, 30% properties similarity
+        let field_similarity = if total_fields > 0 {
+            matching_fields as f64 / total_fields as f64
+        } else {
+            1.0
+        };
+
+        let overall_score = field_similarity * 0.7 + properties_similarity * 0.3;
+
+        Ok(EventSimilarity {
+            overall_score,
+            different_field_count,
+            different_fields,
+            properties_similarity,
+            different_property_count,
+            different_properties,
+        })
+    }
+
+    fn compare_properties(
+        original: &HashMap<String, serde_json::Value>,
+        new: &HashMap<String, serde_json::Value>,
+    ) -> (f64, Vec<PropertyDifference>) {
+        let mut different_properties = Vec::new();
+
+        // Get all unique keys from both maps
+        let all_keys: HashSet<&String> = original.keys().chain(new.keys()).collect();
+
+        if all_keys.is_empty() {
+            return (1.0, different_properties);
+        }
+
+        let mut matching = 0;
+        for key in &all_keys {
+            let original_val = original.get(*key);
+            let new_val = new.get(*key);
+
+            match (original_val, new_val) {
+                (Some(v1), Some(v2)) if v1 == v2 => matching += 1,
+                (original_opt, new_opt) => {
+                    // For $ properties (PostHog system properties), include values
+                    // For other properties, just record the key for privacy
+                    let values = if key.starts_with('$') {
+                        let orig_str = original_opt
+                            .map(|v| v.to_string())
+                            .unwrap_or_else(|| "<not set>".to_string());
+                        let new_str = new_opt
+                            .map(|v| v.to_string())
+                            .unwrap_or_else(|| "<not set>".to_string());
+                        Some((orig_str, new_str))
+                    } else {
+                        None
+                    };
+
+                    different_properties.push(((*key).to_string(), values));
+                }
+            }
+        }
+
+        let similarity = matching as f64 / all_keys.len() as f64;
+        (similarity, different_properties)
+    }
 }
 
 impl MetadataVersion for MetadataV1 {
     /// Update metrics when a duplicate is detected
-    fn update_duplicate(&mut self, _new_event: &RawEvent) {
+    fn update_duplicate(&mut self, new_event: &RawEvent) {
         self.duplicate_count += 1;
+
+        // Track UUID if present
+        if let Some(uuid) = new_event.uuid {
+            self.seen_uuids.insert(uuid.to_string());
+        }
     }
 
     /// Get a summary of the duplicate metrics for logging
     fn get_metrics_summary(&self) -> String {
-        format!("Duplicates: {}", self.duplicate_count)
+        format!(
+            "Duplicates: {}, Unique UUIDs: {}",
+            self.duplicate_count,
+            self.seen_uuids.len()
+        )
     }
 }
 
@@ -198,6 +407,7 @@ mod tests {
         assert_eq!(metadata.team, 0); // Default team
         assert_eq!(metadata.timestamp, 1234567890);
         assert_eq!(metadata.duplicate_count, 0);
+        assert_eq!(metadata.seen_uuids.len(), 1); // Should contain the initial UUID
     }
 
     #[test]
@@ -233,6 +443,7 @@ mod tests {
         // Test initial state
         let summary = metadata.get_metrics_summary();
         assert!(summary.contains("Duplicates: 0"));
+        assert!(summary.contains("Unique UUIDs: 1"));
 
         // Test update_duplicate method
         let duplicate_event = create_test_raw_event();
@@ -241,6 +452,7 @@ mod tests {
         // Verify metrics were updated
         let updated_summary = metadata.get_metrics_summary();
         assert!(updated_summary.contains("Duplicates: 1"));
+        assert!(updated_summary.contains("Unique UUIDs: 2")); // Two different UUIDs now
     }
 
     #[test]
@@ -331,5 +543,267 @@ mod tests {
         let result = VersionedMetadata::deserialize_metadata(&corrupted_data);
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_event_similarity_calculation() {
+        // Create two events with some differences
+        let event1 = RawEvent {
+            uuid: Some(uuid::Uuid::new_v4()),
+            event: "page_view".to_string(),
+            distinct_id: Some(serde_json::Value::String("user123".to_string())),
+            token: Some("token123".to_string()),
+            properties: {
+                let mut props = HashMap::new();
+                props.insert("url".to_string(), serde_json::json!("/home"));
+                props.insert("referrer".to_string(), serde_json::json!("google"));
+                props
+            },
+            timestamp: Some("1234567890".to_string()),
+            ..Default::default()
+        };
+
+        let event2 = RawEvent {
+            uuid: Some(uuid::Uuid::new_v4()), // Different UUID (expected)
+            event: "page_view".to_string(),   // Same event
+            distinct_id: Some(serde_json::Value::String("user123".to_string())), // Same distinct_id
+            token: Some("token123".to_string()), // Same token
+            properties: {
+                let mut props = HashMap::new();
+                props.insert("url".to_string(), serde_json::json!("/about")); // Different URL
+                props.insert("referrer".to_string(), serde_json::json!("google")); // Same referrer
+                props.insert("browser".to_string(), serde_json::json!("chrome")); // New property
+                props
+            },
+            timestamp: Some("1234567891".to_string()), // Different timestamp
+            ..Default::default()
+        };
+
+        let similarity = EventSimilarity::calculate(&event1, &event2).unwrap();
+
+        assert_eq!(similarity.different_field_count, 1); // Only timestamp differs
+        assert!(similarity
+            .different_fields
+            .iter()
+            .any(|(field, _, _)| field == "timestamp"));
+
+        assert_eq!(similarity.different_property_count, 2); // url differs, browser is new
+        assert!(similarity
+            .different_properties
+            .iter()
+            .any(|(prop, _)| prop == "url"));
+        assert!(similarity
+            .different_properties
+            .iter()
+            .any(|(prop, _)| prop == "browser"));
+
+        assert!(similarity.properties_similarity > 0.0 && similarity.properties_similarity < 1.0);
+        assert!(similarity.overall_score > 0.0 && similarity.overall_score < 1.0);
+    }
+
+    #[test]
+    fn test_event_similarity_identical() {
+        let uuid = uuid::Uuid::new_v4();
+        let event1 = RawEvent {
+            uuid: Some(uuid),
+            event: "test_event".to_string(),
+            distinct_id: Some(serde_json::Value::String("user123".to_string())),
+            token: Some("token123".to_string()),
+            properties: {
+                let mut props = HashMap::new();
+                props.insert("key".to_string(), serde_json::json!("value"));
+                props
+            },
+            timestamp: Some("1234567890".to_string()),
+            ..Default::default()
+        };
+
+        let event2 = RawEvent {
+            uuid: Some(uuid),
+            event: "test_event".to_string(),
+            distinct_id: Some(serde_json::Value::String("user123".to_string())),
+            token: Some("token123".to_string()),
+            properties: {
+                let mut props = HashMap::new();
+                props.insert("key".to_string(), serde_json::json!("value"));
+                props
+            },
+            timestamp: Some("1234567890".to_string()),
+            ..Default::default()
+        };
+
+        let similarity = EventSimilarity::calculate(&event1, &event2).unwrap();
+
+        assert_eq!(similarity.different_field_count, 0);
+        assert_eq!(similarity.different_property_count, 0);
+        assert_eq!(similarity.properties_similarity, 1.0);
+        assert_eq!(similarity.overall_score, 1.0);
+    }
+
+    #[test]
+    fn test_uuid_tracking() {
+        let uuid1 = uuid::Uuid::new_v4();
+        let uuid2 = uuid::Uuid::new_v4();
+        let uuid3 = uuid::Uuid::new_v4();
+
+        let event1 = RawEvent {
+            uuid: Some(uuid1),
+            event: "test".to_string(),
+            ..Default::default()
+        };
+
+        let mut metadata = MetadataV1::new(&event1);
+        assert_eq!(metadata.seen_uuids.len(), 1);
+        assert!(metadata.seen_uuids.contains(&uuid1.to_string()));
+
+        // Add duplicate with different UUID
+        let event2 = RawEvent {
+            uuid: Some(uuid2),
+            event: "test".to_string(),
+            ..Default::default()
+        };
+        metadata.update_duplicate(&event2);
+        assert_eq!(metadata.seen_uuids.len(), 2);
+        assert!(metadata.seen_uuids.contains(&uuid2.to_string()));
+
+        let event3 = RawEvent {
+            uuid: Some(uuid1),
+            event: "test".to_string(),
+            ..Default::default()
+        };
+        metadata.update_duplicate(&event3);
+        assert_eq!(metadata.seen_uuids.len(), 2); // Should still be 2, not 3
+
+        let event4 = RawEvent {
+            uuid: Some(uuid3),
+            event: "test".to_string(),
+            ..Default::default()
+        };
+        metadata.update_duplicate(&event4);
+        assert_eq!(metadata.seen_uuids.len(), 3);
+    }
+
+    #[test]
+    fn test_complete_duplicate_tracking_with_similarity() {
+        // Create an original event with rich properties
+        let uuid1 = uuid::Uuid::new_v4();
+        let original_event = RawEvent {
+            uuid: Some(uuid1),
+            event: "page_view".to_string(),
+            distinct_id: Some(serde_json::json!("user123")),
+            token: Some("project_token".to_string()),
+            properties: {
+                let mut props = HashMap::new();
+                props.insert("url".to_string(), serde_json::json!("/home"));
+                props.insert("browser".to_string(), serde_json::json!("chrome"));
+                props.insert("referrer".to_string(), serde_json::json!("google"));
+                props
+            },
+            timestamp: Some("1234567890".to_string()),
+            ..Default::default()
+        };
+
+        // Create metadata
+        let mut metadata = MetadataV1::new(&original_event);
+
+        // First duplicate - different UUID, slightly different properties
+        let uuid2 = uuid::Uuid::new_v4();
+        let duplicate1 = RawEvent {
+            uuid: Some(uuid2),
+            event: "page_view".to_string(),
+            distinct_id: Some(serde_json::json!("user123")),
+            token: Some("project_token".to_string()),
+            properties: {
+                let mut props = HashMap::new();
+                props.insert("url".to_string(), serde_json::json!("/home"));
+                props.insert("browser".to_string(), serde_json::json!("firefox")); // Different
+                props.insert("referrer".to_string(), serde_json::json!("google"));
+                props.insert("session_id".to_string(), serde_json::json!("abc123")); // New field
+                props
+            },
+            timestamp: Some("1234567890".to_string()),
+            ..Default::default()
+        };
+
+        let similarity1 = metadata.calculate_similarity(&duplicate1).unwrap();
+        metadata.update_duplicate(&duplicate1);
+
+        // Verify similarity metrics
+        assert_eq!(similarity1.different_field_count, 0); // All top-level fields match
+        assert_eq!(similarity1.different_property_count, 2); // browser differs, session_id is new
+        assert!(similarity1.properties_similarity < 1.0);
+        assert!(similarity1.properties_similarity > 0.0);
+
+        // Second duplicate - same UUID as original, different properties
+        let duplicate2 = RawEvent {
+            uuid: Some(uuid1), // Same UUID as original
+            event: "page_view".to_string(),
+            distinct_id: Some(serde_json::json!("user123")),
+            token: Some("project_token".to_string()),
+            properties: {
+                let mut props = HashMap::new();
+                props.insert("url".to_string(), serde_json::json!("/about")); // Different URL
+                props.insert("browser".to_string(), serde_json::json!("chrome"));
+                props.insert("referrer".to_string(), serde_json::json!("bing")); // Different referrer
+                props
+            },
+            timestamp: Some("1234567890".to_string()),
+            ..Default::default()
+        };
+
+        let similarity2 = metadata.calculate_similarity(&duplicate2).unwrap();
+        metadata.update_duplicate(&duplicate2);
+
+        // Properties are quite different
+        assert!(similarity2.different_property_count >= 2);
+
+        // Check final state
+        assert_eq!(metadata.duplicate_count, 2);
+        assert_eq!(metadata.seen_uuids.len(), 2); // Only 2 unique UUIDs
+        let summary = metadata.get_metrics_summary();
+        assert!(summary.contains("Duplicates: 2"));
+        assert!(summary.contains("Unique UUIDs: 2"));
+    }
+
+    #[test]
+    fn test_completely_different_events_similarity() {
+        let event1 = RawEvent {
+            uuid: Some(uuid::Uuid::new_v4()),
+            event: "page_view".to_string(),
+            distinct_id: Some(serde_json::json!("user123")),
+            token: Some("token_a".to_string()),
+            properties: {
+                let mut props = HashMap::new();
+                props.insert("key1".to_string(), serde_json::json!("value1"));
+                props
+            },
+            timestamp: Some("1111111111".to_string()),
+            offset: Some(100),
+            set: Some(HashMap::new()),
+            set_once: None,
+        };
+
+        let event2 = RawEvent {
+            uuid: Some(uuid::Uuid::new_v4()),
+            event: "button_click".to_string(), // Different
+            distinct_id: Some(serde_json::json!("user456")), // Different
+            token: Some("token_b".to_string()), // Different
+            properties: {
+                let mut props = HashMap::new();
+                props.insert("key2".to_string(), serde_json::json!("value2")); // Completely different
+                props
+            },
+            timestamp: Some("2222222222".to_string()), // Different
+            offset: Some(200),                         // Different
+            set: None,                                 // Different
+            set_once: Some(HashMap::new()),            // Different
+        };
+
+        let similarity = EventSimilarity::calculate(&event1, &event2).unwrap();
+
+        // These events are completely different
+        assert!(similarity.different_field_count >= 5); // Most fields differ
+        assert_eq!(similarity.properties_similarity, 0.0); // No common properties
+        assert!(similarity.overall_score < 0.3); // Very low overall similarity
     }
 }
