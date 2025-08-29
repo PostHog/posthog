@@ -45,7 +45,7 @@ class BaseAccessControlTest(APILicensedTest):
             payload.update(data)
 
         return self.client.put(
-            "/api/projects/@current/global_access_controls",
+            "/api/projects/@current/resource_access_controls",
             payload,
         )
 
@@ -729,7 +729,7 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         with self.assertNumQueries(baseline + 4):
             self.client.get(f"/api/projects/@current/dashboards/{other_user_dashboard.id}?no_items_field=true")
 
-        baseline = 8
+        baseline = 7
         # Getting my own notebook is the same as a dashboard - 3 extra queries
         with self.assertNumQueries(baseline + 5):
             self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
@@ -738,14 +738,14 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         with self.assertNumQueries(baseline + 6):
             self.client.get(f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}")
 
-        baseline = 8
+        baseline = 7
         # Project access doesn't double query the object
         with self.assertNumQueries(baseline + 7):
             # We call this endpoint as we don't want to include all the extra queries that rendering the project uses
             self.client.get("/api/projects/@current/is_generating_demo_data")
 
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
-        baseline = 9
+        baseline = 8
         with self.assertNumQueries(baseline + 6):  # org, roles, preloaded access controls
             self.client.get("/api/projects/@current/notebooks/")
 
@@ -772,7 +772,7 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         self._org_membership(OrganizationMembership.Level.MEMBER)
         # Baseline query (triggers any first time cache things)
         self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
-        baseline = 8
+        baseline = 7
 
         # Getting my own notebook is the same as a dashboard - 3 extra queries
         with self.assertNumQueries(baseline + 5):
@@ -785,20 +785,20 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
     def test_query_counts_stable_for_project_access(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
 
-        baseline = 8
+        baseline = 7
         # Project access doesn't double query the object
         with self.assertNumQueries(baseline + 7):
             # We call this endpoint as we don't want to include all the extra queries that rendering the project uses
             self.client.get("/api/projects/@current/is_generating_demo_data")
 
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
-        baseline = 9
+        baseline = 8
         with self.assertNumQueries(baseline + 6):  # org, roles, preloaded access controls
             self.client.get("/api/projects/@current/notebooks/")
 
     def test_query_counts_stable_when_listing_resources(self):
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
-        baseline = 9
+        baseline = 8
 
         with self.assertNumQueries(baseline + 6):  # org, roles, preloaded access controls
             self.client.get("/api/projects/@current/notebooks/")
@@ -996,8 +996,24 @@ class TestAccessControlScopeRequirements(BaseAccessControlTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert "access_control:read" in response.json()["detail"]
 
-    def test_global_access_controls_get_requires_access_control_read_scope(self):
-        """Test that GET requests to global_access_controls endpoint require access_control:read scope"""
+    def test_resource_access_controls_get_requires_access_control_read_scope(self):
+        """Test that GET requests to resource_access_controls endpoint require access_control:read scope"""
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="test_key",
+            secure_value=hash_key_value(key_value),
+            scopes=["project:read"],  # Only project:read, no access_control:read
+        )
+
+        response = self.client.get(
+            "/api/projects/@current/resource_access_controls", HTTP_AUTHORIZATION=f"Bearer {key_value}"
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "access_control:read" in response.json()["detail"]
+
+    def test_deprecated_global_access_controls_get_requires_access_control_read_scope(self):
+        """Test that GET requests to deprecated global_access_controls endpoint require access_control:read scope"""
         key_value = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             user=self.user,
@@ -1022,15 +1038,15 @@ class TestAccessControlScopeRequirements(BaseAccessControlTest):
         response = self.client.get("/api/projects/@current/access_controls", HTTP_AUTHORIZATION=f"Bearer {key_value}")
         assert response.status_code == status.HTTP_200_OK
 
-    def test_global_access_controls_get_succeeds_with_access_control_read_scope(self):
-        """Test that GET requests to global_access_controls endpoint succeed with access_control:read scope"""
+    def test_resource_access_controls_get_succeeds_with_access_control_read_scope(self):
+        """Test that GET requests to resource_access_controls endpoint succeed with access_control:read scope"""
         key_value = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             user=self.user, label="test_key", secure_value=hash_key_value(key_value), scopes=["access_control:read"]
         )
 
         response = self.client.get(
-            "/api/projects/@current/global_access_controls", HTTP_AUTHORIZATION=f"Bearer {key_value}"
+            "/api/projects/@current/resource_access_controls", HTTP_AUTHORIZATION=f"Bearer {key_value}"
         )
         assert response.status_code == status.HTTP_200_OK
 
@@ -1150,8 +1166,8 @@ class TestAccessControlScopeRequirements(BaseAccessControlTest):
         )
         assert response.status_code == status.HTTP_200_OK
 
-    def test_global_access_controls_put_fails_with_only_read_scope(self):
-        """Test that PUT requests to global_access_controls endpoint fail with only access_control:read scope"""
+    def test_resource_access_controls_put_fails_with_only_read_scope(self):
+        """Test that PUT requests to resource_access_controls endpoint fail with only access_control:read scope"""
         key_value = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             user=self.user,
@@ -1161,15 +1177,15 @@ class TestAccessControlScopeRequirements(BaseAccessControlTest):
         )
 
         response = self.client.put(
-            f"/api/projects/@current/global_access_controls",
+            f"/api/projects/@current/resource_access_controls",
             {"access_level": "editor", "resource": "notebook"},
             HTTP_AUTHORIZATION=f"Bearer {key_value}",
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert "access_control:write" in response.json()["detail"]
 
-    def test_global_access_controls_put_succeeds_with_write_scope(self):
-        """Test that PUT requests to global_access_controls endpoint succeed with access_control:write scope"""
+    def test_resource_access_controls_put_succeeds_with_write_scope(self):
+        """Test that PUT requests to resource_access_controls endpoint succeed with access_control:write scope"""
         key_value = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             user=self.user,
@@ -1179,7 +1195,7 @@ class TestAccessControlScopeRequirements(BaseAccessControlTest):
         )
 
         response = self.client.put(
-            f"/api/projects/@current/global_access_controls",
+            f"/api/projects/@current/resource_access_controls",
             {"access_level": "editor", "resource": "dashboard"},
             HTTP_AUTHORIZATION=f"Bearer {key_value}",
         )

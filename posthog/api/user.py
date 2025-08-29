@@ -53,7 +53,6 @@ from posthog.auth import (
 from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_updated, report_user_verified_email
-from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
 from posthog.middleware import get_impersonated_session_expires_at
 from posthog.models import Dashboard, Team, User, UserScenePersonalisation
 from posthog.models.organization import Organization
@@ -87,7 +86,6 @@ class UserSerializer(serializers.ModelSerializer):
     is_impersonated_until = serializers.SerializerMethodField()
     sensitive_session_expires_at = serializers.SerializerMethodField()
     is_2fa_enabled = serializers.SerializerMethodField()
-    has_sso_enforcement = serializers.SerializerMethodField()
     has_social_auth = serializers.SerializerMethodField()
     team = TeamBasicSerializer(read_only=True)
     organization = OrganizationSerializer(read_only=True)
@@ -128,7 +126,6 @@ class UserSerializer(serializers.ModelSerializer):
             "current_password",  # used when changing current password
             "events_column_config",
             "is_2fa_enabled",
-            "has_sso_enforcement",
             "has_social_auth",
             "has_seen_product_intro_for",
             "scene_personalisation",
@@ -150,7 +147,6 @@ class UserSerializer(serializers.ModelSerializer):
             "team",
             "organization",
             "organizations",
-            "has_sso_enforcement",
             "has_social_auth",
         ]
 
@@ -196,11 +192,6 @@ class UserSerializer(serializers.ModelSerializer):
 
     def get_is_2fa_enabled(self, instance: User) -> bool:
         return default_device(instance) is not None
-
-    def get_has_sso_enforcement(self, instance: User) -> bool:
-        from posthog.models.organization_domain import OrganizationDomain
-
-        return bool(OrganizationDomain.objects.get_sso_enforcement_for_email_address(instance.email))
 
     def validate_set_current_organization(self, value: str) -> Organization:
         try:
@@ -576,7 +567,6 @@ class UserViewSet(
             raise serializers.ValidationError("Token is not valid", code="token_invalid")
         form.save()
         otp_login(request, default_device(request.user))
-        set_two_factor_verified_in_session(request)
 
         send_two_factor_auth_enabled_email.delay(request.user.id)
 

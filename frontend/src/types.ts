@@ -37,6 +37,7 @@ import {
 } from 'scenes/experiments/RunningTimeCalculator/runningTimeCalculatorLogic'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Params, Scene, SceneConfig } from 'scenes/sceneTypes'
+import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
@@ -347,7 +348,6 @@ export interface UserType extends UserBaseType {
     is_email_verified?: boolean | null
     pending_email?: string | null
     is_2fa_enabled: boolean
-    has_sso_enforcement: boolean
     has_social_auth: boolean
     has_seen_product_intro_for?: Record<string, boolean>
     scene_personalisation?: SceneDashboardChoice[]
@@ -4343,6 +4343,9 @@ export enum ExporterFormat {
     PDF = 'application/pdf',
     JSON = 'application/json',
     XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    WEBM = 'video/webm',
+    MP4 = 'video/mp4',
+    GIF = 'image/gif',
 }
 
 /** Exporting directly from the browser to a file */
@@ -4372,6 +4375,8 @@ export interface ReplayExportContext {
     width?: number
     height?: number
     filename?: string
+    duration?: number
+    mode?: SessionRecordingPlayerMode
 }
 
 export type ExportContext = OnlineExportContext | LocalExportContext | QueryExportContext | ReplayExportContext

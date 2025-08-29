@@ -47,7 +47,7 @@ export const exceptionCardLogic = kea<exceptionCardLogicType>([
             },
         ],
         currentSessionTab: [
-            'recording',
+            'timeline',
             {
                 setCurrentSessionTab: (_, { tab }: { tab: string }) => tab,
             },
