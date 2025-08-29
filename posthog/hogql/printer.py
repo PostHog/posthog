@@ -1150,7 +1150,7 @@ class _Printer(Visitor[str]):
         return None  # nothing to optimize
 
     def visit_call(self, node: ast.Call):
-        if self.context.insensitive_function_names:
+        if self.context.case_insensitive_function_names:
             corrected_name = find_function_name_case_insensitive(node.name)
             if corrected_name != node.name:
                 node.name = corrected_name

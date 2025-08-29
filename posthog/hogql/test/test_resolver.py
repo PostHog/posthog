@@ -799,7 +799,9 @@ class TestResolver(BaseTest):
                 database=self.database,
                 team_id=self.team.pk,
                 enable_select_queries=True,
-                insensitive_function_names=True,
+                case_insensitive_function_names=True,
+                preserve_placeholders=True,
+                beautify=True,
             ),
             dialect="hogql",
         )

@@ -46,7 +46,7 @@ class HogQLGeneratorMixin(AssistantContextMixin):
             database=database,
             enable_select_queries=True,
             limit_top_select=False,
-            insensitive_function_names=True,
+            case_insensitive_function_names=True,
             beautify=True,
             preserve_placeholders=True,
         )
