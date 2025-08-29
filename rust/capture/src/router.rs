@@ -102,7 +102,7 @@ pub fn router<
     liveness: HealthRegistry,
     sink: S,
     redis: Arc<R>,
-    quota_limiter: QuotaLimiter,
+    quota_limiter: CaptureQuotaLimiter,
     token_dropper: TokenDropper,
     metrics: bool,
     capture_mode: CaptureMode,
