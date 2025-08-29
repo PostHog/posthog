@@ -304,7 +304,6 @@ ee/hogai/graph/billing/test/test_nodes.py:0: error: Item "None" of "Any | None" 
 ee/hogai/graph/billing/test/test_nodes.py:0: error: Item "None" of "Any | None" has no attribute "dates"  [union-attr]
 ee/hogai/graph/funnels/test/test_nodes.py:0: error: Item "None" of "AssistantFunnelsFilter | None" has no attribute "funnelAggregateByHogQL"  [union-attr]
 ee/hogai/graph/insights/nodes.py:0: error: Argument 1 to "join" of "str" has incompatible type "list[Any | None]"; expected "Iterable[str]"  [arg-type]
-ee/hogai/graph/insights/nodes.py:0: error: Item "None" of "Any | None" has no attribute "get"  [union-attr]
 ee/hogai/graph/memory/test/test_nodes.py:0: error: Argument 1 to "len" has incompatible type "Sequence[BaseMessage] | Any | None"; expected "Sized"  [arg-type]
 ee/hogai/graph/memory/test/test_nodes.py:0: error: Argument 1 to "len" has incompatible type "Sequence[BaseMessage] | None"; expected "Sized"  [arg-type]
 ee/hogai/graph/memory/test/test_nodes.py:0: error: Argument 1 to "len" has incompatible type "Sequence[BaseMessage] | None"; expected "Sized"  [arg-type]

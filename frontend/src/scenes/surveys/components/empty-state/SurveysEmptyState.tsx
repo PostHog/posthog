@@ -120,7 +120,11 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
                                     'Create a feedback survey asking about our new dashboard',
                                 ]}
                                 context={{ user_id: user.uuid }}
-                                callback={(toolOutput: { survey_id?: string; error?: string }) => {
+                                callback={(toolOutput: {
+                                    survey_id?: string
+                                    error?: string
+                                    error_message?: string
+                                }) => {
                                     addProductIntent({
                                         product_type: ProductKey.SURVEYS,
                                         intent_context: ProductIntentContext.SURVEY_CREATED,
