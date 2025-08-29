@@ -1,7 +1,9 @@
 import time
 import random
 import datetime as dt
+import re
 from typing import Any, Optional
+from collections import defaultdict
 
 import requests
 import structlog
@@ -22,6 +24,106 @@ logger = structlog.get_logger(__name__)
 
 # LinkedIn URN constants
 LINKEDIN_SPONSORED_URN_PREFIX = "urn:li:sponsored"
+
+# Simple circuit breaker for tracking failures
+_failure_counts = defaultdict(int)
+_last_failure_time = defaultdict(float)
+CIRCUIT_BREAKER_THRESHOLD = 5  # Max failures before circuit opens
+CIRCUIT_BREAKER_TIMEOUT = 300  # 5 minutes in seconds
+
+
+def validate_account_id(account_id: str) -> bool:
+    """Validate LinkedIn account ID format.
+    
+    LinkedIn account IDs should be numeric strings.
+    
+    Args:
+        account_id: Account ID to validate
+        
+    Returns:
+        True if valid, False otherwise
+    """
+    if not account_id:
+        return False
+    
+    # Remove any whitespace
+    account_id = account_id.strip()
+    
+    # Should be numeric and reasonable length (typically 8-12 digits)
+    return account_id.isdigit() and 6 <= len(account_id) <= 15
+
+
+def validate_date_format(date_str: str) -> bool:
+    """Validate date string is in YYYY-MM-DD format.
+    
+    Args:
+        date_str: Date string to validate
+        
+    Returns:
+        True if valid, False otherwise
+    """
+    if not date_str:
+        return False
+    
+    # Check exact format with regex first
+    if not re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
+        return False
+        
+    try:
+        dt.datetime.strptime(date_str, "%Y-%m-%d")
+        return True
+    except ValueError:
+        return False
+
+
+def check_circuit_breaker(account_id: str) -> bool:
+    """Check if circuit breaker is open for an account.
+    
+    Args:
+        account_id: LinkedIn account ID
+        
+    Returns:
+        True if circuit is open (should fail fast), False if OK to proceed
+    """
+    current_time = time.time()
+    
+    # Reset failure count if timeout has passed
+    if current_time - _last_failure_time[account_id] > CIRCUIT_BREAKER_TIMEOUT:
+        _failure_counts[account_id] = 0
+    
+    return _failure_counts[account_id] >= CIRCUIT_BREAKER_THRESHOLD
+
+
+def record_failure(account_id: str) -> None:
+    """Record a failure for circuit breaker tracking.
+    
+    Args:
+        account_id: LinkedIn account ID
+    """
+    _failure_counts[account_id] += 1
+    _last_failure_time[account_id] = time.time()
+
+
+def record_success(account_id: str) -> None:
+    """Record a success, resetting failure count.
+    
+    Args:
+        account_id: LinkedIn account ID
+    """
+    _failure_counts[account_id] = 0
+
+
+def validate_pivot_value(pivot: str) -> bool:
+    """Validate LinkedIn ads analytics pivot value.
+    
+    Args:
+        pivot: Pivot value to validate
+        
+    Returns:
+        True if valid, False otherwise
+    """
+    valid_pivots = ["CAMPAIGN", "CAMPAIGN_GROUP", "CREATIVE", "ACCOUNT"]
+    return pivot in valid_pivots
 
 
 def extract_linkedin_id_from_urn(urn: str) -> str:
@@ -395,8 +497,8 @@ class LinkedinAdsClient:
             raise ValueError("pivot is required")
 
         # Validate pivot value
-        valid_pivots = ["CAMPAIGN", "CAMPAIGN_GROUP", "CREATIVE", "ACCOUNT"]
-        if pivot not in valid_pivots:
+        if not validate_pivot_value(pivot):
+            valid_pivots = ["CAMPAIGN", "CAMPAIGN_GROUP", "CREATIVE", "ACCOUNT"]
             raise ValueError(f"Invalid pivot '{pivot}'. Must be one of: {valid_pivots}")
 
         # LinkedIn API has a limit on date range (typically 5 year)
@@ -543,16 +645,35 @@ def linkedin_ads_source(
     account_id = config.account_id
     linkedin_ads_integration_id = config.linkedin_ads_integration_id
 
-    # Get the OAuth integration to get the access token
-    from posthog.models.integration import Integration
-    integration = Integration.objects.get(id=linkedin_ads_integration_id, team_id=team_id)
-    access_token = integration.access_token
-
-    if not access_token:
-        raise ValueError("LinkedIn access token is required")
-
+    # Validate configuration
     if not account_id:
         raise ValueError("LinkedIn account ID is required")
+    
+    if not validate_account_id(account_id):
+        raise ValueError(f"Invalid LinkedIn account ID format: '{account_id}'. Should be numeric, 6-15 digits.")
+    
+    # Check circuit breaker
+    if check_circuit_breaker(account_id):
+        failure_count = _failure_counts[account_id]
+        raise ValueError(f"Circuit breaker open for account {account_id} due to {failure_count} consecutive failures. Please wait {CIRCUIT_BREAKER_TIMEOUT} seconds before retrying.")
+    
+    # Validate dates if provided
+    if date_start and not validate_date_format(date_start):
+        raise ValueError(f"Invalid date_start format: '{date_start}'. Expected YYYY-MM-DD format.")
+    
+    if date_end and not validate_date_format(date_end):
+        raise ValueError(f"Invalid date_end format: '{date_end}'. Expected YYYY-MM-DD format.")
+
+    # Get the OAuth integration to get the access token
+    from posthog.models.integration import Integration
+    try:
+        integration = Integration.objects.get(id=linkedin_ads_integration_id, team_id=team_id)
+    except Integration.DoesNotExist:
+        raise ValueError(f"LinkedIn Ads integration with ID {linkedin_ads_integration_id} not found for team {team_id}. Please re-authenticate.")
+    
+    access_token = integration.access_token
+    if not access_token:
+        raise ValueError("LinkedIn access token is required. Please re-authenticate your LinkedIn Ads integration.")
 
     logger.info("Starting LinkedIn Ads data import",
                account_id=account_id,
@@ -639,6 +760,9 @@ def linkedin_ads_source(
         logger.info("Successfully fetched LinkedIn data",
                     resource_name=resource_name,
                     record_count=len(data))
+        
+        # Record success for circuit breaker
+        record_success(account_id)
 
         # Flatten the data structure to make it compatible with the pipeline
         flattened_data = []
@@ -744,9 +868,13 @@ def linkedin_ads_source(
         )
 
     except Exception as e:
+        # Record failure for circuit breaker
+        record_failure(account_id)
+        
         logger.exception("Failed to fetch LinkedIn data",
                     resource_name=resource_name,
-                    error=str(e))
+                    error=str(e),
+                    failure_count=_failure_counts[account_id])
         raise
 
 

@@ -64,31 +64,52 @@ class LinkedinAdsSource(BaseSource[LinkedinAdsSourceConfig], OAuthMixin):
                 LinkedinAdsClient,
                 LinkedinAdsError,
                 LinkedinAdsRateLimitError,
+                validate_account_id,
             )
 
-            # Validate config
+            # Validate config structure
             if not config.account_id:
                 return False, "Account ID is required"
             if not config.linkedin_ads_integration_id:
                 return False, "LinkedIn Ads integration ID is required"
 
+            # Validate account ID format
+            if not validate_account_id(config.account_id):
+                return False, f"Invalid account ID format: '{config.account_id}'. Should be numeric, 6-15 digits."
+
             # Get integration
             try:
                 integration = Integration.objects.get(id=config.linkedin_ads_integration_id, team_id=team_id)
             except Integration.DoesNotExist:
-                return False, "LinkedIn Ads integration not found"
+                return False, "LinkedIn Ads integration not found. Please re-authenticate or check your integration setup."
 
             if not integration.access_token:
                 return False, "LinkedIn Ads access token not found. Please re-authenticate."
 
-            # Test API access
+            # Test API access by fetching schemas (similar to Google Ads approach)
+            try:
+                schemas = self.get_schemas(config, team_id)
+                if not schemas:
+                    return False, "No schemas available. Please check your LinkedIn Ads account permissions."
+            except LinkedinAdsAuthError as e:
+                return False, f"LinkedIn authentication failed: {str(e)}"
+            except LinkedinAdsRateLimitError as e:
+                return False, f"LinkedIn rate limit exceeded during validation: {str(e)}"
+            except LinkedinAdsError as e:
+                return False, f"LinkedIn API error during validation: {str(e)}"
+            except Exception as e:
+                capture_exception(e)
+                return False, f"Failed to validate schemas: {str(e)}"
+
+            # Test basic API access
             client = LinkedinAdsClient(integration.access_token)
             accounts = client.get_accounts()
 
             # Verify the specified account exists
             account_ids = [str(acc.get('id')) for acc in accounts if acc.get('id')]
             if config.account_id not in account_ids:
-                return False, f"Account ID '{config.account_id}' not found in accessible accounts: {account_ids[:5]}"
+                available_accounts = account_ids[:5]  # Show first 5 for debugging
+                return False, f"Account ID '{config.account_id}' not found in accessible accounts. Available: {available_accounts}"
 
             return True, None
 
