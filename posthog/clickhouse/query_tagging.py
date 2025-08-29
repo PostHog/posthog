@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict
 
 class AccessMethod(StrEnum):
     PERSONAL_API_KEY = "personal_api_key"
+    SECRET_API_KEY = "secret_api_key"
     OAUTH = "oauth"
 
 
