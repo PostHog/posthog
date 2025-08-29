@@ -2721,7 +2721,7 @@ const api = {
             exclusive: boolean
         ): Promise<{ content: string }> {
             return await new ApiRequest()
-                .errorTrackingIssueMerge(issueId)
+                .errorTrackingIssueSplit(issueId)
                 .create({ data: { fingerprints: fingerprints, exclusive } })
         },
 

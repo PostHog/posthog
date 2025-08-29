@@ -23,7 +23,7 @@ export interface ErrorTrackingIssueFingerprintsSceneProps {
 export type ErrorTrackingIssueFingerprint = { fingerprint: string; count: number; types: string[]; messages: string[] }
 
 export const errorTrackingIssueFingerprintsSceneLogic = kea<errorTrackingIssueFingerprintsSceneLogicType>([
-    path((key) => ['scenes', 'error-tracking', 'errorTrackingIssueSceneFingerprintsLogic', key]),
+    path((key) => ['scenes', 'error-tracking', 'errorTrackingIssueFingerprintsSceneLogic', key]),
     props({} as ErrorTrackingIssueFingerprintsSceneProps),
     key(({ id }: ErrorTrackingIssueFingerprintsSceneProps) => id),
 
@@ -113,9 +113,9 @@ export const errorTrackingIssueFingerprintsSceneLogic = kea<errorTrackingIssueFi
         ],
     }),
 
-    listeners(({ actions, props, values }) => ({
-        split: ({ exclusive }) => {
-            actions.splitIssue(props.id, values.selectedFingerprints, exclusive)
+    listeners(({ asyncActions, actions, props, values }) => ({
+        split: async ({ exclusive }) => {
+            await asyncActions.splitIssue(props.id, values.selectedFingerprints, exclusive)
             lemonToast.success('Issue split successfully!')
             actions.setSelectedFingerprints([])
         },
