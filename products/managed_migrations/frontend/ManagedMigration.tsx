@@ -4,8 +4,10 @@ import { Form } from 'kea-forms'
 import { LemonButton } from '@posthog/lemon-ui'
 import { LemonTable, LemonTag } from '@posthog/lemon-ui'
 
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
@@ -140,7 +142,7 @@ export function ManagedMigration(): JSX.Element {
                     </LemonField>
 
                     {managedMigration.source_type === 'amplitude' && (
-                        <>
+                        <FlaggedFeature flag={FEATURE_FLAGS.AMPLITUDE_BATCH_IMPORT_OPTIONS}>
                             <LemonField name="import_events">
                                 <LemonCheckbox
                                     checked={managedMigration.import_events !== false}
@@ -158,7 +160,7 @@ export function ManagedMigration(): JSX.Element {
                                     label="Generate identify events to link user IDs with device IDs"
                                 />
                             </LemonField>
-                        </>
+                        </FlaggedFeature>
                     )}
                 </>
             )}
