@@ -78,7 +78,7 @@ export const ProductIntroduction = ({
                             icon={<IconX />}
                             size="small"
                             onClick={() => {
-                                productKey && updateHasSeenProductIntroFor(productKey, true)
+                                productKey && updateHasSeenProductIntroFor(productKey)
                             }}
                         />
                     </div>
@@ -119,8 +119,8 @@ export const ProductIntroduction = ({
                                 type="primary"
                                 icon={<IconPlus />}
                                 onClick={() => {
-                                    productKey && updateHasSeenProductIntroFor(productKey, true)
-                                    action && action()
+                                    productKey && updateHasSeenProductIntroFor(productKey)
+                                    action?.()
                                 }}
                                 data-attr={'create-' + thingName.replace(' ', '-').toLowerCase()}
                             >

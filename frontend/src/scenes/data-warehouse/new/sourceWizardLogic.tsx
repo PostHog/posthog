@@ -478,20 +478,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 return ''
             },
         ],
-        modalCaption: [
-            (s) => [s.selectedConnector, s.currentStep, s.availableSources],
-            (selectedConnector, currentStep, availableSources) => {
-                if (currentStep === 2 && selectedConnector) {
-                    return availableSources[selectedConnector.name]?.caption
-                }
-
-                if (currentStep === 4) {
-                    return "Sit tight as we import your data! After it's done, you will be able to query it in PostHog."
-                }
-
-                return ''
-            },
-        ],
         // determines if the wizard is wrapped in another component
         isWrapped: [() => [(_, props) => props.onComplete], (onComplete) => !!onComplete],
     }),
