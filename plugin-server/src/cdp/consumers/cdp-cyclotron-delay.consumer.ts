@@ -22,6 +22,10 @@ export class CdpCyclotronDelayConsumer extends CdpCyclotronWorker {
     public async processBatch(
         invocations: CyclotronJobInvocation[]
     ): Promise<{ backgroundTask: Promise<any>; invocationResults: CyclotronJobInvocationResult[] }> {
+        if (!invocations.length) {
+            return { backgroundTask: Promise.resolve(), invocationResults: [] }
+        }
+
         logger.info('🔁', `${this.name} - handling batch`, {
             size: invocations.length,
         })
