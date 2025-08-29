@@ -14,20 +14,26 @@ export const DISPLAY_TYPES_TO_CATEGORIES: Record<ChartDisplayType, ChartDisplayC
     [ChartDisplayType.ActionsBarValue]: ChartDisplayCategory.TotalValue,
     [ChartDisplayType.ActionsTable]: ChartDisplayCategory.TotalValue,
     [ChartDisplayType.WorldMap]: ChartDisplayCategory.TotalValue,
+    [ChartDisplayType.CalendarHeatmap]: ChartDisplayCategory.TotalValue,
 }
 export const NON_TIME_SERIES_DISPLAY_TYPES = Object.entries(DISPLAY_TYPES_TO_CATEGORIES)
     .filter(([, category]) => category === ChartDisplayCategory.TotalValue)
     .map(([displayType]) => displayType as ChartDisplayType)
 
 /** Display types for which `breakdown` is hidden and ignored. Sync with backend NON_BREAKDOWN_DISPLAY_TYPES. */
-export const NON_BREAKDOWN_DISPLAY_TYPES = [ChartDisplayType.BoldNumber]
+export const NON_BREAKDOWN_DISPLAY_TYPES = [ChartDisplayType.BoldNumber, ChartDisplayType.CalendarHeatmap]
 /** Display types which only work with a single series. */
-export const SINGLE_SERIES_DISPLAY_TYPES = [ChartDisplayType.WorldMap, ChartDisplayType.BoldNumber]
+export const SINGLE_SERIES_DISPLAY_TYPES = [
+    ChartDisplayType.WorldMap,
+    ChartDisplayType.BoldNumber,
+    ChartDisplayType.CalendarHeatmap,
+]
 
 export const NON_VALUES_ON_SERIES_DISPLAY_TYPES = [
     ChartDisplayType.ActionsTable,
     ChartDisplayType.WorldMap,
     ChartDisplayType.BoldNumber,
+    ChartDisplayType.CalendarHeatmap,
 ]
 
 /** Display types for which a percent stack view is available. */
@@ -247,6 +253,7 @@ export const FEATURE_FLAGS = {
     ALWAYS_QUERY_BLOCKING: 'always-query-blocking', // owner: @timgl
     GET_HOG_TEMPLATES_FROM_DB: 'get-hog-templates-from-db', // owner: @meikel #team-
     BLOCKING_EXPORTS: 'blocking-exports', // owner: @aspicer #team-product-analytics
+    SSE_DASHBOARDS: 'sse-dashboards', // owner: @aspicer #team-product-analytics
     LINKS: 'links', // owner: @marconlp #team-link
     GAME_CENTER: 'game-center', // owner: everybody
     USER_INTERVIEWS: 'user-interviews', // owner: @Twixes @jurajmajerik
@@ -287,6 +294,9 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_RATIO_METRIC: 'experiments-ratio-metric', // owner: @andehen #team-experiments
     CDP_NEW_PRICING: 'cdp-new-pricing', // owner: #team-messaging
     COMMENT_TEXT_FILTERING: 'comment-text-filtering', // owner: @pauldambra #team-replay
+    IMPROVED_COOKIELESS_MODE: 'improved-cookieless-mode', // owner: @robbie-c #team-web-analytics
+    REPLAY_EXPORT_SHORT_VIDEO: 'replay-export-short-video', // owner: @veryayskiy #team-replay
+    REPLAY_EXPORT_FULL_VIDEO: 'replay-export-full-video', // owner: @veryayskiy #team-replay
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

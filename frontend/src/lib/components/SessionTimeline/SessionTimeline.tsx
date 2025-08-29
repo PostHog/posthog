@@ -33,7 +33,7 @@ export const SessionTimeline = forwardRef(
         ref: ForwardedRef<SessionTimelineHandle>
     ): JSX.Element => {
         const [items, setItems] = useState<TimelineItem[]>([])
-        const [categories, setCategories] = useState<ItemCategory[]>(() => collector.getAllCategories())
+        const [categories, setCategories] = useState<ItemCategory[]>(() => collector.getCategories())
 
         function toggleCategory(category: ItemCategory): void {
             setCategories((prevCategories) => {
@@ -107,9 +107,7 @@ export const SessionTimeline = forwardRef(
             },
         })
 
-        useImperativeHandle(ref, () => ({
-            scrollToItem,
-        }))
+        useImperativeHandle(ref, () => ({ scrollToItem }))
 
         return (
             <div className={cn('flex', className)}>

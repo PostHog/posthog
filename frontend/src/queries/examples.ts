@@ -4,7 +4,6 @@ import { RETENTION_FIRST_TIME } from 'lib/constants'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import {
     ActionsNode,
-    CalendarHeatmapQuery,
     DataTableNode,
     DataVisualizationNode,
     EventsNode,
@@ -208,13 +207,16 @@ const InsightTrendsQuery: TrendsQuery = {
     },
 }
 
-const InsightCalendarHeatmapQuery: CalendarHeatmapQuery = {
-    kind: NodeKind.CalendarHeatmapQuery,
+const InsightCalendarHeatmapQuery: TrendsQuery = {
+    kind: NodeKind.TrendsQuery,
     properties: [],
     filterTestAccounts,
     series,
     dateRange: {
         date_from: '-7d',
+    },
+    trendsFilter: {
+        display: ChartDisplayType.CalendarHeatmap,
     },
 }
 
@@ -532,7 +534,7 @@ export const queryExamples: Record<string, Node> = {
     InsightCalendarHeatmap: {
         kind: NodeKind.InsightVizNode,
         source: InsightCalendarHeatmapQuery,
-    } as InsightVizNode<CalendarHeatmapQuery>,
+    } as InsightVizNode<TrendsQuery>,
     InsightFunnelsQuery,
     InsightFunnels: { kind: NodeKind.InsightVizNode, source: InsightFunnelsQuery } as InsightVizNode<FunnelsQuery>,
     InsightRetentionQuery,

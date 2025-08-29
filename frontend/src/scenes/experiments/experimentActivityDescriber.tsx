@@ -9,6 +9,7 @@ import { ProgressStatus } from '~/types'
 import { StatusTag } from './ExperimentView/components'
 import {
     getExperimentChangeDescription,
+    getHoldoutChangeDescription,
     getSharedMetricChangeDescription,
     nameOrLinkToExperiment,
     nameOrLinkToSharedMetric,
@@ -53,6 +54,17 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
     const isSharedMetric = logItem.detail.type === 'shared_metric'
 
     return match(logItem)
+        .with({ activity: 'created', detail: { type: 'holdout' } }, () => {
+            return {
+                description: (
+                    <SentenceList
+                        prefix={<strong>{userNameForLogItem(logItem)}</strong>}
+                        listParts={['created a new experiment holdout:']}
+                        suffix={<strong>{logItem.detail.name}</strong>}
+                    />
+                ),
+            }
+        })
         .with({ activity: 'created' }, () => {
             /**
              * we handle both experiments and shared metrics creation here.
@@ -107,48 +119,50 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
                 ),
             }
         })
-        .with({ activity: 'updated' }, () => {
-            const changes = logItem.detail.changes || []
+        .with({ activity: 'deleted', detail: { type: 'holdout' } }, () => {
             /**
-             * if there are no changes, we don't need to describe the update.
-             */
-            if (changes.length === 0) {
-                return {
-                    description: (
-                        <SentenceList
-                            prefix={<strong>{userNameForLogItem(logItem)}</strong>}
-                            listParts={['updated']}
-                            suffix={(isSharedMetric ? nameOrLinkToSharedMetric : nameOrLinkToExperiment)(
-                                logItem.detail.name,
-                                logItem.item_id
-                            )}
-                        />
-                    ),
-                }
-            }
-
-            const listParts = changes
-                .map((change) =>
-                    (isSharedMetric ? getSharedMetricChangeDescription : getExperimentChangeDescription)(change)
-                )
-                .filter((part) => part !== null)
-
-            if (listParts.length === 0) {
-                return { description: null }
-            }
-
-            /**
-             * we always prefix with the user name, and suffix with a link to the resource
+             * Holdouts are not soft deleted.
              */
             return {
                 description: (
                     <SentenceList
                         prefix={<strong>{userNameForLogItem(logItem)}</strong>}
+                        listParts={['deleted experiment holdout:']}
+                        suffix={<strong>{logItem.detail.name}</strong>}
+                    />
+                ),
+            }
+        })
+        .with({ activity: 'updated' }, ({ item_id, detail: updateLogDetail }) => {
+            const changes = updateLogDetail.changes || []
+
+            const listParts =
+                changes.length === 0
+                    ? ['updated']
+                    : changes
+                          .map((change) =>
+                              match(updateLogDetail.type)
+                                  .with('shared_metric', () => getSharedMetricChangeDescription(change))
+                                  .with('holdout', () => getHoldoutChangeDescription(change))
+                                  .otherwise(() => getExperimentChangeDescription(change))
+                          )
+                          .filter((part) => part !== null)
+
+            if (changes.length > 0 && listParts.length === 0) {
+                return { description: null }
+            }
+
+            const suffix = match(updateLogDetail.type)
+                .with('shared_metric', () => nameOrLinkToSharedMetric(updateLogDetail.name, item_id))
+                .with('holdout', () => <strong>{updateLogDetail.name}</strong>)
+                .otherwise(() => nameOrLinkToExperiment(updateLogDetail.name, item_id))
+
+            return {
+                description: (
+                    <SentenceList
+                        prefix={<strong>{userNameForLogItem(logItem)}</strong>}
                         listParts={listParts}
-                        suffix={(isSharedMetric ? nameOrLinkToSharedMetric : nameOrLinkToExperiment)(
-                            logItem.detail.name,
-                            logItem.item_id
-                        )}
+                        suffix={suffix}
                     />
                 ),
             }

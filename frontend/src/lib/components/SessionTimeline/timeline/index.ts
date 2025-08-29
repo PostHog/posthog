@@ -24,7 +24,7 @@ export type ItemRenderer<T extends TimelineItem> = {
     render: React.FC<RendererProps<T>>
 }
 
-export type ItemLoader<T> = {
+export type ItemLoader<T extends TimelineItem> = {
     hasPrevious(index: Dayjs): boolean
     previous(index: Dayjs, limit?: number): Promise<T | null>
 
