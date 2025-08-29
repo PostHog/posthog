@@ -24,7 +24,7 @@ type Group = {
 const GROUP_TYPES_CACHE_AGE_MS = 60 * 10 * 1000 // 10 minutes
 
 export class GroupsManagerService {
-    groupTypesMappingCache: LRUCache<number, { type: string; index: number }[]>
+    groupTypesMappingCache: LRUCache<number, { group_type: string; group_type_index: number }[]>
 
     constructor(private hub: Hub) {
         // There is only 5 per team so we can have a very high cache and a very long cooldown
@@ -58,7 +58,7 @@ export class GroupsManagerService {
 
             if (cached) {
                 cached.forEach((row) => {
-                    groupTypesMapping[`${teamId}:${row.type}`] = row.index
+                    groupTypesMapping[`${teamId}:${row.group_type}`] = row.group_type_index
                 })
             }
         })
@@ -67,21 +67,11 @@ export class GroupsManagerService {
 
         if (teamsToLoad.length) {
             const result = await this.hub.groupRepository.fetchGroupTypesByTeamIds(teamsToLoad)
-
-            const groupedByTeam: Record<number, { type: string; index: number }[]> = {}
             Object.entries(result).forEach(([teamIdStr, groupTypes]) => {
                 const teamId = parseInt(teamIdStr)
-                groupedByTeam[teamId] = groupTypes.map((gt) => ({
-                    type: gt.group_type,
-                    index: gt.group_type_index,
-                }))
-            })
-
-            // Save to cache
-            Object.entries(groupedByTeam).forEach(([teamId, groupTypes]) => {
-                this.groupTypesMappingCache.set(parseInt(teamId), groupTypes)
+                this.groupTypesMappingCache.set(teamId, groupTypes)
                 groupTypes.forEach((row) => {
-                    groupTypesMapping[`${teamId}:${row.type}`] = row.index
+                    groupTypesMapping[`${teamId}:${row.group_type}`] = row.group_type_index
                 })
             })
         }

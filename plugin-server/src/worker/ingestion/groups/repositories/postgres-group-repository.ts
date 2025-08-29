@@ -80,12 +80,20 @@ export class PostgresGroupRepository
             'fetchGroupsByKeys'
         )
 
-        return rows.map((row) => ({
-            team_id: row.team_id as TeamId,
-            group_type_index: row.group_type_index as GroupTypeIndex,
-            group_key: row.group_key,
-            group_properties: row.group_properties,
-        }))
+        return rows.map((row) => {
+            if (row.group_type_index < 0 || row.group_type_index > 4) {
+                throw new Error(
+                    `Invalid group_type_index ${row.group_type_index} for team ${row.team_id}. Must be between 0 and 4.`
+                )
+            }
+
+            return {
+                team_id: row.team_id as TeamId,
+                group_type_index: row.group_type_index as GroupTypeIndex,
+                group_key: row.group_key,
+                group_properties: row.group_properties,
+            }
+        })
     }
 
     async insertGroup(
@@ -238,6 +246,13 @@ export class PostgresGroupRepository
             if (!response[projectIdStr]) {
                 response[projectIdStr] = []
             }
+
+            if (row.group_type_index < 0 || row.group_type_index > 4) {
+                throw new Error(
+                    `Invalid group_type_index ${row.group_type_index} for team ${row.team_id}, project ${row.project_id}. Must be between 0 and 4.`
+                )
+            }
+
             response[projectIdStr].push({
                 group_type: row.group_type,
                 group_type_index: row.group_type_index as GroupTypeIndex,
@@ -273,6 +288,13 @@ export class PostgresGroupRepository
             if (!response[teamIdStr]) {
                 response[teamIdStr] = []
             }
+
+            if (row.group_type_index < 0 || row.group_type_index > 4) {
+                throw new Error(
+                    `Invalid group_type_index ${row.group_type_index} for team ${row.team_id}. Must be between 0 and 4.`
+                )
+            }
+
             response[teamIdStr].push({
                 group_type: row.group_type,
                 group_type_index: row.group_type_index as GroupTypeIndex,
@@ -291,7 +313,7 @@ export class PostgresGroupRepository
     ): Promise<[GroupTypeIndex | null, boolean]> {
         const MAX_GROUP_TYPES_PER_TEAM = 5
 
-        if (index >= MAX_GROUP_TYPES_PER_TEAM) {
+        if (index < 0 || index >= MAX_GROUP_TYPES_PER_TEAM) {
             return [null, false]
         }
 
