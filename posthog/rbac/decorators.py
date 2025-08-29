@@ -1,8 +1,5 @@
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from posthog.rbac.user_access_control import AccessControlLevel
-    from posthog.scopes import APIScopeObject
+from posthog.rbac.user_access_control import AccessControlLevel
+from posthog.scopes import APIScopeObject
 
 
 def field_access_control(resource: "APIScopeObject", level: "AccessControlLevel"):
