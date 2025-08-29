@@ -144,11 +144,7 @@ pub struct Config {
 impl Config {
     pub fn init_with_defaults() -> Result<Self, envconfig::Error> {
         // Our consumer is used in a transaction, so we disable offset commits.
-        ConsumerConfig::set_defaults(
-            "error-tracking-rs",
-            "exception_symbolification_events",
-            false,
-        );
+        ConsumerConfig::set_defaults("error-tracking-rs", "exceptions_ingestion", false);
 
         if std::env::var("MAXMIND_DB_PATH").is_err() {
             std::env::set_var(
