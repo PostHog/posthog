@@ -914,7 +914,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         const urlIsNullOverride = urlVariable?.isNull
                         const dashboardIsNullOverride = dashboard.persisted_variables?.[v.variableId]?.isNull
                         const insightIsNullOverride = v.isNull
-                        const defaultVriableIsNull = variable.isNull
+                        const defaultVariableIsNull = variable.isNull
 
                         // determine effective variable state
                         const resultVar: Variable = {
