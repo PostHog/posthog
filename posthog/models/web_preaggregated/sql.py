@@ -290,12 +290,13 @@ def get_mat_custom_fields_expressions() -> dict[str, str]:
     if is_eu_cluster():
         return {
             "mat_metadata_loggedIn_expr": "mat_metadata_loggedIn",
-            "mat_metadata_loggedIn_inner_expr": "any(e.mat_metadata_loggedIn) AS mat_metadata_loggedIn",
+            "mat_metadata_loggedIn_inner_expr": "any(IF(e.mat_metadata_loggedIn IS NULL, NULL, e.mat_metadata_loggedIn = 'true')) AS mat_metadata_loggedIn",
             "mat_metadata_backend_expr": "mat_metadata_backend",
             "mat_metadata_backend_inner_expr": "any(e.mat_metadata_backend) AS mat_metadata_backend",
             "mat_custom_fields_group_by": "mat_metadata_loggedIn, mat_metadata_backend",
         }
     else:
+        # Those are no-ops to keep the same query structure on US
         return {
             "mat_metadata_loggedIn_expr": "mat_metadata_loggedIn",
             "mat_metadata_loggedIn_inner_expr": "CAST(NULL AS Nullable(Bool)) AS mat_metadata_loggedIn",
