@@ -28,6 +28,7 @@ class TestLocalEvaluationAuthentication(APIBaseTest):
         super().setUp()
         self.factory = RequestFactory()
         self.auth = LocalEvaluationAuthentication()
+
         self.access_token = "phs_SECRETAPITOKEN"
         self.hashed_token = hash_key_value(self.access_token, mode="sha256")
 
@@ -274,3 +275,143 @@ class TestLocalEvaluationAuthentication(APIBaseTest):
 
         result = self.auth._has_feature_flag_access(mock_personal_key)
         assert result is False
+
+    @patch("posthog.authentication.cached_authentication.schedule_personal_api_key_usage_update")
+    @patch("posthog.storage.team_access_cache.team_access_cache.has_access_with_team")
+    @patch("posthog.authentication.cached_authentication.find_personal_api_key")  # Add this patch
+    def test_personal_api_key_usage_tracking_scheduled(self, mock_find_key, mock_has_access, mock_schedule):
+        """Test that usage tracking is scheduled for successful personal API key authentication."""
+        # Mock the cache to return True (token is authorized)
+        mock_has_access.return_value = True, self.team
+        mock_schedule.return_value = True
+
+        # Mock the find_personal_api_key to return a valid PersonalAPIKey object
+        mock_personal_api_key = MagicMock()
+        mock_personal_api_key.id = "test_key_id"
+        mock_find_key.return_value = (mock_personal_api_key, "sha256")
+
+        # Create a personal API key token
+        personal_token = "phx_personalapitoken123"
+
+        data = json.dumps({"project_api_key": self.project_api_key})
+        request = self.factory.post(
+            "/", data, content_type="application/json", HTTP_AUTHORIZATION=f"Bearer {personal_token}"
+        )
+        drf_request = Request(request, parsers=[JSONParser(), FormParser(), MultiPartParser()])
+
+        # Mock the token extraction to return personal API key
+        with patch.object(self.auth, "_extract_tokens") as mock_extract:
+            mock_extract.return_value = (self.project_api_key, personal_token, "personal_api_key")
+
+            result = self.auth.authenticate(drf_request)
+
+        # Verify authentication succeeded
+        assert result is not None
+        user, auth = result
+        assert isinstance(user, SecuredSDKEndpointUser)
+
+        # Verify that the scheduling method was called
+        assert mock_schedule.called
+
+    @patch("posthog.authentication.cached_authentication.schedule_personal_api_key_usage_update")
+    @patch("posthog.storage.team_access_cache.team_access_cache.has_access_with_team")
+    def test_secret_api_key_no_usage_tracking(self, mock_has_access, mock_schedule):
+        """Test that usage tracking is NOT scheduled for secret API key authentication."""
+        # Mock the cache to return True (token is authorized)
+        mock_has_access.return_value = True, self.team
+        mock_schedule.return_value = True
+
+        data = json.dumps({"project_api_key": self.project_api_key})
+        request = self.factory.post(
+            "/", data, content_type="application/json", HTTP_AUTHORIZATION=f"Bearer {self.access_token}"
+        )
+        drf_request = Request(request, parsers=[JSONParser(), FormParser(), MultiPartParser()])
+
+        # Mock the token extraction to return secret API key
+        with patch.object(self.auth, "_extract_tokens") as mock_extract:
+            mock_extract.return_value = (self.project_api_key, self.access_token, "secret_api_key")
+
+            result = self.auth.authenticate(drf_request)
+
+        # Verify authentication succeeded
+        assert result is not None
+        user, auth = result
+        assert isinstance(user, SecuredSDKEndpointUser)
+
+        # Verify that the scheduling method was NOT called
+        mock_schedule.assert_not_called()
+
+    @patch("posthog.authentication.cached_authentication.schedule_personal_api_key_usage_update")
+    @patch("posthog.storage.team_access_cache.team_access_cache.has_access_with_team")
+    def test_authentication_continues_despite_scheduling_failure(self, mock_has_access, mock_schedule):
+        """Test that authentication continues even if usage tracking scheduling fails."""
+        # Mock the cache to return True (token is authorized)
+        mock_has_access.return_value = True, self.team
+
+        # Mock scheduling to fail
+        mock_schedule.side_effect = Exception("Celery broker down")
+
+        personal_token = "phx_personalapitoken456"
+
+        data = json.dumps({"project_api_key": self.project_api_key})
+        request = self.factory.post(
+            "/", data, content_type="application/json", HTTP_AUTHORIZATION=f"Bearer {personal_token}"
+        )
+        drf_request = Request(request, parsers=[JSONParser(), FormParser(), MultiPartParser()])
+
+        # Mock the token extraction to return personal API key
+        with patch.object(self.auth, "_extract_tokens") as mock_extract:
+            mock_extract.return_value = (self.project_api_key, personal_token, "personal_api_key")
+
+            # Authentication should succeed despite scheduling failure
+            result = self.auth.authenticate(drf_request)
+
+        # Verify authentication still succeeded
+        assert result is not None
+        user, auth = result
+        assert isinstance(user, SecuredSDKEndpointUser)
+
+    def test_schedule_personal_api_key_usage_update_success(self):
+        """Test successful personal API key usage update scheduling."""
+        # Create a real personal API key
+        personal_token = generate_random_token_personal()
+        personal_api_key = PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(personal_token),
+        )
+
+        with patch(
+            "posthog.authentication.cached_authentication.schedule_personal_api_key_usage_update"
+        ) as mock_schedule:
+            mock_schedule.return_value = True
+
+            # Mock the personal API key lookup
+            with patch("posthog.authentication.cached_authentication.find_personal_api_key") as mock_get_key:
+                mock_get_key.return_value = personal_api_key, None
+
+                # Should not raise exception
+                self.auth._schedule_personal_api_key_usage_update(personal_token)
+
+                # Verify scheduling was called with correct key ID
+                mock_schedule.assert_called_once_with(personal_api_key.id)
+
+    def test_schedule_personal_api_key_usage_update_no_key(self):
+        """Test scheduling when personal API key is not found."""
+        personal_token = "phx_nonexistent"
+
+        with patch("posthog.authentication.cached_authentication.find_personal_api_key") as mock_get_key:
+            mock_get_key.return_value = None, None
+
+            # Should not raise exception
+            self.auth._schedule_personal_api_key_usage_update(personal_token)
+
+    def test_schedule_personal_api_key_usage_update_handles_exceptions(self):
+        """Test that scheduling handles exceptions gracefully."""
+        personal_token = "phx_exception_test"
+
+        with patch("posthog.authentication.cached_authentication.find_personal_api_key") as mock_get_key:
+            mock_get_key.side_effect = Exception("Database connection lost")
+
+            # Should not raise exception
+            self.auth._schedule_personal_api_key_usage_update(personal_token)

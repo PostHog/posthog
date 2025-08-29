@@ -17,7 +17,9 @@ from rest_framework.request import Request
 
 from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication, SecuredSDKEndpointUser
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.models.personal_api_key import find_personal_api_key
 from posthog.storage.team_access_cache import team_access_cache, team_access_tokens_hypercache
+from posthog.tasks.personal_api_key_tasks import schedule_personal_api_key_usage_update
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +50,7 @@ class MinimalTeam:
         self.pk = team_id  # Django models use both .id and .pk
 
     def __str__(self):
-        return f"MinimalTeam(id={self.id}, api_token='{self.api_token[:8]}...')"
+        return f"MinimalTeam(id={self.id}, api_token='{self.api_token[:8]}…')"
 
     def __repr__(self):
         return self.__str__()
@@ -110,6 +112,10 @@ class LocalEvaluationAuthentication(authentication.BaseAuthentication):
                             team_id=team_id,
                             access_method=access_method,
                         )
+
+                    # Schedule last_used_at update for personal API keys
+                    if token_type == "personal_api_key":
+                        self._schedule_personal_api_key_usage_update(access_token)
 
                     CACHED_AUTH_OPERATIONS.labels(result="cache_hit", token_type=token_type).inc()
 
@@ -272,26 +278,6 @@ class LocalEvaluationAuthentication(authentication.BaseAuthentication):
             logger.debug(f"Error extracting team from cache metadata: {e}")
             return None
 
-    def _get_personal_api_key_from_token(self, access_token: str):
-        """
-        Get personal API key object from the raw token value.
-
-        Args:
-            access_token: The raw personal API key token
-
-        Returns:
-            PersonalAPIKey object if found, None otherwise
-        """
-        try:
-            # Import moved to top of function to avoid repeated imports
-            from posthog.models.personal_api_key import find_personal_api_key
-
-            result = find_personal_api_key(access_token)
-            return result[0] if result else None
-        except Exception as e:
-            logger.warning(f"Error getting personal API key: {e}")
-            return None
-
     def _has_feature_flag_access(self, personal_api_key) -> bool:
         """
         Check if a personal API key has feature flag read access.
@@ -317,6 +303,46 @@ class LocalEvaluationAuthentication(authentication.BaseAuthentication):
         except Exception as e:
             logger.warning(f"Error checking feature flag access: {e}")
             return False
+
+    def _schedule_personal_api_key_usage_update(self, access_token: str) -> None:
+        """
+        Schedule a background task to update personal API key last_used_at timestamp.
+
+        This method extracts the PersonalAPIKey object from the access token and
+        schedules an async task to update its last_used_at field. The task uses
+        a fail-fast approach with no retries to avoid blocking authentication flows.
+
+        Args:
+            access_token: The raw personal API key token
+
+        Note:
+            This method never raises exceptions - it logs failures and continues.
+        """
+        try:
+            # Get the personal API key object
+            result = find_personal_api_key(access_token)
+
+            if not result:
+                logger.debug("Could not find PersonalAPIKey for scheduling usage update")
+                return
+
+            personal_api_key, _ = result
+
+            # Schedule the background task
+            success = schedule_personal_api_key_usage_update(personal_api_key.id)
+
+            logger.debug(
+                success
+                and f"Scheduled usage update for PersonalAPIKey {personal_api_key.id}"
+                or f"Failed to schedule usage update for PersonalAPIKey {personal_api_key.id}",
+                extra={"success": success},
+            )
+        except Exception as e:
+            # Never let task scheduling failures block authentication
+            logger.warning(
+                f"Error scheduling personal API key usage update: {e}",
+                extra={"access_token_prefix": access_token[:8] + "…" if access_token else "None"},
+            )
 
     @classmethod
     def authenticate_header(cls, request) -> str:
