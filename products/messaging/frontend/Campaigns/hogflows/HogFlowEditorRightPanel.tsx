@@ -75,15 +75,3 @@ export function HogFlowEditorRightPanel(): JSX.Element | null {
         </HogFlowEditorPanel>
     )
 }
-// {selectedNode.deletable && (
-//     <LemonButton
-//         size="xsmall"
-//         status="danger"
-//         onClick={() => {
-//             void deleteElements({ nodes: [selectedNode] })
-//             setSelectedNodeId(null)
-//         }}
-//         icon={<IconTrash />}
-//         disabledReason={canBeDeleted() ? undefined : 'Clean up branching steps first'}
-//     />
-// )}

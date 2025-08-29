@@ -32,7 +32,8 @@ import type { HogFlow, HogFlowAction, HogFlowActionNode } from './types'
 
 const getEdgeId = (edge: HogFlow['edges'][number]): string => `${edge.from}->${edge.to} ${edge.index ?? ''}`.trim()
 
-export type HogFlowEditorMode = 'build' | 'test'
+export const HOG_FLOW_EDITOR_MODES = ['build', 'test'] as const
+export type HogFlowEditorMode = (typeof HOG_FLOW_EDITOR_MODES)[number]
 
 export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     props({} as CampaignLogicProps),
@@ -448,11 +449,14 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     }),
     urlToAction(({ actions }) => {
         const reactToTabChange = (_: any, search: Record<string, string>): void => {
-            actions.setSelectedNodeId(search.selectedNodeId ?? null)
+            const { selectedNodeId, mode } = search
+            actions.setSelectedNodeId(selectedNodeId ?? null)
+            if (mode && HOG_FLOW_EDITOR_MODES.includes(mode as HogFlowEditorMode)) {
+                actions.setMode(mode as HogFlowEditorMode)
+            }
         }
 
         return {
-            // All possible routes for this scene need to be listed here
             [urls.messagingCampaign(':id', ':tab')]: reactToTabChange,
         }
     }),
