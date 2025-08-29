@@ -8,7 +8,6 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { getFilterLabel } from '~/taxonomy/helpers'
 import { PropertyFilterType } from '~/types'
@@ -19,8 +18,40 @@ export interface ReplayTaxonomicFiltersProps {
     onChange: (value: TaxonomicFilterValue, item?: any) => void
 }
 
+const replayTaxonomicFiltersProperties = [
+    {
+        key: 'visited_page',
+        label: getFilterLabel('visited_page', TaxonomicFilterGroupType.Replay),
+        propertyFilterType: PropertyFilterType.Recording,
+        taxonomicFilterGroup: TaxonomicFilterGroupType.Replay,
+    },
+    {
+        key: 'snapshot_source',
+        label: getFilterLabel('snapshot_source', TaxonomicFilterGroupType.Replay),
+        propertyFilterType: PropertyFilterType.Recording,
+        taxonomicFilterGroup: TaxonomicFilterGroupType.Replay,
+    },
+    {
+        key: 'level',
+        label: getFilterLabel('level', TaxonomicFilterGroupType.LogEntries),
+        propertyFilterType: PropertyFilterType.LogEntry,
+        taxonomicFilterGroup: TaxonomicFilterGroupType.LogEntries,
+    },
+    {
+        key: 'message',
+        label: getFilterLabel('message', TaxonomicFilterGroupType.LogEntries),
+        propertyFilterType: PropertyFilterType.LogEntry,
+        taxonomicFilterGroup: TaxonomicFilterGroupType.LogEntries,
+    },
+    {
+        key: 'comment_text',
+        label: getFilterLabel('comment_text', TaxonomicFilterGroupType.Replay),
+        propertyFilterType: PropertyFilterType.Recording,
+        taxonomicFilterGroup: TaxonomicFilterGroupType.Replay,
+    },
+]
+
 export function ReplayTaxonomicFilters({ onChange }: ReplayTaxonomicFiltersProps): JSX.Element {
-    const showCommentText = useFeatureFlag('COMMENT_TEXT_FILTERING')
     const {
         filterGroup: { values: filters },
     } = useValues(universalFiltersLogic)
@@ -29,43 +60,12 @@ export function ReplayTaxonomicFilters({ onChange }: ReplayTaxonomicFiltersProps
         return !!filters.find((f) => f.type === PropertyFilterType.Recording && f.key === key)
     }
 
-    const properties = [
-        {
-            key: 'visited_page',
-            propertyFilterType: PropertyFilterType.Recording,
-            taxonomicFilterGroup: TaxonomicFilterGroupType.Replay,
-        },
-        {
-            key: 'snapshot_source',
-            propertyFilterType: PropertyFilterType.Recording,
-            taxonomicFilterGroup: TaxonomicFilterGroupType.Replay,
-        },
-        {
-            key: 'level',
-            propertyFilterType: PropertyFilterType.LogEntry,
-            taxonomicFilterGroup: TaxonomicFilterGroupType.LogEntries,
-        },
-        {
-            key: 'message',
-            propertyFilterType: PropertyFilterType.LogEntry,
-            taxonomicFilterGroup: TaxonomicFilterGroupType.LogEntries,
-        },
-    ]
-    if (showCommentText) {
-        properties.push({
-            key: 'comment_text',
-            propertyFilterType: PropertyFilterType.Recording,
-            taxonomicFilterGroup: TaxonomicFilterGroupType.Replay,
-        })
-    }
-
     return (
         <div className="grid grid-cols-2 gap-4 px-1 pt-1.5 pb-2.5">
             <section>
                 <h5 className="mt-1 mb-0">Replay properties</h5>
                 <ul className="gap-y-px">
-                    {properties.map(({ key, taxonomicFilterGroup, propertyFilterType }) => {
-                        const label = getFilterLabel(key, taxonomicFilterGroup)
+                    {replayTaxonomicFiltersProperties.map(({ key, label, propertyFilterType }) => {
                         return (
                             <LemonButton
                                 key={key}
