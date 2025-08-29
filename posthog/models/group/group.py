@@ -8,15 +8,6 @@ class Group(models.Model):
 
     group_properties = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
-    new_field = models.IntegerField(null=False, blank=False, default=1)
-    nother_field = models.IntegerField(null=False, blank=False, default=2)
-    and_antoher = models.IntegerField(null=False, blank=False, default=3)
-    and_another = models.IntegerField(null=False, blank=False, default=4)
-    and_another_one = models.IntegerField(null=False, blank=False, default=5)
-    and_another_two = models.IntegerField(null=False, blank=False, default=6)
-    test_field = models.IntegerField(null=False, blank=False, default=99)
-    test_field_two = models.IntegerField(null=False, blank=False, default=99)
-    test_field_three = models.IntegerField(null=False, blank=False, default=99)
 
     # used to prevent race conditions with set and set_once
     properties_last_updated_at = models.JSONField(default=dict)

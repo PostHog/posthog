@@ -3,7 +3,6 @@ import re
 
 from django.db.migrations.executor import MigrationExecutor
 
-# Import the shared models list
 from posthog.person_db_router import PERSONS_DB_MODELS
 
 
@@ -30,7 +29,6 @@ class RoutingMigrationExecutor(MigrationExecutor):
         """Override to capture current migration being applied"""
         self._current_migration = migration
 
-        # Check if we should skip this migration on this database
         if self._should_skip_migration(migration):
             # Mark it as applied without running
             self.recorder.record_applied(migration.app_label, migration.name)
@@ -56,20 +54,13 @@ class RoutingMigrationExecutor(MigrationExecutor):
         migration_number = match.group(1)
         current_db = self.connection.alias
 
-        # Skip if migration is before cutoff and we're on new DB
-        if migration_number < cutoff:
-            return True
-
         # For migrations after cutoff, check model-specific routing
-        if migration_number >= cutoff:
-            # Get models affected by this migration
+        if migration_number >= int(cutoff):
             affected_models = self._get_migration_models(migration)
 
-            # Skip if migration affects person models and we're on default DB
             if self._affects_person_models(affected_models) and current_db == app_config["default_db"]:
                 return True
 
-            # Skip if migration affects non-person models and we're on persons DB
             if self._affects_non_person_models(affected_models) and current_db == app_config["persons_db"]:
                 return True
 
