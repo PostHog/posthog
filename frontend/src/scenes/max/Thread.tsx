@@ -767,7 +767,7 @@ export function MultiVisualizationAnswer({ message, className }: MultiVisualizat
     }
 
     if (visualizations.length === 0) {
-        return <div>No visualizations available</div>
+        return <></>
     }
 
     // Render insights in a mosaic layout
