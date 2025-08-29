@@ -5,6 +5,7 @@ import { LemonButton, LemonInput, LemonTable, LemonTableColumn, LemonTag, LemonT
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TZLabel } from 'lib/components/TZLabel'
+import { IconRefresh, IconWithCount } from 'lib/lemon-ui/icons'
 import { pluralize } from 'lib/utils'
 
 import { LogEntryLevel } from '~/types'
@@ -48,19 +49,36 @@ export function LogsViewer({ renderColumns = (c) => c, ...props }: LogsViewerPro
     return (
         <div className="flex-1 deprecated-space-y-2 ph-no-capture">
             <div className="flex flex-wrap flex-row-reverse items-center gap-2">
-                <LemonInput
-                    className="flex-1 min-w-120"
-                    type="search"
-                    placeholder="Search for messages containing…"
-                    fullWidth
-                    onChange={(value) => setFilters({ search: value })}
-                    allowClear
-                    prefix={
-                        <>
-                            <IconSearch />
-                        </>
-                    }
-                />
+                <div className="flex items-center gap-2 flex-1 min-w-100">
+                    <LemonInput
+                        type="search"
+                        placeholder="Search for messages containing…"
+                        fullWidth
+                        onChange={(value) => setFilters({ search: value })}
+                        allowClear
+                        prefix={
+                            <>
+                                <IconSearch />
+                            </>
+                        }
+                    />
+                    <LemonButton
+                        onClick={revealHiddenLogs}
+                        loading={hiddenLogsLoading}
+                        type="secondary"
+                        icon={
+                            <IconWithCount count={hiddenLogs.length}>
+                                <IconRefresh />
+                            </IconWithCount>
+                        }
+                        disabledReason={!hiddenLogs.length ? "There's nothing to load" : undefined}
+                        tooltip={
+                            hiddenLogs.length
+                                ? `Show ${pluralize(hiddenLogs.length, 'newer entry', 'newer entries')}`
+                                : 'No new entries'
+                        }
+                    />
+                </div>
                 <div className="flex items-center gap-2">
                     <LogLevelsPicker value={filters.levels} onChange={(levels) => setFilters({ levels })} />
 
@@ -77,25 +95,12 @@ export function LogsViewer({ renderColumns = (c) => c, ...props }: LogsViewerPro
                     />
                 </div>
             </div>
-            <LemonButton
-                onClick={revealHiddenLogs}
-                loading={hiddenLogsLoading}
-                type="secondary"
-                fullWidth
-                center
-                disabledReason={!hiddenLogs.length ? "There's nothing to load" : undefined}
-            >
-                {hiddenLogs.length
-                    ? `Show ${pluralize(hiddenLogs.length, 'newer entry', 'newer entries')}`
-                    : 'No new entries'}
-            </LemonButton>
 
             <LemonTable
                 dataSource={logs}
                 loading={logsLoading}
                 className="ph-no-capture"
                 rowKey={(record) => record.instanceId}
-                showHeader
                 footer={
                     <LemonButton
                         onClick={loadMoreLogs}
