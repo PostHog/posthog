@@ -83,6 +83,7 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                                                 : openPrimaryMetricsReorderModal()
                                         }
                                         icon={<IconList />}
+                                        tooltip="Reorder metrics"
                                     />
                                 )}
                             </div>
