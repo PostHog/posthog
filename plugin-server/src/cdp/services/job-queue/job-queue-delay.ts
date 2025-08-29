@@ -88,7 +88,6 @@ export class CyclotronJobQueueDelay {
 
         console.log('CdpCyclotronDelayConsumer', `Consuming batch ${messages.length}`)
 
-        const now = new Date().getTime()
         const maxDelayMs = 10 * 60 * 1000// 10 minutes
 
         for (const message of messages) {
@@ -104,6 +103,7 @@ export class CyclotronJobQueueDelay {
                 continue
             }
 
+            const now = new Date().getTime()
             const scheduledTime = new Date(queueScheduledAt)
             let delayMs = Math.max(0, scheduledTime.getTime() - now)
             const waitTime = Math.min(delayMs, maxDelayMs)
