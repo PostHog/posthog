@@ -26,14 +26,12 @@ export class CyclotronJobQueueDelay {
      */
     public async startAsProducer() {
         // NOTE: For producing we use different values dedicated for Cyclotron as this is typically using its own Kafka cluster
-        logger.info('🔄', 'Starting delay queue producer')
         this.kafkaProducer = await KafkaProducerWrapper.create(
             {
                 ...this.config,
             },
             'CDP_PRODUCER'
         )
-        logger.info('✅', 'Delay queue producer started', { producer: !!this.kafkaProducer })
     }
 
     public async startAsConsumer() {
@@ -63,10 +61,6 @@ export class CyclotronJobQueueDelay {
     }
 
     private getKafkaProducer(): KafkaProducerWrapper {
-        logger.debug('🔍', 'Getting Kafka producer', { 
-            hasProducer: !!this.kafkaProducer,
-            producerType: this.kafkaProducer ? typeof this.kafkaProducer : 'undefined'
-        })
         if (!this.kafkaProducer) {
             throw new Error('KafkaProducer not initialized')
         }

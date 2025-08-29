@@ -130,7 +130,7 @@ export class CyclotronJobQueue {
             await this.jobQueueKafka.startAsProducer()
         }
 
-        if (anySplitRouting || targets.has('delay')) {
+        if (this.consumerMode === 'delay') {
             await this.jobQueueDelay.startAsProducer()
         }
     }
