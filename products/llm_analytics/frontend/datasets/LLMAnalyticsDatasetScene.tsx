@@ -21,6 +21,7 @@ import { SceneTextarea } from '~/lib/components/Scenes/SceneTextarea'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
 import { Dataset, DatasetItem } from '~/types'
 
+import { formatIdForDisplay } from '../utils'
 import { DatasetItemModal } from './DatasetItemModal'
 import { EditDatasetForm } from './EditDatasetForm'
 import { JSONColumn } from './JSONColumn'
@@ -235,7 +236,9 @@ function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
             width: '15%',
             render: function renderID(_, item) {
                 return (
-                    <Link to={urls.llmAnalyticsDataset(dataset.id, { ...searchParams, item: item.id })}>{item.id}</Link>
+                    <Link to={urls.llmAnalyticsDataset(dataset.id, { ...searchParams, item: item.id })}>
+                        {formatIdForDisplay(item.id)}
+                    </Link>
                 )
             },
         },
@@ -256,7 +259,7 @@ function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
                             timestamp: item.ref_trace_timestamp,
                         })}
                     >
-                        {item.ref_trace_id}
+                        {formatIdForDisplay(item.ref_trace_id)}
                     </Link>
                 )
             },

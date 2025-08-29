@@ -31,7 +31,7 @@ import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
 import { LLMAnalyticsDatasetsScene } from './datasets/LLMAnalyticsDatasetsScene'
 import { LLM_ANALYTICS_DATA_COLLECTION_NODE_ID, llmAnalyticsLogic } from './llmAnalyticsLogic'
 import { CompatMessage } from './types'
-import { normalizeMessages } from './utils'
+import { formatIdForDisplay, normalizeMessages } from './utils'
 
 export const scene: SceneExport = {
     component: LLMAnalyticsScene,
@@ -144,8 +144,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
                                 return <></>
                             }
 
-                            const visualValue: string =
-                                (value as string).slice(0, 4) + '...' + (value as string).slice(-4)
+                            const visualValue = formatIdForDisplay(value as string)
 
                             if (!traceId) {
                                 return <strong>{visualValue}</strong>
