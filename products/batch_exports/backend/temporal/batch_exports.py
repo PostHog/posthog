@@ -570,10 +570,12 @@ async def try_produce_run_status_app_metrics(status: BatchExportRun.Status, team
             json.dumps(
                 {
                     "team_id": team_id,
+                    "app_source": "batch_export",
                     "app_source_id": batch_export_id,
                     "count": 1,
                     "metric_kind": metric_kind,
                     "metric_name": metric_name,
+                    "timestamp": dt.datetime.now(dt.UTC).strftime("%Y-%m-%d %H:%M:%S"),
                 }
             ).encode("utf-8"),
         )
