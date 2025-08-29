@@ -1,4 +1,3 @@
-import clsx from 'clsx'
 import { useValues } from 'kea'
 
 import { NODE_HEIGHT, NODE_WIDTH } from '../../constants'
@@ -14,9 +13,7 @@ export function StepView({ action, children }: { action: HogFlowAction; children
 
     return (
         <div
-            className={clsx(
-                'relative flex cursor-pointer rounded pointer-events-none bg-surface-primary hover:bg-surface-secondary'
-            )}
+            className="relative flex cursor-pointer rounded pointer-events-none bg-surface-primary hover:bg-surface-secondary"
             style={{
                 width: NODE_WIDTH,
                 height: NODE_HEIGHT,
