@@ -25,6 +25,7 @@ def call_root(demo_org_team_user):
             {
                 "insights": AssistantNodeName.END,
                 "search_documentation": AssistantNodeName.END,
+                "session_summarization": AssistantNodeName.END,
                 "root": AssistantNodeName.END,
                 "end": AssistantNodeName.END,
             }
