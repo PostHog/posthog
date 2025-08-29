@@ -24,8 +24,8 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.constants import (
-    RETENTION_FIRST_EVER,
-    RETENTION_FIRST_TIME,
+    RETENTION_FIRST_EVER_OCCURRENCE,
+    RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
     TREND_FILTER_TYPE_ACTIONS,
     TREND_FILTER_TYPE_EVENTS,
 )
@@ -1274,7 +1274,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 "retentionFilter": {
                     "targetEntity": {"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS},
                     "returningEntity": {"id": "$pageview", "type": "events"},
-                    "retentionType": RETENTION_FIRST_TIME,
+                    "retentionType": RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
                     "totalIntervals": 11,
                 },
             },
@@ -1290,7 +1290,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 "retentionFilter": {
                     "targetEntity": {"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS},
                     "returningEntity": {"id": "$pageview", "type": "events"},
-                    "retentionType": RETENTION_FIRST_TIME,
+                    "retentionType": RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
                 },
             },
         )
@@ -1387,7 +1387,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 "retentionFilter": {
                     "targetEntity": {"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS},
                     "returningEntity": {"id": "$pageview", "type": "events"},
-                    "retentionType": RETENTION_FIRST_TIME,
+                    "retentionType": RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
                     "totalIntervals": 11,
                 },
             },
@@ -1589,7 +1589,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 "retentionFilter": {
                     "period": "Day",
                     "totalIntervals": 7,
-                    "retentionType": RETENTION_FIRST_TIME,
+                    "retentionType": RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
                     "targetEntity": {
                         "id": "$user_signed_up",
                         "name": "$user_signed_up",
@@ -1630,7 +1630,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 "retentionFilter": {
                     "period": "Week",
                     "totalIntervals": 7,
-                    "retentionType": RETENTION_FIRST_TIME,
+                    "retentionType": RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
                     "targetEntity": {
                         "id": "$user_signed_up",
                         "name": "$user_signed_up",
@@ -2498,7 +2498,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 "retentionFilter": {
                     "period": "Day",
                     "totalIntervals": 7,
-                    "retentionType": RETENTION_FIRST_EVER,
+                    "retentionType": RETENTION_FIRST_EVER_OCCURRENCE,
                     "targetEntity": {
                         "id": "$user_signed_up",
                         "name": "$user_signed_up",
@@ -2576,7 +2576,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 "retentionFilter": {
                     "period": "Day",
                     "totalIntervals": 7,
-                    "retentionType": RETENTION_FIRST_EVER,
+                    "retentionType": RETENTION_FIRST_EVER_OCCURRENCE,
                     "targetEntity": {
                         "id": "$user_signed_up",
                         "name": "$user_signed_up",
@@ -2670,7 +2670,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 "retentionFilter": {
                     "period": "Day",
                     "totalIntervals": 7,
-                    "retentionType": RETENTION_FIRST_EVER,
+                    "retentionType": RETENTION_FIRST_EVER_OCCURRENCE,
                     "targetEntity": {
                         "id": "$user_signed_up",
                         "name": "$user_signed_up",
@@ -2798,7 +2798,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 "retentionFilter": {
                     "period": "Day",
                     "totalIntervals": 7,
-                    "retentionType": RETENTION_FIRST_EVER,
+                    "retentionType": RETENTION_FIRST_EVER_OCCURRENCE,
                     "targetEntity": {
                         "id": "$user_signed_up",
                         "name": "$user_signed_up",
@@ -2889,7 +2889,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 "retentionFilter": {
                     "period": "Day",
                     "totalIntervals": 7,
-                    "retentionType": RETENTION_FIRST_EVER,
+                    "retentionType": RETENTION_FIRST_EVER_OCCURRENCE,
                     "targetEntity": {
                         "id": "$user_signed_up",
                         "name": "$user_signed_up",
@@ -2933,7 +2933,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             "retentionFilter": {
                 "period": "Day",
                 "totalIntervals": 7,
-                "retentionType": RETENTION_FIRST_EVER,
+                "retentionType": RETENTION_FIRST_EVER_OCCURRENCE,
                 "targetEntity": {
                     "id": "$user_signed_up",
                     "name": "$user_signed_up",
@@ -2997,7 +2997,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 "retentionFilter": {
                     "period": "Week",
                     "totalIntervals": 5,
-                    "retentionType": RETENTION_FIRST_EVER,
+                    "retentionType": RETENTION_FIRST_EVER_OCCURRENCE,
                     "targetEntity": {
                         "id": "$user_signed_up",
                         "name": "$user_signed_up",
@@ -3070,7 +3070,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 "retentionFilter": {
                     "period": "Day",
                     "totalIntervals": 7,
-                    "retentionType": RETENTION_FIRST_EVER,
+                    "retentionType": RETENTION_FIRST_EVER_OCCURRENCE,
                     "targetEntity": {
                         "id": "$user_signed_up",
                         "name": "$user_signed_up",
@@ -3123,7 +3123,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             retentionFilter={
                 "period": "Day",
                 "totalIntervals": 7,
-                "retentionType": RETENTION_FIRST_EVER,
+                "retentionType": RETENTION_FIRST_EVER_OCCURRENCE,
                 "targetEntity": {
                     "id": "$user_signed_up",
                     "name": "$user_signed_up",

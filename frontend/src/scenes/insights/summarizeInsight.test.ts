@@ -1,4 +1,4 @@
-import { RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
+import { RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS, RETENTION_RECURRING } from 'lib/constants'
 import { SummaryContext, summarizeInsight } from 'scenes/insights/summarizeInsight'
 import {
     BASE_MATH_DEFINITIONS,
@@ -317,7 +317,7 @@ describe('summarizing insights', () => {
                         name: '$autocapture',
                         type: 'events',
                     },
-                    retentionType: RETENTION_FIRST_TIME,
+                    retentionType: RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
                 },
             }
 

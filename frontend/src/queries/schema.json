@@ -13813,7 +13813,7 @@
             "required": ["results"],
             "type": "object"
         },
-        "HogQLQueryResponse<def-interface-974149753-110597-110706-974149753-0-118558[]>": {
+        "HogQLQueryResponse<def-interface-974149753-110873-110982-974149753-0-118834[]>": {
             "additionalProperties": false,
             "properties": {
                 "clickhouse": {
@@ -21426,7 +21426,7 @@
             "type": "object"
         },
         "RetentionType": {
-            "enum": ["retention_recurring", "retention_first_time"],
+            "enum": ["retention_recurring", "retention_first_time", "retention_first_ever_occurrence"],
             "type": "string"
         },
         "RetentionValue": {
