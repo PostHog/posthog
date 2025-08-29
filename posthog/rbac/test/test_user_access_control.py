@@ -10,11 +10,11 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.rbac.user_access_control import (
-    FIELD_ACCESS_CONTROL_MAP,
     RESOURCE_INHERITANCE_MAP,
     AccessSource,
     UserAccessControl,
     UserAccessControlSerializerMixin,
+    get_field_access_control_map,
 )
 
 try:
@@ -1470,8 +1470,7 @@ class TestResourceInheritance(BaseUserAccessControlTest):
 class TestFieldLevelAccessControl(BaseUserAccessControlTest):
     def test_field_access_control_mapping_exists(self):
         """Test that field access control mappings are properly configured"""
-        assert "Team" in FIELD_ACCESS_CONTROL_MAP
-        team_mappings = FIELD_ACCESS_CONTROL_MAP["Team"]
+        team_mappings = get_field_access_control_map(Team)
 
         # Verify session recording fields are mapped
         assert "session_recording_opt_in" in team_mappings

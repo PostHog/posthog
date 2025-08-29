@@ -62,23 +62,21 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "session_recording_playlist": "session_recording",
 }
 
-# Field-level access control mapping
-# Format: {ModelName: {field_name: (resource, required_level)}}
-FIELD_ACCESS_CONTROL_MAP: dict[str, dict[str, tuple[APIScopeObject, AccessControlLevel]]] = {
-    "Team": {
-        "session_recording_opt_in": ("session_recording", "editor"),
-        "session_recording_sample_rate": ("session_recording", "editor"),
-        "session_recording_minimum_duration_milliseconds": ("session_recording", "editor"),
-        "session_recording_linked_flag": ("session_recording", "editor"),
-        "session_recording_network_payload_capture_config": ("session_recording", "editor"),
-        "session_recording_masking_config": ("session_recording", "editor"),
-        "session_recording_url_trigger_config": ("session_recording", "editor"),
-        "session_recording_url_blocklist_config": ("session_recording", "editor"),
-        "session_recording_event_trigger_config": ("session_recording", "editor"),
-        "session_recording_trigger_match_type_config": ("session_recording", "editor"),
-        "session_replay_config": ("session_recording", "editor"),
-    },
-}
+
+def get_field_access_control_map(model_class: type[Model]) -> dict[str, tuple[APIScopeObject, AccessControlLevel]]:
+    """
+    Dynamically retrieve field-level access control requirements from model fields.
+    This function looks for fields decorated with @requires_access.
+    """
+    field_access_map = {}
+
+    # Iterate through all fields in the model
+    for field in model_class._meta.get_fields():
+        # Check if the field has access control metadata
+        if hasattr(field, "_access_control_resource") and hasattr(field, "_access_control_level"):
+            field_access_map[field.name] = (field._access_control_resource, field._access_control_level)
+
+    return field_access_map
 
 
 def resource_to_display_name(resource: APIScopeObject) -> str:
@@ -884,13 +882,13 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
         if not self.instance:
             return attrs
 
-        # Get the model name
-        model_name = self.instance.__class__.__name__ if self.instance else None
-        if not model_name or model_name not in FIELD_ACCESS_CONTROL_MAP:
-            return attrs
-
         # Get field access control mappings for this model
-        field_mappings = FIELD_ACCESS_CONTROL_MAP[model_name]
+        model_class = self.instance.__class__
+        field_mappings = get_field_access_control_map(model_class)
+
+        # If no field access controls are defined for this model, continue
+        if not field_mappings:
+            return attrs
 
         # Check access control for each field being modified
         user_access_control = self.user_access_control
