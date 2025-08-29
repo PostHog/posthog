@@ -411,20 +411,27 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         },
     })),
 
-    actionToUrl(({ values }) => ({
-        setSelectedNodeId: () => {
-            console.log('setSelectedNodeId', values.selectedNodeId)
+    actionToUrl(({ values }) => {
+        const syncProperty = (
+            key: string,
+            value: string | null
+        ): [string, Record<string, any>, Record<string, any>] => {
             return [
                 router.values.location.pathname,
                 {
                     ...router.values.searchParams,
-                    selectedNodeId: values.selectedNodeId,
+                    [key]: value,
                 },
                 router.values.hashParams,
             ]
-        },
-    })),
-    urlToAction(({ actions, values }) => {
+        }
+
+        return {
+            setSelectedNodeId: () => syncProperty('selectedNodeId', values.selectedNodeId ?? null),
+            setMode: () => syncProperty('mode', values.mode),
+        }
+    }),
+    urlToAction(({ actions }) => {
         const reactToTabChange = (_: any, search: Record<string, string>): void => {
             actions.setSelectedNodeId(search.selectedNodeId ?? null)
         }
