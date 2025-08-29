@@ -388,8 +388,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         isEventsQuery(props.query) ||
                         isActorsQuery(props.query) ||
                         isGroupsQuery(props.query) ||
-                        isErrorTrackingQuery(props.query) ||
                         isTracesQuery(props.query) ||
+                        isErrorTrackingQuery(props.query) ||
                         isMarketingAnalyticsTableQuery(props.query)
                     ) {
                         const newResponse =
@@ -406,9 +406,16 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             | ErrorTrackingQueryResponse
                             | TracesQueryResponse
                             | MarketingAnalyticsTableQueryResponse
+
+                        let results = [...(queryResponse?.results ?? []), ...(newResponse?.results ?? [])]
+
+                        if (isErrorTrackingQuery(props.query)) {
+                            results = dedupeResults(results, 'id')
+                        }
+
                         return {
                             ...queryResponse,
-                            results: [...(queryResponse?.results ?? []), ...(newResponse?.results ?? [])],
+                            results: results,
                             hasMore: newResponse?.hasMore,
                         }
                     } else if (isPersonsNode(props.query)) {
@@ -950,3 +957,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         }
     }),
 ])
+
+const dedupeResults = (arr: any[], key: string): any[] => {
+    return Object.values(
+        arr.reduce((acc, item) => {
+            acc[item[key]] = item
+            return acc
+        }, {})
+    )
+}
