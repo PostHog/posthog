@@ -4,6 +4,7 @@ use std::time::Instant;
 
 use axum::body::Body;
 use axum::{extract::MatchedPath, http::Request, middleware::Next, response::IntoResponse};
+use limiters::redis::QuotaResource;
 use metrics::counter;
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 
@@ -15,8 +16,8 @@ pub fn report_overflow_partition(quantity: u64) {
     counter!("capture_partition_key_capacity_exceeded_total").increment(quantity);
 }
 
-pub fn report_quota_limit_exceeded(limiter: &'static str, quantity: u64) {
-    counter!("capture_billing_limit_exceeded_total", "limiter" => limiter).increment(quantity);
+pub fn report_quota_limit_exceeded(resource: &QuotaResource, quantity: u64) {
+    counter!("capture_quota_limit_exceeded", "resource" => resource.as_str()).increment(quantity);
 }
 
 pub fn report_internal_error_metrics(

@@ -12,10 +12,9 @@ use crate::config::CaptureMode;
 use crate::config::Config;
 
 use limiters::overflow::OverflowLimiter;
-use limiters::redis::{
-    QuotaResource, RedisLimiter, OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_CACHE_KEY,
-};
+use limiters::redis::{QuotaResource, RedisLimiter, OVERFLOW_LIMITER_CACHE_KEY};
 
+use crate::limiters::CaptureQuotaLimiter;
 use crate::router;
 use crate::router::BATCH_BODY_SIZE;
 use crate::sinks::fallback::FallbackSink;
@@ -138,13 +137,22 @@ where
             .expect("failed to create redis client"),
     );
 
+    // add new "scoped" quota limiters here as new quota tracking buckets are added
+    // to PostHog! Here a "scoped" limiter is one that should be INDEPENDENT of the
+    // global billing limiter applied here to every event batch
     let quota_limiter = CaptureQuotaLimiter::new(&config, redis_client.clone())
-        .add_scoped_limiter(QuotaResource::Surveys, |e| matches!(
-            e.event_name,
-            "survey sent" | "survey shown" | "survey dismissed"
-        ))
-        .add_scoped_limiter(QuotaResource::LLM_Events, |e| e.event_name.starts_with("$ai_"))
-        .add_scoped_limiter(QuotaResource::Exceptions, |e| e.event_name == "$exception");
+        .add_scoped_limiter(QuotaResource::Exceptions, |e: &RawEvent| {
+            e.event_name == "$exception"
+        })
+        .add_scoped_limiter(QuotaResource::Surveys, |e: &RawEvent| {
+            matches!(
+                e.event_name,
+                "survey sent" | "survey shown" | "survey dismissed"
+            )
+        })
+        .add_scoped_limiter(QuotaResource::LLMEvents, |e: &RawEvent| {
+            e.event_name.starts_with("$ai_")
+        });
 
     // TODO: remove this once we have a billing limiter
     let token_dropper = config
@@ -172,9 +180,7 @@ where
         liveness,
         sink,
         redis_client,
-        billing_limiter,
-        survey_limiter,
-        llm_events_limiter,
+        quota_limiter,
         token_dropper,
         config.export_prometheus,
         config.capture_mode,
