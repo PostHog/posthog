@@ -189,7 +189,13 @@ class HogQLQueryFixerTool(MaxTool):
     def _run_impl(self) -> tuple[str, str | None]:
         database = create_hogql_database(team=self._team)
         hogql_context = HogQLContext(
-            team=self._team, enable_select_queries=True, database=database, loose_syntax=True, limit_top_select=False
+            team=self._team,
+            enable_select_queries=True,
+            database=database,
+            insensitive_function_names=True,
+            limit_top_select=False,
+            beautify=True,
+            preserve_placeholders=True,
         )
 
         all_tables = database.get_all_tables()

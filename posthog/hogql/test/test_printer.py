@@ -2566,8 +2566,10 @@ class TestPrinter(BaseTest):
 
     def test_loose_syntax_function_normalization(self):
         """Test function name normalization with loose_syntax parameter."""
-        loose_context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, loose_syntax=True)
-        strict_context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, loose_syntax=False)
+        loose_context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, insensitive_function_names=True)
+        strict_context = HogQLContext(
+            team_id=self.team.pk, enable_select_queries=True, insensitive_function_names=False
+        )
 
         # Test basic function normalization - aggregation functions
         query_ast = parse_select("SELECT COUNT() FROM events")
@@ -2596,7 +2598,7 @@ class TestPrinter(BaseTest):
 
     def test_loose_syntax_preserves_placeholders(self):
         """Test that placeholders are preserved when loose_syntax is enabled."""
-        loose_context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, loose_syntax=True)
+        loose_context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, insensitive_function_names=True)
 
         query_ast = parse_select("SELECT {filters} FROM events")
         loose_result = print_ast(query_ast, loose_context, "hogql")
@@ -2607,8 +2609,10 @@ class TestPrinter(BaseTest):
 
     def test_loose_syntax_boolean_logic(self):
         """Test that boolean AND/OR logic uses infix notation with loose_syntax enabled."""
-        loose_context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, loose_syntax=True)
-        strict_context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, loose_syntax=False)
+        loose_context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, insensitive_function_names=True)
+        strict_context = HogQLContext(
+            team_id=self.team.pk, enable_select_queries=True, insensitive_function_names=False
+        )
 
         # Test AND/OR logic
         query_ast = parse_select(
@@ -2640,8 +2644,10 @@ class TestPrinter(BaseTest):
 
     def test_loose_syntax_preserves_select_asterisk(self):
         """Test that SELECT * is preserved when loose_syntax is enabled."""
-        loose_context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, loose_syntax=True)
-        strict_context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, loose_syntax=False)
+        loose_context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, insensitive_function_names=True)
+        strict_context = HogQLContext(
+            team_id=self.team.pk, enable_select_queries=True, insensitive_function_names=False
+        )
 
         # Test SELECT * preservation
         query_ast = parse_select("SELECT * FROM events")

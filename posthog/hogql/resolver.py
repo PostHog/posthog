@@ -190,7 +190,7 @@ class Resolver(CloningVisitor):
         select_nodes = []
         for expr in node.select or []:
             new_expr = self.visit(expr)
-            if isinstance(new_expr.type, ast.AsteriskType) and not self.context.loose_syntax:
+            if isinstance(new_expr.type, ast.AsteriskType) and not self.context.insensitive_function_names:
                 columns = self._asterisk_columns(new_expr.type, chain_prefix=new_expr.chain[:-1])
                 select_nodes.extend([self.visit(expr) for expr in columns])
             else:
@@ -757,9 +757,11 @@ class Resolver(CloningVisitor):
         return node
 
     def visit_placeholder(self, node: ast.Placeholder):
-        if not self.context.loose_syntax:
-            return super().visit_placeholder(node)
-        return node
+        if self.context.preserve_placeholders:
+            if node.type is None:
+                node.type = ast.UnknownType()
+            return node
+        return super().visit_placeholder(node)
 
     def visit_array_access(self, node: ast.ArrayAccess):
         node = super().visit_array_access(node)

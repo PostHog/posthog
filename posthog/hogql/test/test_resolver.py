@@ -795,6 +795,11 @@ class TestResolver(BaseTest):
         query = "SELECT {variables.f} FROM events"
         resolve_types(
             self._select(query),
-            HogQLContext(database=self.database, team_id=self.team.pk, enable_select_queries=True, loose_syntax=True),
+            HogQLContext(
+                database=self.database,
+                team_id=self.team.pk,
+                enable_select_queries=True,
+                insensitive_function_names=True,
+            ),
             dialect="hogql",
         )
