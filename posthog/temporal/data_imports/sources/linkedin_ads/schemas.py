@@ -90,13 +90,31 @@ LINKEDIN_ADS_FIELDS = {
     ],
 
     LinkedinAdsResource.CampaignStats: [
-        "impressions", "clicks", "dateRange", "pivotValues", "costInUsd",
-        "externalWebsiteConversions", "landingPageClicks", "totalEngagements",
-        "videoViews", "videoCompletions", "oneClickLeads", "follows"
+        "impressions",
+        "clicks",
+        "dateRange",
+        "pivotValues",
+        "costInUsd",
+        "externalWebsiteConversions",
+        "landingPageClicks",
+        "totalEngagements",
+        "videoViews",
+        "videoCompletions",
+        "oneClickLeads",
+        "follows"
     ],
     LinkedinAdsResource.CampaignGroupStats: [
-        "impressions", "clicks", "dateRange", "pivotValues", "costInUsd",
-        "externalWebsiteConversions", "landingPageClicks", "totalEngagements",
-        "videoViews", "videoCompletions", "oneClickLeads", "follows"
+        "impressions",
+        "clicks",
+        "dateRange",
+        "pivotValues",
+        "costInUsd",
+        "externalWebsiteConversions",
+        "landingPageClicks",
+        "totalEngagements",
+        "videoViews",
+        "videoCompletions",
+        "oneClickLeads",
+        "follows"
     ],
 }
