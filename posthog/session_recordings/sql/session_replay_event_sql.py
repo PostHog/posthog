@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     message_count Int64,
     snapshot_source LowCardinality(Nullable(String)),
     snapshot_library Nullable(String),
-    retention_period_days Nullable(UInt8),
+    retention_period_days Nullable(Int64),
 ) ENGINE = {engine}
 """
 
@@ -88,7 +88,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
     _timestamp SimpleAggregateFunction(max, DateTime),
     -- retention period for this session, in days. Useful to show TTL for the recording
-    retention_period_days Nullable(UInt8)
+    retention_period_days Nullable(Int64)
 ) ENGINE = {engine}
 """
 
@@ -197,7 +197,7 @@ group by session_id, team_id
 `snapshot_source` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
 `snapshot_library` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
 `_timestamp` Nullable(DateTime),
-`retention_period_days` Nullable(UInt8)
+`retention_period_days` Nullable(Int64)
 )""",
     )
 

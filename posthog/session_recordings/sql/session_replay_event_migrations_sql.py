@@ -179,7 +179,7 @@ ADD_RETENTION_PERIOD_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REP
 
 # migration to add retention_period column to the session replay table and drop the old string column
 ALTER_SESSION_REPLAY_ADD_RETENTION_PERIOD_DAYS_COLUMN = """
-    ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS retention_period_days Nullable(UInt8)
+    ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS retention_period_days Nullable(Int64)
 """
 
 ADD_RETENTION_PERIOD_DAYS_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = (
