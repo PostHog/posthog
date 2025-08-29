@@ -6832,6 +6832,15 @@
                 "showTotalRow": {
                     "type": "boolean"
                 },
+                "showXAxisBorder": {
+                    "type": "boolean"
+                },
+                "showXAxisTicks": {
+                    "type": "boolean"
+                },
+                "showYAxisBorder": {
+                    "type": "boolean"
+                },
                 "stackBars100": {
                     "description": "Whether we fill the bars to 100% in stacked mode",
                     "type": "boolean"
@@ -26547,6 +26556,12 @@
                 "scale": {
                     "enum": ["linear", "logarithmic"],
                     "type": "string"
+                },
+                "showGridLines": {
+                    "type": "boolean"
+                },
+                "showTicks": {
+                    "type": "boolean"
                 },
                 "startAtZero": {
                     "description": "Whether the Y axis should start at zero",

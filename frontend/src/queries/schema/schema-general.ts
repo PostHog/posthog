@@ -873,6 +873,8 @@ export interface YAxisSettings {
     scale?: 'linear' | 'logarithmic'
     /** Whether the Y axis should start at zero */
     startAtZero?: boolean
+    showGridLines?: boolean
+    showTicks?: boolean
 }
 
 export interface ChartSettings {
@@ -886,6 +888,9 @@ export interface ChartSettings {
     /** Whether we fill the bars to 100% in stacked mode */
     stackBars100?: boolean
     seriesBreakdownColumn?: string | null
+    showXAxisTicks?: boolean
+    showXAxisBorder?: boolean
+    showYAxisBorder?: boolean
     showLegend?: boolean
     showTotalRow?: boolean
 }

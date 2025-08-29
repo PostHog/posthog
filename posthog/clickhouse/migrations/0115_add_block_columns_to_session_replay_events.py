@@ -24,7 +24,7 @@ operations = [
     # 5. Distributed table (for reading)
     run_sql_with_exceptions(
         ADD_BLOCK_COLUMNS_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-        node_role=NodeRole.ALL,
+        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
     ),
     # 6. Recreate the Kafka table with the updated schema
     run_sql_with_exceptions(KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL()),

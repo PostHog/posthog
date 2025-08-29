@@ -11,7 +11,9 @@ from posthog.models.ingestion_warnings.sql import (
 
 operations = [
     run_sql_with_exceptions(INGESTION_WARNINGS_DATA_TABLE_SQL(on_cluster=False), sharded=True),
-    run_sql_with_exceptions(DISTRIBUTED_INGESTION_WARNINGS_TABLE_SQL(on_cluster=False), node_role=NodeRole.COORDINATOR),
+    run_sql_with_exceptions(
+        DISTRIBUTED_INGESTION_WARNINGS_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.COORDINATOR]
+    ),
     run_sql_with_exceptions(KAFKA_INGESTION_WARNINGS_TABLE_SQL(on_cluster=False)),
     run_sql_with_exceptions(INGESTION_WARNINGS_MV_TABLE_SQL(on_cluster=False)),
 ]

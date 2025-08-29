@@ -1,108 +1,159 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconCalendar } from '@posthog/icons'
-import { LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonSelect } from '@posthog/lemon-ui'
 
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { humanFriendlyNumber } from 'lib/utils'
+import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
+import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
+import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 
-import { CampaignMetricsLogicProps, campaignMetricsLogic } from './campaignMetricsLogic'
+import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
+import { ChartDisplayType } from '~/types'
 
-export function CampaignMetrics({ id }: CampaignMetricsLogicProps): JSX.Element {
-    // Get the metrics based off of the campaign id
-    const { loadMetricsByKind } = useActions(campaignMetricsLogic({ id }))
-
-    useEffect(() => {
-        loadMetricsByKind()
-    }, [id]) // oxlint-disable-line react-hooks/exhaustive-deps
-
-    return (
-        <BindLogic logic={campaignMetricsLogic} props={{ id }}>
-            <div className="flex flex-col gap-2">
-                <CampaignMetricsFilters />
-                <CampaignMetricsTotals />
-            </div>
-        </BindLogic>
-    )
-}
-
-function CampaignMetricsFilters(): JSX.Element {
-    const { filters } = useValues(campaignMetricsLogic)
-    const { setFilters } = useActions(campaignMetricsLogic)
-
-    return (
-        <div className="flex gap-2 items-center">
-            <LemonSelect
-                options={[
-                    { label: 'Hourly', value: 'hour' },
-                    { label: 'Daily', value: 'day' },
-                    { label: 'Weekly', value: 'week' },
-                ]}
-                size="small"
-                value={filters.interval}
-                onChange={(value) => setFilters({ interval: value })}
-            />
-            <DateFilter
-                dateTo={filters.before}
-                dateFrom={filters.after}
-                onChange={(from, to) => setFilters({ after: from || undefined, before: to || undefined })}
-                allowedRollingDateOptions={['days', 'weeks', 'months', 'years']}
-                makeLabel={(key) => (
-                    <>
-                        <IconCalendar /> {key}
-                    </>
-                )}
-            />
-        </div>
-    )
-}
+import { campaignLogic } from './campaignLogic'
+import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
 
 const METRICS_INFO = {
     succeeded: 'Total number of events processed successfully',
     failed: 'Total number of events that had errors during processing',
     filtered: 'Total number of events that were filtered out',
-    filtering_failed: 'Total number of events that failed to be filtered',
+    dropped: 'Total number of events that were dropped during processing',
     disabled_temporarily:
         'Total number of events that were skipped due to the destination being temporarily disabled (due to issues such as the destination being down or rate-limited)',
     disabled_permanently:
         'Total number of events that were skipped due to the destination being permanently disabled (due to prolonged issues with the destination)',
 }
 
-function CampaignMetric({
-    label,
-    value,
-    tooltip,
-}: {
-    label: string
-    value: number | undefined
-    tooltip: JSX.Element | string
-}): JSX.Element {
-    return (
-        <Tooltip title={tooltip}>
-            <div className="flex flex-col flex-1 gap-2 items-center p-2 rounded border bg-surface-primary">
-                <div className="text-xs font-bold uppercase">{label.replace(/_/g, ' ')}</div>
-                <div className="flex flex-1 items-center mb-2 text-2xl">{humanFriendlyNumber(value ?? 0)}</div>
-            </div>
-        </Tooltip>
-    )
+export type CampaignMetricsProps = {
+    id: string
 }
 
-function CampaignMetricsTotals(): JSX.Element {
-    const { metricsByKind, metricsByKindLoading } = useValues(campaignMetricsLogic)
+export function CampaignMetrics({ id }: CampaignMetricsProps): JSX.Element {
+    const logicKey = `hog-flow-metrics-${id}`
+
+    const logic = appMetricsLogic({
+        logicKey,
+        loadOnChanges: true,
+        forceParams: {
+            appSource: 'hog_flow',
+            appSourceId: id,
+            // metricName: ['succeeded', 'failed', 'filtered', 'disabled_permanently'],
+            breakdownBy: 'metric_name',
+        },
+    })
+
+    const { campaign } = useValues(campaignLogic({ id }))
+
+    const { appMetricsTrendsLoading, getSingleTrendSeries, appMetricsTrends, params } = useValues(logic)
+    const { loadAppMetricsTrends, loadAppMetricsTrendsPreviousPeriod, setParams } = useActions(logic)
+
+    useEffect(() => {
+        loadAppMetricsTrends()
+        loadAppMetricsTrendsPreviousPeriod()
+    }, [loadAppMetricsTrends, loadAppMetricsTrendsPreviousPeriod])
 
     return (
-        <div className="flex flex-wrap gap-2 items-center">
-            {Object.entries(METRICS_INFO).map(([key, value]) => (
-                <div key={key} className="flex flex-col flex-1 h-30 min-w-30 max-w-100">
-                    {metricsByKindLoading ? (
-                        <LemonSkeleton className="w-full h-full" />
-                    ) : (
-                        <CampaignMetric label={key} value={metricsByKind?.[key]?.total} tooltip={value} />
-                    )}
+        <div>
+            <div className="flex flex-row gap-2 flex-wrap justify-between mb-2">
+                <div>
+                    <LemonSelect
+                        size="small"
+                        options={[
+                            {
+                                title: 'Workflow',
+                                options: [
+                                    {
+                                        label: 'Overview',
+                                        value: null,
+                                    },
+                                ],
+                            },
+                            {
+                                title: 'Workflow steps',
+                                options: campaign.actions.map((action) => ({
+                                    label: (
+                                        <span className="flex items-center gap-1">
+                                            {getHogFlowStep(action.type)?.icon} {getHogFlowStep(action.type)?.name}
+                                        </span>
+                                    ),
+                                    value: action.id,
+                                })),
+                            },
+                        ]}
+                        value={params.instanceId ?? null}
+                        onChange={(value) => setParams({ ...params, instanceId: value ?? undefined })}
+                    />
                 </div>
-            ))}
+                <AppMetricsFilters logicKey={logicKey} />
+            </div>
+
+            <div className="flex flex-row gap-2 mb-2 flex-wrap justify-center">
+                <AppMetricSummary
+                    name="Success"
+                    description={METRICS_INFO.succeeded}
+                    loading={appMetricsTrendsLoading}
+                    timeSeries={getSingleTrendSeries('succeeded')}
+                    previousPeriodTimeSeries={getSingleTrendSeries('succeeded', true)}
+                />
+
+                <AppMetricSummary
+                    name="Failure"
+                    description={METRICS_INFO.failed}
+                    loading={appMetricsTrendsLoading}
+                    timeSeries={getSingleTrendSeries('failed')}
+                    previousPeriodTimeSeries={getSingleTrendSeries('failed', true)}
+                />
+
+                <AppMetricSummary
+                    name="Filtered"
+                    description={METRICS_INFO.filtered}
+                    loading={appMetricsTrendsLoading}
+                    timeSeries={getSingleTrendSeries('filtered')}
+                    previousPeriodTimeSeries={getSingleTrendSeries('filtered', true)}
+                />
+
+                <AppMetricSummary
+                    name="Disabled"
+                    description={METRICS_INFO.disabled_permanently}
+                    loading={appMetricsTrendsLoading}
+                    timeSeries={getSingleTrendSeries('disabled_permanently')}
+                    previousPeriodTimeSeries={getSingleTrendSeries('disabled_permanently', true)}
+                />
+            </div>
+
+            <div className="border rounded min-h-[20rem] h-[70vh] bg-white">
+                {appMetricsTrends && (
+                    <LineGraph
+                        className="p-2"
+                        xData={{
+                            column: {
+                                name: 'date',
+                                type: {
+                                    name: 'DATE',
+                                    isNumerical: false,
+                                },
+                                label: 'Date',
+                                dataIndex: 0,
+                            },
+                            data: appMetricsTrends.labels,
+                        }}
+                        yData={appMetricsTrends.series.map((x) => ({
+                            column: {
+                                name: x.name,
+                                type: { name: 'INTEGER', isNumerical: true },
+                                label: x.name,
+                                dataIndex: 0,
+                            },
+                            data: x.values,
+                        }))}
+                        visualizationType={ChartDisplayType.ActionsLineGraph}
+                        chartSettings={{
+                            showLegend: true,
+                            showTotalRow: true,
+                        }}
+                    />
+                )}
+            </div>
         </div>
     )
 }
