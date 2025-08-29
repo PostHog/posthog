@@ -331,11 +331,6 @@ def get_all_filters(
         "date_end": date_end,
         **date_filters,
         **mat_custom_fields_expressions,
-        "mat_custom_fields_inner_group_by_placeholder": (
-            f",\n            {mat_custom_fields_expressions['mat_custom_fields_group_by']}"
-            if mat_custom_fields_expressions["mat_custom_fields_group_by"]
-            else ""
-        ),
         "mat_custom_fields_outer_group_by_placeholder": (
             f",\n        {mat_custom_fields_expressions['mat_custom_fields_group_by']}"
             if mat_custom_fields_expressions["mat_custom_fields_group_by"]
@@ -489,7 +484,7 @@ def WEB_STATS_INSERT_SQL(
             region_name,
             has_gclid,
             has_gad_source_paid_search,
-            has_fbclid{mat_custom_fields_inner_group_by_placeholder}
+            has_fbclid
         {settings_clause}
     )
     WHERE
@@ -666,7 +661,7 @@ def WEB_BOUNCES_INSERT_SQL(
             AND toTimeZone(e.timestamp, '{timezone}') < {event_end_filter}
         GROUP BY
             session_id,
-            team_id{mat_custom_fields_inner_group_by_placeholder}
+            team_id
     )
     WHERE
         period_bucket >= {target_period_start}
