@@ -18,6 +18,16 @@ interface SurveySQLHelperProps {
     onClose: () => void
 }
 
+// Helper to sanitize the SQL alias for safety
+function sanitizeAlias(text: string, maxLen = 50): string {
+    return (
+        text
+            .replace(/["'`]/g, '')         // Remove quotes and backticks
+            .replace(/[^\w\s]/g, '')       // Remove non-word characters (optional)
+            .slice(0, maxLen)              // Truncate to maxLen chars
+    )
+}
+
 export function SurveySQLHelper({ isOpen, onClose }: SurveySQLHelperProps): JSX.Element {
     const { survey, answerFilters } = useValues(surveyLogic)
 
@@ -28,7 +38,7 @@ export function SurveySQLHelper({ isOpen, onClose }: SurveySQLHelperProps): JSX.
     distinct_id,
     getSurveyResponse(${index}, '${question.id}'${
         question.type === SurveyQuestionType.MultipleChoice ? ', true' : ''
-    }) AS "${question.question}",
+    }) AS "${sanitizeAlias(question.question)}",
     timestamp
 FROM
     events
@@ -48,7 +58,7 @@ LIMIT
             .map((question: SurveyQuestion, index: number) => {
                 return `    getSurveyResponse(${index}, '${question.id}'${
                     question.type === SurveyQuestionType.MultipleChoice ? ', true' : ''
-                }) AS "${question.question}"`
+                }) AS "${sanitizeAlias(question.question)}"`
             })
             .join(',\n')
 
