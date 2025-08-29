@@ -42,7 +42,7 @@ describe('SessionMetadataStore', () => {
                 messageCount: 50,
                 snapshotSource: 'web',
                 snapshotLibrary: 'rrweb@1.0.0',
-                retentionPeriod: '30d',
+                retentionPeriodDays: 30,
             },
             {
                 sessionId: 'different456',
@@ -67,7 +67,7 @@ describe('SessionMetadataStore', () => {
                 messageCount: 30,
                 snapshotSource: 'web',
                 snapshotLibrary: 'rrweb@1.0.0',
-                retentionPeriod: '30d',
+                retentionPeriodDays: 30,
             },
             {
                 sessionId: 'session123',
@@ -92,7 +92,7 @@ describe('SessionMetadataStore', () => {
                 messageCount: 70,
                 snapshotSource: 'web',
                 snapshotLibrary: 'rrweb@1.0.0',
-                retentionPeriod: '30d',
+                retentionPeriodDays: 30,
             },
         ]
 
@@ -231,7 +231,7 @@ describe('SessionMetadataStore', () => {
                 messageCount: 25,
                 snapshotSource: 'web',
                 snapshotLibrary: 'rrweb@1.0.0',
-                retentionPeriod: '30d',
+                retentionPeriodDays: 30,
             },
         ]
 
@@ -263,7 +263,7 @@ describe('SessionMetadataStore', () => {
                 messageCount: 25,
                 snapshotSource: 'web',
                 snapshotLibrary: 'rrweb@1.0.0',
-                retentionPeriod: '30d',
+                retentionPeriodDays: 30,
             },
         ]
 
@@ -315,7 +315,7 @@ describe('SessionMetadataStore', () => {
                 messageCount: 15,
                 snapshotSource: 'web',
                 snapshotLibrary: 'rrweb@1.0.0',
-                retentionPeriod: '30d',
+                retentionPeriodDays: 30,
             },
             {
                 sessionId: 'session2',
@@ -340,7 +340,7 @@ describe('SessionMetadataStore', () => {
                 messageCount: 20,
                 snapshotSource: 'web',
                 snapshotLibrary: 'rrweb@1.0.0',
-                retentionPeriod: '30d',
+                retentionPeriodDays: 30,
             },
         ]
 
@@ -416,7 +416,7 @@ describe('SessionMetadataStore', () => {
                 messageCount: 25,
                 snapshotSource: 'web',
                 snapshotLibrary: 'rrweb@1.0.0',
-                retentionPeriod: '30d',
+                retentionPeriodDays: 30,
             },
         ]
 
@@ -453,7 +453,7 @@ describe('SessionMetadataStore', () => {
                 messageCount: 25,
                 snapshotSource: 'web',
                 snapshotLibrary: 'rrweb@1.0.0',
-                retentionPeriod: '30d',
+                retentionPeriodDays: 30,
             },
         ]
 

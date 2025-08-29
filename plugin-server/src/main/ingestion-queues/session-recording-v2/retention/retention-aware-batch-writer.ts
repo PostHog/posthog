@@ -13,6 +13,13 @@ import { RetentionService } from './retention-service'
 
 class RetentionAwareBatchFileWriter implements SessionBatchFileWriter {
     private writerMap: { [key in RetentionPeriod]: SessionBatchFileWriter | null }
+    private periodToDaysMap: { [key in RetentionPeriod]: number | null } = {
+        '30d': 30,
+        '90d': 90,
+        '1y': 365,
+        '5y': 1825,
+        legacy: null,
+    }
 
     constructor(
         private readonly retentionService: RetentionService,
@@ -46,7 +53,7 @@ class RetentionAwareBatchFileWriter implements SessionBatchFileWriter {
         return {
             bytesWritten,
             url,
-            retentionPeriod,
+            retentionPeriodDays: this.periodToDaysMap[retentionPeriod],
         }
     }
 
