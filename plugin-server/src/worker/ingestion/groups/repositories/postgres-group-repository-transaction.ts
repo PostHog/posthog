@@ -29,6 +29,21 @@ export class PostgresGroupRepositoryTransaction implements GroupRepositoryTransa
         return await this.repository.fetchGroup(teamId, groupTypeIndex, groupKey, options, this.tx)
     }
 
+    async fetchGroupsByKeys(
+        teamIds: TeamId[],
+        groupTypeIndexes: GroupTypeIndex[],
+        groupKeys: string[]
+    ): Promise<
+        {
+            team_id: TeamId
+            group_type_index: GroupTypeIndex
+            group_key: string
+            group_properties: Record<string, any>
+        }[]
+    > {
+        return await this.repository.fetchGroupsByKeys(teamIds, groupTypeIndexes, groupKeys, this.tx)
+    }
+
     async insertGroup(
         teamId: TeamId,
         groupTypeIndex: GroupTypeIndex,
@@ -77,6 +92,12 @@ export class PostgresGroupRepositoryTransaction implements GroupRepositoryTransa
         projectIds: ProjectId[]
     ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>> {
         return await this.repository.fetchGroupTypesByProjectIds(projectIds, this.tx)
+    }
+
+    async fetchGroupTypesByTeamIds(
+        teamIds: TeamId[]
+    ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>> {
+        return await this.repository.fetchGroupTypesByTeamIds(teamIds, this.tx)
     }
 
     async insertGroupType(

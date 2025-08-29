@@ -54,6 +54,22 @@ export class PostgresDualWriteGroupRepository implements GroupRepository {
         return await this.primaryRepo.fetchGroup(teamId, groupTypeIndex, groupKey, options)
     }
 
+    async fetchGroupsByKeys(
+        teamIds: TeamId[],
+        groupTypeIndexes: GroupTypeIndex[],
+        groupKeys: string[]
+    ): Promise<
+        {
+            team_id: TeamId
+            group_type_index: GroupTypeIndex
+            group_key: string
+            group_properties: Record<string, any>
+        }[]
+    > {
+        // For read operations, only query the primary repository
+        return await this.primaryRepo.fetchGroupsByKeys(teamIds, groupTypeIndexes, groupKeys)
+    }
+
     async insertGroup(
         teamId: TeamId,
         groupTypeIndex: GroupTypeIndex,
@@ -293,6 +309,13 @@ export class PostgresDualWriteGroupRepository implements GroupRepository {
     ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>> {
         // For read operations, only query the primary repository
         return await this.primaryRepo.fetchGroupTypesByProjectIds(projectIds)
+    }
+
+    async fetchGroupTypesByTeamIds(
+        teamIds: TeamId[]
+    ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>> {
+        // For read operations, only query the primary repository
+        return await this.primaryRepo.fetchGroupTypesByTeamIds(teamIds)
     }
 
     private compareUpdateGroupResults(primary: number | undefined, secondary: number | undefined, tag: string): void {

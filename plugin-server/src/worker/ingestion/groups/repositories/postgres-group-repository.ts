@@ -54,6 +54,40 @@ export class PostgresGroupRepository
         }
     }
 
+    async fetchGroupsByKeys(
+        teamIds: TeamId[],
+        groupTypeIndexes: GroupTypeIndex[],
+        groupKeys: string[],
+        tx?: TransactionClient
+    ): Promise<
+        {
+            team_id: TeamId
+            group_type_index: GroupTypeIndex
+            group_key: string
+            group_properties: Record<string, any>
+        }[]
+    > {
+        if (teamIds.length === 0 || groupTypeIndexes.length === 0 || groupKeys.length === 0) {
+            return []
+        }
+
+        const { rows } = await this.postgres.query(
+            tx ?? PostgresUse.PERSONS_READ,
+            `SELECT team_id, group_type_index, group_key, group_properties
+             FROM posthog_group
+             WHERE team_id = ANY($1) AND group_type_index = ANY($2) AND group_key = ANY($3)`,
+            [teamIds, groupTypeIndexes, groupKeys],
+            'fetchGroupsByKeys'
+        )
+
+        return rows.map((row) => ({
+            team_id: row.team_id as TeamId,
+            group_type_index: row.group_type_index as GroupTypeIndex,
+            group_key: row.group_key,
+            group_properties: row.group_properties,
+        }))
+    }
+
     async insertGroup(
         teamId: TeamId,
         groupTypeIndex: GroupTypeIndex,
@@ -205,6 +239,41 @@ export class PostgresGroupRepository
                 response[projectIdStr] = []
             }
             response[projectIdStr].push({
+                group_type: row.group_type,
+                group_type_index: row.group_type_index as GroupTypeIndex,
+            })
+        }
+
+        return response
+    }
+
+    async fetchGroupTypesByTeamIds(
+        teamIds: TeamId[],
+        tx?: TransactionClient
+    ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>> {
+        if (teamIds.length === 0) {
+            return {}
+        }
+
+        const { rows } = await this.postgres.query(
+            tx ?? PostgresUse.PERSONS_READ,
+            `SELECT team_id, group_type, group_type_index FROM posthog_grouptypemapping WHERE team_id = ANY($1)`,
+            [teamIds],
+            'fetchGroupTypesByTeamIds'
+        )
+
+        const response: Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]> = {}
+
+        for (const teamId of teamIds) {
+            response[teamId.toString()] = []
+        }
+
+        for (const row of rows) {
+            const teamIdStr = row.team_id.toString()
+            if (!response[teamIdStr]) {
+                response[teamIdStr] = []
+            }
+            response[teamIdStr].push({
                 group_type: row.group_type,
                 group_type_index: row.group_type_index as GroupTypeIndex,
             })

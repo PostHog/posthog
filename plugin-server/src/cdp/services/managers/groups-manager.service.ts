@@ -3,8 +3,7 @@ import LRUCache from 'lru-cache'
 import { sanitizeString } from '~/utils/db/utils'
 import { logger } from '~/utils/logger'
 
-import { Hub, Team } from '../../../types'
-import { PostgresUse } from '../../../utils/db/postgres'
+import { GroupTypeIndex, Hub, Team } from '../../../types'
 import { GroupType, HogFunctionInvocationGlobals } from '../../types'
 
 export type GroupsMap = Record<string, GroupType>
@@ -67,20 +66,16 @@ export class GroupsManagerService {
         const teamsToLoad = teamsWithGroupAnalytics.filter((teamId) => !this.groupTypesMappingCache.get(teamId))
 
         if (teamsToLoad.length) {
-            const result = await this.hub.postgres.query(
-                PostgresUse.PERSONS_READ,
-                `SELECT team_id, group_type, group_type_index FROM posthog_grouptypemapping WHERE team_id = ANY($1)`,
-                [teamsToLoad],
-                'fetchGroupTypes'
-            )
+            const result = await this.hub.groupRepository.fetchGroupTypesByTeamIds(teamsToLoad)
 
-            const groupedByTeam: Record<number, { type: string; index: number }[]> = result.rows.reduce((acc, row) => {
-                if (!acc[row.team_id]) {
-                    acc[row.team_id] = []
-                }
-                acc[row.team_id].push({ type: row.group_type, index: row.group_type_index })
-                return acc
-            }, {})
+            const groupedByTeam: Record<number, { type: string; index: number }[]> = {}
+            Object.entries(result).forEach(([teamIdStr, groupTypes]) => {
+                const teamId = parseInt(teamIdStr)
+                groupedByTeam[teamId] = groupTypes.map((gt) => ({
+                    type: gt.group_type,
+                    index: gt.group_type_index,
+                }))
+            })
 
             // Save to cache
             Object.entries(groupedByTeam).forEach(([teamId, groupTypes]) => {
@@ -110,16 +105,11 @@ export class GroupsManagerService {
         )
 
         try {
-            return (
-                await this.hub.postgres.query(
-                    PostgresUse.PERSONS_READ,
-                    `SELECT team_id, group_type_index, group_key, group_properties
-            FROM posthog_group
-            WHERE team_id = ANY($1) AND group_type_index = ANY($2) AND group_key = ANY($3)`,
-                    [teamIds, groupIndexes, groupKeys],
-                    'fetchGroups'
-                )
-            ).rows
+            return await this.hub.groupRepository.fetchGroupsByKeys(
+                teamIds,
+                groupIndexes as GroupTypeIndex[],
+                groupKeys
+            )
         } catch (e) {
             logger.error('[GroupsManagerService] Error fetching group properties', {
                 error: e,

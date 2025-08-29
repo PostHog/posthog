@@ -21,6 +21,20 @@ export interface RawPostgresGroupRepository {
         tx?: TransactionClient
     ): Promise<Group | undefined>
 
+    fetchGroupsByKeys(
+        teamIds: TeamId[],
+        groupTypeIndexes: GroupTypeIndex[],
+        groupKeys: string[],
+        tx?: TransactionClient
+    ): Promise<
+        {
+            team_id: TeamId
+            group_type_index: GroupTypeIndex
+            group_key: string
+            group_properties: Record<string, any>
+        }[]
+    >
+
     insertGroup(
         teamId: TeamId,
         groupTypeIndex: GroupTypeIndex,
@@ -59,6 +73,11 @@ export interface RawPostgresGroupRepository {
 
     fetchGroupTypesByProjectIds(
         projectIds: ProjectId[],
+        tx?: TransactionClient
+    ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>>
+
+    fetchGroupTypesByTeamIds(
+        teamIds: TeamId[],
         tx?: TransactionClient
     ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>>
 
