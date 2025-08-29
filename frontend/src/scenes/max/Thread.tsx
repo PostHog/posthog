@@ -762,7 +762,8 @@ export function MultiVisualizationAnswer({ message, className }: MultiVisualizat
             title: 'Insights',
             content: <MultiVisualizationModal insights={insights} />,
             primaryButton: null,
-            width: 1400,
+            width: '90%',
+            maxWidth: 1400,
         })
     }
 
@@ -780,15 +781,22 @@ export function MultiVisualizationAnswer({ message, className }: MultiVisualizat
                 </div>
             )
         }
-        // Two or more insights, split the first two 50/50
+        // Two or more insights, show in a grid layout
+        // Currently, let's show a maximum of 4 insights inline with the following mapping
+        // 2 insights: 50/50 split
+        // 3 insights: 33/33/33 split
+        // 4 insights: 25/25/25/25 split, sso basically 2x2 grid
+        const insightsToShow = insights.slice(0, 4)
+        const gridCols =
+            insightsToShow.length === 2 ? 'grid-cols-2' : insightsToShow.length === 3 ? 'grid-cols-3' : 'grid-cols-2'
+
         return (
-            <div className="flex gap-2">
-                <div className="flex-1 relative">
-                    <Query query={insights[0].query} readOnly embedded />
-                </div>
-                <div className="flex-1 relative">
-                    <Query query={insights[1].query} readOnly embedded />
-                </div>
+            <div className={`grid ${gridCols} gap-2`}>
+                {insightsToShow.map((insight, index) => (
+                    <div key={index} className="relative min-h-[200px]">
+                        <Query query={insight.query} readOnly embedded />
+                    </div>
+                ))}
             </div>
         )
     }
