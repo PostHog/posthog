@@ -1,4 +1,4 @@
-"""Refactored LinkedIn Ads API client with improved separation of concerns."""
+"""LinkedIn Ads API client with improved separation of concerns."""
 
 from typing import Any, Optional
 
@@ -22,7 +22,7 @@ logger = structlog.get_logger(__name__)
 
 
 class LinkedinAdsClient:
-    """Refactored client for interacting with LinkedIn Marketing API.
+    """Client for interacting with LinkedIn Marketing API.
 
     This client uses composition to separate concerns:
     - Request handling with retry logic

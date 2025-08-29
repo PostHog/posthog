@@ -1,4 +1,4 @@
-"""Refactored LinkedIn Ads data source with improved architecture.
+"""LinkedIn Ads data source with improved architecture.
 
 This module provides the main entry point for LinkedIn Ads data imports
 using a clean service-oriented architecture.
@@ -50,10 +50,6 @@ def linkedin_ads_source(
     sync_frequency_interval: Optional[dt.timedelta] = None,
 ) -> SourceResponse:
     """Main function to fetch LinkedIn Ads data using the service layer.
-
-    This function has been refactored to use a service-oriented architecture
-    with clear separation of concerns. The heavy lifting is now handled by
-    the LinkedinAdsService class.
 
     Args:
         config: LinkedinAdsSourceConfig object containing account_id and integration_id
