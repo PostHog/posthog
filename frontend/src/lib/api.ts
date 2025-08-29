@@ -3858,6 +3858,7 @@ const api = {
                 globals?: any
                 clickhouse_event?: any
                 invocation_id?: string
+                current_action_id?: string
             }
         ): Promise<any> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('invocations').create({ data })
