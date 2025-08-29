@@ -79,6 +79,7 @@ from .property_definition import PropertyDefinition
 from .proxy_record import ProxyRecord
 from .remote_config import RemoteConfig
 from .scheduled_change import ScheduledChange
+from .share_password import SharePassword
 from .sharing_configuration import SharingConfiguration
 from .subscription import Subscription
 from .surveys.survey import Survey
@@ -192,6 +193,7 @@ __all__ = [
     "SessionRecording",
     "SessionRecordingPlaylist",
     "SessionRecordingPlaylistItem",
+    "SharePassword",
     "SharingConfiguration",
     "Subscription",
     "Survey",

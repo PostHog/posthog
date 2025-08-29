@@ -15,6 +15,7 @@ import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/ses
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ExportedInsight } from '~/exporter/ExportedInsight/ExportedInsight'
+import { ExporterLogin } from '~/exporter/ExporterLogin'
 import { ExportType, ExportedData } from '~/exporter/types'
 import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
 import { Logo } from '~/toolbar/assets/Logo'
@@ -38,6 +39,10 @@ export function Exporter(props: ExportedData): JSX.Element {
     }, [height, width])
 
     useThemedHtml(false)
+
+    if (type === ExportType.Unlock) {
+        return <ExporterLogin whitelabel={whitelabel} />
+    }
 
     return (
         <div

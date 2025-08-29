@@ -70,6 +70,7 @@ class TestSharing(APIBaseTest):
     def test_gets_sharing_config(self, patched_exporter_task: Mock):
         assert SharingConfiguration.objects.count() == 0
 
+        # First get the initial config (not saved yet)
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing")
         assert SharingConfiguration.objects.count() == 0
         assert response.status_code == status.HTTP_200_OK
@@ -78,7 +79,9 @@ class TestSharing(APIBaseTest):
             "access_token": data["access_token"],
             "created_at": None,
             "enabled": False,
+            "password_required": False,
             "settings": None,
+            "share_passwords": [],
         }
 
     @freeze_time("2022-01-01")
@@ -96,7 +99,9 @@ class TestSharing(APIBaseTest):
             "access_token": initial_data["access_token"],
             "created_at": "2022-01-01T00:00:00Z",
             "enabled": True,
+            "password_required": False,
             "settings": None,
+            "share_passwords": [],
         }
 
         response = self.client.patch(
@@ -107,7 +112,9 @@ class TestSharing(APIBaseTest):
             "access_token": initial_data["access_token"],
             "created_at": "2022-01-01T00:00:00Z",
             "enabled": False,
+            "password_required": False,
             "settings": None,
+            "share_passwords": [],
         }
 
     @patch("posthog.api.exports.exporter.export_asset.delay")

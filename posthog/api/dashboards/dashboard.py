@@ -167,6 +167,7 @@ class DashboardBasicSerializer(
             "user_access_level",
             "access_control_version",
             "last_refresh",
+            "team_id",
         ]
         read_only_fields = fields
 
@@ -283,6 +284,7 @@ class DashboardSerializer(DashboardBasicSerializer):
             "last_refresh",
             "persisted_filters",
             "persisted_variables",
+            "team_id",
         ]
         read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared", "user_access_level"]
 

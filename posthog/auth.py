@@ -339,12 +339,62 @@ class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
                 sharing_configuration = SharingConfiguration.objects.get(
                     access_token=sharing_access_token, enabled=True
                 )
+
+                # If password is required, don't authenticate via direct access_token
+                # Let the view handle showing the unlock page
+                if sharing_configuration.password_required:
+                    return None
+
             except SharingConfiguration.DoesNotExist:
                 raise AuthenticationFailed(detail="Sharing access token is invalid.")
             else:
                 self.sharing_configuration = sharing_configuration
                 return (AnonymousUser(), None)
         return None
+
+
+class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
+    """
+    JWT-based authentication for password-protected shared resources.
+    Supports both Bearer token (for API calls) and cookie (for rendering decisions).
+    """
+
+    keyword = "Bearer"
+    sharing_configuration: SharingConfiguration
+
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, Any]]:
+        if request.method != "GET":
+            return None
+
+        # Extract JWT token from Authorization header or cookie
+        sharing_jwt_token = None
+        if "HTTP_AUTHORIZATION" in request.META:
+            authorization_match = re.match(rf"^{self.keyword}\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
+            if authorization_match:
+                sharing_jwt_token = authorization_match.group(1).strip()
+        elif hasattr(request, "COOKIES") and request.COOKIES.get("posthog_sharing_token"):
+            sharing_jwt_token = request.COOKIES.get("posthog_sharing_token")
+
+        if not sharing_jwt_token:
+            return None
+
+        try:
+            # Attempt full JWT validation - this will fail fast for non-sharing JWTs due to audience mismatch
+            payload = decode_jwt(sharing_jwt_token, PosthogJwtAudience.SHARING_PASSWORD_PROTECTED)
+
+            sharing_configuration = SharingConfiguration.objects.get(
+                id=payload["sharing_config_id"], team_id=payload["team_id"], enabled=True, password_required=True
+            )
+
+            # Verify the access token matches (prevents token reuse across different shares)
+            if sharing_configuration.access_token != payload.get("access_token"):
+                return None
+
+            self.sharing_configuration = sharing_configuration
+            return (AnonymousUser(), None)
+
+        except (jwt.InvalidTokenError, SharingConfiguration.DoesNotExist, KeyError):
+            return None
 
 
 class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
