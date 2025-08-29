@@ -38,6 +38,7 @@ from ..session_recordings.session_recording_playlist_api import SessionRecording
 from ..taxonomy import property_definition_api
 from . import (
     activity_log,
+    advanced_activity_logs,
     alert,
     annotation,
     app_metrics,
@@ -179,6 +180,12 @@ projects_router.register(
     r"activity_log",
     activity_log.ActivityLogViewSet,
     "project_activity_log",
+    parents_query_lookups=["project_id"],
+)
+projects_router.register(
+    r"advanced_activity_logs",
+    advanced_activity_logs.AdvancedActivityLogsViewSet,
+    "project_advanced_activity_logs",
     ["project_id"],
 )
 projects_router.register(
