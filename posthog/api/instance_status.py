@@ -5,6 +5,7 @@ from django.db import connection
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
 
+import posthoganalytics
 from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -187,7 +188,8 @@ class InstanceStatusViewSet(viewsets.ViewSet):
                     }
                 )
         except Exception as e:
-            metrics.append({"key": "error", "metric": "Error fetching instance status", "value": str(e)})
+            posthoganalytics.capture_exception(e)
+            return Response({"error": "unknown error"}, status=500)
 
         return Response({"results": {"overview": metrics}})
 
