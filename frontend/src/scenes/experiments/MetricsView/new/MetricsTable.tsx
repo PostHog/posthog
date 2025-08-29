@@ -9,6 +9,7 @@ import {
 import { InsightType } from '~/types'
 
 import { experimentLogic } from '../../experimentLogic'
+import { insertMetricIntoOrderingArray } from '../../utils'
 import { type ExperimentVariantResult, getVariantInterval } from '../shared/utils'
 import { MetricRowGroup } from './MetricRowGroup'
 import { TableHeader } from './TableHeader'
@@ -31,7 +32,7 @@ export function MetricsTable({
     showDetailsModal = true,
 }: MetricsTableProps): JSX.Element {
     const { experiment, hasMinimumExposureForResults } = useValues(experimentLogic)
-    const { duplicateMetric, updateExperimentMetrics } = useActions(experimentLogic)
+    const { duplicateMetric, updateExperimentMetrics, setExperiment } = useActions(experimentLogic)
 
     // Calculate shared axisRange across all metrics
     const maxAbsValue = Math.max(
@@ -68,26 +69,45 @@ export function MetricsTable({
                 </colgroup>
                 <TableHeader axisRange={axisRange} />
                 <tbody>
-                    {metrics.map((metric, metricIndex) => {
-                        const result = results[metricIndex]
-                        const error = errors[metricIndex]
+                    {metrics.map((metric, index) => {
+                        const result = results[index]
+                        const error = errors[index]
 
                         const isLoading = !result && !error && !!experiment.start_date
 
                         return (
                             <MetricRowGroup
-                                key={metricIndex}
+                                key={metric.uuid || index}
                                 metric={metric}
                                 result={result}
                                 experiment={experiment}
                                 metricType={getInsightType(metric)}
-                                metricIndex={metricIndex}
+                                displayOrder={index}
                                 axisRange={axisRange}
                                 isSecondary={isSecondary}
-                                isLastMetric={metricIndex === metrics.length - 1}
-                                isAlternatingRow={metricIndex % 2 === 1}
+                                isLastMetric={index === metrics.length - 1}
+                                isAlternatingRow={index % 2 === 1}
                                 onDuplicateMetric={() => {
-                                    duplicateMetric({ metricIndex, isSecondary })
+                                    if (!metric.uuid || !experiment) {
+                                        return
+                                    }
+
+                                    const newUuid = crypto.randomUUID()
+
+                                    duplicateMetric({ uuid: metric.uuid, isSecondary, newUuid })
+
+                                    const newOrderingArray = insertMetricIntoOrderingArray(
+                                        experiment,
+                                        newUuid,
+                                        metric.uuid,
+                                        isSecondary
+                                    )
+                                    setExperiment({
+                                        [isSecondary
+                                            ? 'secondary_metrics_ordered_uuids'
+                                            : 'primary_metrics_ordered_uuids']: newOrderingArray,
+                                    })
+
                                     updateExperimentMetrics()
                                 }}
                                 error={error}

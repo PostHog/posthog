@@ -200,8 +200,8 @@ export function HogFunctionList({
     }, [props.type, canEnableHogFunction, humanizedType, toggleEnabled, deleteHogFunction, isManualFunction]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
-        <>
-            <div className="flex gap-2 items-center mb-2">
+        <div className="flex flex-col gap-4">
+            <div className="flex gap-2 items-center">
                 <LemonInput
                     type="search"
                     placeholder="Search..."
@@ -258,6 +258,6 @@ export function HogFunctionList({
                 />
                 <HogFunctionOrderModal />
             </BindLogic>
-        </>
+        </div>
     )
 }

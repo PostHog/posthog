@@ -5,7 +5,6 @@ import {
     IconApp,
     IconApps,
     IconBook,
-    IconCalendar,
     IconChevronRight,
     IconCode,
     IconCursor,
@@ -129,10 +128,6 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     insightHogQL: {
         icon: <IconHogQL />,
         iconColor: ['var(--color-insight-sql-light)'],
-    },
-    insightCalendarHeatmap: {
-        icon: <IconCalendar className="mt-[2px]" />,
-        iconColor: ['var(--color-insight-calendar-heatmap-light)', 'var(--color-insight-calendar-heatmap-dark)'],
     },
     cohort: {
         icon: <IconCohort />,
