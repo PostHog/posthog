@@ -1,7 +1,6 @@
 import json
 
 import pytest
-from unittest.mock import patch
 
 from braintrust import EvalCase
 
@@ -48,16 +47,7 @@ def call_root(demo_org_team_user):
 
 
 @pytest.mark.django_db
-@patch("posthoganalytics.feature_enabled")
-async def eval_root(mock_feature_enabled, call_root, pytestconfig):
-    # Evaluate tool behind feature flags (as root prompt generation is conditional)
-    def feature_enabled_side_effect(flag_name, *args, **kwargs):
-        if flag_name == "max-session-summarization":
-            return True
-        return False
-
-    mock_feature_enabled.side_effect = feature_enabled_side_effect
-
+async def eval_root(call_root, pytestconfig):
     await MaxPublicEval(
         experiment_name="root",
         task=call_root,
