@@ -11,8 +11,8 @@ class Dataset(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields
         indexes = [
             models.Index(fields=["team", "-created_at", "id"]),
             models.Index(fields=["team", "-updated_at", "id"]),
-            GinIndex(name="llm_dataset_name_trgm", fields=["name"], opclasses=["gin_trgm_ops"]),
-            GinIndex(name="llm_dataset_desc_trgm", fields=["description"], opclasses=["gin_trgm_ops"]),
+            GinIndex(name="llma_dataset_name_trgm", fields=["name"], opclasses=["gin_trgm_ops"]),
+            GinIndex(name="llma_dataset_desc_trgm", fields=["description"], opclasses=["gin_trgm_ops"]),
         ]
 
     objects: models.Manager["Dataset"]
@@ -29,9 +29,9 @@ class DatasetItem(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFi
         indexes = [
             models.Index(fields=["team", "dataset", "-created_at", "id"]),
             models.Index(fields=["team", "dataset", "-updated_at", "id"]),
-            GinIndex(name="llm_dataset_item_input_trgm", fields=["input"], opclasses=["gin_trgm_ops"]),
-            GinIndex(name="llm_dataset_item_output_trgm", fields=["output"], opclasses=["gin_trgm_ops"]),
-            GinIndex(name="llm_dataset_item_metadata_trgm", fields=["metadata"], opclasses=["gin_trgm_ops"]),
+            GinIndex(name="llma_datasetitem_input_trgm", fields=["input"], opclasses=["gin_trgm_ops"]),
+            GinIndex(name="llma_datasetitem_output_trgm", fields=["output"], opclasses=["gin_trgm_ops"]),
+            GinIndex(name="llma_datasetitem_metadata_trgm", fields=["metadata"], opclasses=["gin_trgm_ops"]),
         ]
 
     objects: models.Manager["DatasetItem"]
