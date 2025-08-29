@@ -33,9 +33,8 @@ interface QueryWindowProps {
 }
 
 export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Element {
-    const codeEditorKey = `hogQLQueryEditor/${router.values.location.pathname}`
-
     const {
+        tabId,
         allTabs,
         activeModelUri,
         queryInput,
@@ -49,7 +48,9 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         changesToSave,
         inProgressViewEdits,
         activeTab,
+        editorKey,
     } = useValues(multitabEditorLogic)
+    const codeEditorKey = `hogQLQueryEditor/${tabId}/${router.values.location.pathname}`
 
     const { activePanelIdentifier } = useValues(panelLayoutLogic)
     const { setActivePanelIdentifier } = useActions(panelLayoutLogic)
@@ -125,17 +126,19 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
 
     return (
         <div className="flex flex-1 flex-col h-full overflow-hidden">
-            <div className="flex flex-row overflow-x-auto">
-                {renderSidebarButton()}
-                <QueryTabs
-                    models={allTabs}
-                    onClick={selectTab}
-                    onClear={deleteTab}
-                    onAdd={createTab}
-                    onRename={renameTab}
-                    activeModelUri={activeModelUri}
-                />
-            </div>
+            {!featureFlags[FEATURE_FLAGS.SCENE_TABS] || allTabs.length > 1 ? (
+                <div className="flex flex-row overflow-x-auto">
+                    {renderSidebarButton()}
+                    <QueryTabs
+                        models={allTabs}
+                        onClick={selectTab}
+                        onClear={deleteTab}
+                        onAdd={createTab}
+                        onRename={renameTab}
+                        activeModelUri={activeModelUri}
+                    />
+                </div>
+            ) : null}
             {(editingView || editingInsight) && (
                 <div className="h-5 bg-warning-highlight">
                     <span className="pl-2 text-xs">
@@ -323,7 +326,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                     },
                 }}
             />
-            <InternalQueryWindow />
+            <InternalQueryWindow key={editorKey} />
             <QueryHistoryModal />
         </div>
     )
