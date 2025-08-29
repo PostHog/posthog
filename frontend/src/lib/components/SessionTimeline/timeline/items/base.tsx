@@ -4,6 +4,9 @@ import api from 'lib/api'
 import { Dayjs } from 'lib/dayjs'
 
 import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { RecordingSnapshot } from '~/types'
+
+import { SnapshotLoader, WithId } from '../../snapshot-loader'
 
 export function BasePreview({
     name,
@@ -119,4 +122,79 @@ export abstract class EventLoader<T extends TimelineItem> implements ItemLoader<
     abstract select(): string[]
     abstract where(): string[]
     abstract buildItem(data: any): T
+}
+
+export interface RecordingSnapshotItem extends TimelineItem {
+    id: string
+    timestamp: Dayjs
+    payload: RecordingSnapshot
+}
+
+export abstract class SnapshotItemLoader<T extends TimelineItem> implements ItemLoader<T> {
+    cache: ItemCache<T>
+
+    constructor(private snapshotLoader: SnapshotLoader) {
+        this.cache = new ItemCache<T>()
+    }
+
+    hasNext(index: Dayjs): boolean {
+        if (this.cache.next(index)) {
+            return true
+        }
+        const sources = this.snapshotLoader.getSourcesForTimeRange(index, index)
+        if (!sources) {
+            // Sources are not loaded yet
+            return true
+        }
+        if (sources.length === 0) {
+            // No sources available for the next time range
+            return false
+        }
+        return true
+    }
+
+    async next(index: Dayjs): Promise<T | null> {
+        const item = this.cache.next(index)
+        if (item) {
+            return item
+        }
+        const snapshots = await this.snapshotLoader.loadSnapshotsForTimeRange(index, index)
+        if (!snapshots.length) {
+            return null
+        }
+        this.addSnapshots(snapshots)
+        return this.cache.next(index) ?? null
+    }
+
+    hasPrevious(index: Dayjs): boolean {
+        const sources = this.snapshotLoader.getSourcesForTimeRange(index, index)
+        if (!sources) {
+            // Sources are not loaded yet
+            return true
+        }
+        if (sources.length === 0) {
+            // No sources available for the next time range
+            return false
+        }
+        return true
+    }
+
+    async previous(index: Dayjs): Promise<T | null> {
+        const item = this.cache.previous(index)
+        if (item) {
+            return item
+        }
+        const snapshots = await this.snapshotLoader.loadSnapshotsForTimeRange(index, index)
+        if (!snapshots.length) {
+            return null
+        }
+        this.addSnapshots(snapshots)
+        return this.cache.next(index) ?? null
+    }
+
+    private addSnapshots(snapshots: WithId<RecordingSnapshot>[]): void {
+        this.cache.add(snapshots.map(this.fromSnapshot).filter((item) => item !== null))
+    }
+
+    abstract fromSnapshot(snapshot: WithId<RecordingSnapshot>): T | null
 }

@@ -4,6 +4,7 @@ export enum ItemCategory {
     ERROR_TRACKING = 'exceptions',
     CUSTOM_EVENTS = 'custom events',
     PAGE_VIEWS = 'pageviews',
+    CONSOLE_LOGS = 'console logs',
 }
 
 export interface TimelineItem {
@@ -23,7 +24,7 @@ export type ItemRenderer<T extends TimelineItem> = {
     render: React.FC<RendererProps<T>>
 }
 
-export type ItemLoader<T extends TimelineItem> = {
+export type ItemLoader<T> = {
     hasPrevious(index: Dayjs): boolean
     previous(index: Dayjs, limit?: number): Promise<T | null>
 

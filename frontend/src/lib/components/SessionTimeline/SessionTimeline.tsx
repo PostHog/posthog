@@ -1,5 +1,5 @@
 import { cva } from 'cva'
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import { ForwardedRef, forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 
 import { Link, Spinner } from '@posthog/lemon-ui'
 
@@ -24,159 +24,159 @@ export interface SessionTimelineProps {
     selectedItemId?: string
     className?: string
     onTimeClick?: (time: Dayjs) => void
+    onFirstLoad?: () => void
 }
 
-export function SessionTimeline({
-    ref,
-    collector,
-    selectedItemId,
-    className,
-    onTimeClick,
-}: SessionTimelineProps): JSX.Element {
-    const [items, setItems] = useState<TimelineItem[]>([])
-    const [categories, setCategories] = useState<ItemCategory[]>(() => collector.getAllCategories())
+export const SessionTimeline = forwardRef(
+    (
+        { collector, selectedItemId, className, onTimeClick, onFirstLoad }: SessionTimelineProps,
+        ref: ForwardedRef<SessionTimelineHandle>
+    ): JSX.Element => {
+        const [items, setItems] = useState<TimelineItem[]>([])
+        const [categories, setCategories] = useState<ItemCategory[]>(() => collector.getAllCategories())
 
-    function toggleCategory(category: ItemCategory): void {
-        setCategories((prevCategories) => {
-            const index = prevCategories.indexOf(category)
-            if (index === -1) {
-                return [...prevCategories, category]
-            }
-            return [...prevCategories.slice(0, index), ...prevCategories.slice(index + 1)]
-        })
-    }
-
-    const containerRef = useRef<HTMLDivElement | null>(null)
-
-    const scrollToItem = useCallback((uuid: string) => {
-        const item = containerRef.current?.querySelector(`[data-item-id="${uuid}"]`)
-        if (item) {
-            requestAnimationFrame(() => {
-                item.scrollIntoView({ behavior: 'instant', block: 'center' })
+        function toggleCategory(category: ItemCategory): void {
+            setCategories((prevCategories) => {
+                const index = prevCategories.indexOf(category)
+                if (index === -1) {
+                    return [...prevCategories, category]
+                }
+                return [...prevCategories.slice(0, index), ...prevCategories.slice(index + 1)]
             })
         }
-    }, [])
 
-    const [loadBefore, beforeLoading] = useAsyncCallback(
-        () =>
-            collector.loadBefore(categories, 25).then(() => {
-                const items = collector.collectItems()
-                const containerEl = containerRef.current
-                const scrollTop = containerEl?.scrollTop || 0
-                const scrollHeight = containerEl?.scrollHeight || 0
-                setItems(items)
-                // Restore scroll position
+        const containerRef = useRef<HTMLDivElement | null>(null)
+
+        const scrollToItem = useCallback((uuid: string) => {
+            const item = containerRef.current?.querySelector(`[data-item-id="${uuid}"]`)
+            if (item) {
                 requestAnimationFrame(() => {
-                    const newScrollHeight = containerEl?.scrollHeight || 0
-                    if (containerEl) {
-                        containerEl.scrollTop = scrollTop + (newScrollHeight - scrollHeight)
-                    }
+                    item.scrollIntoView({ behavior: 'instant', block: 'center' })
                 })
-            }),
-        [collector, categories],
-        LOADING_DEBOUNCE_OPTIONS
-    )
+            }
+        }, [])
 
-    const [loadAfter, afterLoading] = useAsyncCallback(
-        () =>
-            collector.loadAfter(categories, 25).then(() => {
-                setItems(collector.collectItems())
-            }),
-        [collector, categories],
-        LOADING_DEBOUNCE_OPTIONS
-    )
+        const [loadBefore, beforeLoading] = useAsyncCallback(
+            () =>
+                collector.loadBefore(categories, 25).then(() => {
+                    const items = collector.collectItems()
+                    const containerEl = containerRef.current
+                    const scrollTop = containerEl?.scrollTop || 0
+                    const scrollHeight = containerEl?.scrollHeight || 0
+                    setItems(items)
+                    // Restore scroll position
+                    requestAnimationFrame(() => {
+                        const newScrollHeight = containerEl?.scrollHeight || 0
+                        if (containerEl) {
+                            containerEl.scrollTop = scrollTop + (newScrollHeight - scrollHeight)
+                        }
+                    })
+                }),
+            [collector, categories],
+            LOADING_DEBOUNCE_OPTIONS
+        )
 
-    useEffect(() => {
-        collector.clear()
-        Promise.all([loadBefore(), loadAfter()]).then(() => {
-            const items = collector.collectItems()
-            setItems(items)
-            selectedItemId && scrollToItem(selectedItemId)
+        const [loadAfter, afterLoading] = useAsyncCallback(
+            () =>
+                collector.loadAfter(categories, 25).then(() => {
+                    setItems(collector.collectItems())
+                }),
+            [collector, categories],
+            LOADING_DEBOUNCE_OPTIONS
+        )
+
+        useEffect(() => {
+            collector.clear()
+            Promise.all([loadBefore(), loadAfter()]).then(() => {
+                const items = collector.collectItems()
+                setItems(items)
+                onFirstLoad?.()
+            })
+        }, [collector, loadBefore, loadAfter, setItems, scrollToItem, selectedItemId, onFirstLoad])
+
+        const scrollRefCb = useScrollObserver({
+            onScrollTop: () => {
+                if (collector.hasBefore(categories)) {
+                    return loadBefore()
+                }
+            },
+            onScrollBottom: () => {
+                if (collector.hasAfter(categories)) {
+                    return loadAfter()
+                }
+            },
         })
-    }, [collector, loadBefore, loadAfter, setItems, scrollToItem, selectedItemId])
 
-    const scrollRefCb = useScrollObserver({
-        onScrollTop: () => {
-            if (collector.hasBefore(categories)) {
-                return loadBefore()
-            }
-        },
-        onScrollBottom: () => {
-            if (collector.hasAfter(categories)) {
-                return loadAfter()
-            }
-        },
-    })
+        useImperativeHandle(ref, () => ({
+            scrollToItem,
+        }))
 
-    useImperativeHandle(ref, () => ({
-        scrollToItem,
-    }))
-
-    return (
-        <div className={cn('flex', className)}>
-            <div className="flex flex-col justify-between items-center p-1 border-r border-gray-3">
-                <div className="flex flex-col items-center gap-2">
-                    {collector.getCategories().map((cat) => (
-                        <ItemCategoryToggle
-                            active={categories.includes(cat)}
-                            key={cat}
-                            category={cat}
-                            onClick={() => toggleCategory(cat)}
+        return (
+            <div className={cn('flex', className)}>
+                <div className="flex flex-col justify-between items-center p-1 border-r border-gray-3">
+                    <div className="flex flex-col items-center gap-2">
+                        {collector.getCategories().map((cat) => (
+                            <ItemCategoryToggle
+                                active={categories.includes(cat)}
+                                key={cat}
+                                category={cat}
+                                onClick={() => toggleCategory(cat)}
+                            >
+                                {collector.getRenderer(cat)?.categoryIcon}
+                            </ItemCategoryToggle>
+                        ))}
+                    </div>
+                    {items.find((item) => item.id === selectedItemId) && (
+                        <ButtonPrimitive
+                            tooltip="Scroll to item"
+                            tooltipPlacement="right"
+                            iconOnly
+                            onClick={() => selectedItemId && scrollToItem(selectedItemId)}
                         >
-                            {collector.getRenderer(cat)?.categoryIcon}
-                        </ItemCategoryToggle>
-                    ))}
+                            <IconVerticalAlignCenter />
+                        </ButtonPrimitive>
+                    )}
                 </div>
-                {items.find((item) => item.id === selectedItemId) && (
-                    <ButtonPrimitive
-                        tooltip="Scroll to item"
-                        tooltipPlacement="right"
-                        iconOnly
-                        onClick={() => selectedItemId && scrollToItem(selectedItemId)}
-                    >
-                        <IconVerticalAlignCenter />
-                    </ButtonPrimitive>
-                )}
+                <div
+                    ref={(el) => {
+                        scrollRefCb(el)
+                        containerRef.current = el
+                    }}
+                    className="h-[500px] w-full overflow-y-auto relative"
+                    style={{ scrollbarGutter: 'stable' }}
+                >
+                    {beforeLoading && (
+                        <div className={cn(itemContainer({ selected: false }), 'justify-start')}>
+                            <Spinner />
+                            <span className="text-secondary">loading...</span>
+                        </div>
+                    )}
+                    {items.map((item) => {
+                        const renderer = collector.getRenderer(item.category)
+                        if (!renderer) {
+                            return null
+                        }
+                        return (
+                            <SessionTimelineItemContainer
+                                renderer={renderer}
+                                key={item.id}
+                                item={item}
+                                selected={item.id === selectedItemId}
+                                onTimeClick={onTimeClick}
+                            />
+                        )
+                    })}
+                    {afterLoading && !beforeLoading && (
+                        <div className={cn(itemContainer({ selected: false }), 'justify-start')}>
+                            <Spinner />
+                            <span className="text-secondary">loading...</span>
+                        </div>
+                    )}
+                </div>
             </div>
-            <div
-                ref={(el) => {
-                    scrollRefCb(el)
-                    containerRef.current = el
-                }}
-                className="h-[500px] w-full overflow-y-auto relative"
-                style={{ scrollbarGutter: 'stable' }}
-            >
-                {beforeLoading && (
-                    <div className={cn(itemContainer({ selected: false }), 'justify-start')}>
-                        <Spinner />
-                        <span className="text-secondary">loading...</span>
-                    </div>
-                )}
-                {items.map((item) => {
-                    const renderer = collector.getRenderer(item.category)
-                    if (!renderer) {
-                        return null
-                    }
-                    return (
-                        <SessionTimelineItemContainer
-                            renderer={renderer}
-                            key={item.id}
-                            item={item}
-                            selected={item.id === selectedItemId}
-                            onTimeClick={onTimeClick}
-                        />
-                    )
-                })}
-                {afterLoading && !beforeLoading && (
-                    <div className={cn(itemContainer({ selected: false }), 'justify-start')}>
-                        <Spinner />
-                        <span className="text-secondary">loading...</span>
-                    </div>
-                )}
-            </div>
-        </div>
-    )
-}
+        )
+    }
+)
 
 const itemContainer = cva({
     base: 'flex justify-between gap-2 items-center px-2 w-full h-[2rem]',

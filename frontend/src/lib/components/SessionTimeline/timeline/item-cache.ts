@@ -1,8 +1,6 @@
-import { TimelineItem } from '.'
-
 import { Dayjs } from 'lib/dayjs'
 
-export class ItemCache<T extends TimelineItem> {
+export class ItemCache<T extends { id: string; timestamp: Dayjs }> {
     orderedIds: string[]
     queue: Record<string, T>
 
