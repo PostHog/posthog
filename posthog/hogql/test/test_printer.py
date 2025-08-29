@@ -3,23 +3,11 @@ from collections.abc import Mapping
 from typing import Any, Literal, Optional, cast
 
 import pytest
-from django.test import override_settings
+from posthog.test.base import APIBaseTest, BaseTest, _create_event, clean_varying_query_parts, materialized
 from unittest.mock import patch
 
-from posthog.clickhouse.client.execute import sync_execute
-from posthog.hogql import ast
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLQuerySettings, HogQLGlobalSettings
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
-from posthog.hogql.errors import ExposedHogQLError, QueryError
-from posthog.hogql.parser import parse_select, parse_expr
-from posthog.hogql.printer import print_ast, to_printed_hogql, prepare_ast_for_printing, print_prepared_ast
-from posthog.models import PropertyDefinition
-from posthog.models.cohort.cohort import Cohort
-from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
-from posthog.settings.data_stores import CLICKHOUSE_DATABASE
-from posthog.models.team.team import WeekStartDay
+from django.test import override_settings
+
 from posthog.schema import (
     HogQLQueryModifiers,
     MaterializationMode,
@@ -27,8 +15,23 @@ from posthog.schema import (
     PersonsOnEventsMode,
     PropertyGroupsMode,
 )
-from posthog.test.base import BaseTest, _create_event, materialized, APIBaseTest, clean_varying_query_parts
+
+from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLGlobalSettings, HogQLQuerySettings
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
+from posthog.hogql.errors import ExposedHogQLError, QueryError
+from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.printer import prepare_ast_for_printing, print_ast, print_prepared_ast, to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.client.execute import sync_execute
+from posthog.models import PropertyDefinition
+from posthog.models.cohort.cohort import Cohort
+from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
+from posthog.models.team.team import WeekStartDay
+from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
 
 
@@ -2536,6 +2539,80 @@ class TestPrinter(BaseTest):
             JOIN some_remote_table ON events.event = toString(some_remote_table.id)""")
 
         assert "GLOBAL JOIN" in printed
+
+        assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot  # type: ignore
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_s3_tables_global_join_with_multiple_joins(self):
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="test_table",
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="http://s3/folder/",
+            credential=credential,
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
+        )
+        printed = self._select("""
+            SELECT e.event, s.event, t.id
+            FROM events e
+            JOIN (SELECT event from events) as s ON e.event = s.event
+            LEFT JOIN test_table t on e.event = toString(t.id)""")
+
+        assert "GLOBAL JOIN" in printed  # Join #1
+        assert "GLOBAL LEFT JOIN" in printed  # Join #2
+
+        assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot  # type: ignore
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_s3_tables_global_join_with_in_and_property_type(self):
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="test_table",
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="http://s3/folder/",
+            credential=credential,
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
+        )
+
+        printed = self._select("""
+            SELECT event FROM events
+            WHERE properties.$browser IN (
+                SELECT id FROM test_table
+            )""")
+
+        assert "globalIn" in printed
+
+        assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot  # type: ignore
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_s3_tables_global_join_anonymous_tables(self):
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="test_table",
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="http://s3/folder/",
+            credential=credential,
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
+        )
+
+        printed = self._select("""
+            select e.event, ij.remote_id
+            from events e
+            inner join (
+                select *
+                from (
+                    select p.id as person_id, rt.id as remote_id
+                    from persons p
+                    left join (
+                        select * from test_table
+                    ) rt on rt.id = p.id
+                )
+            ) as ij on e.event = ij.remote_id""")
+
+        assert "GLOBAL INNER JOIN" in printed
 
         assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot  # type: ignore
 

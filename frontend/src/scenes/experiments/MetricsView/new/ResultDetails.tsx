@@ -36,13 +36,11 @@ export function ResultDetails({
     experiment,
     result,
     metric,
-    metricIndex,
     isSecondary,
 }: {
     experiment: Experiment
     result: CachedExperimentQueryResponse
     metric: ExperimentMetric
-    metricIndex: number
     isSecondary: boolean
 }): JSX.Element {
     const columns: LemonTableColumns<ExperimentVariantResult & { key: string }> = [
@@ -170,7 +168,7 @@ export function ResultDetails({
                 <ResultsBreakdown
                     result={result}
                     experiment={experiment}
-                    metricIndex={metricIndex}
+                    metricUuid={metric.uuid || ''}
                     isPrimary={!isSecondary}
                 >
                     {({

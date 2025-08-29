@@ -1,14 +1,23 @@
 import time
-from unittest.mock import patch
+from typing import Any
 from uuid import uuid4
 
-from dateutil.relativedelta import relativedelta
+from freezegun import freeze_time
+from posthog.test.base import BaseTest, _create_event
+from unittest.mock import patch
+
 from django.utils import timezone
 from django.utils.timezone import now
-from freezegun import freeze_time
+
+from dateutil.relativedelta import relativedelta
+
+from posthog.api.test.test_team import create_team
+from posthog.models.team.team import Team
+from posthog.redis import get_client
 
 from ee.billing.quota_limiting import (
     QUOTA_LIMIT_DATA_RETENTION_FLAG,
+    TRUST_SCORE_KEYS,
     QuotaLimitingCaches,
     QuotaResource,
     add_limited_team_tokens,
@@ -17,14 +26,9 @@ from ee.billing.quota_limiting import (
     org_quota_limited_until,
     replace_limited_team_tokens,
     set_org_usage_summary,
-    update_org_billing_quotas,
     update_all_orgs_billing_quotas,
-    TRUST_SCORE_KEYS,
+    update_org_billing_quotas,
 )
-from posthog.api.test.test_team import create_team
-from posthog.models.team.team import Team
-from posthog.redis import get_client
-from posthog.test.base import BaseTest, _create_event
 
 
 def zero_trust_scores():
@@ -43,12 +47,16 @@ class TestQuotaLimiting(BaseTest):
         self.redis_client.delete(f"@posthog/quota-limits/rows_synced")
         self.redis_client.delete(f"@posthog/quota-limits/api_queries_read_bytes")
         self.redis_client.delete(f"@posthog/quota-limits/surveys")
+        self.redis_client.delete(f"@posthog/quota-limits/llm_events")
+        self.redis_client.delete(f"@posthog/quota-limits/cdp_invocations")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/events")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/exceptions")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/recordings")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/rows_synced")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/api_queries_read_bytes")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/surveys")
+        self.redis_client.delete(f"@posthog/quota-limiting-suspended/llm_events")
+        self.redis_client.delete(f"@posthog/quota-limiting-suspended/cdp_invocations")
 
     @patch("posthoganalytics.capture")
     @patch("posthoganalytics.feature_enabled", return_value=True)
@@ -274,17 +282,27 @@ class TestQuotaLimiting(BaseTest):
 
     @patch("posthoganalytics.capture")
     def test_billing_rate_limit(self, patch_capture) -> None:
-        with self.settings(USE_TZ=False), freeze_time("2021-01-25T00:00:00Z"):
-            self.organization.usage = {
-                "events": {"usage": 99, "limit": 100},
-                "exceptions": {"usage": 10, "limit": 100},
-                "recordings": {"usage": 1, "limit": 100},
-                "rows_synced": {"usage": 5, "limit": 100},
-                "feature_flag_requests": {"usage": 5, "limit": 100},
-                "api_queries_read_bytes": {"usage": 1000, "limit": 1000000},
+        def create_usage_summary(**kwargs) -> dict[str, Any]:
+            data: dict[str, Any] = {
                 "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
-                "surveys": {"usage": 10, "limit": 100},
             }
+            for resource in QuotaResource:
+                data[resource.value] = {"limit": 100, "usage": 10, "todays_usage": 0}
+            data.update(kwargs)
+            return data
+
+        def assert_other_resources_not_limited(quota_limited_orgs, quota_limiting_suspended_orgs):
+            for resource in QuotaResource:
+                if resource != QuotaResource.EVENTS:
+                    assert quota_limited_orgs[resource.value] == {}
+                    assert quota_limiting_suspended_orgs[resource.value] == {}
+                    assert self.redis_client.zrange(f"@posthog/quota-limits/{resource.value}", 0, -1) == []
+                    assert self.redis_client.zrange(f"@posthog/quota-limiting-suspended/{resource.value}", 0, -1) == []
+
+        with self.settings(USE_TZ=False), freeze_time("2021-01-25T00:00:00Z"):
+            self.organization.usage = create_usage_summary(
+                events={"usage": 99, "limit": 100},
+            )
             self.organization.save()
 
             distinct_id = str(uuid4())
@@ -304,19 +322,8 @@ class TestQuotaLimiting(BaseTest):
             # Will be immediately rate limited as trust score was unset.
             org_id = str(self.organization.id)
             assert quota_limited_orgs["events"] == {org_id: 1612137599}
-            assert quota_limited_orgs["exceptions"] == {}
-            assert quota_limited_orgs["recordings"] == {}
-            assert quota_limited_orgs["rows_synced"] == {}
-            assert quota_limited_orgs["feature_flag_requests"] == {}
-            assert quota_limited_orgs["api_queries_read_bytes"] == {}
-            assert quota_limited_orgs["surveys"] == {}
             assert quota_limiting_suspended_orgs["events"] == {}
-            assert quota_limiting_suspended_orgs["exceptions"] == {}
-            assert quota_limiting_suspended_orgs["recordings"] == {}
-            assert quota_limiting_suspended_orgs["rows_synced"] == {}
-            assert quota_limiting_suspended_orgs["feature_flag_requests"] == {}
-            assert quota_limiting_suspended_orgs["api_queries_read_bytes"] == {}
-            assert quota_limiting_suspended_orgs["surveys"] == {}
+            assert_other_resources_not_limited(quota_limited_orgs, quota_limiting_suspended_orgs)
 
             # Check out many times it was called
             assert (
@@ -336,33 +343,26 @@ class TestQuotaLimiting(BaseTest):
                 "quota_limited_rows_synced": None,
                 "quota_limited_feature_flags": None,
                 "quota_limited_surveys": None,
+                "quota_limited_llm_events": None,
+                "quota_limited_cdp_invocations": None,
             }
             assert org_action_call.kwargs.get("groups") == {
                 "instance": "http://localhost:8010",
                 "organization": org_id,
             }
 
-            assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == [
-                self.team.api_token.encode("UTF-8")
-            ]
-            assert self.redis_client.zrange(f"@posthog/quota-limits/exceptions", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/recordings", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/rows_synced", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/feature_flag_requests", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/api_queries_read_bytes", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/surveys", 0, -1) == []
+            for resource in QuotaResource:
+                if resource == QuotaResource.EVENTS:
+                    assert self.redis_client.zrange(f"@posthog/quota-limits/{resource.value}", 0, -1) == [
+                        self.team.api_token.encode("UTF-8")
+                    ]
+                else:
+                    assert self.redis_client.zrange(f"@posthog/quota-limits/{resource.value}", 0, -1) == []
 
             self.organization.refresh_from_db()
-            assert self.organization.usage == {
-                "events": {"usage": 99, "limit": 100, "todays_usage": 10, "quota_limited_until": 1612137599},
-                "exceptions": {"usage": 10, "limit": 100, "todays_usage": 0},
-                "recordings": {"usage": 1, "limit": 100, "todays_usage": 0},
-                "rows_synced": {"usage": 5, "limit": 100, "todays_usage": 0},
-                "feature_flag_requests": {"usage": 5, "limit": 100, "todays_usage": 0},
-                "api_queries_read_bytes": {"usage": 1000, "limit": 1000000, "todays_usage": 0},
-                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
-                "surveys": {"usage": 10, "limit": 100, "todays_usage": 0},
-            }
+            assert self.organization.usage == create_usage_summary(
+                events={"usage": 99, "limit": 100, "todays_usage": 10, "quota_limited_until": 1612137599}
+            )
 
             # # Increase the trust score. They are already being limited, so we will not suspend their limiting.
             self.organization.customer_trust_scores = {
@@ -378,149 +378,65 @@ class TestQuotaLimiting(BaseTest):
             quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
 
             assert quota_limited_orgs["events"] == {org_id: 1612137599}
-            assert quota_limited_orgs["exceptions"] == {}
-            assert quota_limited_orgs["recordings"] == {}
-            assert quota_limited_orgs["rows_synced"] == {}
-            assert quota_limited_orgs["feature_flag_requests"] == {}
-            assert quota_limited_orgs["surveys"] == {}
             assert quota_limiting_suspended_orgs["events"] == {}
-            assert quota_limiting_suspended_orgs["exceptions"] == {}
-            assert quota_limiting_suspended_orgs["recordings"] == {}
-            assert quota_limiting_suspended_orgs["rows_synced"] == {}
-            assert quota_limiting_suspended_orgs["feature_flag_requests"] == {}
-            assert quota_limiting_suspended_orgs["surveys"] == {}
             assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == [
                 self.team.api_token.encode("UTF-8")
             ]
-            assert self.redis_client.zrange(f"@posthog/quota-limits/exceptions", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/recordings", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/rows_synced", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/feature_flag_requests", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/api_queries_read_bytes", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/surveys", 0, -1) == []
+            assert_other_resources_not_limited(quota_limited_orgs, quota_limiting_suspended_orgs)
 
             # Reset the event limiting set so their limiting will be suspended for 1 day.
             self.redis_client.delete(f"@posthog/quota-limits/events")
-            self.organization.usage = {
-                "events": {"usage": 99, "limit": 100, "todays_usage": 0},
-                "exceptions": {"usage": 10, "limit": 100, "todays_usage": 0},
-                "recordings": {"usage": 1, "limit": 100, "todays_usage": 0},
-                "rows_synced": {"usage": 5, "limit": 100, "todays_usage": 0},
-                "feature_flag_requests": {"usage": 5, "limit": 100, "todays_usage": 0},
-                "api_queries_read_bytes": {"usage": 1000, "limit": 1000000, "todays_usage": 0},
-                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
-                "surveys": {"usage": 10, "limit": 100, "todays_usage": 0},
-            }
+            self.organization.usage = create_usage_summary(
+                events={"usage": 99, "limit": 100, "todays_usage": 0},
+            )
             self.organization.save()
             quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
             assert quota_limited_orgs["events"] == {}
-            assert quota_limited_orgs["exceptions"] == {}
-            assert quota_limited_orgs["recordings"] == {}
-            assert quota_limited_orgs["rows_synced"] == {}
-            assert quota_limited_orgs["feature_flag_requests"] == {}
-            assert quota_limited_orgs["surveys"] == {}
             assert quota_limiting_suspended_orgs["events"] == {org_id: 1611705600}
-            assert quota_limiting_suspended_orgs["exceptions"] == {}
-            assert quota_limiting_suspended_orgs["recordings"] == {}
-            assert quota_limiting_suspended_orgs["rows_synced"] == {}
-            assert quota_limiting_suspended_orgs["feature_flag_requests"] == {}
-            assert quota_limiting_suspended_orgs["api_queries_read_bytes"] == {}
-            assert quota_limiting_suspended_orgs["surveys"] == {}
             assert self.redis_client.zrange(f"@posthog/quota-limiting-suspended/events", 0, -1) == [
                 self.team.api_token.encode("UTF-8")
             ]
-
             assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/exceptions", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/recordings", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/rows_synced", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/feature_flag_requests", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/api_queries_read_bytes", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/surveys", 0, -1) == []
+            assert_other_resources_not_limited(quota_limited_orgs, quota_limiting_suspended_orgs)
 
         # Check that limiting still suspended 23 hrs later
         with freeze_time("2021-01-25T23:00:00Z"):
             quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
+
             assert quota_limited_orgs["events"] == {}
-            assert quota_limited_orgs["exceptions"] == {}
-            assert quota_limited_orgs["recordings"] == {}
-            assert quota_limited_orgs["rows_synced"] == {}
-            assert quota_limited_orgs["feature_flag_requests"] == {}
-            assert quota_limited_orgs["surveys"] == {}
             assert quota_limiting_suspended_orgs["events"] == {org_id: 1611705600}
-            assert quota_limiting_suspended_orgs["exceptions"] == {}
-            assert quota_limiting_suspended_orgs["recordings"] == {}
-            assert quota_limiting_suspended_orgs["rows_synced"] == {}
-            assert quota_limiting_suspended_orgs["feature_flag_requests"] == {}
-            assert quota_limiting_suspended_orgs["api_queries_read_bytes"] == {}
-            assert quota_limiting_suspended_orgs["surveys"] == {}
+            assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == []
             assert self.redis_client.zrange(f"@posthog/quota-limiting-suspended/events", 0, -1) == [
                 self.team.api_token.encode("UTF-8")
             ]
+            assert_other_resources_not_limited(quota_limited_orgs, quota_limiting_suspended_orgs)
 
-            assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/exceptions", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/recordings", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/rows_synced", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/feature_flag_requests", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/api_queries_read_bytes", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/surveys", 0, -1) == []
             self.organization.refresh_from_db()
-            assert self.organization.usage == {
-                "events": {
-                    "usage": 99,
-                    "limit": 100,
-                    "todays_usage": 10,
-                    "quota_limiting_suspended_until": 1611705600,
-                },
-                "exceptions": {"usage": 10, "limit": 100, "todays_usage": 0},
-                "recordings": {"usage": 1, "limit": 100, "todays_usage": 0},
-                "rows_synced": {"usage": 5, "limit": 100, "todays_usage": 0},
-                "feature_flag_requests": {"usage": 5, "limit": 100, "todays_usage": 0},
-                "api_queries_read_bytes": {"usage": 1000, "limit": 1000000, "todays_usage": 0},
-                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
-                "surveys": {"usage": 10, "limit": 100, "todays_usage": 0},
-            }
+            assert self.organization.usage == create_usage_summary(
+                events={"usage": 99, "limit": 100, "todays_usage": 10, "quota_limiting_suspended_until": 1611705600}
+            )
 
         # Check that org is being limited after suspension expired
         with freeze_time("2021-01-27T03:00:00Z"):
-            self.organization.usage = {
-                "events": {"usage": 109, "limit": 100, "quota_limiting_suspended_until": 1611705600},
-                "exceptions": {"usage": 10, "limit": 100},
-                "recordings": {"usage": 1, "limit": 100},
-                "rows_synced": {"usage": 5, "limit": 100},
-                "feature_flag_requests": {"usage": 5, "limit": 100},
-                "api_queries_read_bytes": {"usage": 1000, "limit": 1000000},
-                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
-                "surveys": {"usage": 10, "limit": 100},
-            }
+            self.organization.usage = create_usage_summary(
+                events={"usage": 109, "limit": 100, "quota_limiting_suspended_until": 1611705600},
+            )
             self.organization.save()
             quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
             assert quota_limited_orgs["events"] == {org_id: 1612137599}
-            assert quota_limited_orgs["exceptions"] == {}
-            assert quota_limited_orgs["recordings"] == {}
-            assert quota_limited_orgs["rows_synced"] == {}
-            assert quota_limited_orgs["feature_flag_requests"] == {}
-            assert quota_limited_orgs["api_queries_read_bytes"] == {}
-            assert quota_limited_orgs["surveys"] == {}
             assert quota_limiting_suspended_orgs["events"] == {}
-            assert quota_limiting_suspended_orgs["exceptions"] == {}
-            assert quota_limiting_suspended_orgs["recordings"] == {}
-            assert quota_limiting_suspended_orgs["rows_synced"] == {}
-            assert quota_limiting_suspended_orgs["feature_flag_requests"] == {}
-            assert quota_limiting_suspended_orgs["api_queries_read_bytes"] == {}
-            assert quota_limiting_suspended_orgs["surveys"] == {}
-            assert self.redis_client.zrange(f"@posthog/quota-limiting-suspended/events", 0, -1) == []
+            self.organization.refresh_from_db()
 
+            assert_other_resources_not_limited(quota_limited_orgs, quota_limiting_suspended_orgs)
+
+            assert self.organization.usage == create_usage_summary(
+                events={"usage": 109, "limit": 100, "todays_usage": 0, "quota_limited_until": 1612137599}
+            )
+
+            assert self.redis_client.zrange(f"@posthog/quota-limiting-suspended/events", 0, -1) == []
             assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == [
                 self.team.api_token.encode("UTF-8")
             ]
-            assert self.redis_client.zrange(f"@posthog/quota-limits/exceptions", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/recordings", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/rows_synced", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/feature_flag_requests", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/api_queries_read_bytes", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/surveys", 0, -1) == []
 
         # Increase trust score. Their quota limiting suspension expiration should not update.
         with freeze_time("2021-01-25T00:00:00Z"):
@@ -535,43 +451,18 @@ class TestQuotaLimiting(BaseTest):
                 TRUST_SCORE_KEYS[QuotaResource.API_QUERIES]: 0,
                 "surveys": 0,
             }
-            self.organization.usage = {
-                "events": {"usage": 109, "limit": 100, "quota_limiting_suspended_until": 1611705600},
-                "exceptions": {"usage": 10, "limit": 100},
-                "recordings": {"usage": 1, "limit": 100},
-                "rows_synced": {"usage": 5, "limit": 100},
-                "feature_flag_requests": {"usage": 5, "limit": 100},
-                "api_queries_read_bytes": {"usage": 1000, "limit": 1000000},
-                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
-                "surveys": {"usage": 10, "limit": 100},
-            }
+            self.organization.usage = create_usage_summary(
+                events={"usage": 109, "limit": 100, "quota_limiting_suspended_until": 1611705600},
+            )
             self.organization.save()
             quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
+            assert_other_resources_not_limited(quota_limited_orgs, quota_limiting_suspended_orgs)
             assert quota_limited_orgs["events"] == {}
-            assert quota_limited_orgs["exceptions"] == {}
-            assert quota_limited_orgs["recordings"] == {}
-            assert quota_limited_orgs["rows_synced"] == {}
-            assert quota_limited_orgs["feature_flag_requests"] == {}
-            assert quota_limited_orgs["api_queries_read_bytes"] == {}
-            assert quota_limited_orgs["surveys"] == {}
             assert quota_limiting_suspended_orgs["events"] == {org_id: 1611705600}
-            assert quota_limiting_suspended_orgs["exceptions"] == {}
-            assert quota_limiting_suspended_orgs["recordings"] == {}
-            assert quota_limiting_suspended_orgs["rows_synced"] == {}
-            assert quota_limiting_suspended_orgs["feature_flag_requests"] == {}
-            assert quota_limiting_suspended_orgs["api_queries_read_bytes"] == {}
-            assert quota_limiting_suspended_orgs["surveys"] == {}
+            assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == []
             assert self.redis_client.zrange(f"@posthog/quota-limiting-suspended/events", 0, -1) == [
                 self.team.api_token.encode("UTF-8")
             ]
-
-            assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/exceptions", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/recordings", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/rows_synced", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/feature_flag_requests", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/api_queries_read_bytes", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/surveys", 0, -1) == []
 
             # Reset, quota limiting should be suspended for 3 days.
             self.organization.customer_trust_scores = {
@@ -583,83 +474,33 @@ class TestQuotaLimiting(BaseTest):
                 TRUST_SCORE_KEYS[QuotaResource.API_QUERIES]: 0,
                 "surveys": 0,
             }
-            self.organization.usage = {
-                "events": {"usage": 109, "limit": 100},
-                "exceptions": {"usage": 10, "limit": 100},
-                "recordings": {"usage": 1, "limit": 100},
-                "rows_synced": {"usage": 5, "limit": 100},
-                "feature_flag_requests": {"usage": 5, "limit": 100},
-                "api_queries_read_bytes": {"usage": 1000, "limit": 1000000},
-                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
-                "surveys": {"usage": 10, "limit": 100},
-            }
+            self.organization.usage = create_usage_summary(
+                events={"usage": 109, "limit": 100},
+            )
             self.organization.save()
             quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
+            assert_other_resources_not_limited(quota_limited_orgs, quota_limiting_suspended_orgs)
             assert quota_limited_orgs["events"] == {}
-            assert quota_limited_orgs["exceptions"] == {}
-            assert quota_limited_orgs["recordings"] == {}
-            assert quota_limited_orgs["rows_synced"] == {}
-            assert quota_limited_orgs["feature_flag_requests"] == {}
-            assert quota_limited_orgs["api_queries_read_bytes"] == {}
-            assert quota_limited_orgs["surveys"] == {}
             assert quota_limiting_suspended_orgs["events"] == {org_id: 1611878400}
-            assert quota_limiting_suspended_orgs["exceptions"] == {}
-            assert quota_limiting_suspended_orgs["recordings"] == {}
-            assert quota_limiting_suspended_orgs["rows_synced"] == {}
-            assert quota_limiting_suspended_orgs["feature_flag_requests"] == {}
-            assert quota_limiting_suspended_orgs["api_queries_read_bytes"] == {}
-            assert quota_limiting_suspended_orgs["surveys"] == {}
+            assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == []
             assert self.redis_client.zrange(f"@posthog/quota-limiting-suspended/events", 0, -1) == [
                 self.team.api_token.encode("UTF-8")
             ]
 
-            assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/exceptions", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/recordings", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/rows_synced", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/feature_flag_requests", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/api_queries_read_bytes", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/surveys", 0, -1) == []
-
             # Decrease the trust score to 0. Quota limiting should immediately take effect.
             self.organization.customer_trust_scores = zero_trust_scores()
-            self.organization.usage = {
-                "events": {"usage": 109, "limit": 100, "quota_limiting_suspended_until": 1611705600},
-                "exceptions": {"usage": 10, "limit": 100},
-                "recordings": {"usage": 1, "limit": 100},
-                "rows_synced": {"usage": 5, "limit": 100},
-                "feature_flag_requests": {"usage": 5, "limit": 100},
-                "api_queries_read_bytes": {"usage": 1000, "limit": 1000000},
-                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
-                "surveys": {"usage": 10, "limit": 100},
-            }
+            self.organization.usage = create_usage_summary(
+                events={"usage": 109, "limit": 100, "quota_limiting_suspended_until": 1611705600},
+            )
             self.organization.save()
             quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
+            assert_other_resources_not_limited(quota_limited_orgs, quota_limiting_suspended_orgs)
             assert quota_limited_orgs["events"] == {org_id: 1612137599}
-            assert quota_limited_orgs["exceptions"] == {}
-            assert quota_limited_orgs["recordings"] == {}
-            assert quota_limited_orgs["rows_synced"] == {}
-            assert quota_limited_orgs["feature_flag_requests"] == {}
-            assert quota_limited_orgs["api_queries_read_bytes"] == {}
-            assert quota_limited_orgs["surveys"] == {}
             assert quota_limiting_suspended_orgs["events"] == {}
-            assert quota_limiting_suspended_orgs["exceptions"] == {}
-            assert quota_limiting_suspended_orgs["recordings"] == {}
-            assert quota_limiting_suspended_orgs["rows_synced"] == {}
-            assert quota_limiting_suspended_orgs["feature_flag_requests"] == {}
-            assert quota_limiting_suspended_orgs["api_queries_read_bytes"] == {}
-            assert quota_limiting_suspended_orgs["surveys"] == {}
             assert self.redis_client.zrange(f"@posthog/quota-limiting-suspended/events", 0, -1) == []
-
             assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == [
                 self.team.api_token.encode("UTF-8")
             ]
-            assert self.redis_client.zrange(f"@posthog/quota-limits/exceptions", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/recordings", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/rows_synced", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/feature_flag_requests", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/api_queries_read_bytes", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/surveys", 0, -1) == []
 
         with freeze_time("2021-01-28T00:00:00Z"):
             self.redis_client.delete(f"@posthog/quota-limits/events")
@@ -674,44 +515,20 @@ class TestQuotaLimiting(BaseTest):
                 TRUST_SCORE_KEYS[QuotaResource.API_QUERIES]: 0,
                 "surveys": 0,
             }
-            self.organization.usage = {
-                "events": {"usage": 109, "limit": 100, "quota_limiting_suspended_until": 1611705600},
-                "exceptions": {"usage": 10, "limit": 100},
-                "recordings": {"usage": 1, "limit": 100},
-                "rows_synced": {"usage": 5, "limit": 100},
-                "feature_flag_requests": {"usage": 5, "limit": 100},
-                "api_queries_read_bytes": {"usage": 1000, "limit": 1000000},
-                "period": ["2021-01-27T00:00:00Z", "2021-01-31T23:59:59Z"],
-                "surveys": {"usage": 10, "limit": 100},
-            }
+            self.organization.usage = create_usage_summary(
+                events={"usage": 109, "limit": 100, "quota_limiting_suspended_until": 1611705600},
+                period=["2021-01-27T00:00:00Z", "2021-01-31T23:59:59Z"],
+            )
             self.organization.save()
 
             quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
+            assert_other_resources_not_limited(quota_limited_orgs, quota_limiting_suspended_orgs)
             assert quota_limited_orgs["events"] == {}
-            assert quota_limited_orgs["exceptions"] == {}
-            assert quota_limited_orgs["recordings"] == {}
-            assert quota_limited_orgs["rows_synced"] == {}
-            assert quota_limited_orgs["feature_flag_requests"] == {}
-            assert quota_limited_orgs["api_queries_read_bytes"] == {}
-            assert quota_limited_orgs["surveys"] == {}
             assert quota_limiting_suspended_orgs["events"] == {org_id: 1612137600}
-            assert quota_limiting_suspended_orgs["exceptions"] == {}
-            assert quota_limiting_suspended_orgs["recordings"] == {}
-            assert quota_limiting_suspended_orgs["rows_synced"] == {}
-            assert quota_limiting_suspended_orgs["feature_flag_requests"] == {}
-            assert quota_limiting_suspended_orgs["api_queries_read_bytes"] == {}
-            assert quota_limiting_suspended_orgs["surveys"] == {}
+            assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == []
             assert self.redis_client.zrange(f"@posthog/quota-limiting-suspended/events", 0, -1) == [
                 self.team.api_token.encode("UTF-8")
             ]
-
-            assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/exceptions", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/recordings", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/rows_synced", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/feature_flag_requests", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/api_queries_read_bytes", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/surveys", 0, -1) == []
 
     def test_set_org_usage_summary_updates_correctly(self):
         self.organization.usage = {
@@ -1587,3 +1404,199 @@ class TestQuotaLimiting(BaseTest):
             # Verify org usage does not have quota_limited_until
             self.organization.refresh_from_db()
             assert self.organization.usage["surveys"].get("quota_limited_until") is None
+
+    @freeze_time("2021-01-25T23:59:59Z")
+    @patch("posthoganalytics.capture")
+    def test_quota_limiting_ai_events(self, mock_capture) -> None:
+        """Test that AI events are properly limited when quota exceeded"""
+        with self.settings(USE_TZ=False):
+            # Set up usage data with AI events over the limit
+            self.organization.usage = {
+                "llm_events": {"usage": 100, "limit": 100, "todays_usage": 5},  # 105 total, over limit
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            self.organization.save()
+
+            # Run quota limiting update
+            update_org_billing_quotas(self.organization)
+
+            # Verify team token was added to quota limited list
+            limited_tokens = list_limited_team_attributes(
+                QuotaResource.LLM_EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            )
+            assert self.team.api_token in limited_tokens
+
+            # Verify org usage was updated with quota_limited_until
+            self.organization.refresh_from_db()
+            assert self.organization.usage["llm_events"].get("quota_limited_until") is not None
+
+            # Verify analytics event was captured
+            mock_capture.assert_called()
+
+            # Check that the correct properties were logged
+            org_action_call = None
+            for call in mock_capture.call_args_list:
+                if len(call) >= 2 and call[1]["event"] == "org_quota_limited_until":
+                    org_action_call = call
+                    break
+
+            assert org_action_call is not None
+            assert org_action_call[1]["properties"]["resource"] == "llm_events"
+            assert org_action_call[1]["properties"]["current_usage"] == 105
+            assert org_action_call[1]["properties"]["event"] == "suspended"
+
+    @freeze_time("2021-01-25T23:59:59Z")
+    def test_quota_limiting_ai_events_under_limit(self) -> None:
+        """Test that AI events under quota limit are not restricted"""
+        with self.settings(USE_TZ=False):
+            # Set up usage data with AI events under the limit
+            self.organization.usage = {
+                "llm_events": {"usage": 80, "limit": 100, "todays_usage": 5},  # 85 total, under limit
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            self.organization.save()
+
+            # Run quota limiting update
+            update_org_billing_quotas(self.organization)
+
+            # Verify team token was NOT added to quota limited list
+            limited_tokens = list_limited_team_attributes(
+                QuotaResource.LLM_EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            )
+            assert self.team.api_token not in limited_tokens
+
+            # Verify org usage does not have quota_limited_until
+            self.organization.refresh_from_db()
+            assert self.organization.usage["llm_events"].get("quota_limited_until") is None
+
+    @freeze_time("2021-01-25T23:59:59Z")
+    def test_ai_events_trust_score_tracking(self) -> None:
+        """Test trust score updates for AI event limiting"""
+        with self.settings(USE_TZ=False):
+            # Set up initial trust scores
+            self.organization.customer_trust_scores = {
+                "events": 0,
+                "exceptions": 0,
+                "recordings": 0,
+                "rows_synced": 0,
+                "feature_flags": 0,
+                "api_queries": 0,
+                "surveys": 0,
+                "llm_events": 0,
+            }
+            self.organization.usage = {
+                "llm_events": {"usage": 100, "limit": 100, "todays_usage": 5},  # Over limit
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            self.organization.save()
+
+            # First run should limit immediately due to trust score 0
+            update_org_billing_quotas(self.organization)
+
+            limited_tokens = list_limited_team_attributes(
+                QuotaResource.LLM_EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            )
+            assert self.team.api_token in limited_tokens
+
+            # Increase trust score
+            self.organization.customer_trust_scores["llm_events"] = 7
+            self.organization.save()
+
+            # Clear the limiting to test suspension behavior
+            self.redis_client.delete(f"@posthog/quota-limits/llm_events")
+            # Also clear the quota_limited_until field to reset state
+            self.organization.usage["llm_events"]["quota_limited_until"] = None
+            # Keep over the limit
+            self.organization.usage["llm_events"]["todays_usage"] = 5
+            self.organization.save()
+
+            # Run again - should be suspended this time
+            update_org_billing_quotas(self.organization)
+
+            # Should be in suspended list, not limited list
+            limited_tokens = list_limited_team_attributes(
+                QuotaResource.LLM_EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            )
+            assert self.team.api_token not in limited_tokens
+
+            suspended_tokens = list_limited_team_attributes(
+                QuotaResource.LLM_EVENTS, QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY
+            )
+            assert self.team.api_token in suspended_tokens
+
+    @freeze_time("2021-01-25T23:59:59Z")
+    def test_ai_events_quota_with_overage_buffer(self) -> None:
+        """Test overage buffer behavior for AI events"""
+        with self.settings(USE_TZ=False):
+            # AI events have 0 overage buffer according to OVERAGE_BUFFER
+            self.organization.usage = {
+                "llm_events": {"usage": 100, "limit": 100, "todays_usage": 0},  # Exactly at limit
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            self.organization.save()
+
+            # Run quota limiting update
+            update_org_billing_quotas(self.organization)
+
+            # Should be limited when exactly at limit (>= comparison with 0 buffer means at limit = over limit)
+            limited_tokens = list_limited_team_attributes(
+                QuotaResource.LLM_EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            )
+            assert self.team.api_token in limited_tokens
+
+            # Reduce usage to be under limit
+            self.organization.usage["llm_events"]["usage"] = 99
+            self.organization.save()
+            update_org_billing_quotas(self.organization)
+
+            # Now should not be limited
+            limited_tokens = list_limited_team_attributes(
+                QuotaResource.LLM_EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            )
+            assert self.team.api_token not in limited_tokens
+
+    @freeze_time("2021-01-25T23:59:59Z")
+    @patch("posthoganalytics.capture")
+    def test_ai_events_quota_suspension_and_resume(self, mock_capture) -> None:
+        """Test suspension and resume mechanics for AI quotas"""
+        with self.settings(USE_TZ=False):
+            # Start with trust score that allows suspension
+            self.organization.customer_trust_scores = {
+                "events": 0,
+                "exceptions": 0,
+                "recordings": 0,
+                "rows_synced": 0,
+                "feature_flags": 0,
+                "api_queries": 0,
+                "surveys": 0,
+                "llm_events": 7,  # High trust score
+            }
+            self.organization.usage = {
+                "llm_events": {"usage": 100, "limit": 100, "todays_usage": 5},  # Over limit
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            self.organization.save()
+
+            # First run should suspend (trust score 7 gets suspension, not immediate limiting)
+            update_org_billing_quotas(self.organization)
+            assert self.team.api_token in list_limited_team_attributes(
+                QuotaResource.LLM_EVENTS, QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY
+            )
+
+            # Now reduce usage below limit to test resume
+            self.organization.usage["llm_events"]["todays_usage"] = 0
+            self.organization.usage["llm_events"]["usage"] = 90  # Under limit
+            self.organization.save()
+
+            # Run again - should clear suspension since under limit
+            update_org_billing_quotas(self.organization)
+            assert self.team.api_token not in list_limited_team_attributes(
+                QuotaResource.LLM_EVENTS, QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY
+            )
+            assert self.team.api_token not in list_limited_team_attributes(
+                QuotaResource.LLM_EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            )
+
+            # Verify analytics events were captured
+            events_captured = [call[1]["event"] for call in mock_capture.call_args_list if len(call) >= 2]
+            assert "org_quota_limited_until" in events_captured  # Should have suspension and removal events

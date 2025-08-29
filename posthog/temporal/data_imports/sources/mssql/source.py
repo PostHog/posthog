@@ -1,24 +1,27 @@
 from typing import cast
+
 from sshtunnel import BaseSSHTunnelForwarderError
-from posthog.exceptions_capture import capture_exception
+
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
-    SourceFieldSSHTunnelConfig,
     SourceFieldInputConfigType,
+    SourceFieldSSHTunnelConfig,
 )
+
+from posthog.exceptions_capture import capture_exception
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
+from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
+from posthog.temporal.data_imports.sources.generated_configs import MSSQLSourceConfig
 from posthog.temporal.data_imports.sources.mssql.mssql import (
+    filter_mssql_incremental_fields,
     get_schemas as get_mssql_schemas,
     mssql_source,
-    filter_mssql_incremental_fields,
 )
-from posthog.temporal.data_imports.sources.generated_configs import MSSQLSourceConfig
 from posthog.warehouse.types import ExternalDataSourceType, IncrementalField
 
 MSSQLErrors = {

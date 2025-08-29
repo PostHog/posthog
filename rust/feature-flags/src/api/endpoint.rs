@@ -2,8 +2,7 @@ use crate::{
     api::{
         errors::FlagError,
         types::{
-            FlagsOptionsResponse, FlagsQueryParams, FlagsResponseCode, LegacyFlagsResponse,
-            ServiceResponse,
+            ConfigResponse, FlagsQueryParams, FlagsResponse, LegacyFlagsResponse, ServiceResponse,
         },
     },
     handler::{process_request, RequestContext},
@@ -11,10 +10,12 @@ use crate::{
 };
 // TODO: stream this instead
 use axum::extract::{MatchedPath, Query, State};
-use axum::http::{HeaderMap, Method};
+use axum::http::{HeaderMap, Method, StatusCode};
+use axum::response::{IntoResponse, Response};
 use axum::{debug_handler, Json};
 use axum_client_ip::InsecureClientIp;
 use bytes::Bytes;
+use std::collections::HashMap;
 use tracing::Instrument;
 use uuid::Uuid;
 
@@ -46,6 +47,37 @@ fn map_decide_version(query_version: Option<i32>, is_from_decide: bool) -> Optio
     }
 }
 
+fn get_minimal_flags_response(version: Option<&str>) -> Result<Json<ServiceResponse>, FlagError> {
+    let request_id = Uuid::new_v4();
+
+    // Parse version string to determine response format
+    let version_num = version.map(|v| v.parse::<i32>().unwrap_or(1)).unwrap_or(1);
+
+    // Create minimal config response
+    let config = ConfigResponse {
+        supported_compression: vec!["gzip".to_string(), "gzip-js".to_string()],
+        ..Default::default()
+    };
+
+    // Create empty flags response with minimal config
+    let response = FlagsResponse {
+        errors_while_computing_flags: false,
+        flags: HashMap::new(),
+        quota_limited: None,
+        request_id,
+        config,
+    };
+
+    // Return versioned response
+    let service_response = if version_num >= 2 {
+        ServiceResponse::V2(response)
+    } else {
+        ServiceResponse::Default(LegacyFlagsResponse::from_response(response))
+    };
+
+    Ok(Json(service_response))
+}
+
 /// Feature flag evaluation endpoint.
 /// Only supports a specific shape of data, and rejects any malformed data.
 #[debug_handler]
@@ -57,8 +89,47 @@ pub async fn flags(
     method: Method,
     path: MatchedPath,
     body: Bytes,
-) -> Result<Json<ServiceResponse>, FlagError> {
+) -> Result<Response, FlagError> {
     let request_id = Uuid::new_v4();
+
+    // Handle different HTTP methods
+    match method {
+        Method::GET => {
+            // GET requests return minimal flags response
+            return Ok(get_minimal_flags_response(query_params.version.as_deref())?.into_response());
+        }
+        Method::POST => {
+            // POST requests continue with full processing logic below
+        }
+        Method::HEAD => {
+            // HEAD returns the same headers as GET but without body
+            let response = (
+                StatusCode::OK,
+                [("content-type", "application/json")],
+                axum::body::Body::empty(),
+            )
+                .into_response();
+            return Ok(response);
+        }
+        Method::OPTIONS => {
+            // OPTIONS should return allowed methods
+            let response = (
+                StatusCode::NO_CONTENT,
+                [("allow", "GET, POST, OPTIONS, HEAD")],
+            )
+                .into_response();
+            return Ok(response);
+        }
+        _ => {
+            // Return 405 Method Not Allowed for all other methods
+            let response = (
+                StatusCode::METHOD_NOT_ALLOWED,
+                [("allow", "GET, POST, OPTIONS, HEAD")],
+            )
+                .into_response();
+            return Ok(response);
+        }
+    }
 
     // Check if this request came through the decide proxy
     let is_from_decide = headers
@@ -135,13 +206,7 @@ pub async fn flags(
         )),
     };
 
-    Ok(Json(versioned_response?))
-}
-
-pub async fn options() -> Result<Json<FlagsOptionsResponse>, FlagError> {
-    Ok(Json(FlagsOptionsResponse {
-        status: FlagsResponseCode::Ok,
-    }))
+    Ok(Json(versioned_response?).into_response())
 }
 
 fn log_request_info(ctx: LogContext) {

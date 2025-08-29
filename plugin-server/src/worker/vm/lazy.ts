@@ -15,7 +15,6 @@ import {
 import { processError } from '../../utils/db/error'
 import { getPlugin, setPluginCapabilities } from '../../utils/db/sql'
 import { logger } from '../../utils/logger'
-import { instrument } from '../../utils/metrics'
 import { getNextRetryMs } from '../../utils/retries'
 import { pluginDigest } from '../../utils/utils'
 import { getVMPluginCapabilities, shouldSetupPluginInServer } from '../vm/capabilities'
@@ -169,14 +168,7 @@ export class LazyPluginVM implements PluginInstance {
         if (!this.ready) {
             const vm = (await this.resolveInternalVm)?.vm
             try {
-                await instrument(
-                    {
-                        metricName: 'vm.setup',
-                        key: 'plugin',
-                        tag: this.pluginConfig.plugin?.name || '?',
-                    },
-                    () => this._setupPlugin(vm)
-                )
+                await this._setupPlugin(vm)
             } catch (error) {
                 logger.warn('⚠️', error.message)
                 return false

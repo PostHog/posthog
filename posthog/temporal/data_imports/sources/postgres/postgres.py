@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import collections
 import math
+import collections
 from collections.abc import Callable, Iterator
 from contextlib import _GeneratorContextManager
 from typing import Any, LiteralString, Optional, cast
@@ -183,13 +183,16 @@ def _build_query(
     incremental_field: Optional[str],
     incremental_field_type: Optional[IncrementalFieldType],
     db_incremental_field_last_value: Optional[Any],
-    add_limit: Optional[bool] = False,
+    add_sampling: Optional[bool] = False,
 ) -> sql.Composed:
-    query = sql.SQL("SELECT * FROM {}").format(sql.Identifier(schema, table_name))
-
     if not should_use_incremental_field:
-        if add_limit:
-            query_with_limit = cast(LiteralString, f"{query.as_string()} ORDER BY RANDOM() LIMIT 100")
+        if add_sampling:
+            query = sql.SQL("SELECT * FROM {} TABLESAMPLE SYSTEM (1)").format(sql.Identifier(schema, table_name))
+        else:
+            query = sql.SQL("SELECT * FROM {}").format(sql.Identifier(schema, table_name))
+
+        if add_sampling:
+            query_with_limit = cast(LiteralString, f"{query.as_string()} LIMIT 1000")
             return sql.SQL(query_with_limit).format()
 
         return query
@@ -200,22 +203,52 @@ def _build_query(
     if db_incremental_field_last_value is None:
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
-    query = sql.SQL("SELECT * FROM {schema}.{table} WHERE {incremental_field} >= {last_value}").format(
-        schema=sql.Identifier(schema),
-        table=sql.Identifier(table_name),
-        incremental_field=sql.Identifier(incremental_field),
-        last_value=sql.Literal(db_incremental_field_last_value),
-    )
+    if add_sampling:
+        query = sql.SQL(
+            "SELECT * FROM {schema}.{table} TABLESAMPLE SYSTEM (1) WHERE {incremental_field} >= {last_value}"
+        ).format(
+            schema=sql.Identifier(schema),
+            table=sql.Identifier(table_name),
+            incremental_field=sql.Identifier(incremental_field),
+            last_value=sql.Literal(db_incremental_field_last_value),
+        )
+    else:
+        query = sql.SQL("SELECT * FROM {schema}.{table} WHERE {incremental_field} >= {last_value}").format(
+            schema=sql.Identifier(schema),
+            table=sql.Identifier(table_name),
+            incremental_field=sql.Identifier(incremental_field),
+            last_value=sql.Literal(db_incremental_field_last_value),
+        )
 
-    if add_limit:
-        query_with_limit = cast(LiteralString, f"{query.as_string()} ORDER BY RANDOM() LIMIT 100")
+    if add_sampling:
+        query_with_limit = cast(LiteralString, f"{query.as_string()} LIMIT 1000")
         return sql.SQL(query_with_limit).format()
     else:
         query_str = cast(LiteralString, f"{query.as_string()} ORDER BY {{incremental_field}} ASC")
         return sql.SQL(query_str).format(incremental_field=sql.Identifier(incremental_field))
 
 
-def _get_primary_keys(cursor: psycopg.Cursor, schema: str, table_name: str) -> list[str] | None:
+def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: FilteringBoundLogger):
+    logger.debug(f"Running EXPLAIN on {query.as_string()}")
+
+    try:
+        query_with_explain = sql.SQL("EXPLAIN {}").format(query)
+        cursor.execute(query_with_explain)
+        rows = cursor.fetchall()
+        explain_result: str = ""
+        # Build up a single string of the EXPLAIN output
+        for row in rows:
+            for col in row:
+                explain_result += f"\n{col}"
+        logger.debug(f"EXPLAIN result: {explain_result}")
+    except Exception as e:
+        capture_exception(e)
+        logger.debug(f"EXPLAIN raised an exception: {e}")
+
+
+def _get_primary_keys(
+    cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger
+) -> list[str] | None:
     query = sql.SQL("""
         SELECT
             kcu.column_name
@@ -230,6 +263,8 @@ def _get_primary_keys(cursor: psycopg.Cursor, schema: str, table_name: str) -> l
             AND tc.table_name = {table}
             AND tc.constraint_type = 'PRIMARY KEY'""").format(schema=sql.Literal(schema), table=sql.Literal(table_name))
 
+    _explain_query(cursor, query, logger)
+    logger.debug(f"Running query: {query.as_string()}")
     cursor.execute(query)
     rows = cursor.fetchall()
     if len(rows) > 0:
@@ -239,7 +274,7 @@ def _get_primary_keys(cursor: psycopg.Cursor, schema: str, table_name: str) -> l
 
 
 def _has_duplicate_primary_keys(
-    cursor: psycopg.Cursor, schema: str, table_name: str, primary_keys: list[str] | None
+    cursor: psycopg.Cursor, schema: str, table_name: str, primary_keys: list[str] | None, logger: FilteringBoundLogger
 ) -> bool:
     if not primary_keys or len(primary_keys) == 0:
         return False
@@ -258,6 +293,8 @@ def _has_duplicate_primary_keys(
         query = sql.SQL(sql_query).format(
             *[sql.Identifier(key) for key in primary_keys], sql.Identifier(schema), sql.Identifier(table_name)
         )
+        _explain_query(cursor, query, logger)
+        logger.debug(f"Running query: {query.as_string()}")
         cursor.execute(query)
         row = cursor.fetchone()
 
@@ -272,9 +309,11 @@ def _has_duplicate_primary_keys(
 def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, logger: FilteringBoundLogger) -> int:
     try:
         query = sql.SQL("""
-            SELECT SUM(pg_column_size(t.*)) / COUNT(t.*) FROM ({}) as t
+            SELECT SUM(pg_column_size(t)) / COUNT(*) FROM ({}) as t
         """).format(inner_query)
 
+        _explain_query(cursor, query, logger)
+        logger.debug(f"Running query: {query.as_string()}")
         cursor.execute(query)
         row = cursor.fetchone()
 
@@ -304,9 +343,11 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
 def _get_rows_to_sync(cursor: psycopg.Cursor, inner_query: sql.Composed, logger: FilteringBoundLogger) -> int:
     try:
         query = sql.SQL("""
-            SELECT COUNT(t.*) FROM ({}) as t
+            SELECT COUNT(*) FROM ({}) as t
         """).format(inner_query)
 
+        _explain_query(cursor, query, logger)
+        logger.debug(f"Running query: {query.as_string()}")
         cursor.execute(query)
         row = cursor.fetchone()
 
@@ -350,6 +391,8 @@ def _get_partition_settings(
     )
 
     try:
+        _explain_query(cursor, query, logger)
+        logger.debug(f"Running query: {query.as_string()}")
         cursor.execute(query)
     except psycopg.errors.QueryCanceled:
         raise
@@ -453,7 +496,9 @@ class PostgreSQLColumn(Column):
         return pa.field(self.name, arrow_type, nullable=self.nullable)
 
 
-def _get_table(cursor: psycopg.Cursor, schema: str, table_name: str) -> Table[PostgreSQLColumn]:
+def _get_table(
+    cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger
+) -> Table[PostgreSQLColumn]:
     is_mat_view_query = sql.SQL(
         "select {table} in (select matviewname from pg_matviews where schemaname = {schema}) as res"
     ).format(schema=sql.Literal(schema), table=sql.Literal(table_name))
@@ -504,6 +549,8 @@ def _get_table(cursor: psycopg.Cursor, schema: str, table_name: str) -> Table[Po
                 table_schema = {schema}
                 AND table_name = {table}""").format(schema=sql.Literal(schema), table=sql.Literal(table_name))
 
+    _explain_query(cursor, query, logger)
+    logger.debug(f"Running query: {query.as_string()}")
     cursor.execute(query)
 
     numeric_data_types = {"numeric", "decimal"}
@@ -573,7 +620,7 @@ def postgres_source(
                     incremental_field,
                     incremental_field_type,
                     db_incremental_field_last_value,
-                    add_limit=True,
+                    add_sampling=True,
                 )
 
                 inner_query_without_limit = _build_query(
@@ -590,10 +637,15 @@ def postgres_source(
                     )
                 )
                 try:
-                    primary_keys = _get_primary_keys(cursor, schema, table_name)
-                    table = _get_table(cursor, schema, table_name)
+                    logger.debug("Getting primary keys...")
+                    primary_keys = _get_primary_keys(cursor, schema, table_name, logger)
+                    logger.debug("Getting table types...")
+                    table = _get_table(cursor, schema, table_name, logger)
+                    logger.debug("Getting table chunk size...")
                     chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
+                    logger.debug("Getting rows to sync...")
                     rows_to_sync = _get_rows_to_sync(cursor, inner_query_without_limit, logger)
+                    logger.debug("Getting partition settings...")
                     partition_settings = (
                         _get_partition_settings(cursor, schema, table_name, logger)
                         if should_use_incremental_field
@@ -604,8 +656,9 @@ def postgres_source(
                     # Fallback on checking for an `id` field on the table
                     if primary_keys is None and "id" in table:
                         primary_keys = ["id"]
+                        logger.debug("Checking duplicate primary keys...")
                         has_duplicate_primary_keys = _has_duplicate_primary_keys(
-                            cursor, schema, table_name, primary_keys
+                            cursor, schema, table_name, primary_keys, logger
                         )
                 except psycopg.errors.QueryCanceled:
                     if should_use_incremental_field:

@@ -129,7 +129,7 @@ export function LemonTabs<T extends string | number>({
                 })}
             </ul>
             {activeTab && 'content' in activeTab && (
-                <div className="LemonTabs__content" key={activeKey}>
+                <div className={cn('LemonTabs__content', sceneInset && 'p-4')} key={activeKey}>
                     {activeTab.content}
                 </div>
             )}
