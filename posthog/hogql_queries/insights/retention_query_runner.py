@@ -234,7 +234,11 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             else:
                 properties_chain = ["person", "properties", property_name]
         elif breakdown_type == "group":
-            properties_chain = [f"groups_{group_type_index}", "properties", property_name]
+            if property_name.startswith("$virt_"):
+                # Virtual properties exist as expression fields on the groups table
+                properties_chain = [f"groups_{group_type_index}", property_name]
+            else:
+                properties_chain = [f"groups_{group_type_index}", "properties", property_name]
         else:
             # Default to event properties
             properties_chain = ["events", "properties", property_name]
