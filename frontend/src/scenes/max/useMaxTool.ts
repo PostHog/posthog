@@ -23,7 +23,7 @@ export interface UseMaxToolReturn {
     definition: (typeof TOOL_DEFINITIONS)[keyof typeof TOOL_DEFINITIONS] | null
     /** Whether the Max side panel is currently open */
     isMaxOpen: boolean
-    /** Function to open Max with the optional initial initialMaxPrompt and suggestions - null if the tool is inactive */
+    /** Function to open Max with the optional initialMaxPrompt and suggestions - null if the tool is inactive */
     openMax: (() => void) | null
 }
 
