@@ -2517,6 +2517,7 @@ export interface ExperimentMetricBaseProperties extends Node {
     name?: string
     conversion_window?: integer
     conversion_window_unit?: FunnelConversionWindowTimeUnit
+    goal?: 'increase' | 'decrease'
 }
 
 export type ExperimentMetricOutlierHandling = {
