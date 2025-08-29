@@ -95,6 +95,18 @@ export function LogsViewer({ renderColumns = (c) => c, ...props }: LogsViewerPro
                 loading={logsLoading}
                 className="ph-no-capture"
                 rowKey={(record) => record.instanceId}
+                showHeader
+                footer={
+                    <LemonButton
+                        onClick={loadMoreLogs}
+                        loading={logsLoading}
+                        fullWidth
+                        center
+                        disabledReason={!isThereMoreToLoad ? "There's nothing more to load" : undefined}
+                    >
+                        {isThereMoreToLoad ? `Load up to ${LOG_VIEWER_LIMIT} older entries` : 'No older entries'}
+                    </LemonButton>
+                }
                 columns={renderColumns([
                     {
                         title: 'Timestamp',
@@ -215,18 +227,6 @@ export function LogsViewer({ renderColumns = (c) => c, ...props }: LogsViewerPro
                     },
                 }}
             />
-            {!!logs.length && (
-                <LemonButton
-                    onClick={loadMoreLogs}
-                    loading={logsLoading}
-                    type="secondary"
-                    fullWidth
-                    center
-                    disabledReason={!isThereMoreToLoad ? "There's nothing more to load" : undefined}
-                >
-                    {isThereMoreToLoad ? `Load up to ${LOG_VIEWER_LIMIT} older entries` : 'No older entries'}
-                </LemonButton>
-            )}
 
             <div className="mb-8" />
         </div>
