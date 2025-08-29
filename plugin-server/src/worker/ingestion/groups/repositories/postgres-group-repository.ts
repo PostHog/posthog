@@ -19,6 +19,8 @@ import { GroupRepository } from './group-repository.interface'
 import { PostgresGroupRepositoryTransaction } from './postgres-group-repository-transaction'
 import { RawPostgresGroupRepository } from './raw-postgres-group-repository.interface'
 
+const MAX_GROUP_TYPES_PER_TEAM = 5
+
 export class PostgresGroupRepository
     implements GroupRepository, RawPostgresGroupRepository, GroupRepositoryTransaction
 {
@@ -311,8 +313,6 @@ export class PostgresGroupRepository
         index: number,
         tx?: TransactionClient
     ): Promise<[GroupTypeIndex | null, boolean]> {
-        const MAX_GROUP_TYPES_PER_TEAM = 5
-
         if (index < 0 || index >= MAX_GROUP_TYPES_PER_TEAM) {
             return [null, false]
         }

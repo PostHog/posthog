@@ -796,17 +796,17 @@ describe('PostgresPersonRepository', () => {
 
         it('should fetch persons by distinct IDs from multiple teams', async () => {
             const team1 = await getFirstTeam(hub)
-            const team2 = await createTeam(postgres, team1.organization_id)
+            const team2Id = await createTeam(postgres, team1.organization_id)
 
             // Create persons in different teams
             const person1 = await createTestPerson(team1.id, 'distinct-1', { name: 'Person 1' })
             const person2 = await createTestPerson(team1.id, 'distinct-2', { name: 'Person 2' })
-            const person3 = await createTestPerson(team2, 'distinct-3', { name: 'Person 3' })
+            const person3 = await createTestPerson(team2Id, 'distinct-3', { name: 'Person 3' })
 
             const teamPersons = [
-                { teamId: team1.id as any, distinctId: 'distinct-1' },
-                { teamId: team1.id as any, distinctId: 'distinct-2' },
-                { teamId: team2 as any, distinctId: 'distinct-3' },
+                { teamId: team1.id, distinctId: 'distinct-1' },
+                { teamId: team1.id, distinctId: 'distinct-2' },
+                { teamId: team2Id, distinctId: 'distinct-3' },
             ]
 
             const result = await repository.fetchPersonsByDistinctIds(teamPersons)
@@ -829,7 +829,7 @@ describe('PostgresPersonRepository', () => {
             const person3Result = result.find((p) => p.distinct_id === 'distinct-3')
             expect(person3Result).toBeDefined()
             expect(person3Result!.uuid).toBe(person3.uuid)
-            expect(person3Result!.team_id).toBe(team2)
+            expect(person3Result!.team_id).toBe(team2Id)
             expect(person3Result!.properties.name).toBe('Person 3')
         })
 
