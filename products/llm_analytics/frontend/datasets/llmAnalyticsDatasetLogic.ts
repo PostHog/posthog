@@ -3,7 +3,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
-import api, { ApiError, CountedPaginatedResponse } from '~/lib/api'
+import api, { CountedPaginatedResponse } from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
 import { objectsEqual } from '~/lib/utils'
@@ -25,18 +25,22 @@ export enum DatasetTab {
     Metadata = 'metadata',
 }
 
-interface DatasetFormValues {
+export interface DatasetFormValues {
     name: string
     description: string
     metadata: string | null
 }
 
-interface DatasetItemsFilters {
+export interface DatasetItemsFilters {
     page: number
     limit: number
 }
 
 export const DATASET_ITEMS_PER_PAGE = 50
+
+export function isDataset(dataset: Dataset | DatasetFormValues | null): dataset is Dataset {
+    return dataset !== null && 'id' in dataset
+}
 
 function cleanFilters(values: Partial<DatasetItemsFilters>): DatasetItemsFilters {
     return {
@@ -122,16 +126,8 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
     loaders(({ props, values }) => ({
         dataset: {
             __default: null as Dataset | DatasetFormValues | null,
-            loadDataset: async () => {
-                try {
-                    const dataset = await api.datasets.get(props.datasetId)
-                    return dataset
-                } catch (error) {
-                    if (error instanceof ApiError && error.status === 404) {
-                        return
-                    }
-                    throw error
-                }
+            loadDataset: () => {
+                return api.datasets.get(props.datasetId)
             },
         },
 
@@ -301,18 +297,13 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
             actions.setDatasetFormValues(getDatasetFormDefaults(dataset))
         },
 
-        setFilters: async ({ debounce }, breakpoint, __, previousState) => {
+        setFilters: async ({ debounce }, _, __, previousState) => {
             const oldFilters = selectors.filters(previousState)
             const firstLoad = selectors.rawFilters(previousState) === null
             const { filters } = values
 
-            if (
-                debounce &&
-                !firstLoad &&
-                typeof filters.search !== 'undefined' &&
-                filters.search !== oldFilters.search
-            ) {
-                await breakpoint(300)
+            if (firstLoad) {
+                return
             }
 
             if (!objectsEqual(oldFilters, filters)) {
@@ -350,9 +341,12 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
             }
 
             // Open the dataset item modal if the item is set in the URL
-            if (searchParams.item && values.selectedDatasetItem?.id !== searchParams.item) {
-                actions.setSelectedDatasetItem(searchParams.item)
-                actions.triggerDatasetItemModal(true)
+            if (searchParams.item) {
+                const item = values.datasetItems.results.find((item) => item.id === searchParams.item)
+                if (item) {
+                    actions.setSelectedDatasetItem(item)
+                    actions.triggerDatasetItemModal(true)
+                }
             }
         },
     })),
@@ -362,7 +356,7 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
             const searchParams = router.values.searchParams
             const nextSearchParams = { ...searchParams, item: undefined }
             return [
-                urls.llmAnalyticsDataset('id' in values.dataset ? values.dataset.id : 'new'),
+                urls.llmAnalyticsDataset(isDataset(values.dataset) ? values.dataset.id : 'new'),
                 nextSearchParams,
                 {},
                 { replace: false },

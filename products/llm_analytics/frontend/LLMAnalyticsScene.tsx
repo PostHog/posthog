@@ -216,7 +216,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
                                 return <></>
                             }
 
-                            const visualValue = truncateValue(value)
+                            const visualValue = truncateValue(value as string)
 
                             return (
                                 <Tooltip title={value as string}>

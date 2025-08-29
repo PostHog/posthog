@@ -40,7 +40,7 @@ export function EditDatasetForm(): JSX.Element {
                     help="Additional key-value pairs to store with the dataset"
                 >
                     <JSONEditor
-                        value={datasetForm.metadata}
+                        value={datasetForm.metadata ?? undefined}
                         onChange={(code) => {
                             setDatasetFormValue('metadata', code)
                         }}

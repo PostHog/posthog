@@ -27,7 +27,7 @@ import { DatasetItemModal } from './DatasetItemModal'
 import { EditDatasetForm } from './EditDatasetForm'
 import { JSONColumn } from './JSONColumn'
 import { RefreshButton } from './RefreshButton'
-import { DatasetLogicProps, DatasetTab, llmAnalyticsDatasetLogic } from './llmAnalyticsDatasetLogic'
+import { DatasetLogicProps, DatasetTab, isDataset, llmAnalyticsDatasetLogic } from './llmAnalyticsDatasetLogic'
 
 const RESOURCE_TYPE = 'dataset'
 
@@ -182,7 +182,7 @@ export function LLMAnalyticsDatasetScene(): JSX.Element {
                 </ScenePanelActions>
             </ScenePanel>
 
-            {displayEditForm ? <EditDatasetForm /> : dataset ? <DatasetTabs dataset={dataset} /> : null}
+            {displayEditForm ? <EditDatasetForm /> : isDataset(dataset) ? <DatasetTabs dataset={dataset} /> : null}
         </Form>
     )
 }
