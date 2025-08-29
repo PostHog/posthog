@@ -7,7 +7,6 @@ import { LemonButton, LemonSkeleton, LemonTable, LemonTag, Link, lemonToast } fr
 
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -106,7 +105,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
     const { tableLoading: manualLinkIsLoading } = useValues(dataWarehouseTableLogic)
 
     // Initialize wizard with initial source if provided
-    useOnMountEffect(() => {
+    useEffect(() => {
         if (props.initialSource && connectors.length > 0) {
             const initialConnector = connectors.find((c) => c.name === props.initialSource)
             if (initialConnector) {
@@ -114,7 +113,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
                 setStep(2) // Skip source selection, go directly to connection form
             }
         }
-    })
+    }, [props.initialSource, connectors, selectConnector, setStep])
 
     useEffect(() => onClear, [onClear])
 

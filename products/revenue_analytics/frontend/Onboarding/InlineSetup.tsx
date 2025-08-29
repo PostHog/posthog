@@ -27,44 +27,29 @@ interface InlineSetupProps {
 
 export type InlineSetupView = 'overview' | 'add-source'
 
+// These are all the future revenue sources that are displayed,
+// and then under it we restrict to the ones which we've actually implemented with Revenue Analytics
+const REVENUE_SOURCE_TYPES: ExternalDataSourceType[] = ['Stripe', 'Chargebee', 'Polar', 'RevenueCat']
+const AVAILABLE_REVENUE_SOURCE_TYPES: Set<ExternalDataSourceType> = new Set(['Stripe'])
+
 export function InlineSetup({ initialSetupView }: InlineSetupProps): JSX.Element {
     const { events, dataWarehouseSources } = useValues(revenueAnalyticsSettingsLogic)
 
     const hasEvents = events.length > 0
 
     const enabledSources = dataWarehouseSources?.results.filter((source) => source.revenue_analytics_enabled) ?? []
-    const hasSources = !!enabledSources
+    const hasSources = enabledSources.length > 0
 
     const [currentView, setCurrentView] = useState<InlineSetupView>(initialSetupView ?? 'overview')
     const [selectedSource, setSelectedSource] = useState<ExternalDataSourceType | null>(null)
     const [showEventModal, setShowEventModal] = useState(false)
 
-    const revenueSources: RevenueSource[] = [
-        {
-            id: 'Stripe',
-            description: 'Import revenue data from your Stripe account',
-            isAvailable: true,
-            isConnected: enabledSources.some((source) => source.source_type === 'Stripe'),
-        },
-        {
-            id: 'Chargebee',
-            description: 'Import revenue data from Chargebee',
-            isAvailable: false,
-            isConnected: enabledSources.some((source) => source.source_type === 'Chargebee'),
-        },
-        {
-            id: 'Polar',
-            description: 'Import revenue data from Polar',
-            isAvailable: false,
-            isConnected: enabledSources.some((source) => source.source_type === 'Polar'),
-        },
-        {
-            id: 'RevenueCat',
-            description: 'Import revenue data from RevenueCat',
-            isAvailable: false,
-            isConnected: enabledSources.some((source) => source.source_type === 'RevenueCat'),
-        },
-    ]
+    const revenueSources: RevenueSource[] = REVENUE_SOURCE_TYPES.map((source_type) => ({
+        id: source_type,
+        description: `Import revenue data from ${source_type}`,
+        isAvailable: AVAILABLE_REVENUE_SOURCE_TYPES.has(source_type),
+        isConnected: enabledSources.some((source) => source.source_type === source_type),
+    }))
 
     const handleSourceSelect = (sourceId: ExternalDataSourceType): void => {
         const source = revenueSources.find((s) => s.id === sourceId)
