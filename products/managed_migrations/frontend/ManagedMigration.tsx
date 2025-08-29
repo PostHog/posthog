@@ -151,7 +151,7 @@ export function ManagedMigration(): JSX.Element {
 
                             <LemonField name="generate_identify_events">
                                 <LemonCheckbox
-                                    checked={managedMigration.generate_identify_events || false}
+                                    checked={managedMigration.generate_identify_events !== false}
                                     onChange={(checked) =>
                                         setManagedMigrationValue('generate_identify_events', checked)
                                     }

@@ -210,7 +210,7 @@ class BatchImportConfigBuilder:
         self.batch_import.import_config["import_events"] = import_events
         return self
 
-    def with_generate_identify_events(self, generate_identify_events: bool = False) -> Self:
+    def with_generate_identify_events(self, generate_identify_events: bool = True) -> Self:
         """Set whether to generate identify events for linking user IDs with device IDs (Amplitude specific)"""
         self.batch_import.import_config["generate_identify_events"] = generate_identify_events
         return self

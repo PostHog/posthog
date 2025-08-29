@@ -177,7 +177,7 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
     secret_key = serializers.CharField(write_only=True, required=True)
     is_eu_region = serializers.BooleanField(write_only=True, required=False, default=False)
     import_events = serializers.BooleanField(write_only=True, required=False, default=True)
-    generate_identify_events = serializers.BooleanField(write_only=True, required=False, default=False)
+    generate_identify_events = serializers.BooleanField(write_only=True, required=False, default=True)
 
     class Meta:
         model = BatchImport
@@ -232,7 +232,7 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
         source_type = data.get("source_type")
         if source_type == "amplitude":
             import_events = data.get("import_events", True)
-            generate_identify_events = data.get("generate_identify_events", False)
+            generate_identify_events = data.get("generate_identify_events", True)
 
             if not import_events and not generate_identify_events:
                 raise serializers.ValidationError(
@@ -252,16 +252,24 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
                 created_by_id=self.context["request"].user.id,
             )
 
-            batch_import.config.json_lines(ContentType(validated_data["content_type"])).from_date_range(
+            config_builder = batch_import.config.json_lines(
+                ContentType(validated_data["content_type"])
+            ).from_date_range(
                 start_date=validated_data["start_date"].isoformat(),
                 end_date=validated_data["end_date"].isoformat(),
                 access_key=validated_data["access_key"],
                 secret_key=validated_data["secret_key"],
                 export_source=DateRangeExportSource(source_type),
                 is_eu_region=validated_data.get("is_eu_region", False),
-            ).with_import_events(validated_data.get("import_events", True)).with_generate_identify_events(
-                validated_data.get("generate_identify_events", False)
-            ).to_kafka(
+            )
+
+            # Only apply import_events and generate_identify_events for Amplitude
+            if source_type == "amplitude":
+                config_builder = config_builder.with_import_events(
+                    validated_data.get("import_events", True)
+                ).with_generate_identify_events(validated_data.get("generate_identify_events", True))
+
+            config_builder.to_kafka(
                 topic=BatchImportKafkaTopic.HISTORICAL,
                 send_rate=1000,
                 transaction_timeout_seconds=60,

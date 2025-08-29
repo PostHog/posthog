@@ -44,7 +44,7 @@ const NEW_MANAGED_MIGRATION: ManagedMigrationForm = {
     end_date: '',
     is_eu_region: false,
     import_events: true,
-    generate_identify_events: false,
+    generate_identify_events: true,
 }
 
 export const managedMigrationLogic = kea<managedMigrationLogicType>([
@@ -142,8 +142,12 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                         start_date: values.start_date,
                         end_date: values.end_date,
                         is_eu_region: values.is_eu_region,
-                        import_events: values.import_events,
-                        generate_identify_events: values.generate_identify_events,
+                    }
+
+                    // Only include Amplitude-specific options for Amplitude migrations
+                    if (values.source_type === 'amplitude') {
+                        payload.import_events = values.import_events
+                        payload.generate_identify_events = values.generate_identify_events
                     }
                 }
                 try {
