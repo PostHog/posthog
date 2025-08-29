@@ -6,7 +6,12 @@ import { LemonButton, Popover, Tooltip } from '@posthog/lemon-ui'
 
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
-import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
+import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
+import {
+    TaxonomicDefinitionTypes,
+    TaxonomicFilterGroupType,
+    TaxonomicFilterRenderProps,
+} from 'lib/components/TaxonomicFilter/types'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 
 import { getFilterLabel } from '~/taxonomy/helpers'
@@ -14,11 +19,20 @@ import { PropertyFilterType } from '~/types'
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 
-export interface ReplayTaxonomicFiltersProps {
-    onChange: (value: TaxonomicFilterValue, item?: any) => void
+const isReplayTaxonomicFilterProperty = (x: TaxonomicDefinitionTypes): x is ReplayTaxonomicFilterProperty => {
+    return (x as ReplayTaxonomicFilterProperty).taxonomicFilterGroup !== undefined
 }
 
-const replayTaxonomicFiltersProperties = [
+export type ReplayTaxonomicFiltersProps = Pick<TaxonomicFilterRenderProps, 'onChange' | 'infiniteListLogicProps'>
+
+export interface ReplayTaxonomicFilterProperty {
+    key: string
+    label: string
+    propertyFilterType: PropertyFilterType
+    taxonomicFilterGroup: TaxonomicFilterGroupType
+}
+
+export const replayTaxonomicFiltersProperties: ReplayTaxonomicFilterProperty[] = [
     {
         key: 'visited_page',
         label: getFilterLabel('visited_page', TaxonomicFilterGroupType.Replay),
@@ -51,7 +65,7 @@ const replayTaxonomicFiltersProperties = [
     },
 ]
 
-export function ReplayTaxonomicFilters({ onChange }: ReplayTaxonomicFiltersProps): JSX.Element {
+export function ReplayTaxonomicFilters({ onChange, infiniteListLogicProps }: ReplayTaxonomicFiltersProps): JSX.Element {
     const {
         filterGroup: { values: filters },
     } = useValues(universalFiltersLogic)
@@ -60,12 +74,19 @@ export function ReplayTaxonomicFilters({ onChange }: ReplayTaxonomicFiltersProps
         return !!filters.find((f) => f.type === PropertyFilterType.Recording && f.key === key)
     }
 
+    const theInfiniteListLogic = infiniteListLogic(infiniteListLogicProps)
+    const { items, searchQuery } = useValues(theInfiniteListLogic)
+    const shouldFilter = !!searchQuery
+    // they all already are ReplayTaxonomicFilterProperty, but TS doesn't know that
+    const propsToShow = shouldFilter
+        ? items.results.filter((x): x is ReplayTaxonomicFilterProperty => isReplayTaxonomicFilterProperty(x))
+        : replayTaxonomicFiltersProperties
     return (
         <div className="grid grid-cols-2 gap-4 px-1 pt-1.5 pb-2.5">
             <section>
                 <h5 className="mt-1 mb-0">Replay properties</h5>
                 <ul className="gap-y-px">
-                    {replayTaxonomicFiltersProperties.map(({ key, label, propertyFilterType }) => {
+                    {propsToShow.map(({ key, label, propertyFilterType }) => {
                         return (
                             <LemonButton
                                 key={key}

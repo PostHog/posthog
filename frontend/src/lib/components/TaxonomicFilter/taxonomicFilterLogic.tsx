@@ -1,3 +1,4 @@
+import Fuse from 'fuse.js'
 import { BuiltLogic, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { combineUrl } from 'kea-router'
 import posthog from 'posthog-js'
@@ -12,6 +13,7 @@ import {
     ExcludedProperties,
     ListStorage,
     SimpleOption,
+    TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
     TaxonomicFilterLogicProps,
@@ -32,7 +34,10 @@ import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { NotebookType } from 'scenes/notebooks/types'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { projectLogic } from 'scenes/projectLogic'
-import { ReplayTaxonomicFilters } from 'scenes/session-recordings/filters/ReplayTaxonomicFilters'
+import {
+    ReplayTaxonomicFilters,
+    replayTaxonomicFiltersProperties,
+} from 'scenes/session-recordings/filters/ReplayTaxonomicFilters'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { actionsModel } from '~/models/actionsModel'
@@ -685,6 +690,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     {
                         name: 'SQL expression',
                         searchPlaceholder: null,
+                        categoryLabel: () => 'SQL expression',
                         type: TaxonomicFilterGroupType.HogQLExpression,
                         render: InlineHogQLEditor,
                         getPopoverHeader: () => 'SQL expression',
@@ -693,8 +699,22 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     {
                         name: 'Replay',
                         searchPlaceholder: 'Replay',
+                        categoryLabel: (count: number) => 'Replay' + (count > 0 ? `: ${count}` : ''),
                         type: TaxonomicFilterGroupType.Replay,
                         render: ReplayTaxonomicFilters,
+                        localItemsSearch: (
+                            items: TaxonomicDefinitionTypes[],
+                            q: string
+                        ): TaxonomicDefinitionTypes[] => {
+                            if (q.trim() === '') {
+                                return items
+                            }
+                            const fuse = new Fuse(replayTaxonomicFiltersProperties, {
+                                keys: ['label', 'key'],
+                                threshold: 0.3,
+                            })
+                            return fuse.search(q).map((result) => result.item)
+                        },
                         valuesEndpoint: (key) => {
                             if (key === 'visited_page') {
                                 return (
@@ -949,10 +969,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         infiniteListResultsReceived: ({ groupType, results }) => {
             // Open the next tab if no results on an active tab.
             const activeTabHasNoResults = groupType === values.activeTab && !results.count && !results.expandedCount
-            const onReplayTabWithSomeSearchResults =
-                values.activeTab === TaxonomicFilterGroupType.Replay && results.count > 0 && values.searchQuery
 
-            if (activeTabHasNoResults || onReplayTabWithSomeSearchResults) {
+            if (activeTabHasNoResults) {
                 actions.tabRight()
             }
 
