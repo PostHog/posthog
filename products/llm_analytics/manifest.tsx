@@ -107,7 +107,8 @@ export const manifest: ProductManifest = {
         llmAnalyticsUsers: (): string => '/llm-analytics/users',
         llmAnalyticsPlayground: (): string => '/llm-analytics/playground',
         llmAnalyticsDatasets: (): string => '/llm-analytics/datasets',
-        llmAnalyticsDataset: (id: string): string => `/llm-analytics/datasets/${id}`,
+        llmAnalyticsDataset: (id: string, params?: { item?: string }): string =>
+            combineUrl(`/llm-analytics/datasets/${id}`, params).url,
     },
     fileSystemTypes: {},
     treeItemsNew: [],

@@ -1,7 +1,7 @@
 import { actions, afterMount, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api, { ApiError, CountedPaginatedResponse } from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
@@ -331,6 +331,25 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
             if (values.rawFilters === null) {
                 actions.setFilters(cleanFilters(searchParams), false)
             }
+
+            // Open the dataset item modal if the item is set in the URL
+            if (searchParams.item && values.selectedDatasetItem?.id !== searchParams.item) {
+                actions.setSelectedDatasetItem(searchParams.item)
+                actions.triggerDatasetItemModal(true)
+            }
+        },
+    })),
+
+    actionToUrl(({ values }) => ({
+        closeModalAndRefetchDatasetItems: () => {
+            const searchParams = router.values.searchParams
+            const nextSearchParams = { ...searchParams, item: undefined }
+            return [
+                urls.llmAnalyticsDataset('id' in values.dataset ? values.dataset.id : 'new'),
+                nextSearchParams,
+                {},
+                { replace: false },
+            ]
         },
     })),
 

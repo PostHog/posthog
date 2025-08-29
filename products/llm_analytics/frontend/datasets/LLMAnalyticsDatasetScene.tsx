@@ -193,7 +193,7 @@ function DatasetTabs({ dataset }: { dataset: Dataset }): JSX.Element {
         {
             key: DatasetTab.Items,
             label: 'Items',
-            content: <DatasetItems />,
+            content: <DatasetItems dataset={dataset} />,
             link: combineUrl(urls.llmAnalyticsDataset(dataset.id), { ...searchParams, tab: DatasetTab.Items }).url,
         },
         {
@@ -222,10 +222,10 @@ function DatasetTabs({ dataset }: { dataset: Dataset }): JSX.Element {
     )
 }
 
-function DatasetItems(): JSX.Element {
+function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
     const { datasetItems, datasetItemsLoading, pagination } = useValues(llmAnalyticsDatasetLogic)
-    const { deleteDatasetItem, loadDatasetItems, triggerDatasetItemModal, setSelectedDatasetItem } =
-        useActions(llmAnalyticsDatasetLogic)
+    const { deleteDatasetItem, loadDatasetItems } = useActions(llmAnalyticsDatasetLogic)
+    const { searchParams } = useValues(router)
 
     const columns: LemonTableColumns<DatasetItem> = [
         {
@@ -233,8 +233,10 @@ function DatasetItems(): JSX.Element {
             dataIndex: 'id',
             key: 'id',
             width: '15%',
-            render: function renderID(id) {
-                return <span className="font-mono text-xs">{id}</span>
+            render: function renderID(_, item) {
+                return (
+                    <Link to={urls.llmAnalyticsDataset(dataset.id, { ...searchParams, item: item.id })}>{item.id}</Link>
+                )
             },
         },
         {
@@ -308,10 +310,7 @@ function DatasetItems(): JSX.Element {
                         overlay={
                             <>
                                 <LemonButton
-                                    onClick={() => {
-                                        setSelectedDatasetItem(item)
-                                        triggerDatasetItemModal(true)
-                                    }}
+                                    to={urls.llmAnalyticsDataset(dataset.id, { ...searchParams, item: item.id })}
                                     data-attr={`dataset-item-${item.id}-dropdown-edit`}
                                     fullWidth
                                 >
