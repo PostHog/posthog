@@ -11,11 +11,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info, warn};
 
-use crate::checkpoint_manager::CheckpointManager;
 use crate::kafka::message::{AckableMessage, MessageProcessor};
 use crate::kafka::types::Partition;
 use crate::rocksdb::deduplication_store::{DeduplicationStore, DeduplicationStoreConfig};
-use tokio::sync::Mutex as TokioMutex;
 
 /// Context for a Kafka message being processed
 struct MessageContext<'a> {
@@ -44,17 +42,17 @@ pub struct DeduplicationProcessor {
     /// Kafka producer for publishing non-duplicate events
     producer: Option<FutureProducer>,
 
-    /// Per-partition deduplication stores using DashMap for better concurrent performance
+    /// Reference to per-partition deduplication stores (shared across all processors)
     /// Key: (topic, partition)
     stores: Arc<DashMap<Partition, DeduplicationStore>>,
-
-    /// Checkpoint manager for periodic flushing and checkpointing
-    checkpoint_manager: Arc<TokioMutex<CheckpointManager>>,
 }
 
 impl DeduplicationProcessor {
-    /// Create a new deduplication processor
-    pub fn new(config: DeduplicationConfig) -> Result<Arc<Self>> {
+    /// Create a new deduplication processor with a reference to shared stores
+    pub fn new(
+        config: DeduplicationConfig,
+        stores: Arc<DashMap<Partition, DeduplicationStore>>,
+    ) -> Result<Arc<Self>> {
         let producer: Option<FutureProducer> = match &config.output_topic {
             Some(topic) => Some(config.producer_config.create().with_context(|| {
                 format!("Failed to create Kafka producer for output topic '{topic}'")
@@ -62,23 +60,10 @@ impl DeduplicationProcessor {
             None => None,
         };
 
-        let stores = Arc::new(DashMap::new());
-
-        // Create checkpoint manager with the stores
-        let mut checkpoint_manager = CheckpointManager::new(stores.clone(), config.flush_interval);
-
-        // Start the periodic flush task
-        checkpoint_manager.start();
-        info!(
-            "Started checkpoint manager with flush interval: {:?}",
-            config.flush_interval
-        );
-
         Ok(Arc::new(Self {
             config,
             producer,
             stores,
-            checkpoint_manager: Arc::new(TokioMutex::new(checkpoint_manager)),
         }))
     }
 
@@ -358,29 +343,7 @@ impl DeduplicationProcessor {
         self.stores.len()
     }
 
-    /// Clean up stores for revoked partitions
-    pub async fn cleanup_stores(&self, revoked_partitions: &[Partition]) {
-        for partition in revoked_partitions {
-            if let Some(_store) = self.stores.remove(partition) {
-                info!(
-                    "Cleaned up deduplication store for revoked partition {}:{}",
-                    partition.topic(),
-                    partition.partition_number()
-                );
-                // Store will be dropped when Arc goes out of scope
-            }
-        }
-    }
 
-    /// Stop the checkpoint manager (called during shutdown)
-    pub async fn shutdown(&self) {
-        info!("Shutting down deduplication processor");
-
-        let mut manager = self.checkpoint_manager.lock().await;
-        manager.stop().await;
-
-        info!("Deduplication processor shut down");
-    }
 }
 
 #[cfg(test)]

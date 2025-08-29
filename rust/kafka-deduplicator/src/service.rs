@@ -8,18 +8,23 @@ use tokio::sync::oneshot;
 use tracing::{error, info};
 
 use crate::{
+    checkpoint_manager::CheckpointManager,
     config::Config,
     deduplication_processor::{DeduplicationConfig, DeduplicationProcessor},
-    kafka::{stateful_consumer::StatefulKafkaConsumer, ConsumerConfigBuilder},
+    kafka::{stateful_consumer::StatefulKafkaConsumer, types::Partition, ConsumerConfigBuilder},
+    processor_pool::ProcessorPool,
     processor_rebalance_handler::ProcessorRebalanceHandler,
-    rocksdb::deduplication_store::DeduplicationStoreConfig,
+    rocksdb::deduplication_store::{DeduplicationStore, DeduplicationStoreConfig},
 };
+use dashmap::DashMap;
 
 /// The main Kafka Deduplicator service that encapsulates all components
 pub struct KafkaDeduplicatorService {
     config: Config,
-    consumer: Option<StatefulKafkaConsumer<DeduplicationProcessor>>,
-    processor: Arc<DeduplicationProcessor>,
+    consumer: Option<StatefulKafkaConsumer>,
+    stores: Arc<DashMap<Partition, DeduplicationStore>>,
+    checkpoint_manager: Option<CheckpointManager>,
+    processor_pool_handles: Option<Vec<tokio::task::JoinHandle<()>>>,
     shutdown_tx: Option<oneshot::Sender<()>>,
     liveness: HealthRegistry,
     service_health: Option<HealthHandle>,
@@ -31,55 +36,26 @@ impl KafkaDeduplicatorService {
         // Validate configuration
         config.validate().with_context(|| format!("Configuration validation failed for service with consumer topic '{}' and group '{}'", config.kafka_consumer_topic, config.kafka_consumer_group))?;
 
-        // Create deduplication store config
-        let store_config = DeduplicationStoreConfig {
-            path: config.store_path_buf(),
-            max_capacity: config
-                .parse_storage_capacity()
-                .context("Failed to parse max_store_capacity")?,
-        };
+        // Create shared stores for deduplication
+        let stores = Arc::new(DashMap::new());
 
-        // Create deduplication processor
-        let dedup_config = DeduplicationConfig {
-            output_topic: config.output_topic.clone(),
-            producer_config: config.build_producer_config(),
-            store_config,
-            producer_send_timeout: config.producer_send_timeout(),
-            flush_interval: config.flush_interval(),
-        };
-
-        let processor = DeduplicationProcessor::new(dedup_config)
-            .with_context(|| format!("Failed to create deduplication processor with output topic {:?} and store path '{}'", config.output_topic, config.store_path))?;
+        // Create checkpoint manager
+        let mut checkpoint_manager = CheckpointManager::new(stores.clone(), config.flush_interval());
+        checkpoint_manager.start();
+        info!("Started checkpoint manager with flush interval: {:?}", config.flush_interval());
 
         Ok(Self {
             config,
             consumer: None,
-            processor,
+            stores,
+            checkpoint_manager: Some(checkpoint_manager),
+            processor_pool_handles: None,
             shutdown_tx: None,
             liveness,
             service_health: None,
         })
     }
 
-    /// Create a service with a custom processor (useful for testing)
-    pub fn with_processor(
-        config: Config,
-        processor: Arc<DeduplicationProcessor>,
-        liveness: HealthRegistry,
-    ) -> Result<Self> {
-        config.validate().with_context(|| {
-            "Configuration validation failed for service with custom processor".to_string()
-        })?;
-
-        Ok(Self {
-            config,
-            consumer: None,
-            processor,
-            shutdown_tx: None,
-            liveness,
-            service_health: None,
-        })
-    }
 
     /// Initialize the Kafka consumer and prepare for running
     pub async fn initialize(&mut self) -> Result<()> {
@@ -87,8 +63,28 @@ impl KafkaDeduplicatorService {
             return Err(anyhow::anyhow!("Service already initialized"));
         }
 
-        // Create rebalance handler
-        let rebalance_handler = Arc::new(ProcessorRebalanceHandler::new(self.processor.clone()));
+        // Create deduplication config
+        let store_config = DeduplicationStoreConfig {
+            path: self.config.store_path_buf(),
+            max_capacity: self.config
+                .parse_storage_capacity()
+                .context("Failed to parse max_store_capacity")?,
+        };
+
+        let dedup_config = DeduplicationConfig {
+            output_topic: self.config.output_topic.clone(),
+            producer_config: self.config.build_producer_config(),
+            store_config,
+            producer_send_timeout: self.config.producer_send_timeout(),
+            flush_interval: self.config.flush_interval(),
+        };
+
+        // Create a processor with reference to the shared stores
+        let processor = DeduplicationProcessor::new(dedup_config, self.stores.clone())
+            .with_context(|| format!("Failed to create deduplication processor"))?;
+
+        // Create rebalance handler with stores reference
+        let rebalance_handler = Arc::new(ProcessorRebalanceHandler::new(self.stores.clone()));
 
         // Create consumer config using the kafka module's builder
         let consumer_config =
@@ -101,11 +97,19 @@ impl KafkaDeduplicatorService {
         let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
         self.shutdown_tx = Some(shutdown_tx);
 
-        // Create stateful Kafka consumer with our processor
+        // Create processor pool with one worker per CPU
+        let num_workers = num_cpus::get();
+        let (message_sender, processor_pool) = ProcessorPool::new(processor, num_workers);
+        
+        // Start the processor pool workers
+        let pool_handles = processor_pool.start();
+        self.processor_pool_handles = Some(pool_handles);
+
+        // Create stateful Kafka consumer that sends to the processor pool
         let kafka_consumer = StatefulKafkaConsumer::from_config(
             &consumer_config,
             rebalance_handler,
-            self.processor.clone(),
+            message_sender,
             self.config.max_in_flight_messages,
             self.config.commit_interval(),
             shutdown_rx,
@@ -184,8 +188,17 @@ impl KafkaDeduplicatorService {
             let _ = shutdown_tx.send(());
         }
 
-        // Shutdown the processor (stops checkpoint manager)
-        self.processor.shutdown().await;
+        // Stop the checkpoint manager
+        if let Some(mut checkpoint_manager) = self.checkpoint_manager.take() {
+            checkpoint_manager.stop().await;
+        }
+        
+        // Wait for processor pool workers to finish
+        if let Some(handles) = self.processor_pool_handles.take() {
+            for handle in handles {
+                let _ = handle.await;
+            }
+        }
 
         // Wait for consumer to finish with timeout
         match tokio::time::timeout(self.config.shutdown_timeout(), consumer_handle).await {
@@ -243,8 +256,17 @@ impl KafkaDeduplicatorService {
             let _ = shutdown_tx.send(());
         }
 
-        // Shutdown the processor (stops checkpoint manager)
-        self.processor.shutdown().await;
+        // Stop the checkpoint manager
+        if let Some(mut checkpoint_manager) = self.checkpoint_manager.take() {
+            checkpoint_manager.stop().await;
+        }
+        
+        // Wait for processor pool workers to finish
+        if let Some(handles) = self.processor_pool_handles.take() {
+            for handle in handles {
+                let _ = handle.await;
+            }
+        }
 
         // Wait for consumer to finish with timeout
         match tokio::time::timeout(self.config.shutdown_timeout(), consumer_handle).await {
@@ -274,16 +296,11 @@ impl KafkaDeduplicatorService {
         Ok(())
     }
 
-    /// Get the underlying processor (useful for testing)
-    pub fn processor(&self) -> &Arc<DeduplicationProcessor> {
-        &self.processor
-    }
 }
 
 /// Builder for easier service configuration in tests
 pub struct ServiceBuilder {
     config: Config,
-    processor: Option<Arc<DeduplicationProcessor>>,
     liveness: HealthRegistry,
 }
 
@@ -291,14 +308,8 @@ impl ServiceBuilder {
     pub fn new(config: Config) -> Self {
         Self {
             config,
-            processor: None,
             liveness: HealthRegistry::new("test_liveness"),
         }
-    }
-
-    pub fn with_processor(mut self, processor: Arc<DeduplicationProcessor>) -> Self {
-        self.processor = Some(processor);
-        self
     }
 
     pub fn with_output_topic(mut self, topic: String) -> Self {
@@ -317,11 +328,6 @@ impl ServiceBuilder {
     }
 
     pub fn build(self) -> Result<KafkaDeduplicatorService> {
-        match self.processor {
-            Some(processor) => {
-                KafkaDeduplicatorService::with_processor(self.config, processor, self.liveness)
-            }
-            None => KafkaDeduplicatorService::new(self.config, self.liveness),
-        }
+        KafkaDeduplicatorService::new(self.config, self.liveness)
     }
 }
