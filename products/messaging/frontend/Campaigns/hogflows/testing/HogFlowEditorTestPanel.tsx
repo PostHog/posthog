@@ -147,12 +147,22 @@ export function HogFlowEditorTestPanel(): JSX.Element | null {
             <div className="p-2">
                 {testResult ? (
                     <LemonButton
-                        type="primary"
+                        type="secondary"
                         onClick={() => setTestResult(null)}
                         loading={isTestInvocationSubmitting}
                         data-attr="clear-workflow-test-panel-new-result"
                     >
                         Clear test result
+                    </LemonButton>
+
+                    <LemonButton
+                        type="primary"
+                        onClick={() => submitTestInvocation()}
+                        icon={<IconPlayFilled />}
+                        loading={isTestInvocationSubmitting}
+                        data-attr="continue-workflow-test-panel-new"
+                    >
+                        Continue
                     </LemonButton>
                 ) : (
                     <>
