@@ -18,8 +18,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { ProductKey } from '~/types'
 
+import { RevenueAnalyticsOnboarding } from './Onboarding'
 import { RevenueAnalyticsFilters } from './RevenueAnalyticsFilters'
-import { RevenueAnalyticsOnboarding } from './RevenueAnalyticsOnboarding'
 import { REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID, revenueAnalyticsLogic } from './revenueAnalyticsLogic'
 import { revenueAnalyticsSettingsLogic } from './settings/revenueAnalyticsSettingsLogic'
 import { GrossRevenueTile, MRRTile, MetricsTile, OverviewTile, RevenueGrowthRateTile, TopCustomersTile } from './tiles'
@@ -34,7 +34,7 @@ export const PRODUCT_NAME = 'Revenue Analytics'
 export const PRODUCT_KEY = ProductKey.REVENUE_ANALYTICS
 export const PRODUCT_DESCRIPTION =
     'Track and analyze your revenue metrics to understand your business performance and growth.'
-export const PRODUCT_THING_NAME = 'revenue'
+export const PRODUCT_THING_NAME = 'revenue source'
 
 export function RevenueAnalyticsScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -125,14 +125,6 @@ const RevenueAnalyticsSceneContent = (): JSX.Element => {
     const { hasRevenueTables, hasRevenueEvents } = useValues(revenueAnalyticsLogic)
 
     const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
-
-    return <RevenueAnalyticsOnboarding />
-
-    return (
-        <div className={cn('RevenueAnalyticsDashboard', newSceneLayout && '-mt-2')}>
-            <SpinnerOverlay sceneLevel />
-        </div>
-    )
 
     // Still loading from the server, so we'll show a spinner
     if (hasRevenueTables === null) {
