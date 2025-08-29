@@ -901,7 +901,7 @@ class _Printer(Visitor[str]):
         value_if_one_side_is_null = False
         value_if_both_sides_are_null = False
 
-        op = self._get_ops_format(node, left, right)  # different format for beautify
+        op = self.__get_ops_format(node, left, right)  # different format for beautify
         if node.op == ast.CompareOperationOp.Eq:
             constant_lambda = lambda left_op, right_op: left_op == right_op
             value_if_both_sides_are_null = True
