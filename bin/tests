@@ -7,11 +7,49 @@ then
     exit
 fi
 
+# Check if --changed option is used
+CHANGED_ONLY=false
+FILTERED_ARGS=()
+for arg in "$@"; do
+    if [[ "$arg" == "--changed" ]]; then
+        CHANGED_ONLY=true
+    else
+        FILTERED_ARGS+=("$arg")
+    fi
+done
 
-if [ $# -eq 0 ]; then
+# Handle --changed option
+if [ "$CHANGED_ONLY" = true ]; then
+    CURRENT_BRANCH=$(git branch --show-current)
+    if [ "$CURRENT_BRANCH" = "master" ]; then
+        echo "Cannot use --changed option on master branch"
+        exit 1
+    fi
+    
+    # Get changed test files
+    CHANGED_TEST_FILES=$(
+        (git diff --name-only master...HEAD; git status --porcelain | cut -c4-) | \
+        grep -E '/test_[^/]*\.py$' | \
+        grep -v '__pycache__' | \
+        sort -u
+    )
+    
+    if [ -z "$CHANGED_TEST_FILES" ]; then
+        echo "No changed test files found in branch $CURRENT_BRANCH"
+        exit 0
+    fi
+    
+    echo "Running tests for changed files in branch $CURRENT_BRANCH:"
+    echo "$CHANGED_TEST_FILES"
+    echo ""
+    
+    # Set the test files to run
+    set -- "${FILTERED_ARGS[@]}" $CHANGED_TEST_FILES
+elif [ $# -eq 0 ]; then
     echo "Are you sure you want to run all backend tests? You can run specific tests by doing:"
     echo " "
     echo "bin/tests posthog/api/test/test_user.py::TestUserAPI::test_retrieve_current_user"
+    echo "bin/tests --changed  # Run tests for files changed in current branch"
     echo " "
     read -r -p "Run all tests? [y/N] " response
     if [[ "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]
