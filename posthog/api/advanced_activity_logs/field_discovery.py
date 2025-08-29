@@ -10,8 +10,11 @@ from posthog.models.utils import UUIDT
 from .queries import QueryBuilder
 
 
-class DetailFieldsResult(TypedDict):
+class ScopeFields(TypedDict):
     fields: list[dict[str, Any]]
+
+
+DetailFieldsResult = dict[str, ScopeFields]
 
 
 class AdvancedActivityLogFieldDiscovery:
@@ -70,7 +73,7 @@ class AdvancedActivityLogFieldDiscovery:
         activities = set(activities_query)
         return [{"value": activity} for activity in sorted(activities) if activity]
 
-    def _analyze_detail_fields(self) -> dict[str, dict[str, list[dict[str, Any]]]]:
+    def _analyze_detail_fields(self) -> DetailFieldsResult:
         result: DetailFieldsResult = {}
 
         top_level_fields = self._get_top_level_fields()
@@ -86,7 +89,7 @@ class AdvancedActivityLogFieldDiscovery:
 
     def _get_nested_fields(self) -> list[tuple[str, str, list[str]]]:
         """Discover nested fields like context.level, trigger.job_type."""
-        query, params = self.query_builder.build_nested_fields_query(self.organization_id)
+        query, params = self.query_builder.build_nested_fields_query(str(self.organization_id))
 
         with connection.cursor() as cursor:
             cursor.execute(query, params)
@@ -94,13 +97,13 @@ class AdvancedActivityLogFieldDiscovery:
 
     def _get_top_level_fields(self) -> list[tuple[str, str, list[str]]]:
         """Discover top-level fields like name, label."""
-        query, params = self.query_builder.build_top_level_fields_query(self.organization_id)
+        query, params = self.query_builder.build_top_level_fields_query(str(self.organization_id))
 
         with connection.cursor() as cursor:
             cursor.execute(query, params)
             return [(scope, field_name, field_types) for scope, field_name, field_types in cursor.fetchall()]
 
-    def _merge_fields_into_result(self, result: dict, fields: list[tuple[str, str, list[str]]]) -> None:
+    def _merge_fields_into_result(self, result: DetailFieldsResult, fields: list[tuple[str, str, list[str]]]) -> None:
         for scope, field_name, field_types in fields:
             if scope not in result:
                 result[scope] = {"fields": []}

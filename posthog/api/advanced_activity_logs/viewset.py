@@ -38,7 +38,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     @property
     def field_discovery(self) -> AdvancedActivityLogFieldDiscovery:
         if self._field_discovery is None:
-            self._field_discovery = AdvancedActivityLogFieldDiscovery(str(self.organization.id))
+            self._field_discovery = AdvancedActivityLogFieldDiscovery(self.organization.id)
         return self._field_discovery
 
     def dangerously_get_queryset(self) -> QuerySet[ActivityLog]:
