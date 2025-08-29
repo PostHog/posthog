@@ -2,16 +2,17 @@ import { getOutgoers, useReactFlow } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 
 import { IconExternal, IconTrash, IconX } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonDivider, LemonLabel, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { CategorySelect } from '../../OptOuts/CategorySelect'
 import { HogFlowFilters } from './filters/HogFlowFilters'
 import { hogFlowEditorLogic } from './hogFlowEditorLogic'
 import { getHogFlowStep } from './steps/HogFlowSteps'
-import { isOptOutEligibleAction } from './steps/types'
+import { HogFlowActionSchema, isOptOutEligibleAction } from './steps/types'
 import { HogFlowAction } from './types'
 
 export function HogFlowEditorDetailsPanel(): JSX.Element | null {
@@ -36,13 +37,33 @@ export function HogFlowEditorDetailsPanel(): JSX.Element | null {
     const action = selectedNode.data
     const Step = getHogFlowStep(action.type)
 
+    const validationResult = HogFlowActionSchema.safeParse(action)
+    const hasConfigurationErrors = !['trigger', 'exit'].includes(action.type) && !validationResult.success
+    const fieldsWithErrors = validationResult.error
+        ? // err.path.length - 2, because - 1 always be "value" for hog function inputs
+          validationResult.error.errors
+              .map(
+                  (err) =>
+                      `${capitalizeFirstLetter(String(err.path[err.path.length - 2])).replaceAll('_', ' ')}: ${err.message}`
+              )
+              .join(', ')
+        : ''
+
     return (
         <div className="flex flex-col h-full w-140 overflow-hidden">
             <div className="flex justify-between items-center px-2 my-2">
                 <h3 className="flex gap-1 items-center mb-0 font-semibold">
                     <span className="text-lg">{Step?.icon}</span> Edit {selectedNode.data.name} step
                 </h3>
+
                 <div className="flex gap-1 items-center">
+                    {hasConfigurationErrors && (
+                        <Tooltip title={`Some fields need attention: ${fieldsWithErrors}`}>
+                            <div>
+                                <LemonBadge status="warning" size="large" content="!" />
+                            </div>
+                        </Tooltip>
+                    )}
                     {selectedNode.deletable && (
                         <LemonButton
                             size="xsmall"

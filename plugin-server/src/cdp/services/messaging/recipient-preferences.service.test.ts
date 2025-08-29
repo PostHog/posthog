@@ -93,8 +93,17 @@ describe('RecipientPreferencesService', () => {
                     message_category_id: categoryId,
                     inputs: {
                         email: {
-                            to: {
-                                email: to,
+                            value: {
+                                to: {
+                                    email: to,
+                                },
+                                from: {
+                                    email: 'noreply@example.com',
+                                    name: 'Example Sender',
+                                },
+                                subject: 'Test Subject',
+                                text: 'Test email body',
+                                html: '<p>Test email body</p>',
                             },
                         },
                     },
@@ -202,7 +211,7 @@ describe('RecipientPreferencesService', () => {
                         template_id: 'template-email',
                         inputs: {
                             email: {
-                                value: {},
+                                value: {} as any,
                             },
                         },
                     },
@@ -368,7 +377,7 @@ describe('RecipientPreferencesService', () => {
                     config: {
                         template_id: 'template-twilio',
                         message_category_id: '123e4567-e89b-12d3-a456-426614174000',
-                        inputs: {},
+                        inputs: {} as any,
                     },
                     created_at: Date.now(),
                     updated_at: Date.now(),
@@ -447,7 +456,7 @@ describe('RecipientPreferencesService', () => {
                     type: 'function_slack',
                     config: {
                         template_id: 'template-slack',
-                        inputs: {},
+                        inputs: {} as any,
                     },
                     created_at: Date.now(),
                     updated_at: Date.now(),
@@ -468,7 +477,7 @@ describe('RecipientPreferencesService', () => {
                     type: 'function_webhook',
                     config: {
                         template_id: 'template-webhook',
-                        inputs: {},
+                        inputs: {} as any,
                     },
                     created_at: Date.now(),
                     updated_at: Date.now(),

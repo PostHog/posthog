@@ -12,15 +12,17 @@ import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { StepFunctionNode, hogFunctionStepLogic } from './hogFunctionStepLogic'
 
 export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }): JSX.Element {
-    const { configuration, templateLoading, template } = useValues(hogFunctionStepLogic({ node }))
+    const { configuration, templateLoading, template, configurationValidationErrors } = useValues(
+        hogFunctionStepLogic({ node })
+    )
 
     const { setCampaignActionConfig } = useActions(hogFlowEditorLogic)
 
     useEffect(() => {
         setCampaignActionConfig(node.id, {
-            inputs: configuration.inputs,
+            inputs: configuration.inputs as Record<string, CyclotronJobInputType>,
         })
-    }, [configuration.inputs, setCampaignActionConfig, node.id])
+    }, [configuration.inputs, template, setCampaignActionConfig, node.id])
 
     if (templateLoading) {
         return (
@@ -39,11 +41,20 @@ export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }):
             <CyclotronJobInputs
                 configuration={{
                     inputs: node.data.config.inputs as Record<string, CyclotronJobInputType>,
-                    inputs_schema: template?.inputs_schema ?? [],
+                    inputs_schema: template.inputs_schema ?? [],
                 }}
                 showSource={false}
                 sampleGlobalsWithInputs={null} // TODO: Load this based on the trigger event
             />
+            <div className="text-danger flex items-center gap-1 text-sm">
+                {configurationValidationErrors?.inputs && (
+                    <div>
+                        {Object.entries(configurationValidationErrors.inputs).map(([key, value]) => (
+                            <div key={key}>{value}</div>
+                        ))}
+                    </div>
+                )}
+            </div>
         </Form>
     )
 }
