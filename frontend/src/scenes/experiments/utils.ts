@@ -564,6 +564,8 @@ export function getAllowedMathTypes(metricType: ExperimentMetricType): Experimen
             return [
                 ExperimentMetricMathType.TotalCount,
                 ExperimentMetricMathType.Sum,
+                ExperimentMetricMathType.UniqueUsers,
+                ExperimentMetricMathType.UniqueGroup,
                 ExperimentMetricMathType.Avg,
                 ExperimentMetricMathType.Min,
                 ExperimentMetricMathType.Max,
@@ -574,6 +576,8 @@ export function getAllowedMathTypes(metricType: ExperimentMetricType): Experimen
             return [
                 ExperimentMetricMathType.TotalCount,
                 ExperimentMetricMathType.Sum,
+                ExperimentMetricMathType.UniqueUsers,
+                ExperimentMetricMathType.UniqueGroup,
                 ExperimentMetricMathType.Avg,
                 ExperimentMetricMathType.Min,
                 ExperimentMetricMathType.Max,
@@ -713,4 +717,50 @@ export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts:
         interval: 'day',
         filterTestAccounts,
     }
+}
+
+/**
+ * Appends a metric UUID to the appropriate ordering array
+ * Returns a new array with the UUID added
+ */
+export function appendMetricToOrderingArray(experiment: Experiment, uuid: string, isSecondary: boolean): string[] {
+    const orderingField = isSecondary ? 'secondary_metrics_ordered_uuids' : 'primary_metrics_ordered_uuids'
+    const orderingArray = experiment[orderingField] ?? []
+
+    if (!orderingArray.includes(uuid)) {
+        return [...orderingArray, uuid]
+    }
+
+    return orderingArray
+}
+
+/**
+ * Removes a metric UUID from the appropriate ordering array
+ * Returns a new array with the UUID removed
+ */
+export function removeMetricFromOrderingArray(experiment: Experiment, uuid: string, isSecondary: boolean): string[] {
+    const orderingField = isSecondary ? 'secondary_metrics_ordered_uuids' : 'primary_metrics_ordered_uuids'
+    const orderingArray = experiment[orderingField] ?? []
+
+    return orderingArray.filter((existingUuid) => existingUuid !== uuid)
+}
+
+/**
+ * Inserts a metric UUID into the ordering array right after another UUID
+ * Returns a new array with the UUID inserted at the correct position
+ */
+export function insertMetricIntoOrderingArray(
+    experiment: Experiment,
+    newUuid: string,
+    afterUuid: string,
+    isSecondary: boolean
+): string[] {
+    const orderingField = isSecondary ? 'secondary_metrics_ordered_uuids' : 'primary_metrics_ordered_uuids'
+    const orderingArray = experiment[orderingField] ?? []
+
+    const afterIndex = orderingArray.indexOf(afterUuid)
+
+    const newArray = [...orderingArray]
+    newArray.splice(afterIndex + 1, 0, newUuid)
+    return newArray
 }
