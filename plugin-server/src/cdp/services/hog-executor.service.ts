@@ -5,6 +5,7 @@ import { Counter, Histogram } from 'prom-client'
 import { ExecResult, convertHogToJS } from '@posthog/hogvm'
 
 import { instrumented } from '~/common/tracing/tracing-utils'
+import { ACCESS_TOKEN_PLACEHOLDER } from '~/config/constants'
 import {
     CyclotronInvocationQueueParametersEmailSchema,
     CyclotronInvocationQueueParametersFetchSchema,
@@ -34,7 +35,6 @@ import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '..
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { HogInputsService } from './hog-inputs.service'
 import { EmailService } from './messaging/email.service'
-import { ACCESS_TOKEN_PLACEHOLDER } from '~/config/constants'
 
 const cdpHttpRequests = new Counter({
     name: 'cdp_http_requests',

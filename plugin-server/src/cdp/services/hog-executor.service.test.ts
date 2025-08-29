@@ -1073,7 +1073,6 @@ describe('Hog Executor', () => {
                         access_token_raw: 'actual_secret_token_12345',
                     },
                 },
-
             }
 
             jest.spyOn(executor['hogInputsService'], 'loadIntegrationInputs').mockResolvedValue(mockIntegrationInputs)
@@ -1081,7 +1080,7 @@ describe('Hog Executor', () => {
             const invocation = createExampleInvocation()
             invocation.state.globals.inputs = mockIntegrationInputs
             invocation.hogFunction.inputs = {
-                oauth: { value: 123 }
+                oauth: { value: 123 },
             }
             invocation.state.vmState = { stack: [] } as any
             invocation.queueParameters = {
