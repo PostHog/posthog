@@ -3,7 +3,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { SurveyPosition } from '~/types'
 
-const positionAlignments = {
+const positionAlignments: Record<Exclude<SurveyPosition, SurveyPosition.NextToTrigger>, [string, string]> = {
     [SurveyPosition.TopLeft]: ['items-start', 'justify-start'],
     [SurveyPosition.TopCenter]: ['items-start', 'justify-center'],
     [SurveyPosition.TopRight]: ['items-start', 'justify-end'],
@@ -15,7 +15,7 @@ const positionAlignments = {
     [SurveyPosition.Right]: ['items-end', 'justify-end'],
 }
 
-const gridPositions = Object.keys(positionAlignments) as SurveyPosition[]
+const gridPositions = Object.keys(positionAlignments) as [keyof typeof positionAlignments]
 
 export const SurveyPositionSelector = ({
     currentPosition,
@@ -29,7 +29,7 @@ export const SurveyPositionSelector = ({
     return (
         <div className="grid grid-cols-3 gap-1 border border-input bg-surface-primary w-50 p-1 rounded-lg focus-within:border-secondary">
             {gridPositions.map((position) => {
-                const [itemsClass, justifyClass] = positionAlignments[position as keyof typeof positionAlignments]
+                const [itemsClass, justifyClass] = positionAlignments[position]
 
                 return (
                     <ButtonPrimitive
