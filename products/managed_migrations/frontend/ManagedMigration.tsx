@@ -140,14 +140,25 @@ export function ManagedMigration(): JSX.Element {
                     </LemonField>
 
                     {managedMigration.source_type === 'amplitude' && (
-                        <LemonField name="generate_identify_events">
-                            <LemonCheckbox
-                                checked={managedMigration.generate_identify_events || false}
-                                onChange={(checked) => setManagedMigrationValue('generate_identify_events', checked)}
-                                label="Generate identify events to link user IDs with device IDs"
-                                tooltip="Creates PostHog $identify events to connect Amplitude user_id and device_id, enabling better user journey tracking"
-                            />
-                        </LemonField>
+                        <>
+                            <LemonField name="import_events">
+                                <LemonCheckbox
+                                    checked={managedMigration.import_events !== false}
+                                    onChange={(checked) => setManagedMigrationValue('import_events', checked)}
+                                    label="Import events from Amplitude"
+                                />
+                            </LemonField>
+
+                            <LemonField name="generate_identify_events">
+                                <LemonCheckbox
+                                    checked={managedMigration.generate_identify_events || false}
+                                    onChange={(checked) =>
+                                        setManagedMigrationValue('generate_identify_events', checked)
+                                    }
+                                    label="Generate identify events to link user IDs with device IDs"
+                                />
+                            </LemonField>
+                        </>
                     )}
                 </>
             )}

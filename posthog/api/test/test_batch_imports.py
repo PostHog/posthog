@@ -83,6 +83,29 @@ class TestBatchImportConfigBuilder(BaseTest):
         }
         self.assertEqual(self.batch_import.import_config, expected_config)
 
+    def test_with_import_events_configuration(self):
+        """Test that import_events is added as a top-level config field"""
+        self.batch_import.config.json_lines(ContentType.AMPLITUDE).with_import_events(False)
+
+        expected_config = {
+            "data_format": {"type": "json_lines", "skip_blanks": True, "content": {"type": "amplitude"}},
+            "import_events": False,
+        }
+        self.assertEqual(self.batch_import.import_config, expected_config)
+
+    def test_with_both_amplitude_options(self):
+        """Test that both import_events and generate_identify_events can be set together"""
+        self.batch_import.config.json_lines(ContentType.AMPLITUDE).with_import_events(
+            True
+        ).with_generate_identify_events(True)
+
+        expected_config = {
+            "data_format": {"type": "json_lines", "skip_blanks": True, "content": {"type": "amplitude"}},
+            "import_events": True,
+            "generate_identify_events": True,
+        }
+        self.assertEqual(self.batch_import.import_config, expected_config)
+
 
 class TestBatchImportAPI(APIBaseTest):
     def test_model_creation_only(self):
@@ -128,6 +151,25 @@ class TestBatchImportAPI(APIBaseTest):
         self.assertEqual(response.status_code, 400)
         self.assertIn("Cannot create a new batch import", response.json()["error"])
         self.assertIn(str(existing_import.id), response.json()["detail"])
+
+    def test_amplitude_validation_requires_at_least_one_option(self):
+        """Test that Amplitude migrations require at least one of import_events or generate_identify_events"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {
+                "source_type": "amplitude",
+                "content_type": "amplitude",
+                "start_date": "2023-01-01T00:00:00Z",
+                "end_date": "2023-01-02T00:00:00Z",
+                "access_key": "test-key",
+                "secret_key": "test-secret",
+                "import_events": False,
+                "generate_identify_events": False,
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("At least one of", response.json()[0])
 
     def test_can_create_import_when_no_running_imports(self):
         """Test that creating a new batch import succeeds when there are no running imports"""

@@ -176,6 +176,7 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
     access_key = serializers.CharField(write_only=True, required=True)
     secret_key = serializers.CharField(write_only=True, required=True)
     is_eu_region = serializers.BooleanField(write_only=True, required=False, default=False)
+    import_events = serializers.BooleanField(write_only=True, required=False, default=True)
     generate_identify_events = serializers.BooleanField(write_only=True, required=False, default=False)
 
     class Meta:
@@ -196,6 +197,7 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
             "access_key",
             "secret_key",
             "is_eu_region",
+            "import_events",
             "generate_identify_events",
         ]
         read_only_fields = [
@@ -226,6 +228,17 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
                     "Date range cannot exceed 1 year. Please create multiple migration jobs for longer periods."
                 )
 
+        # For Amplitude, ensure at least one of import_events or generate_identify_events is enabled
+        source_type = data.get("source_type")
+        if source_type == "amplitude":
+            import_events = data.get("import_events", True)
+            generate_identify_events = data.get("generate_identify_events", False)
+
+            if not import_events and not generate_identify_events:
+                raise serializers.ValidationError(
+                    "At least one of 'Import events' or 'Generate identify events' must be enabled for Amplitude migrations."
+                )
+
         return data
 
     def create(self, validated_data: dict, **kwargs) -> BatchImport:
@@ -246,7 +259,9 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
                 secret_key=validated_data["secret_key"],
                 export_source=DateRangeExportSource(source_type),
                 is_eu_region=validated_data.get("is_eu_region", False),
-            ).with_generate_identify_events(validated_data.get("generate_identify_events", False)).to_kafka(
+            ).with_import_events(validated_data.get("import_events", True)).with_generate_identify_events(
+                validated_data.get("generate_identify_events", False)
+            ).to_kafka(
                 topic=BatchImportKafkaTopic.HISTORICAL,
                 send_rate=1000,
                 transaction_timeout_seconds=60,
