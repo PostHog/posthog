@@ -16,6 +16,8 @@ from rest_framework.exceptions import NotFound, PermissionDenied, ValidationErro
 from rest_framework.permissions import SAFE_METHODS
 from rest_framework.request import Request
 
+from posthog.schema import SharingConfigurationSettings
+
 from posthog.api.dashboards.dashboard import DashboardSerializer
 from posthog.api.data_color_theme import DataColorTheme, DataColorThemeSerializer
 from posthog.api.exports import ExportedAssetSerializer
@@ -26,6 +28,7 @@ from posthog.api.shared import TeamPublicSerializer
 from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import AvailableFeature
+from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import InsightViewed, SessionRecording, SharePassword, SharingConfiguration, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.dashboard import Dashboard
@@ -240,7 +243,9 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
         context = self.get_serializer_context()
         instance = self._get_sharing_configuration(context)
 
-        serializer = self.get_serializer(instance)
+        serializer = self.get_serializer(instance, context)
+        serializer.is_valid(raise_exception=True)
+
         return response.Response(serializer.data)
 
     def patch(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
@@ -403,7 +408,6 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         # Path based access (SharingConfiguration only)
         access_token = self.kwargs.get("access_token", "").split(".")[0]
         if access_token:
-            sharing_configuration = None
             try:
                 sharing_configuration = SharingConfiguration.objects.select_related(
                     "dashboard", "insight", "recording"
@@ -444,6 +448,14 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             resource = None
 
         if not resource:
+            return custom_404_response(self.request)
+
+        # Check if organization allows publicly shared resources
+        if (
+            isinstance(resource, SharingConfiguration)
+            and resource.team.organization.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS)
+            and not resource.team.organization.allow_publicly_shared_resources
+        ):
             return custom_404_response(self.request)
 
         embedded = "embedded" in request.GET or "/embedded/" in request.path
@@ -521,9 +533,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 raise NotFound()
             return get_content_response(exported_asset, False)
         elif isinstance(resource, SharingConfiguration):
-            # Only add accessToken for non-password-protected shares
-            if not resource.password_required:
-                exported_data["accessToken"] = resource.access_token
+            exported_data["accessToken"] = resource.access_token
         elif isinstance(resource, ExportedAsset):
             if request.path.endswith(f".{resource.file_ext}"):
                 return get_content_response(resource, request.query_params.get("download") == "true")
@@ -531,6 +541,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
 
         add_og_tags = resource.insight or resource.dashboard
         asset_description = ""
+
+        # Check both query params (legacy) and settings for configuration options
+        state = getattr(resource, "settings", {}) or {}
 
         if resource.insight and not resource.insight.deleted:
             # Both insight AND dashboard can be set. If both it is assumed we should render that
@@ -540,7 +553,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             InsightViewed.objects.update_or_create(
                 insight=resource.insight, team=None, user=None, defaults={"last_viewed_at": now()}
             )
-            insight_data = InsightSerializer(resource.insight, many=False, context=context).data
+            # Add hideExtraDetails to context so that PII related information is not returned to the client
+            insight_context = {**context, "hide_extra_details": state.get("hideExtraDetails", False)}
+            insight_data = InsightSerializer(resource.insight, many=False, context=insight_context).data
             exported_data.update({"insight": insight_data})
             exported_data.update({"themes": get_themes_for_team(resource.team)})
         elif resource.dashboard and not resource.dashboard.deleted:
@@ -548,35 +563,110 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             asset_description = resource.dashboard.description or ""
             resource.dashboard.last_accessed_at = now()
             resource.dashboard.save(update_fields=["last_accessed_at"])
+
             with task_chain_context():
                 dashboard_data = DashboardSerializer(resource.dashboard, context=context).data
                 # We don't want the dashboard to be accidentally loaded via the shared endpoint
                 exported_data.update({"dashboard": dashboard_data})
             exported_data.update({"themes": get_themes_for_team(resource.team)})
+        elif (
+            isinstance(resource, ExportedAsset)
+            and resource.export_context
+            and resource.export_context.get("session_recording_id")
+        ):
+            # Handle replay export via export_context
+            session_recording_id = resource.export_context.get("session_recording_id")
+            timestamp = resource.export_context.get("timestamp")
+
+            if not session_recording_id:
+                raise NotFound("Invalid replay export - missing session_recording_id")
+
+            # Create a SessionRecording object for the replay
+            try:
+                # First, try to get existing recording from database
+                recording, _ = SessionRecording.objects.get_or_create(
+                    session_id=session_recording_id, team=resource.team
+                )
+
+                # Create a JWT for the recording
+                export_access_token = ""
+                if resource.created_by and resource.created_by.id:
+                    export_access_token = encode_jwt(
+                        {"id": resource.created_by.id},
+                        timedelta(minutes=5),  # 5 mins should be enough for the export to complete
+                        PosthogJwtAudience.IMPERSONATED_USER,
+                    )
+
+                asset_title = "Session Recording"
+                asset_description = f"Recording {session_recording_id}"
+
+                recording_data = SessionRecordingSerializer(recording, context=context).data
+
+                exported_data.update(
+                    {
+                        "type": "replay_export",
+                        "recording": recording_data,
+                        "timestamp": timestamp,
+                        "session_recording_id": session_recording_id,
+                        "exportToken": export_access_token,
+                        "noBorder": True,
+                        "autoplay": True,
+                        "mode": "screenshot",
+                    }
+                )
+
+            except Exception:
+                raise NotFound("No recording found")
         elif isinstance(resource, SharingConfiguration) and resource.recording and not resource.recording.deleted:
             asset_title = "Session Recording"
             recording_data = SessionRecordingSerializer(resource.recording, context=context).data
             exported_data.update({"recording": recording_data})
         else:
-            raise NotFound()
+            raise NotFound("No resource found")
 
-        if "noHeader" in request.GET:
+        # Get sharing settings using Pydantic model for validation and defaults
+        settings_data = getattr(resource, "settings", {}) or {}
+        base_settings = SharingConfigurationSettings.model_validate(settings_data, strict=False)
+
+        # Only check query params for configurations created before SETTINGS_SHIP_DATE
+        SETTINGS_SHIP_DATE = "2025-07-31"
+        created_before_settings_ship = False
+        if isinstance(resource, SharingConfiguration):
+            created_before_settings_ship = resource.created_at.strftime("%Y-%m-%d") < SETTINGS_SHIP_DATE
+
+        # Exported assets don't have settings so we can continue to use query params
+        can_use_query_params = created_before_settings_ship or not isinstance(resource, SharingConfiguration)
+
+        # Merge query params with base settings if allowed
+        if can_use_query_params:
+            # Convert query params to dict and merge with base settings
+            merged_data = base_settings.model_dump()
+            for field_name in base_settings.model_fields.keys():
+                if field_name in request.GET:
+                    merged_data[field_name] = bool(request.GET[field_name])
+            final_settings = SharingConfigurationSettings.model_validate(merged_data, strict=False)
+        else:
+            final_settings = base_settings
+
+        # Apply settings to exported data
+        if final_settings.whitelabel and resource.team.organization.is_feature_available(
+            AvailableFeature.WHITE_LABELLING
+        ):
+            exported_data.update({"whitelabel": True})
+
+        if final_settings.noHeader:
             exported_data.update({"noHeader": True})
-        if "showInspector" in request.GET:
+        if final_settings.showInspector:
             exported_data.update({"showInspector": True})
-        if "legend" in request.GET:
+        if final_settings.legend:
             exported_data.update({"legend": True})
-        if "detailed" in request.GET:
+        if final_settings.detailed:
             exported_data.update({"detailed": True})
+        if final_settings.hideExtraDetails:
+            exported_data.update({"hideExtraDetails": True})
 
         # Return JSON if requested via .json extension, Accept header, or POST method
-        wants_json = (
-            request.path.endswith(f".json")
-            or request.method == "POST"
-            or request.headers.get("Accept") == "application/json"
-        )
-
-        if wants_json:
+        if request.path.endswith(f".json"):
             # For password-protected POST requests, only return basic metadata and JWT token
             if request.method == "POST" and isinstance(resource, SharingConfiguration) and resource.password_required:
                 # Return only the essentials for the frontend to work
@@ -590,12 +680,12 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     "detailed": exported_data.get("detailed", False),
                 }
                 return response.Response(minimal_data)
-
             return response.Response(exported_data)
 
         if request.GET.get("force_type"):
             exported_data["type"] = request.GET.get("force_type")
 
+        exported_data["rootClassName"] = f"export-type-'{exported_data.get('type', 'unknown')}"
         # Check if this is a JWT authenticated request with JSON Accept header
         if (
             isinstance(resource, SharingConfiguration)
