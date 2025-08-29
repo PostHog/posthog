@@ -17,7 +17,7 @@ def get_migrations_cluster():
 
 def run_sql_with_exceptions(
     sql: str,
-    node_role: NodeRole = NodeRole.DATA,
+    node_roles: list[NodeRole] | None = None,
     sharded: bool = False,
     is_alter_on_replicated_table: bool = False,
 ):
@@ -32,7 +32,7 @@ def run_sql_with_exceptions(
     Parameters:
     sql: str
         The SQL query to be executed.
-    node_role: NodeRole to execute the migration on, optional (default is NodeRole.DATA is not specified)
+    node_roles: List of roles to execute the migration on, optional (default is NodeRole.DATA if not specified)
         Specifies which type of node the query should target during execution.
         In general, run everything on NodeRole.ALL except changes to sharded tables / writable distributed tables.
     sharded: bool, optional (default is False)
@@ -52,6 +52,8 @@ def run_sql_with_exceptions(
         configuration, such as when the sharded flag is set for roles other than DATA.
     """
 
+    node_roles = node_roles or [NodeRole.DATA]
+
     def run_migration():
         if "ON CLUSTER" in sql:
             logger.error("ON CLUSTER is not supposed to used in migration, query: %s", sql)
@@ -61,13 +63,13 @@ def run_sql_with_exceptions(
         query = Query(sql)
         if sharded:
             assert (
-                node_role == NodeRole.DATA
+                NodeRole.DATA in node_roles and len(node_roles) == 1
             ), "When running migrations on sharded tables, the node_role must be NodeRole.DATA"
             return cluster.map_one_host_per_shard(query).result()
         elif is_alter_on_replicated_table:
             logger.info("       Running ALTER on replicated table on just one host")
-            return cluster.any_host(query, node_role=node_role).result()
+            return cluster.any_host_by_roles(query, node_roles=node_roles).result()
         else:
-            return cluster.map_hosts_by_role(query, node_role=node_role).result()
+            return cluster.map_hosts_by_roles(query, node_roles=node_roles).result()
 
     return migrations.RunPython(lambda _: run_migration())

@@ -185,13 +185,13 @@ class ClickhouseCluster:
 
         return task
 
-    def __hosts_by_role(
-        self, hosts: set[HostInfo], node_role: NodeRole, workload: Workload = Workload.DEFAULT
+    def __hosts_by_roles(
+        self, hosts: set[HostInfo], node_roles: list[NodeRole], workload: Workload = Workload.DEFAULT
     ) -> set[HostInfo]:
         return {
             host
             for host in hosts
-            if (host.host_cluster_role == node_role or node_role == NodeRole.ALL)
+            if (host.host_cluster_role in node_roles or NodeRole.ALL in node_roles)
             and (host.host_cluster_type == workload.value.lower() or workload == Workload.DEFAULT)
         }
 
@@ -218,11 +218,19 @@ class ClickhouseCluster:
         """
         Execute the callable once for any host with the given node role.
         """
+        return self.any_host_by_roles(fn, [node_role], workload)
+
+    def any_host_by_roles(
+        self, fn: Callable[[Client], T], node_roles: list[NodeRole], workload: Workload = Workload.DEFAULT
+    ) -> Future[T]:
+        """
+        Execute the callable once for any host with the given node role.
+        """
         with ThreadPoolExecutor() as executor:
             try:
-                host = next(iter(self.__hosts_by_role(self.__hosts, node_role, workload)))
+                host = next(iter(self.__hosts_by_roles(self.__hosts, node_roles, workload)))
             except StopIteration:
-                raise ValueError(f"No hosts found with role {node_role.value}")
+                raise ValueError(f"No hosts found with roles {node_roles}")
             return executor.submit(self.__get_task_function(host, fn))
 
     def map_all_hosts(self, fn: Callable[[Client], T], concurrency: int | None = None) -> FuturesMap[HostInfo, T]:
@@ -241,6 +249,15 @@ class ClickhouseCluster:
         concurrency: int | None = None,
         workload: Workload = Workload.DEFAULT,
     ) -> FuturesMap[HostInfo, T]:
+        return self.map_hosts_by_roles(fn, [node_role], concurrency, workload)
+
+    def map_hosts_by_roles(
+        self,
+        fn: Callable[[Client], T],
+        node_roles: list[NodeRole],
+        concurrency: int | None = None,
+        workload: Workload = Workload.DEFAULT,
+    ) -> FuturesMap[HostInfo, T]:
         """
         Execute the callable once for each host in the cluster with the given node role.
 
@@ -251,7 +268,7 @@ class ClickhouseCluster:
             return FuturesMap(
                 {
                     host: executor.submit(self.__get_task_function(host, fn))
-                    for host in self.__hosts_by_role(self.__hosts, node_role, workload)
+                    for host in self.__hosts_by_roles(self.__hosts, node_roles, workload)
                 }
             )
 
@@ -274,6 +291,16 @@ class ClickhouseCluster:
         node_role: NodeRole = NodeRole.ALL,
         workload: Workload = Workload.DEFAULT,
     ) -> FuturesMap[HostInfo, T]:
+        return self.map_hosts_in_shard_by_roles(shard_num, fn, [node_role], concurrency, workload)
+
+    def map_hosts_in_shard_by_roles(
+        self,
+        shard_num: int,
+        fn: Callable[[Client], T],
+        node_roles: list[NodeRole],
+        concurrency: int | None = None,
+        workload: Workload = Workload.DEFAULT,
+    ) -> FuturesMap[HostInfo, T]:
         """
         Execute the callable once for each host in the specified shard and role.
 
@@ -284,7 +311,7 @@ class ClickhouseCluster:
             return FuturesMap(
                 {
                     host: executor.submit(self.__get_task_function(host, fn))
-                    for host in self.__hosts_by_role(self.__shards[shard_num], node_role, workload)
+                    for host in self.__hosts_by_roles(self.__shards[shard_num], node_roles, workload)
                 }
             )
 
@@ -334,6 +361,17 @@ class ClickhouseCluster:
         node_role: NodeRole = NodeRole.ALL,
         workload: Workload = Workload.DEFAULT,
     ) -> FuturesMap[HostInfo, T]:
+        return self.map_any_host_in_shards_by_roles(
+            shard_fns, node_roles=[node_role], concurrency=concurrency, workload=workload
+        )
+
+    def map_any_host_in_shards_by_roles(
+        self,
+        shard_fns: dict[int, Callable[[Client], T]],
+        node_roles: list[NodeRole],
+        concurrency: int | None = None,
+        workload: Workload = Workload.DEFAULT,
+    ) -> FuturesMap[HostInfo, T]:
         """
         Execute the callable on one host for each of the specified shards and role.
 
@@ -343,11 +381,11 @@ class ClickhouseCluster:
         shard_host_fns = {}
         for shard, fn in shard_fns.items():
             try:
-                host = next(iter(self.__hosts_by_role(self.__shards[shard], node_role, workload)))
+                host = next(iter(self.__hosts_by_roles(self.__shards[shard], node_roles, workload)))
                 shard_host_fns[host] = fn
             except StopIteration:
                 raise ValueError(
-                    f"No hosts found with role {node_role.value} and workload {workload.value} in shard {shard}"
+                    f"No hosts found with role {node_roles} and workload {workload.value} in shard {shard}"
                 )
 
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
