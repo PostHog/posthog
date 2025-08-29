@@ -84,9 +84,6 @@ export const sharingLogic = kea<sharingLogicType>([
                         password_required,
                     })
                 },
-                setPassword: async (password: string) => {
-                    return await api.sharing.update(await propsToApiParams(props), { password })
-                },
                 updateSettings: async (settings: Record<string, any>) => {
                     return await api.sharing.update(await propsToApiParams(props), { settings })
                 },

@@ -7,7 +7,7 @@ from posthog.models import Organization, SharePassword, SharingConfiguration, Te
 class TestSharePassword(TestCase):
     def setUp(self):
         self.organization = Organization.objects.create(name="Test Org")
-        self.user = User.objects.create_user(email="test@example.com", password="testpass")
+        self.user = User.objects.create_user(email="test@example.com", password="testpass", first_name="Test")
         self.organization.memberships.create(user=self.user, level=15)
         self.team = Team.objects.create(name="Test Team", organization=self.organization)
         self.sharing_config = SharingConfiguration.objects.create(team=self.team, enabled=True, password_required=True)

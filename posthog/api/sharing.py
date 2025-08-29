@@ -456,9 +456,11 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         access_token = self.kwargs.get("access_token", "").split(".")[0]
         if access_token:
             try:
-                sharing_configuration = SharingConfiguration.objects.select_related(
-                    "dashboard", "insight", "recording"
-                ).get(access_token=access_token)
+                sharing_configuration = (
+                    SharingConfiguration.objects.select_related("dashboard", "insight", "recording")
+                    .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now()))
+                    .get(access_token=access_token)
+                )
             except SharingConfiguration.DoesNotExist:
                 raise NotFound()
 
@@ -516,9 +518,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         }
         exported_data: dict[str, Any] = {"type": "embed" if embedded else "scene"}
 
-        if "whitelabel" in request.GET and "white_labelling" in [
-            feature["key"] for feature in resource.team.organization.available_product_features
-        ]:
+        available_features = resource.team.organization.available_product_features or []
+        if "whitelabel" in request.GET and "white_labelling" in [feature["key"] for feature in available_features]:
             exported_data.update({"whitelabel": True})
 
         if isinstance(resource, SharingConfiguration) and resource.password_required:
@@ -600,6 +601,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             InsightViewed.objects.update_or_create(
                 insight=resource.insight, team=None, user=None, defaults={"last_viewed_at": now()}
             )
+
             # Add hideExtraDetails to context so that PII related information is not returned to the client
             insight_context = {**context, "hide_extra_details": state.get("hideExtraDetails", False)}
             insight_data = InsightSerializer(resource.insight, many=False, context=insight_context).data
@@ -712,7 +714,6 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         if final_settings.hideExtraDetails:
             exported_data.update({"hideExtraDetails": True})
 
-        # Return JSON if requested via .json extension, Accept header, or POST method
         if request.path.endswith(f".json"):
             # For password-protected POST requests, only return basic metadata and JWT token
             if request.method == "POST" and isinstance(resource, SharingConfiguration) and resource.password_required:

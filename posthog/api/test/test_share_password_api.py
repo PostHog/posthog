@@ -69,7 +69,7 @@ class TestSharePasswordAPI(APIBaseTest):
 
     def test_create_password_without_advanced_permissions(self):
         # Mock organization without advanced permissions
-        self.organization.available_features = []
+        self.organization.available_product_features = []
         self.organization.save()
 
         response = self.client.post(
@@ -124,7 +124,7 @@ class TestSharePasswordAPI(APIBaseTest):
         )
 
         # Mock organization without advanced permissions
-        self.organization.available_features = []
+        self.organization.available_product_features = []
         self.organization.save()
 
         response = self.client.delete(

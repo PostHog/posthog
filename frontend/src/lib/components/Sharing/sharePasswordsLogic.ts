@@ -3,6 +3,9 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { getInsightId } from 'scenes/insights/utils'
+
+import { InsightShortId } from '~/types'
 
 import type { sharePasswordsLogicType } from './sharePasswordsLogicType'
 
@@ -43,12 +46,15 @@ export const sharePasswordsLogic = kea<sharePasswordsLogicType>([
         sharePasswords: {
             __default: [] as SharePassword[],
             loadSharePasswords: async (): Promise<SharePassword[]> => {
+                const insightId = props.insightShortId
+                    ? await getInsightId(props.insightShortId as InsightShortId)
+                    : undefined
                 const response = await api.sharing.get({
                     dashboardId: props.dashboardId,
-                    insightId: props.insightShortId,
+                    insightId,
                     recordingId: props.recordingId,
                 })
-                return (response && response.share_passwords) || []
+                return (response && (response as any).share_passwords) || []
             },
         },
     })),
@@ -82,10 +88,13 @@ export const sharePasswordsLogic = kea<sharePasswordsLogicType>([
     listeners(({ actions, props }) => ({
         createPassword: async ({ password, note }) => {
             try {
+                const insightId = props.insightShortId
+                    ? await getInsightId(props.insightShortId as InsightShortId)
+                    : undefined
                 const response = await api.sharing.createPassword(
                     {
                         dashboardId: props.dashboardId,
-                        insightId: props.insightShortId,
+                        insightId,
                         recordingId: props.recordingId,
                     },
                     {
@@ -104,21 +113,23 @@ export const sharePasswordsLogic = kea<sharePasswordsLogicType>([
                     console.warn('Failed to reload passwords after creation:', loadError)
                 }
 
-                return response
+                // Return void - response is already stored in createPasswordSuccess
             } catch (error: any) {
                 console.error('Password creation error:', error)
-                actions.createPasswordFailure()
+                actions.createPasswordFailure(error)
                 lemonToast.error(error.detail || error.message || 'Failed to create password')
-                throw error
             }
         },
 
         deletePassword: async ({ passwordId }) => {
             try {
+                const insightId = props.insightShortId
+                    ? await getInsightId(props.insightShortId as InsightShortId)
+                    : undefined
                 await api.sharing.deletePassword(
                     {
                         dashboardId: props.dashboardId,
-                        insightId: props.insightShortId,
+                        insightId,
                         recordingId: props.recordingId,
                     },
                     passwordId
