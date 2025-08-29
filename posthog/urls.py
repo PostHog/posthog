@@ -45,12 +45,10 @@ from products.early_access_features.backend.api import early_access_features
 
 from .utils import opt_slash_path, render_template
 from .views import (
-    api_key_search_view,
     health,
     login_required,
     preferences_page,
     preflight_check,
-    redis_values_view,
     robots_txt,
     security_txt,
     stats,
@@ -161,8 +159,6 @@ urlpatterns = [
     opt_slash_path("_health", health),
     opt_slash_path("_stats", stats),
     opt_slash_path("_preflight", preflight_check),
-    re_path(r"^admin/redisvalues$", redis_values_view, name="redis_values"),
-    path(r"admin/apikeysearch", api_key_search_view, name="api_key_search"),
     # ee
     *ee_urlpatterns,
     # api
