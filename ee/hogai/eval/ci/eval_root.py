@@ -490,46 +490,6 @@ async def eval_root(mock_feature_enabled, call_root, pytestconfig):
                     id="call_doc_search_35",
                 ),
             ),
-            # Session summarization tests - positive cases (should call session_summarization)
-            EvalCase(
-                input="summarize sessions from yesterday",
-                expected=AssistantToolCall(
-                    name="session_summarization",
-                    args={
-                        "session_summarization_query": "summarize sessions from yesterday",
-                    },
-                    id="call_session_summary_1",
-                ),
-            ),
-            EvalCase(
-                input="watch what user did in the last 7 days",
-                expected=AssistantToolCall(
-                    name="session_summarization",
-                    args={
-                        "session_summarization_query": "watch what user did in the last 7 days",
-                    },
-                    id="call_session_summary_2",
-                ),
-            ),
-            EvalCase(
-                input="analyze mobile user sessions from last week",
-                expected=AssistantToolCall(
-                    name="session_summarization",
-                    args={
-                        "session_summarization_query": "analyze mobile user sessions from last week",
-                    },
-                    id="call_session_summary_3",
-                ),
-            ),
-            # Session summarization tests - negative cases (should NOT call session_summarization)
-            EvalCase(
-                input="show me recordings from mobile users",
-                expected=None,
-            ),
-            EvalCase(
-                input="filter sessions by browser type",
-                expected=None,
-            ),
             # Ensure calls insights, not documentation
             EvalCase(
                 input="Show me all events where the default $browser property equals Chrome",
@@ -552,6 +512,46 @@ async def eval_root(mock_feature_enabled, call_root, pytestconfig):
                     },
                     id="call_insight_default_props_2",
                 ),
+            ),
+            # Session summarization tests - positive cases (should call session_summarization)
+            EvalCase(
+                input="summarize sessions from yesterday (session_summarization)",
+                expected=AssistantToolCall(
+                    name="session_summarization",
+                    args={
+                        "session_summarization_query": "summarize sessions from yesterday",
+                    },
+                    id="call_session_summary_1",
+                ),
+            ),
+            EvalCase(
+                input="watch what user did in the last 7 days (session_summarization)",
+                expected=AssistantToolCall(
+                    name="session_summarization",
+                    args={
+                        "session_summarization_query": "watch what user did in the last 7 days",
+                    },
+                    id="call_session_summary_2",
+                ),
+            ),
+            EvalCase(
+                input="analyze mobile user sessions from last week (session_summarization)",
+                expected=AssistantToolCall(
+                    name="session_summarization",
+                    args={
+                        "session_summarization_query": "analyze mobile user sessions from last week",
+                    },
+                    id="call_session_summary_3",
+                ),
+            ),
+            # Session summarization tests - negative cases (should NOT call session_summarization)
+            EvalCase(
+                input="show me recordings from mobile users (session_summarization)",
+                expected=None,
+            ),
+            EvalCase(
+                input="filter sessions by browser type (session_summarization)",
+                expected=None,
             ),
         ],
         pytestconfig=pytestconfig,
