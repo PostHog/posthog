@@ -21,7 +21,6 @@ import { urls } from 'scenes/urls'
 
 import { campaignLogic } from '../../campaignLogic'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
-import { getHogFlowStep } from '../steps/HogFlowSteps'
 import { hogFlowEditorTestLogic } from './hogFlowEditorTestLogic'
 
 export function HogFlowTestPanelNonSelected(): JSX.Element {
@@ -36,7 +35,6 @@ export function HogFlowTestPanelNonSelected(): JSX.Element {
 
 export function HogFlowEditorTestPanel(): JSX.Element | null {
     const { selectedNode } = useValues(hogFlowEditorLogic)
-    const { setSelectedNodeId } = useActions(hogFlowEditorLogic)
     const { logicProps } = useValues(campaignLogic)
     const { sampleGlobals, isTestInvocationSubmitting, testResult, shouldLoadSampleGlobals } = useValues(
         hogFlowEditorTestLogic(logicProps)
@@ -50,8 +48,6 @@ export function HogFlowEditorTestPanel(): JSX.Element | null {
         // NOTE: This shouldn't ever happen as the parent checks it
         return null
     }
-
-    const Step = getHogFlowStep(selectedNode.data.type)
 
     return (
         <Form

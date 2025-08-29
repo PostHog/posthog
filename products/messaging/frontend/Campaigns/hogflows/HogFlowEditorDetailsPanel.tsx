@@ -1,4 +1,3 @@
-import { useReactFlow } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 
 import { IconExternal } from '@posthog/icons'
@@ -15,10 +14,8 @@ import { isOptOutEligibleAction } from './steps/types'
 import { HogFlowAction } from './types'
 
 export function HogFlowEditorDetailsPanel(): JSX.Element | null {
-    const { selectedNode, nodes, edges, categories, categoriesLoading } = useValues(hogFlowEditorLogic)
-    const { setSelectedNodeId, setCampaignAction } = useActions(hogFlowEditorLogic)
-
-    const { deleteElements } = useReactFlow()
+    const { selectedNode, categories, categoriesLoading } = useValues(hogFlowEditorLogic)
+    const { setCampaignAction } = useActions(hogFlowEditorLogic)
 
     if (!selectedNode) {
         return null
