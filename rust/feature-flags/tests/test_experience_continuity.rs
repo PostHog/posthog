@@ -2,8 +2,8 @@ use anyhow::Result;
 use reqwest::StatusCode;
 use serde_json::{json, Value};
 
-mod common;
-use common::ServerHandle;
+pub mod common;
+use crate::common::ServerHandle;
 use feature_flags::config::DEFAULT_TEST_CONFIG;
 use feature_flags::flags::flag_models::FeatureFlagRow;
 use feature_flags::utils::test_utils::{
@@ -80,7 +80,7 @@ async fn test_experience_continuity_matches_python() -> Result<()> {
         "false_eval_user should initially evaluate to false"
     );
 
-    // Step 2: Find an ID that evaluates to true
+    // Step 2: Use an ID that evaluates to true
     let anon_id = "true_eval_user";
     let anon_payload = json!({
         "token": team.api_token,
@@ -158,7 +158,7 @@ async fn test_experience_continuity_with_merge() -> Result<()> {
         name: Some("Merge Test Flag".to_string()),
         key: "merge-test-flag".to_string(),
         filters: json!({
-            "groups": [{"rollout_percentage": 30}]
+            "groups": [{"rollout_percentage": 50}]
         }),
         deleted: false,
         active: true,
@@ -168,8 +168,8 @@ async fn test_experience_continuity_with_merge() -> Result<()> {
     };
     insert_flag_for_team_in_pg(pg_writer.clone(), team.id, Some(flag_row)).await?;
 
-    // Create initial person
-    let initial_id = "initial_user";
+    // Create initial person with an ID that evaluates to false
+    let initial_id = "false_eval_initial";
     let person_id = insert_person_for_team_in_pg(
         pg_reader.clone(),
         team.id,
@@ -187,19 +187,85 @@ async fn test_experience_continuity_with_merge() -> Result<()> {
     )
     .await;
 
-    // Set override via $anon_distinct_id
+    // Step 1: Verify initial_id evaluates to false
+    let initial_check = json!({
+        "token": team.api_token,
+        "distinct_id": initial_id,
+    });
+
+    let initial_res = server
+        .send_flags_request(initial_check.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(initial_res.status(), StatusCode::OK);
+    let initial_json = initial_res.json::<Value>().await?;
+    
+    assert_eq!(
+        initial_json["flags"]["merge-test-flag"]["enabled"],
+        json!(false),
+        "Initial user should evaluate to false"
+    );
+
+    // Step 2: Use an anonymous ID that evaluates to true
+    let anon_id = "true_eval_anon";
+    let anon_check = json!({
+        "token": team.api_token,
+        "distinct_id": anon_id,
+    });
+
+    let anon_res = server
+        .send_flags_request(anon_check.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(anon_res.status(), StatusCode::OK);
+    let anon_json = anon_res.json::<Value>().await?;
+    
+    assert_eq!(
+        anon_json["flags"]["merge-test-flag"]["enabled"],
+        json!(true),
+        "Anonymous ID should evaluate to true"
+    );
+
+    // Step 3: Set override via $anon_distinct_id
     let override_payload = json!({
         "token": team.api_token,
         "distinct_id": initial_id,
-        "$anon_distinct_id": "anon_that_evaluates_true",
+        "$anon_distinct_id": anon_id,
     });
 
-    server
+    let override_res = server
         .send_flags_request(override_payload.to_string(), Some("2"), None)
         .await;
+    assert_eq!(override_res.status(), StatusCode::OK);
+    let override_json = override_res.json::<Value>().await?;
+    
+    assert_eq!(
+        override_json["flags"]["merge-test-flag"]["enabled"],
+        json!(true),
+        "After setting override, should evaluate to true"
+    );
 
-    // Add another distinct_id to same person (simulating merge)
-    let merged_id = "merged_user";
+    // Step 4: First verify that the merged_id would naturally evaluate to false
+    let merged_id = "false_eval_merged_user";
+    
+    // Test that this ID naturally evaluates to false (before any association)
+    let natural_check = json!({
+        "token": team.api_token,
+        "distinct_id": merged_id,
+    });
+    
+    let natural_res = server
+        .send_flags_request(natural_check.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(natural_res.status(), StatusCode::OK);
+    let natural_json = natural_res.json::<Value>().await?;
+    
+    assert_eq!(
+        natural_json["flags"]["merge-test-flag"]["enabled"],
+        json!(false),
+        "merged_id should naturally evaluate to false before association"
+    );
+    
+    // Step 5: Simulate a person merge (this would normally happen via $identify event)
+    // Use an ID that would naturally evaluate to false to prove the override is working    
     let mut conn = pg_writer.get_connection().await?;
     sqlx::query(
         "INSERT INTO posthog_persondistinctid (team_id, person_id, distinct_id, version)
@@ -211,11 +277,12 @@ async fn test_experience_continuity_with_merge() -> Result<()> {
     .execute(&mut *conn)
     .await?;
 
-    // Call with merged ID without $anon_distinct_id
+    // Step 6: Call with merged ID without $anon_distinct_id
+    // This is the key test - the merged ID should inherit the override
     let merged_payload = json!({
         "token": team.api_token,
         "distinct_id": merged_id,
-        // NO $anon_distinct_id
+        // NO $anon_distinct_id 
     });
 
     let res = server
@@ -228,7 +295,7 @@ async fn test_experience_continuity_with_merge() -> Result<()> {
     assert_eq!(
         json["flags"]["merge-test-flag"]["enabled"],
         json!(true),
-        "Merged distinct_id should use existing override without $anon_distinct_id"
+        "Merged distinct_id should use existing override without $anon_distinct_id (inherits from the person's existing override)"
     );
 
     Ok(())
