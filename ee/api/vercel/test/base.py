@@ -61,7 +61,11 @@ class VercelTestBase(APIBaseTest):
         return jwt.encode(payload, private_key_str, algorithm="RS256", headers=headers)
 
     def _create_user_auth_payload(
-        self, installation_id: str | None = None, account_id: str | None = None, user_id: str | None = None
+        self,
+        installation_id: str | None = None,
+        account_id: str | None = None,
+        user_id: str | None = None,
+        user_role: str = "ADMIN",
     ) -> dict:
         return {
             "iss": VercelAuthentication.VERCEL_ISSUER,
@@ -70,7 +74,7 @@ class VercelTestBase(APIBaseTest):
             "account_id": account_id or self.account_id,
             "installation_id": installation_id or self.installation_id,
             "user_id": user_id or self.user_id,
-            "user_role": "ADMIN",
+            "user_role": user_role,
             "exp": timezone.now().timestamp() + 3600,
         }
 

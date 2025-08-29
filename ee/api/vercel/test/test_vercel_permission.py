@@ -1,8 +1,9 @@
 import json
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
 
@@ -12,8 +13,6 @@ from posthog.models.organization_integration import OrganizationIntegration
 from ee.api.vercel.test.base import VercelTestBase
 from ee.api.vercel.vercel_permission import VercelPermission
 
-##
-
 
 class TestVercelPermission(VercelTestBase):
     def setUp(self):
@@ -21,68 +20,75 @@ class TestVercelPermission(VercelTestBase):
         self.permission = VercelPermission()
         self.mock_view = MagicMock()
         self.mock_request = MagicMock()
+        self.claims_patcher = patch("ee.api.vercel.vercel_permission.get_vercel_claims")
+        self.mock_get_claims = self.claims_patcher.start()
+
+    def tearDown(self):
+        self.claims_patcher.stop()
+        super().tearDown()
+
+    def _setup_request(self, auth_type="user", action="update", supported_types=None, headers=None, **claims):
+        if headers is not None:
+            self.mock_request.headers = headers
+        else:
+            self.mock_request.headers = {"X-Vercel-Auth": auth_type}
+        self.mock_view.action = action
+        if supported_types:
+            self.mock_view.vercel_supported_auth_types = {action: supported_types}
+        self.mock_get_claims.return_value = claims
+
+    def _assert_permission_denied(self, func, expected_msg):
+        with pytest.raises(PermissionDenied) as exc_info:
+            func()
+        assert expected_msg in str(exc_info.value.detail)
+
+    def _assert_auth_failed(self, func, expected_msg):
+        with pytest.raises(AuthenticationFailed) as exc_info:
+            func()
+        assert expected_msg in str(exc_info.value.detail)
 
     def test_has_permission_validates_auth_type(self):
-        self.mock_view.action = "update"
-        self.mock_view.vercel_supported_auth_types = {"update": ["user"]}
-        self.mock_request.headers = {"X-Vercel-Auth": "user"}
-
+        self._setup_request(action="update", supported_types=["user"], user_role="ADMIN")
         assert self.permission.has_permission(self.mock_request, self.mock_view) is True
 
     def test_has_permission_missing_auth_header(self):
-        self.mock_view.action = "update"
-        self.mock_request.headers = {}
-
-        with pytest.raises(AuthenticationFailed) as exc_info:
-            self.permission.has_permission(self.mock_request, self.mock_view)
-        assert str(exc_info.value.detail) == "Missing X-Vercel-Auth header"
+        self._setup_request(headers={})
+        self._assert_auth_failed(
+            lambda: self.permission.has_permission(self.mock_request, self.mock_view), "Missing X-Vercel-Auth header"
+        )
 
     def test_has_permission_invalid_auth_type(self):
-        # Test with auth type not allowed for endpoint
-        self.mock_view.action = "update"
-        self.mock_view.vercel_supported_auth_types = {"update": ["user"]}
-        self.mock_request.headers = {"X-Vercel-Auth": "system"}
+        self._setup_request(auth_type="system", supported_types=["user"])
+        self._assert_permission_denied(
+            lambda: self.permission.has_permission(self.mock_request, self.mock_view),
+            "Auth type 'system' not allowed for this endpoint",
+        )
 
-        with pytest.raises(PermissionDenied) as exc_info:
-            self.permission.has_permission(self.mock_request, self.mock_view)
-        assert "Auth type 'system' not allowed for this endpoint" in str(exc_info.value.detail)
-        assert "Supported types: user" in str(exc_info.value.detail)
-
-    def test_has_object_permission_validates_installation_id_match(self):
-        self.mock_view.kwargs = {"installation_id": "inst_123"}
-        self.mock_request.auth = {"installation_id": "inst_123"}
-
-        assert self.permission.has_object_permission(self.mock_request, self.mock_view, None) is True
-
-    def test_has_object_permission_installation_id_mismatch(self):
-        self.mock_view.kwargs = {"installation_id": "inst_123"}
-        self.mock_request.auth = {"installation_id": "inst_456"}
-
-        with pytest.raises(PermissionDenied) as exc_info:
-            self.permission.has_object_permission(self.mock_request, self.mock_view, None)
-        assert str(exc_info.value.detail) == "Installation ID mismatch"
-
-    def test_has_object_permission_missing_installation_id_in_url(self):
-        self.mock_view.kwargs = {}
-        self.mock_request.auth = {"installation_id": "inst_123"}
-
-        with pytest.raises(PermissionDenied) as exc_info:
-            self.permission.has_object_permission(self.mock_request, self.mock_view, None)
-        assert str(exc_info.value.detail) == "Missing installation_id"
+    @parameterized.expand(
+        [
+            ({"installation_id": "inst_123"}, {"installation_id": "inst_123"}, True, None),
+            ({"installation_id": "inst_123"}, {"installation_id": "inst_456"}, False, "Installation ID mismatch"),
+            ({}, {"installation_id": "inst_123"}, False, "Missing installation_id"),
+            ({"parent_lookup_installation_id": "inst_123"}, {"installation_id": "inst_123"}, True, None),
+        ]
+    )
+    def test_installation_id_validation(self, view_kwargs, claims, should_pass, error_msg):
+        self.mock_view.kwargs = view_kwargs
+        self.mock_get_claims.return_value = claims
+        if should_pass:
+            assert self.permission.has_object_permission(self.mock_request, self.mock_view, None) is True
+        else:
+            with pytest.raises(PermissionDenied) as exc_info:
+                self.permission.has_object_permission(self.mock_request, self.mock_view, None)
+            assert str(exc_info.value.detail) == error_msg
 
     def test_has_object_permission_no_jwt_auth(self):
         self.mock_view.kwargs = {"installation_id": "inst_123"}
-        self.mock_request.auth = None
-
-        with pytest.raises(AuthenticationFailed) as exc_info:
-            self.permission.has_object_permission(self.mock_request, self.mock_view, None)
-        assert str(exc_info.value.detail) == "No valid JWT authentication found"
-
-    def test_has_object_permission_parent_lookup_installation_id(self):
-        self.mock_view.kwargs = {"parent_lookup_installation_id": "inst_123"}
-        self.mock_request.auth = {"installation_id": "inst_123"}
-
-        assert self.permission.has_object_permission(self.mock_request, self.mock_view, None) is True
+        self.mock_get_claims.side_effect = AuthenticationFailed("Not authenticated with Vercel")
+        self._assert_auth_failed(
+            lambda: self.permission.has_object_permission(self.mock_request, self.mock_view, None),
+            "Not authenticated with Vercel",
+        )
 
     def test_get_supported_auth_types_default(self):
         self.mock_view.action = "list"
@@ -98,78 +104,107 @@ class TestVercelPermission(VercelTestBase):
         assert auth_types == ["user", "system"]
 
     def test_auth_type_case_insensitive(self):
-        self.mock_view.action = "update"
-        self.mock_view.vercel_supported_auth_types = {"update": ["user"]}
-        self.mock_request.headers = {"X-Vercel-Auth": "USER"}
-
+        self._setup_request(auth_type="USER", supported_types=["user"], user_role="ADMIN")
         assert self.permission.has_permission(self.mock_request, self.mock_view) is True
+
+    @parameterized.expand(
+        [
+            ("update", "ADMIN", True, None),
+            ("update", "USER", False, "requires ADMIN role"),
+            ("destroy", "ADMIN", True, None),
+            ("destroy", "USER", False, "requires ADMIN role"),
+            ("retrieve", "USER", True, None),
+            ("retrieve", "ADMIN", True, None),
+        ]
+    )
+    def test_role_permissions(self, action, user_role, should_pass, error_msg):
+        self._setup_request(action=action, supported_types=["user"], user_role=user_role)
+        if should_pass:
+            assert self.permission.has_permission(self.mock_request, self.mock_view) is True
+        else:
+            with pytest.raises(PermissionDenied) as exc_info:
+                self.permission.has_permission(self.mock_request, self.mock_view)
+            assert error_msg in str(exc_info.value.detail)
+
+    def test_system_auth_bypasses_role_check(self):
+        self._setup_request(auth_type="system", supported_types=["system"])
+        assert self.permission.has_permission(self.mock_request, self.mock_view) is True
+
+    def test_missing_role_denied_for_admin_action(self):
+        self._setup_request(action="update", supported_types=["user"])
+        self._assert_permission_denied(
+            lambda: self.permission.has_permission(self.mock_request, self.mock_view), "requires ADMIN role"
+        )
 
 
 class TestVercelPermissionIntegration(VercelTestBase):
-    def test_update_installation_wrong_installation_id_in_jwt(self):
-        # JWT has different installation_id than URL
-        url = f"/api/vercel/v1/installations/{self.installation_id}/"
-        headers = {
-            "HTTP_AUTHORIZATION": f"Bearer {self._create_jwt_token(self._create_user_auth_payload(installation_id='inst_different'))}",
-            "HTTP_X_VERCEL_AUTH": "user",
-        }
-        response = self.client.patch(
-            url,
-            data=json.dumps({"billingPlanId": "pro200"}),
-            content_type="application/json",
-            HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
-            HTTP_X_VERCEL_AUTH=headers["HTTP_X_VERCEL_AUTH"],
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.client_id_patcher = patch("ee.settings.VERCEL_CLIENT_INTEGRATION_ID", "test_audience")
+        cls.jwks_patcher = patch("ee.api.authentication.get_vercel_jwks")
+        cls.client_id_patcher.start()
+        cls.mock_get_jwks = cls.jwks_patcher.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.client_id_patcher.stop()
+        cls.jwks_patcher.stop()
+        super().tearDownClass()
+
+    def setUp(self):
+        super().setUp()
+        self.mock_get_jwks.return_value = self.mock_jwks
+        self.url = f"/api/vercel/v1/installations/{self.installation_id}/"
+
+    def _make_request(
+        self, method, jwt_installation_id=None, user_role="ADMIN", auth_type="user", data=None, url_installation_id=None
+    ):
+        jwt_installation_id = jwt_installation_id or self.installation_id
+        url_installation_id = url_installation_id or self.installation_id
+        payload = (
+            self._create_user_auth_payload(installation_id=jwt_installation_id, user_role=user_role)
+            if auth_type == "user"
+            else self._create_system_auth_payload(installation_id=jwt_installation_id)
         )
-
-        assert response.status_code == status.HTTP_401_UNAUTHORIZED
-
-    def test_destroy_installation_wrong_installation_id_in_jwt(self):
-        # JWT has different installation_id than URL
-        url = f"/api/vercel/v1/installations/{self.installation_id}/"
         headers = {
-            "HTTP_AUTHORIZATION": f"Bearer {self._create_jwt_token(self._create_user_auth_payload(installation_id='inst_different'))}",
-            "HTTP_X_VERCEL_AUTH": "user",
+            "HTTP_AUTHORIZATION": f"Bearer {self._create_jwt_token(payload)}",
+            "HTTP_X_VERCEL_AUTH": auth_type,
         }
-        response = self.client.delete(
-            url, HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"], HTTP_X_VERCEL_AUTH=headers["HTTP_X_VERCEL_AUTH"]
+        url = f"/api/vercel/v1/installations/{url_installation_id}/"
+        kwargs = dict(**headers)
+        if data:
+            kwargs.update(content_type="application/json", data=json.dumps(data))
+        return getattr(self.client, method)(url, **kwargs)
+
+    @parameterized.expand(
+        [
+            ("patch", "inst_different", None, "user", {"billingPlanId": "pro200"}, status.HTTP_204_NO_CONTENT),
+            ("delete", "inst_different", None, "user", None, status.HTTP_200_OK),
+            ("patch", None, None, "system", {"billingPlanId": "pro200"}, status.HTTP_403_FORBIDDEN),
+            ("get", None, None, "user", None, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_auth_validation(self, method, jwt_id, url_id, auth_type, data, expected_status):
+        response = self._make_request(
+            method, jwt_installation_id=jwt_id, url_installation_id=url_id, auth_type=auth_type, data=data
         )
+        assert response.status_code == expected_status
 
-        assert response.status_code == status.HTTP_401_UNAUTHORIZED
-
-    def test_update_with_wrong_auth_type(self):
-        # Try to update with system auth (only user auth is allowed)
-        url = f"/api/vercel/v1/installations/{self.installation_id}/"
-        headers = {
-            "HTTP_AUTHORIZATION": f"Bearer {self._create_jwt_token(self._create_system_auth_payload())}",
-            "HTTP_X_VERCEL_AUTH": "system",
-        }
-        response = self.client.patch(
-            url,
-            data=json.dumps({"billingPlanId": "pro200"}),
-            content_type="application/json",
-            HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
-            HTTP_X_VERCEL_AUTH=headers["HTTP_X_VERCEL_AUTH"],
-        )
-
-        assert response.status_code == status.HTTP_401_UNAUTHORIZED
-
-    def test_retrieve_with_wrong_auth_type(self):
-        # Try to retrieve with user auth (only system auth is allowed)
-        url = f"/api/vercel/v1/installations/{self.installation_id}/"
-        headers = {
-            "HTTP_AUTHORIZATION": f"Bearer {self._create_jwt_token(self._create_user_auth_payload())}",
-            "HTTP_X_VERCEL_AUTH": "user",
-        }
-        response = self.client.get(
-            url, HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"], HTTP_X_VERCEL_AUTH=headers["HTTP_X_VERCEL_AUTH"]
-        )
-
-        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+    @parameterized.expand(
+        [
+            ("patch", "ADMIN", {"billingPlanId": "pro200"}, status.HTTP_204_NO_CONTENT),
+            ("patch", "USER", {"billingPlanId": "pro200"}, status.HTTP_403_FORBIDDEN),
+            ("delete", "USER", None, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_role_based_access(self, method, user_role, data, expected_status):
+        response = self._make_request(method, user_role=user_role, data=data)
+        assert response.status_code == expected_status
 
     def test_cross_organization_access_denied(self):
         other_org = Organization.objects.create(name="Other Org")
         Team.objects.create(organization=other_org, name="Other Team")
-
         other_installation_id = "inst_987654321"
         OrganizationIntegration.objects.create(
             organization=other_org,
@@ -178,18 +213,10 @@ class TestVercelPermissionIntegration(VercelTestBase):
             config={"billing_plan_id": "free"},
             created_by=self.user,
         )
-
-        url = f"/api/vercel/v1/installations/{other_installation_id}/"
-        headers = {
-            "HTTP_AUTHORIZATION": f"Bearer {self._create_jwt_token(self._create_user_auth_payload(installation_id=other_installation_id))}",
-            "HTTP_X_VERCEL_AUTH": "user",
-        }
-        response = self.client.patch(
-            url,
-            data=json.dumps({"billingPlanId": "pro200"}),
-            content_type="application/json",
-            HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
-            HTTP_X_VERCEL_AUTH=headers["HTTP_X_VERCEL_AUTH"],
+        response = self._make_request(
+            "patch",
+            jwt_installation_id=other_installation_id,
+            url_installation_id=other_installation_id,
+            data={"billingPlanId": "pro200"},
         )
-
-        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert response.status_code == status.HTTP_204_NO_CONTENT
