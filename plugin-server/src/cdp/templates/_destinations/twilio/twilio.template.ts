@@ -26,7 +26,7 @@ if (not message) {
 let encodedTo := encodeURLComponent(toNumber)
 let encodedFrom := encodeURLComponent(fromNumber)
 let encodedSmsBody := encodeURLComponent(message)
-let base64EncodedAuth := base64Encode(f'{inputs.twilio_account.account_sid}:{inputs.twilio_account.auth_token}')
+let base64EncodedAuth := base64Encode(f'{inputs.twilio_account.account_sid}:{inputs.twilio_account.auth_token_raw}')
 
 let url := f'https://api.twilio.com/2010-04-01/Accounts/{inputs.twilio_account.account_sid}/Messages.json'
 let body := f'To={encodedTo}&From={encodedFrom}&Body={encodedSmsBody}'

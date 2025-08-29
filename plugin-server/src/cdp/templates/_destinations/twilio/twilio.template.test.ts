@@ -17,7 +17,7 @@ describe('twilio template', () => {
             {
                 twilio_account: {
                     account_sid: 'sid_12345',
-                    auth_token: 'auth_12345',
+                    auth_token_raw: 'auth_12345',
                 },
                 from_number: '+1234567891',
             },
