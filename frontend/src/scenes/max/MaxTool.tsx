@@ -14,6 +14,7 @@ import { SidePanelTab } from '~/types'
 
 import { TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
+import { maxLogic } from './maxLogic'
 import { generateBurstPoints } from './utils'
 
 interface MaxToolProps extends Omit<ToolRegistration, 'name' | 'description'> {
@@ -45,6 +46,7 @@ export function MaxTool({
     const { user } = useValues(userLogic)
     const { openSidePanel } = useActions(sidePanelLogic)
     const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
+    const { setActiveGroup } = useActions(maxLogic)
 
     const definition = TOOL_DEFINITIONS[identifier as keyof typeof TOOL_DEFINITIONS]
 
@@ -75,7 +77,7 @@ export function MaxTool({
         icon,
         JSON.stringify(context),
         introOverride,
-        JSON.stringify(suggestions),
+        suggestions,
         callback,
         registerTool,
         deregisterTool,
@@ -116,15 +118,16 @@ export function MaxTool({
                         )}
                         type="button"
                         onClick={() => {
-                            // Include both initial prompt and suggestions
-                            let options = initialMaxPrompt
+                            openSidePanel(SidePanelTab.Max, initialMaxPrompt)
+                            // Show the suggestions from this specific tool
                             if (suggestions && suggestions.length > 0) {
-                                options = JSON.stringify({
-                                    prompt: initialMaxPrompt,
-                                    suggestions: suggestions,
-                                })
+                                const suggestionGroup = {
+                                    label: definition.name,
+                                    icon: <IconWrench />,
+                                    suggestions: suggestions.map((sugg: string) => ({ content: sugg })),
+                                }
+                                setActiveGroup(suggestionGroup)
                             }
-                            openSidePanel(SidePanelTab.Max, options)
                             onMaxOpen?.()
                         }}
                     >
