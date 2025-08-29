@@ -205,7 +205,12 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             (dateFilter): boolean => dateFilter.interval !== 'month',
         ],
 
-        hasRevenueEvents: [(s) => [s.revenueEnabledEvents], (events): boolean => events.length > 0],
+        hasRevenueEvents: [
+            (s) => [s.revenueEnabledEvents],
+            (events): boolean => {
+                return events.length > 0
+            },
+        ],
 
         hasRevenueTables: [
             (s) => [s.revenueEnabledDataWarehouseSources],

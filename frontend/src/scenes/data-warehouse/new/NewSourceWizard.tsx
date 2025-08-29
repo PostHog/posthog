@@ -7,13 +7,14 @@ import { LemonButton, LemonSkeleton, LemonTable, LemonTag, Link, lemonToast } fr
 
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { SourceConfig } from '~/queries/schema/schema-general'
+import { ExternalDataSourceType, SourceConfig } from '~/queries/schema/schema-general'
 import { ManualLinkSourceType, SurveyEventName, SurveyEventProperties } from '~/types'
 
 import { DataWarehouseInitialBillingLimitNotice } from '../DataWarehouseInitialBillingLimitNotice'
@@ -69,8 +70,10 @@ function InternalNewSourceWizardScene(): JSX.Element {
 }
 
 interface NewSourcesWizardProps {
-    disableConnectedSources?: boolean
     onComplete?: () => void
+    disableConnectedSources?: boolean
+    allowedSources?: ExternalDataSourceType[] // Filter to only show these source types
+    initialSource?: ExternalDataSourceType // Pre-select this source and start on step 2
 }
 
 export function NewSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
@@ -88,16 +91,32 @@ export function NewSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
 }
 
 function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
-    const { modalTitle, modalCaption, isWrapped, currentStep, isLoading, canGoBack, canGoNext, nextButtonText } =
-        useValues(sourceWizardLogic)
-    const { onBack, onSubmit, onClear } = useActions(sourceWizardLogic)
+    const {
+        modalTitle,
+        isWrapped,
+        currentStep,
+        isLoading,
+        canGoBack,
+        canGoNext,
+        nextButtonText,
+        selectedConnector,
+        connectors,
+    } = useValues(sourceWizardLogic)
+    const { onBack, onSubmit, onClear, selectConnector, setStep } = useActions(sourceWizardLogic)
     const { tableLoading: manualLinkIsLoading } = useValues(dataWarehouseTableLogic)
 
-    useEffect(() => {
-        return () => {
-            onClear()
+    // Initialize wizard with initial source if provided
+    useOnMountEffect(() => {
+        if (props.initialSource && connectors.length > 0) {
+            const initialConnector = connectors.find((c) => c.name === props.initialSource)
+            if (initialConnector) {
+                selectConnector(initialConnector)
+                setStep(2) // Skip source selection, go directly to connection form
+            }
         }
-    }, [onClear])
+    })
+
+    useEffect(() => onClear, [onClear])
 
     const footer = useCallback(() => {
         if (currentStep === 1) {
@@ -106,17 +125,15 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
 
         return (
             <div className="flex flex-row gap-2 justify-end mt-4">
-                {canGoBack && (
-                    <LemonButton
-                        type="secondary"
-                        center
-                        data-attr="source-modal-back-button"
-                        onClick={onBack}
-                        disabledReason={!canGoBack && 'You cant go back from here'}
-                    >
-                        Back
-                    </LemonButton>
-                )}
+                <LemonButton
+                    type="secondary"
+                    center
+                    data-attr="source-modal-back-button"
+                    onClick={onBack}
+                    disabledReason={!canGoBack && 'You cant go back from here'}
+                >
+                    Back
+                </LemonButton>
                 <LemonButton
                     loading={isLoading || manualLinkIsLoading}
                     disabledReason={!canGoNext && 'You cant click next yet'}
@@ -135,11 +152,23 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         <>
             {!isWrapped && <DataWarehouseInitialBillingLimitNotice />}
             <>
-                <h3>{modalTitle}</h3>
-                <LemonMarkdown className="mb-6">{modalCaption}</LemonMarkdown>
+                {selectedConnector && (
+                    <div className="flex items-center gap-3 mb-4">
+                        <DataWarehouseSourceIcon type={selectedConnector.name} size="small" disableTooltip />
+                        <div>
+                            <h4 className="text-lg font-semibold mb-0">{modalTitle}</h4>
+                            <p className="text-sm text-muted-alt mb-0">
+                                Import data directly from your {selectedConnector.name} account
+                            </p>
+                        </div>
+                    </div>
+                )}
 
                 {currentStep === 1 ? (
-                    <FirstStep {...props} />
+                    <FirstStep
+                        disableConnectedSources={props.disableConnectedSources}
+                        allowedSources={props.allowedSources}
+                    />
                 ) : currentStep === 2 ? (
                     <SecondStep />
                 ) : currentStep === 3 ? (
@@ -156,7 +185,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
     )
 }
 
-function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'disableConnectedSources'>): JSX.Element {
+function FirstStep({ disableConnectedSources, allowedSources }: NewSourcesWizardProps): JSX.Element {
     const { connectors, manualConnectors } = useValues(sourceWizardLogic)
     const { selectConnector, toggleManualLinkFormVisible, onNext, setManualLinkingProvider } =
         useActions(sourceWizardLogic)
@@ -176,6 +205,11 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
         .filter((n) => {
             if (n.name === 'MetaAds') {
                 return featureFlags[FEATURE_FLAGS.META_ADS_DWH]
+            }
+
+            // Filter by allowed sources if specified
+            if (allowedSources && allowedSources.length > 0) {
+                return allowedSources.includes(n.name)
             }
 
             return true
@@ -330,7 +364,13 @@ function SecondStep(): JSX.Element {
     const { selectedConnector } = useValues(sourceWizardLogic)
 
     return selectedConnector ? (
-        <SourceForm sourceConfig={selectedConnector} />
+        <div className="space-y-4">
+            {selectedConnector.caption && (
+                <LemonMarkdown className="text-sm">{selectedConnector.caption}</LemonMarkdown>
+            )}
+
+            <SourceForm sourceConfig={selectedConnector} />
+        </div>
     ) : (
         <BindLogic logic={dataWarehouseTableLogic} props={{ id: 'new' }}>
             <DatawarehouseTableForm />
