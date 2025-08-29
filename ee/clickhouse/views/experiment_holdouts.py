@@ -1,18 +1,20 @@
 from typing import Any
-from rest_framework import serializers, viewsets
-from rest_framework.exceptions import ValidationError
-from rest_framework.request import Request
-from rest_framework.response import Response
+
 from django.db import transaction
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 
+from rest_framework import serializers, viewsets
+from rest_framework.exceptions import ValidationError
+from rest_framework.request import Request
+from rest_framework.response import Response
+
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.experiment import ExperimentHoldout
 from posthog.models.signals import model_activity_signal
-from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between
 
 
 class ExperimentHoldoutSerializer(serializers.ModelSerializer):
@@ -138,30 +140,14 @@ def handle_experiment_holdout_change(
         user=user or after_update.created_by,
         was_impersonated=was_impersonated,
         item_id=after_update.id,
-        scope=scope,
+        scope="Experiment",  # log under Experiment scope so it appears in experiment activity log
         activity=activity,
         detail=Detail(
             changes=changes_between(scope, previous=before_update, current=after_update),
             name=after_update.name,
+            type="holdout",
         ),
     )
-
-    # Also log activity for each experiment that uses this holdout
-    for experiment in after_update.experiment_set.all():
-        log_activity(
-            organization_id=after_update.team.organization_id,
-            team_id=after_update.team_id,
-            user=user or after_update.created_by,
-            was_impersonated=was_impersonated,
-            item_id=experiment.id,
-            scope="Experiment",  # log under Experiment scope so it appears in experiment activity log
-            activity=activity,
-            detail=Detail(
-                changes=changes_between("ExperimentHoldout", previous=before_update, current=after_update),
-                name=after_update.name,
-                type="holdout",
-            ),
-        )
 
 
 @receiver(pre_delete, sender=ExperimentHoldout)
@@ -175,20 +161,7 @@ def handle_experiment_holdout_delete(sender, instance, **kwargs):
         user=activity_storage.get_user() or getattr(instance, "last_modified_by", instance.created_by),
         was_impersonated=activity_storage.get_was_impersonated(),
         item_id=instance.id,
-        scope="ExperimentHoldout",
+        scope="Experiment",
         activity="deleted",
-        detail=Detail(name=instance.name),
+        detail=Detail(name=instance.name, type="holdout"),
     )
-
-    # Also log activity for each experiment that uses this holdout
-    for experiment in instance.experiment_set.all():
-        log_activity(
-            organization_id=instance.team.organization_id,
-            team_id=instance.team_id,
-            user=activity_storage.get_user() or getattr(instance, "last_modified_by", instance.created_by),
-            was_impersonated=activity_storage.get_was_impersonated(),
-            item_id=experiment.id,
-            scope="Experiment",  # log under Experiment scope so it appears in experiment activity log
-            activity="deleted",
-            detail=Detail(name=instance.name, type="holdout"),
-        )

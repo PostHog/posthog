@@ -1,23 +1,21 @@
 import json
 from datetime import timedelta
-from typing import cast, Optional
+from typing import Optional, cast
+
+from freezegun import freeze_time
+from posthog.test.base import FuzzyInt, snapshot_postgres_queries
+
 from django.test import override_settings
 from django.utils import timezone
-from freezegun import freeze_time
+
 from rest_framework import status
 
-from ee.api.test.base import APILicensedTest
-from ee.models import ExplicitTeamMembership, DashboardPrivilege
 from posthog.api.test.dashboards import DashboardAPI
-from posthog.models import (
-    Dashboard,
-    DashboardTile,
-    Insight,
-    OrganizationMembership,
-    User,
-)
-from posthog.test.base import FuzzyInt, snapshot_postgres_queries
+from posthog.models import Dashboard, DashboardTile, Insight, OrganizationMembership, User
 from posthog.test.db_context_capturing import capture_db_queries
+
+from ee.api.test.base import APILicensedTest
+from ee.models import DashboardPrivilege, ExplicitTeamMembership
 
 
 class TestInsightEnterpriseAPI(APILicensedTest):

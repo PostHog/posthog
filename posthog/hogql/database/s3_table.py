@@ -1,11 +1,12 @@
 import re
 from typing import Optional
 
-from posthog.clickhouse.client.escape import substitute_params
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import FunctionCallTable
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.escape_sql import escape_hogql_identifier
+
+from posthog.clickhouse.client.escape import substitute_params
 
 
 def build_function_call(
@@ -135,6 +136,7 @@ class S3Table(FunctionCallTable):
     access_key: Optional[str] = None
     access_secret: Optional[str] = None
     structure: Optional[str] = None
+    table_id: Optional[str] = None
 
     def to_printed_hogql(self):
         return escape_hogql_identifier(self.name)

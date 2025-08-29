@@ -44,7 +44,6 @@ import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicT
 import { ViewportResolution, getHrefFromSnapshot } from './snapshot-processing/patch-meta-event'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 
-const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const TWENTY_FOUR_HOURS_IN_MS = 24 * 60 * 60 * 1000 // +- before and after start and end of a recording to query for session linked events.
 const FIVE_MINUTES_IN_MS = 5 * 60 * 1000 // +- before and after start and end of a recording to query for events related by person.
 const DEFAULT_REALTIME_POLLING_MILLIS = 3000
@@ -92,14 +91,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         }),
         loadEvents: true,
         loadFullEventData: (event: RecordingEventType | RecordingEventType[]) => ({ event }),
-        markViewed: (delay?: number) => ({ delay }),
         reportUsageIfFullyLoaded: true,
         persistRecording: true,
         maybePersistRecording: true,
         pollRealtimeSnapshots: true,
         stopRealtimePolling: true,
         setTrackedWindow: (windowId: string | null) => ({ windowId }),
-        setWasMarkedViewed: (wasMarkedViewed: boolean) => ({ wasMarkedViewed }),
     }),
     reducers(() => ({
         trackedWindow: [
@@ -133,12 +130,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             0,
             {
                 loadSnapshotsForSourceSuccess: (state) => state + 1,
-            },
-        ],
-        wasMarkedViewed: [
-            false as boolean,
-            {
-                setWasMarkedViewed: (_, { wasMarkedViewed }) => wasMarkedViewed,
             },
         ],
     })),
@@ -546,9 +537,6 @@ AND properties.$lib != 'web'`
                     source: sources[0],
                 })
             }
-            if (!values.wasMarkedViewed) {
-                actions.markViewed()
-            }
 
             actions.loadNextSnapshotSource()
         },
@@ -618,28 +606,6 @@ AND properties.$lib != 'web'`
                     0
                 )
             }
-        },
-        markViewed: async ({ delay }, breakpoint) => {
-            // Triggered on first paint
-            breakpoint()
-            if (props.playerKey?.startsWith('file-')) {
-                return
-            }
-            if (values.wasMarkedViewed) {
-                return
-            }
-            actions.setWasMarkedViewed(true) // this prevents us from calling the function multiple times
-
-            await breakpoint(IS_TEST_MODE ? 1 : (delay ?? 3000))
-            await api.recordings.update(props.sessionRecordingId, {
-                viewed: true,
-                player_metadata: values.sessionPlayerMetaData,
-            })
-            await breakpoint(IS_TEST_MODE ? 1 : 10000)
-            await api.recordings.update(props.sessionRecordingId, {
-                analyzed: true,
-                player_metadata: values.sessionPlayerMetaData,
-            })
         },
 
         maybePersistRecording: () => {
@@ -774,16 +740,15 @@ AND properties.$lib != 'web'`
         ],
 
         snapshotsLoading: [
-            (s) => [s.snapshotSourcesLoading, s.snapshotsForSourceLoading, s.snapshots, s.featureFlags],
+            (s) => [s.snapshotSourcesLoading, s.snapshotsForSourceLoading, s.featureFlags],
             (
                 snapshotSourcesLoading: boolean,
                 snapshotsForSourceLoading: boolean,
-                snapshots: RecordingSnapshot[],
                 featureFlags: FeatureFlagsSet
             ): boolean => {
                 // For v2 recordings, only show loading if we have no snapshots yet
                 if (featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY]) {
-                    return snapshots.length === 0
+                    return snapshotSourcesLoading || snapshotsForSourceLoading
                 }
 
                 // Default behavior for non-v2 recordings

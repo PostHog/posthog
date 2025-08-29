@@ -1,26 +1,6 @@
 from typing import Literal, Union, cast
 from zoneinfo import ZoneInfo
 
-import structlog
-from rest_framework.exceptions import ValidationError
-
-from posthog.hogql import ast
-from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
-from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import action_to_expr, property_to_expr
-from posthog.hogql_queries.experiments.exposure_query_logic import (
-    build_common_exposure_conditions,
-    get_exposure_event_and_property,
-    get_test_accounts_filter,
-    get_variant_selection_expr,
-)
-from posthog.hogql_queries.experiments.hogql_aggregation_utils import (
-    extract_aggregation_and_inner_expr,
-)
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models import Experiment
-from posthog.models.action.action import Action
-from posthog.models.team.team import Team
 from posthog.schema import (
     ActionsNode,
     BaseMathType,
@@ -39,7 +19,21 @@ from posthog.schema import (
     PropertyMathType,
 )
 
-logger = structlog.get_logger(__name__)
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr
+from posthog.hogql.property import action_to_expr, property_to_expr
+
+from posthog.hogql_queries.experiments.exposure_query_logic import (
+    build_common_exposure_conditions,
+    get_exposure_event_and_property,
+    get_test_accounts_filter,
+    get_variant_selection_expr,
+)
+from posthog.hogql_queries.experiments.hogql_aggregation_utils import extract_aggregation_and_inner_expr
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models import Experiment
+from posthog.models.action.action import Action
+from posthog.models.team.team import Team
 
 
 def get_data_warehouse_metric_source(
@@ -93,6 +87,14 @@ def get_source_value_expr(source: Union[EventsNode, ActionsNode, ExperimentDataW
                 return ast.Call(name="toFloat", args=[ast.Field(chain=["properties", metric_property])])
         elif hasattr(source, "math") and source.math == ExperimentMetricMathType.UNIQUE_SESSION:
             return ast.Field(chain=["$session_id"])
+        elif hasattr(source, "math") and source.math == ExperimentMetricMathType.DAU:
+            return ast.Field(chain=["person_id"])
+        elif (
+            hasattr(source, "math")
+            and source.math == ExperimentMetricMathType.UNIQUE_GROUP
+            and source.math_group_type_index
+        ):
+            return ast.Field(chain=[f"$group_{int(source.math_group_type_index)}"])
         elif (
             hasattr(source, "math")
             and source.math == ExperimentMetricMathType.HOGQL
@@ -567,8 +569,20 @@ def get_source_aggregation_expr(
     """
     if isinstance(source, EventsNode) or isinstance(source, ActionsNode):
         math_type = getattr(source, "math", None)
-        if math_type == ExperimentMetricMathType.UNIQUE_SESSION:
-            return parse_expr(f"toFloat(count(distinct {table_alias}.value))")
+        if math_type in [
+            ExperimentMetricMathType.UNIQUE_SESSION,
+            ExperimentMetricMathType.DAU,
+            ExperimentMetricMathType.UNIQUE_GROUP,
+        ]:
+            # Clickhouse counts empty values as distinct, so need to explicitly exclude them
+            # Also handle the special case of null UUIDs (00000000-0000-0000-0000-000000000000)
+            return parse_expr(f"""toFloat(count(distinct
+                multiIf(
+                    toTypeName({table_alias}.value) = 'UUID' AND reinterpretAsUInt128({table_alias}.value) = 0, NULL,
+                    toString({table_alias}.value) = '', NULL,
+                    {table_alias}.value
+                )
+            ))""")
         elif math_type == ExperimentMetricMathType.MIN:
             return parse_expr(f"min(coalesce(toFloat({table_alias}.value), 0))")
         elif math_type == ExperimentMetricMathType.MAX:
@@ -598,35 +612,21 @@ def get_metric_aggregation_expr(
     Returns the aggregation expression for the metric.
     For ratio metrics, source_type can be "numerator" or "denominator".
     """
-    try:
-        # For ratio metrics, get the appropriate source and delegate to source-based function
-        if isinstance(metric, ExperimentRatioMetric):
-            source = metric.numerator if source_type == "numerator" else metric.denominator
-            return get_source_aggregation_expr(source)
+    # For ratio metrics, get the appropriate source and delegate to source-based function
+    if isinstance(metric, ExperimentRatioMetric):
+        source = metric.numerator if source_type == "numerator" else metric.denominator
+        return get_source_aggregation_expr(source)
 
-        # For mean metrics, delegate to source-based function
-        elif isinstance(metric, ExperimentMeanMetric):
-            return get_source_aggregation_expr(metric.source)
+    # For mean metrics, delegate to source-based function
+    elif isinstance(metric, ExperimentMeanMetric):
+        return get_source_aggregation_expr(metric.source)
 
-        # For funnel metrics, use the existing funnel evaluation logic
-        elif isinstance(metric, ExperimentFunnelMetric):
-            return funnel_evaluation_expr(team, metric, events_alias="metric_events")
+    # For funnel metrics, use the existing funnel evaluation logic
+    elif isinstance(metric, ExperimentFunnelMetric):
+        return funnel_evaluation_expr(team, metric, events_alias="metric_events")
 
-        else:
-            raise ValueError(f"Unsupported metric type: {type(metric)}")
-
-    except InternalHogQLError as e:
-        logger.error(
-            "Internal HogQL error in metric aggregation expression",
-            experiment_id=experiment.id,
-            metric_type=metric.__class__.__name__,
-            metric_math=getattr(getattr(metric, "source", None), "math", None),
-            error_type=type(e).__name__,
-            exc_info=True,
-        )
-        raise ValidationError("Invalid metric configuration for experiment analysis.")
-    except ExposedHogQLError:
-        raise
+    else:
+        raise ValueError(f"Unsupported metric type: {type(metric)}")
 
 
 def get_winsorized_metric_values_query(

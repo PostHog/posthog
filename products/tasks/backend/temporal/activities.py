@@ -1,10 +1,13 @@
-import temporalio
-from temporalio import activity
 import os
-from typing import Any, Optional
+import typing
 
-from posthog.temporal.common.logger import bind_contextvars, get_logger
+import temporalio
+from structlog.contextvars import bind_contextvars
+from temporalio import activity
+
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.logger import get_logger
+
 from .inputs import TaskProcessingInputs
 
 logger = get_logger(__name__)
@@ -14,7 +17,8 @@ async def get_github_integration_token(team_id: int, task_id: str) -> str:
     """Get GitHub access token from PostHog's GitHub integration."""
     try:
         from django.apps import apps
-        from posthog.models.integration import Integration, GitHubIntegration
+
+        from posthog.models.integration import GitHubIntegration, Integration
 
         Task = apps.get_model("tasks", "Task")
 
@@ -152,7 +156,7 @@ async def update_issue_status_activity(args: dict) -> str:
 
 
 @activity.defn
-async def get_task_details_activity(args: dict) -> dict[str, Any]:
+async def get_task_details_activity(args: dict) -> dict[str, typing.Any]:
     """Get task details from the database."""
     task_id = args["task_id"]
     team_id = args["team_id"]
@@ -182,7 +186,7 @@ async def get_task_details_activity(args: dict) -> dict[str, Any]:
 
 
 @activity.defn
-async def ai_agent_work_activity(args: dict) -> dict[str, Any]:
+async def ai_agent_work_activity(args: dict) -> dict[str, typing.Any]:
     """Execute AI agent work using Claude Code SDK with local file access and GitHub MCP integration."""
     inputs = args["inputs"]
     repo_path = args["repo_path"]  # Local cloned repository path
@@ -348,7 +352,7 @@ async def ai_agent_work_activity(args: dict) -> dict[str, Any]:
         return {"success": False, "error": str(e), "task_id": task_id, "branch_name": branch_name}
 
 
-async def _parse_claude_message_for_progress(message, turn_number: int) -> Optional[str]:
+async def _parse_claude_message_for_progress(message, turn_number: int) -> str | None:
     """Parse Claude Code SDK messages to extract meaningful progress information."""
     try:
         # Get the message type - it's usually the class name
@@ -514,8 +518,9 @@ async def _execute_claude_code_sdk(
     try:
         # Try to use the Python SDK first (more reliable)
         try:
-            from claude_code_sdk import query, ClaudeCodeOptions
             from pathlib import Path
+
+            from claude_code_sdk import ClaudeCodeOptions, query
 
             logger.info("Using Claude Code Python SDK")
 

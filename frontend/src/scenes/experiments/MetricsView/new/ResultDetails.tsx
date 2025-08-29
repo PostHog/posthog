@@ -12,12 +12,19 @@ import { ResultsQuery } from 'scenes/experiments/components/ResultsBreakdown/Res
 import { getViewRecordingFilters } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
 
-import { CachedExperimentQueryResponse, ExperimentMetric } from '~/queries/schema/schema-general'
+import {
+    CachedExperimentQueryResponse,
+    ExperimentMetric,
+    isExperimentFunnelMetric,
+    isExperimentMeanMetric,
+    isExperimentRatioMetric,
+} from '~/queries/schema/schema-general'
 import { Experiment, FilterLogicalOperator, RecordingUniversalFilters, ReplayTabs } from '~/types'
 
 import {
     ExperimentVariantResult,
     formatChanceToWin,
+    formatMetricValue,
     formatPValue,
     getIntervalLabel,
     getVariantInterval,
@@ -29,13 +36,11 @@ export function ResultDetails({
     experiment,
     result,
     metric,
-    metricIndex,
     isSecondary,
 }: {
     experiment: Experiment
     result: CachedExperimentQueryResponse
     metric: ExperimentMetric
-    metricIndex: number
     isSecondary: boolean
 }): JSX.Element {
     const columns: LemonTableColumns<ExperimentVariantResult & { key: string }> = [
@@ -51,11 +56,12 @@ export function ResultDetails({
         },
         {
             key: 'value',
-            title: metric.metric_type === 'mean' ? 'Mean' : 'Conversion rate',
-            render: (_, item) => {
-                const value = item.sum / item.number_of_samples
-                return metric.metric_type === 'mean' ? value.toFixed(2) : `${(value * 100).toFixed(2)}%`
-            },
+            title: isExperimentMeanMetric(metric)
+                ? 'Mean'
+                : isExperimentRatioMetric(metric)
+                  ? 'Ratio'
+                  : 'Conversion rate',
+            render: (_, item) => formatMetricValue(item, metric),
         },
         {
             key: 'statistical_measure',
@@ -158,11 +164,11 @@ export function ResultDetails({
     return (
         <div className="space-y-2">
             <LemonTable columns={columns} dataSource={dataSource} loading={false} />
-            {metric.metric_type === 'funnel' && (
+            {isExperimentFunnelMetric(metric) && (
                 <ResultsBreakdown
                     result={result}
                     experiment={experiment}
-                    metricIndex={metricIndex}
+                    metricUuid={metric.uuid || ''}
                     isPrimary={!isSecondary}
                 >
                     {({

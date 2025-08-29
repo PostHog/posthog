@@ -3,7 +3,7 @@ import { ReactJsonViewProps } from '@microlink/react-json-view'
 import {
     ExpandSelector,
     HighlightedContentWrapper,
-} from 'products/llm_observability/frontend/ConversationDisplay/HighlightedContentWrapper'
+} from 'products/llm_analytics/frontend/ConversationDisplay/HighlightedContentWrapper'
 
 import { JSONViewer } from './JSONViewer'
 

@@ -1,14 +1,14 @@
 import dagster
 
-from . import resources
-
 from dags import (
+    web_preaggregated,
     web_preaggregated_asset_checks,
     web_preaggregated_daily,
     web_preaggregated_hourly,
     web_preaggregated_team_selection,
-    web_preaggregated,
 )
+
+from . import resources
 
 defs = dagster.Definitions(
     assets=[

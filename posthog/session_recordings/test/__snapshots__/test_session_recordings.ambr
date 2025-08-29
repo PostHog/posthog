@@ -241,6 +241,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
@@ -328,6 +329,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
@@ -979,6 +981,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
@@ -1066,6 +1069,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
@@ -1525,6 +1529,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
@@ -1612,6 +1617,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
@@ -2222,6 +2228,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
@@ -2309,6 +2316,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
@@ -3484,6 +3492,30 @@
          AND "posthog_persondistinctid"."team_id" = 99999)
   '''
 # ---
+# name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.15
+  '''
+  SELECT "posthog_persondistinctid"."id",
+         "posthog_persondistinctid"."team_id",
+         "posthog_persondistinctid"."person_id",
+         "posthog_persondistinctid"."distinct_id",
+         "posthog_persondistinctid"."version",
+         "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."properties_last_updated_at",
+         "posthog_person"."properties_last_operation",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_user_id",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid",
+         "posthog_person"."version"
+  FROM "posthog_persondistinctid"
+  INNER JOIN "posthog_person" ON ("posthog_persondistinctid"."person_id" = "posthog_person"."id")
+  WHERE ("posthog_persondistinctid"."distinct_id" IN ('user2',
+                                                      'user_one_0')
+         AND "posthog_persondistinctid"."team_id" = 99999)
+  '''
+# ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.2
   '''
   SELECT "posthog_organizationmembership"."id",
@@ -3505,6 +3537,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
@@ -3592,6 +3625,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
@@ -3972,6 +4006,30 @@
          AND "posthog_persondistinctid"."team_id" = 99999)
   '''
 # ---
+# name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending.15
+  '''
+  SELECT "posthog_persondistinctid"."id",
+         "posthog_persondistinctid"."team_id",
+         "posthog_persondistinctid"."person_id",
+         "posthog_persondistinctid"."distinct_id",
+         "posthog_persondistinctid"."version",
+         "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."properties_last_updated_at",
+         "posthog_person"."properties_last_operation",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_user_id",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid",
+         "posthog_person"."version"
+  FROM "posthog_persondistinctid"
+  INNER JOIN "posthog_person" ON ("posthog_persondistinctid"."person_id" = "posthog_person"."id")
+  WHERE ("posthog_persondistinctid"."distinct_id" IN ('user2',
+                                                      'user_one_0')
+         AND "posthog_persondistinctid"."team_id" = 99999)
+  '''
+# ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending.2
   '''
   SELECT "posthog_organizationmembership"."id",
@@ -3993,6 +4051,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
@@ -4080,6 +4139,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
@@ -4460,6 +4520,30 @@
          AND "posthog_persondistinctid"."team_id" = 99999)
   '''
 # ---
+# name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending.15
+  '''
+  SELECT "posthog_persondistinctid"."id",
+         "posthog_persondistinctid"."team_id",
+         "posthog_persondistinctid"."person_id",
+         "posthog_persondistinctid"."distinct_id",
+         "posthog_persondistinctid"."version",
+         "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."properties_last_updated_at",
+         "posthog_person"."properties_last_operation",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_user_id",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid",
+         "posthog_person"."version"
+  FROM "posthog_persondistinctid"
+  INNER JOIN "posthog_person" ON ("posthog_persondistinctid"."person_id" = "posthog_person"."id")
+  WHERE ("posthog_persondistinctid"."distinct_id" IN ('user2',
+                                                      'user_one_0')
+         AND "posthog_persondistinctid"."team_id" = 99999)
+  '''
+# ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending.2
   '''
   SELECT "posthog_organizationmembership"."id",
@@ -4481,6 +4565,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
@@ -4568,6 +4653,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
@@ -5369,6 +5455,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
@@ -5456,6 +5543,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
@@ -5998,6 +6086,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
@@ -6085,6 +6174,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
@@ -6565,6 +6655,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
@@ -6720,6 +6811,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
@@ -6807,6 +6899,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
@@ -7370,6 +7463,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
@@ -7457,6 +7551,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
@@ -7496,6 +7591,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
@@ -7894,6 +7990,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
@@ -8348,6 +8445,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
@@ -8435,6 +8533,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
@@ -8676,6 +8775,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
@@ -8963,6 +9063,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
@@ -9050,6 +9151,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
@@ -9575,6 +9677,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
@@ -9662,6 +9765,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
@@ -10206,6 +10310,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
@@ -10319,6 +10424,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
@@ -10868,6 +10974,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
@@ -10955,6 +11062,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",

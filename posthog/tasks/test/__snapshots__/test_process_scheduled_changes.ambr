@@ -148,6 +148,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
@@ -190,6 +191,8 @@
          "posthog_experiment"."exposure_criteria",
          "posthog_experiment"."metrics",
          "posthog_experiment"."metrics_secondary",
+         "posthog_experiment"."primary_metrics_ordered_uuids",
+         "posthog_experiment"."secondary_metrics_ordered_uuids",
          "posthog_experiment"."stats_config",
          "posthog_experiment"."conclusion",
          "posthog_experiment"."conclusion_comment"
@@ -822,6 +825,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
@@ -864,6 +868,8 @@
          "posthog_experiment"."exposure_criteria",
          "posthog_experiment"."metrics",
          "posthog_experiment"."metrics_secondary",
+         "posthog_experiment"."primary_metrics_ordered_uuids",
+         "posthog_experiment"."secondary_metrics_ordered_uuids",
          "posthog_experiment"."stats_config",
          "posthog_experiment"."conclusion",
          "posthog_experiment"."conclusion_comment"

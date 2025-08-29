@@ -52,7 +52,7 @@ describe('TeamFilter', () => {
 
             const result = await teamFilter.filterBatch([message])
 
-            expect(result).toEqual([{ team: validTeam, message }])
+            expect(result).toEqual([{ team: validTeam, message: message }])
             expect(mockTeamService.getTeamByToken).toHaveBeenCalledWith('valid-token')
             expect(mockTeamService.getTeamByToken).toHaveBeenCalledTimes(1)
         })
