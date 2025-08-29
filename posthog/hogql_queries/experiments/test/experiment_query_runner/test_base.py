@@ -2030,8 +2030,8 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         test_variant = result.variant_results[0]
         assert test_variant is not None
 
-        # DAU should count unique users, not total events
-        # Control: 3 unique users (even though total events = 3+2+1 = 6)
+        # should count unique users, not total events
+        # Control: 2 unique users (even though total events = 2+1 = 3)
         self.assertEqual(control_variant.sum, 2)
         self.assertEqual(control_variant.number_of_samples, 3)
 
