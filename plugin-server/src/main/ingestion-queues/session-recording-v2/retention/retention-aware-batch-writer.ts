@@ -1,6 +1,7 @@
 import { S3Client } from '@aws-sdk/client-s3'
 
 import { ValidRetentionPeriods } from '../constants'
+import { RetentionPeriodToDaysMap } from '../constants'
 import { S3SessionBatchFileStorage } from '../sessions/s3-session-batch-writer'
 import {
     SessionBatchFileStorage,
@@ -46,7 +47,7 @@ class RetentionAwareBatchFileWriter implements SessionBatchFileWriter {
         return {
             bytesWritten,
             url,
-            retentionPeriod,
+            retentionPeriodDays: RetentionPeriodToDaysMap[retentionPeriod],
         }
     }
 
