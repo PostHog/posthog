@@ -308,9 +308,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         // onMessage callback - handles both metadata and tiles
                         (data) => {
                             if (data.type === 'metadata') {
-                                const dashboardWithTiles = { ...data.dashboard, tiles: [] }
                                 actions.loadDashboardMetadataSuccess(
-                                    getQueryBasedDashboard(dashboardWithTiles as DashboardType<InsightModel>)
+                                    getQueryBasedDashboard(data.dashboard as DashboardType<InsightModel>)
                                 )
                             } else if (data.type === 'tile') {
                                 actions.receiveTileFromStream(data)
@@ -627,11 +626,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     if (!dashboard) {
                         return state
                     }
-                    // Merge metadata with existing state, preserving tiles
-                    return {
-                        ...dashboard,
-                        tiles: state?.tiles || [],
-                    }
+                    return dashboard
                 },
                 receiveTileFromStream: (state, { tile }) => {
                     if (!state || !state.tiles) {

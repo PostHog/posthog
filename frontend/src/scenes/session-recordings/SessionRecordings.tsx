@@ -28,8 +28,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey, ReplayTab, ReplayTabs } from '~/types'
 
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
@@ -93,15 +91,6 @@ function Header(): JSX.Element {
                     </>
                 }
             />
-            <SceneTitleSection
-                name="Session replay"
-                description="See how users interact with your product."
-                resourceType={{
-                    type: 'session_recording_playlist',
-                    typePlural: 'Session Recordings',
-                }}
-            />
-            <SceneDivider />
         </>
     )
 }

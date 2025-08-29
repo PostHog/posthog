@@ -2,7 +2,6 @@ import json
 from datetime import timedelta
 from functools import cached_property
 from typing import Any, Literal, Optional, cast
-from uuid import UUID
 
 from django.conf import settings
 from django.shortcuts import get_object_or_404
@@ -452,6 +451,31 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 )
 
         return value
+
+    def validate_access_control(self, value) -> None:
+        """Validate that access_control field is not being used as it's deprecated."""
+        if value is not None:
+            import posthoganalytics
+
+            request = self.context.get("request")
+            user = request.user if request else None
+
+            posthoganalytics.capture_exception(
+                Exception("Deprecated access control field used"),
+                properties={
+                    "field": "access_control",
+                    "value": str(value),
+                    "user_id": user.id if user else None,
+                    "team_id": getattr(user, "team_id", None) if user else None,
+                },
+            )
+
+            raise exceptions.ValidationError(
+                "The 'access_control' field has been deprecated and is no longer supported. "
+                "Please use the new access control system instead. "
+                "For more information, visit: https://posthog.com/docs/settings/access-control"
+            )
+        return None
 
     def validate_app_urls(self, value: list[str | None] | None) -> list[str] | None:
         if value is None:
@@ -971,20 +995,6 @@ def validate_team_attrs(
             )
         if attrs["primary_dashboard"].team_id != instance.id:
             raise exceptions.ValidationError({"primary_dashboard": "Dashboard does not belong to this team."})
-
-    if "access_control" in attrs:
-        assert isinstance(request.user, User)
-        # We get the instance's organization_id, unless we're handling creation, in which case there's no instance yet
-        organization_id = instance.organization_id if instance is not None else cast(UUID | str, view.organization_id)
-        # Only organization-wide admins and above should be allowed to switch the project between open and private
-        # If a project-only admin who is only an org member disabled this it, they wouldn't be able to reenable it
-        org_membership: OrganizationMembership = OrganizationMembership.objects.only("level").get(
-            organization_id=organization_id, user=request.user
-        )
-        if org_membership.level < OrganizationMembership.Level.ADMIN:
-            raise exceptions.PermissionDenied(
-                "Your organization access level is insufficient to configure project access restrictions."
-            )
 
     if "autocapture_exceptions_errors_to_ignore" in attrs:
         if not isinstance(attrs["autocapture_exceptions_errors_to_ignore"], list):
