@@ -6,7 +6,6 @@ from typing import Any, Optional
 import structlog
 
 from posthog.models.integration import Integration
-from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.warehouse.types import IncrementalFieldType
 
@@ -55,16 +54,18 @@ class LinkedinAdsService:
         # Validate configuration
         self._validate_configuration()
 
-    def fetch_data(self,
-                   resource_name: str,
-                   should_use_incremental_field: bool = False,
-                   incremental_field: Optional[str] = None,
-                   incremental_field_type: Optional[IncrementalFieldType] = None,
-                   db_incremental_field_last_value: IncrementalValue = None,
-                   last_modified_since: Optional[dt.datetime] = None,
-                   date_start: Optional[str] = None,
-                   date_end: Optional[str] = None,
-                   sync_frequency_interval: Optional[dt.timedelta] = None) -> SourceResponse:
+    def fetch_data(
+        self,
+        resource_name: str,
+        should_use_incremental_field: bool = False,
+        incremental_field: Optional[str] = None,
+        incremental_field_type: Optional[IncrementalFieldType] = None,
+        db_incremental_field_last_value: IncrementalValue = None,
+        last_modified_since: Optional[dt.datetime] = None,
+        date_start: Optional[str] = None,
+        date_end: Optional[str] = None,
+        sync_frequency_interval: Optional[dt.timedelta] = None,
+    ) -> SourceResponse:
         """Fetch data for a specific resource.
 
         Args:
@@ -81,10 +82,12 @@ class LinkedinAdsService:
         Returns:
             SourceResponse object containing the fetched data and metadata
         """
-        logger.info("Starting LinkedIn Ads data import",
-                   account_id=self.account_id,
-                   resource_name=resource_name,
-                   team_id=self.team_id)
+        logger.info(
+            "Starting LinkedIn Ads data import",
+            account_id=self.account_id,
+            resource_name=resource_name,
+            team_id=self.team_id,
+        )
 
         try:
             # Get authenticated client
@@ -92,15 +95,18 @@ class LinkedinAdsService:
 
             # Fetch data based on resource type
             data = self._fetch_resource_data(
-                client, resource_name, should_use_incremental_field,
-                incremental_field, incremental_field_type,
-                db_incremental_field_last_value, date_start, date_end,
-                sync_frequency_interval
+                client,
+                resource_name,
+                should_use_incremental_field,
+                incremental_field,
+                incremental_field_type,
+                db_incremental_field_last_value,
+                date_start,
+                date_end,
+                sync_frequency_interval,
             )
 
-            logger.info("Successfully fetched LinkedIn data",
-                       resource_name=resource_name,
-                       record_count=len(data))
+            logger.info("Successfully fetched LinkedIn data", resource_name=resource_name, record_count=len(data))
 
             # Record success for circuit breaker
             record_success(self.account_id)
@@ -112,10 +118,12 @@ class LinkedinAdsService:
             # Record failure for circuit breaker
             record_failure(self.account_id)
 
-            logger.exception("Failed to fetch LinkedIn data",
-                           resource_name=resource_name,
-                           error=str(e),
-                           failure_count=_failure_counts[self.account_id])
+            logger.exception(
+                "Failed to fetch LinkedIn data",
+                resource_name=resource_name,
+                error=str(e),
+                failure_count=_failure_counts[self.account_id],
+            )
             raise
 
     def _validate_configuration(self) -> None:
@@ -128,12 +136,16 @@ class LinkedinAdsService:
             raise ValueError("LinkedIn account ID is required")
 
         if not validate_account_id(self.account_id):
-            raise ValueError(f"Invalid LinkedIn account ID format: '{self.account_id}'. Should be numeric, 6-15 digits.")
+            raise ValueError(
+                f"Invalid LinkedIn account ID format: '{self.account_id}'. Should be numeric, 6-15 digits."
+            )
 
         # Check circuit breaker
         if check_circuit_breaker(self.account_id):
             failure_count = _failure_counts[self.account_id]
-            raise ValueError(f"Circuit breaker open for account {self.account_id} due to {failure_count} consecutive failures. Please wait {CIRCUIT_BREAKER_TIMEOUT} seconds before retrying.")
+            raise ValueError(
+                f"Circuit breaker open for account {self.account_id} due to {failure_count} consecutive failures. Please wait {CIRCUIT_BREAKER_TIMEOUT} seconds before retrying."
+            )
 
     def _get_authenticated_client(self) -> LinkedinAdsClient:
         """Get authenticated LinkedIn Ads client.
@@ -147,7 +159,9 @@ class LinkedinAdsService:
         try:
             integration = Integration.objects.get(id=self.integration_id, team_id=self.team_id)
         except Integration.DoesNotExist:
-            raise ValueError(f"LinkedIn Ads integration with ID {self.integration_id} not found for team {self.team_id}. Please re-authenticate.")
+            raise ValueError(
+                f"LinkedIn Ads integration with ID {self.integration_id} not found for team {self.team_id}. Please re-authenticate."
+            )
 
         access_token = integration.access_token
         if not access_token:
@@ -155,16 +169,18 @@ class LinkedinAdsService:
 
         return LinkedinAdsClient(access_token)
 
-    def _fetch_resource_data(self,
-                           client: LinkedinAdsClient,
-                           resource_name: str,
-                           should_use_incremental_field: bool,
-                           incremental_field: Optional[str],
-                           incremental_field_type: Optional[IncrementalFieldType],
-                           db_incremental_field_last_value: IncrementalValue,
-                           date_start: Optional[str],
-                           date_end: Optional[str],
-                           sync_frequency_interval: Optional[dt.timedelta]) -> list[dict[str, Any]]:
+    def _fetch_resource_data(
+        self,
+        client: LinkedinAdsClient,
+        resource_name: str,
+        should_use_incremental_field: bool,
+        incremental_field: Optional[str],
+        incremental_field_type: Optional[IncrementalFieldType],
+        db_incremental_field_last_value: IncrementalValue,
+        date_start: Optional[str],
+        date_end: Optional[str],
+        sync_frequency_interval: Optional[dt.timedelta],
+    ) -> list[dict[str, Any]]:
         """Fetch data for a specific resource using the client.
 
         Args:
@@ -192,8 +208,13 @@ class LinkedinAdsService:
         if pivot:
             # Analytics methods need pivot and dates
             analytics_date_start, analytics_date_end = self._prepare_analytics_dates(
-                should_use_incremental_field, incremental_field, incremental_field_type,
-                db_incremental_field_last_value, date_start, date_end, sync_frequency_interval
+                should_use_incremental_field,
+                incremental_field,
+                incremental_field_type,
+                db_incremental_field_last_value,
+                date_start,
+                date_end,
+                sync_frequency_interval,
             )
             return method(self.account_id, pivot, analytics_date_start, analytics_date_end)
         else:
@@ -217,17 +238,19 @@ class LinkedinAdsService:
             LinkedinAdsResource.CampaignGroupStats: (client.get_analytics, "CAMPAIGN_GROUP"),
             LinkedinAdsResource.Campaigns: (client.get_campaigns, None),
             LinkedinAdsResource.CampaignGroups: (client.get_campaign_groups, None),
-            LinkedinAdsResource.Accounts: (client.get_accounts, None)
+            LinkedinAdsResource.Accounts: (client.get_accounts, None),
         }
 
-    def _prepare_analytics_dates(self,
-                               should_use_incremental_field: bool,
-                               incremental_field: Optional[str],
-                               incremental_field_type: Optional[IncrementalFieldType],
-                               db_incremental_field_last_value: Any,
-                               date_start: Optional[str],
-                               date_end: Optional[str],
-                               sync_frequency_interval: Optional[dt.timedelta]) -> tuple[Optional[str], Optional[str]]:
+    def _prepare_analytics_dates(
+        self,
+        should_use_incremental_field: bool,
+        incremental_field: Optional[str],
+        incremental_field_type: Optional[IncrementalFieldType],
+        db_incremental_field_last_value: Any,
+        date_start: Optional[str],
+        date_end: Optional[str],
+        sync_frequency_interval: Optional[dt.timedelta],
+    ) -> tuple[Optional[str], Optional[str]]:
         """Prepare date range for analytics requests.
 
         Args:
@@ -253,10 +276,12 @@ class LinkedinAdsService:
                 last_value = db_incremental_field_last_value
 
             # For analytics (date-based), use incremental value as start date
-            if incremental_field_type == IncrementalFieldType.Date and incremental_field == "dateRange.start" and not date_start:
-                date_start = self.date_handler.calculate_incremental_date_range(
-                    last_value, sync_frequency_interval
-                )
+            if (
+                incremental_field_type == IncrementalFieldType.Date
+                and incremental_field == "dateRange.start"
+                and not date_start
+            ):
+                date_start = self.date_handler.calculate_incremental_date_range(last_value, sync_frequency_interval)
 
         return date_start, date_end
 
@@ -286,5 +311,5 @@ class LinkedinAdsService:
             partition_mode="datetime",
             partition_format="month",
             partition_keys=["date_range_start"] if flattened_data and "date_range_start" in flattened_data[0] else None,
-            sort_mode="desc"
+            sort_mode="desc",
         )
