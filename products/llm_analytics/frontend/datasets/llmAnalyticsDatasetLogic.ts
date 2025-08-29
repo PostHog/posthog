@@ -44,10 +44,6 @@ function cleanFilters(values: Partial<DatasetItemsFilters>): DatasetItemsFilters
     }
 }
 
-function isDataset(dataset: Dataset | DatasetFormValues): dataset is Dataset {
-    return 'id' in dataset
-}
-
 export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
     path(['scenes', 'llm-analytics', 'llmAnalyticsDatasetLogic']),
 
@@ -285,10 +281,8 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
         },
 
         loadDatasetSuccess: ({ dataset }) => {
-            if (isDataset(dataset)) {
-                // Set form defaults when dataset is loaded
-                actions.setDatasetFormValues(getDatasetFormDefaults(dataset))
-            }
+            // Set form defaults when dataset is loaded
+            actions.setDatasetFormValues(getDatasetFormDefaults(dataset))
         },
 
         setFilters: async ({ debounce }, breakpoint, __, previousState) => {
@@ -312,7 +306,7 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
 
         setActiveTab: ({ tab }) => {
             if (tab === DatasetTab.Items && props.datasetId !== 'new') {
-                actions.loadDatasetItems()
+                actions.loadDatasetItems(true)
             }
         },
 
