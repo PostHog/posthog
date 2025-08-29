@@ -11300,6 +11300,10 @@
                 "funnel_order_type": {
                     "$ref": "#/definitions/StepOrderValue"
                 },
+                "goal": {
+                    "enum": ["increase", "decrease"],
+                    "type": "string"
+                },
                 "kind": {
                     "const": "ExperimentMetric",
                     "type": "string"
@@ -11509,6 +11513,10 @@
                 "conversion_window_unit": {
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
                 },
+                "goal": {
+                    "enum": ["increase", "decrease"],
+                    "type": "string"
+                },
                 "kind": {
                     "const": "ExperimentMetric",
                     "type": "string"
@@ -11584,6 +11592,10 @@
                 },
                 "conversion_window_unit": {
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                },
+                "goal": {
+                    "enum": ["increase", "decrease"],
+                    "type": "string"
                 },
                 "kind": {
                     "const": "ExperimentMetric",
@@ -11780,6 +11792,10 @@
                 },
                 "denominator": {
                     "$ref": "#/definitions/ExperimentMetricSource"
+                },
+                "goal": {
+                    "enum": ["increase", "decrease"],
+                    "type": "string"
                 },
                 "kind": {
                     "const": "ExperimentMetric",
