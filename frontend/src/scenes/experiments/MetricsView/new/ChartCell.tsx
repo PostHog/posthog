@@ -36,6 +36,7 @@ interface ChartCellProps {
 
 export function ChartCell({
     variantResult,
+    metric,
     axisRange,
     metricUuid,
     showGridLines = true,
@@ -96,6 +97,7 @@ export function ChartCell({
                             <ChartGradients
                                 lower={lower}
                                 upper={upper}
+                                metric={metric}
                                 gradientId={`gradient-${isSecondary ? 'secondary' : 'primary'}-${metricUuid ? metricUuid.slice(-8) : 'default'}-${
                                     variantResult.key
                                 }`}
