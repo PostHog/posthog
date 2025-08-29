@@ -31,6 +31,8 @@ QUERY_LOG_ARCHIVE_FIELDS: dict[str, FieldOrTable] = {
     "memory_usage": IntegerDatabaseField(name="memory_usage", nullable=False),
     "status": StringDatabaseField(name="type", nullable=False),
     "is_personal_api_key_request": BooleanDatabaseField(name="is_personal_api_key_request", nullable=False),
+    "api_key_label": StringDatabaseField(name="lc_api_key_label", nullable=False),
+    "api_key_mask": StringDatabaseField(name="lc_api_key_mask", nullable=False),
     "cpu_microseconds": IntegerDatabaseField(name="ProfileEvents_OSCPUVirtualTimeMicroseconds", nullable=False),
     "RealTimeMicroseconds": IntegerDatabaseField(name="ProfileEvents_RealTimeMicroseconds", nullable=False),
     "S3ListObjects": IntegerDatabaseField(name="ProfileEvents_S3ListObjects", nullable=False),
@@ -129,6 +131,8 @@ class RawQueryLogArchiveTable(Table):
         "memory_usage": IntegerDatabaseField(name="memory_usage", nullable=False),
         "type": StringDatabaseField(name="type", nullable=False),
         "lc_access_method": StringDatabaseField(name="lc_access_method", nullable=False),
+        "lc_api_key_label": StringDatabaseField(name="lc_api_key_label", nullable=False),
+        "lc_api_key_mask": StringDatabaseField(name="lc_api_key_mask", nullable=False),
         "lc_query__kind": StringDatabaseField(name="lc_query__kind", nullable=False),
         "ProfileEvents_OSCPUVirtualTimeMicroseconds": IntegerDatabaseField(
             name="ProfileEvents_OSCPUVirtualTimeMicroseconds", nullable=False

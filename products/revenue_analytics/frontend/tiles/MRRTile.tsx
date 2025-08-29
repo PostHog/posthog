@@ -12,14 +12,14 @@ import {
     revenueAnalyticsLogic,
 } from '../revenueAnalyticsLogic'
 
-const QUERY_ID = RevenueAnalyticsQuery.REVENUE
+const QUERY_ID = RevenueAnalyticsQuery.MRR
 const INSIGHT_PROPS: InsightLogicProps<InsightVizNode> = {
     dashboardItemId: buildDashboardItemId(QUERY_ID),
     loadPriority: QUERY_ID,
     dataNodeCollectionId: REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID,
 }
 
-export const RevenueTile = (): JSX.Element => {
+export const MRRTile = (): JSX.Element => {
     const { queries } = useValues(revenueAnalyticsLogic)
 
     const query = queries[QUERY_ID]
