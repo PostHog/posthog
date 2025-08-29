@@ -2,7 +2,7 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { loaders } from 'kea-loaders'
 import { useEffect } from 'react'
 
-import { LemonCheckbox, LemonSelect, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonSelect, LemonTable, LemonTableColumns, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { JSONViewer } from 'lib/components/JSONViewer'
@@ -116,6 +116,7 @@ export const errorTrackingIssueFingerprintsSceneLogic = kea<errorTrackingIssueFi
     listeners(({ actions, props, values }) => ({
         split: ({ exclusive }) => {
             actions.splitIssue(props.id, values.selectedFingerprints, exclusive)
+            lemonToast.success('Issue split successfully!')
             actions.setSelectedFingerprints([])
         },
     })),
