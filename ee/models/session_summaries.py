@@ -8,7 +8,7 @@ from django.db import models
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import CreatedMetaFields, UUIDModel
 
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 
@@ -162,7 +162,7 @@ class SingleSessionSummaryManager(models.Manager["SingleSessionSummary"]):
         return result
 
 
-class SingleSessionSummary(ModelActivityMixin, UUIDModel):
+class SingleSessionSummary(ModelActivityMixin, CreatedMetaFields, UUIDModel):
     """
     Stores LLM-generated session summaries for caching and searching.
     Each summary represents analysis of a single session replay.
@@ -170,13 +170,6 @@ class SingleSessionSummary(ModelActivityMixin, UUIDModel):
 
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     session_id = models.CharField(max_length=200, help_text="Session replay ID")
-    created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        help_text="User who requested the summary",
-    )
 
     # Summary content
     summary = models.JSONField(help_text="Session summary in JSON format (SessionSummarySerializer schema)")
@@ -201,8 +194,6 @@ class SingleSessionSummary(ModelActivityMixin, UUIDModel):
         blank=True,
         help_text="Summary run metadata (SessionSummaryRunMeta schema)",
     )
-
-    created_at = models.DateTimeField(auto_now_add=True)
 
     # TODO: Implement background job to delete summaries older than 1 year
 
