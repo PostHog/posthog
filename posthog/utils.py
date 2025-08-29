@@ -1188,11 +1188,11 @@ def variables_override_requested_by_client(
     from posthog.api.insight_variable import map_stale_to_latest
     from posthog.auth import SharingAccessTokenAuthentication
 
-    dashboard_variables = dashboard.variables if dashboard else {}
+    dashboard_variables = (dashboard and dashboard.variables) or {}
     raw_override = request.query_params.get("variables_override") if request else None
 
     # Security: Don't allow overrides when accessing via sharing tokens
-    if not raw_override or isinstance(request.successful_authenticator, SharingAccessTokenAuthentication):
+    if not raw_override or (request and isinstance(request.successful_authenticator, SharingAccessTokenAuthentication)):
         return map_stale_to_latest(dashboard_variables, variables)
 
     try:

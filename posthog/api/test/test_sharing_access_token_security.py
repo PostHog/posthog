@@ -74,7 +74,7 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
         # Test 1: Should be able to access insight that IS on the dashboard
         response = self.client.get(
             f"/api/environments/{self.team.id}/insights/{insight_on_dashboard.id}/",
-            {"sharing_access_token": sharing_config.access_token},
+            {"sharing_access_token": sharing_config.access_token},  # type: ignore[arg-type]
         )
         assert (
             response.status_code == 200
@@ -83,7 +83,7 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
         # Test 2: Should NOT be able to access insight that is NOT on the dashboard
         response = self.client.get(
             f"/api/environments/{self.team.id}/insights/{insight_not_on_dashboard.id}/",
-            {"sharing_access_token": sharing_config.access_token},
+            {"sharing_access_token": sharing_config.access_token},  # type: ignore[arg-type]
         )
         assert response.status_code in [
             403,
@@ -128,7 +128,7 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
                 "sharing_access_token": sharing_config.access_token,
                 "filters_override": json.dumps(malicious_filters),
                 "from_dashboard": self.dashboard.id,
-            },
+            },  # type: ignore[arg-type]
         )
 
         assert response.status_code == 200
@@ -202,7 +202,7 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
                 "sharing_access_token": sharing_config.access_token,
                 "variables_override": json.dumps(malicious_variables),
                 "from_dashboard": self.dashboard.id,
-            },
+            },  # type: ignore[arg-type]
         )
 
         assert response.status_code == 200
@@ -250,7 +250,7 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
         # Try to access the other team's insight - should fail
         response = self.client.get(
             f"/api/environments/{other_team.id}/insights/{other_insight.id}/",
-            {"sharing_access_token": sharing_config.access_token},
+            {"sharing_access_token": sharing_config.access_token},  # type: ignore[arg-type]
         )
 
         # Should be forbidden or not found - definitely not 200
@@ -291,7 +291,8 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
 
         # List insights using sharing access token
         response = self.client.get(
-            f"/api/environments/{self.team.id}/insights/", {"sharing_access_token": sharing_config.access_token}
+            f"/api/environments/{self.team.id}/insights/",
+            {"sharing_access_token": sharing_config.access_token},  # type: ignore[arg-type]
         )
 
         assert response.status_code == 200
