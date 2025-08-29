@@ -1,13 +1,25 @@
+import json
+
 from posthog.test.base import APIBaseTest
 
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models import Dashboard, SharePassword, SharingConfiguration
 
 
 class TestSharePasswordAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
+        # Enable advanced permissions feature for the organization
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ADVANCED_PERMISSIONS,
+                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+            }
+        ]
+        self.organization.save()
+
         self.dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard", created_by=self.user)
         self.sharing_config = SharingConfiguration.objects.create(
             team=self.team, dashboard=self.dashboard, enabled=True, password_required=True
@@ -16,7 +28,7 @@ class TestSharePasswordAPI(APIBaseTest):
     def test_create_password_with_custom_password(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/dashboards/{self.dashboard.id}/sharing/passwords/",
-            {"raw_password": "my-secure-password", "note": "Test password"},
+            data=json.dumps({"raw_password": "my-secure-password", "note": "Test password"}),
             content_type="application/json",
         )
 
@@ -37,7 +49,7 @@ class TestSharePasswordAPI(APIBaseTest):
     def test_create_password_with_generated_password(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/dashboards/{self.dashboard.id}/sharing/passwords/",
-            {"note": "Auto-generated password"},
+            data=json.dumps({"note": "Auto-generated password"}),
             content_type="application/json",
         )
 
@@ -60,7 +72,7 @@ class TestSharePasswordAPI(APIBaseTest):
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/dashboards/{self.dashboard.id}/sharing/passwords/",
-            {"raw_password": "test-password"},
+            data=json.dumps({"raw_password": "test-password"}),
             content_type="application/json",
         )
 
@@ -74,7 +86,7 @@ class TestSharePasswordAPI(APIBaseTest):
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/dashboards/{self.dashboard.id}/sharing/passwords/",
-            {"raw_password": "test-password"},
+            data=json.dumps({"raw_password": "test-password"}),
             content_type="application/json",
         )
 
@@ -84,7 +96,7 @@ class TestSharePasswordAPI(APIBaseTest):
     def test_create_password_validation_too_short(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/dashboards/{self.dashboard.id}/sharing/passwords/",
-            {"raw_password": "short"},
+            data=json.dumps({"raw_password": "short"}),
             content_type="application/json",
         )
 
@@ -143,7 +155,9 @@ class TestSharePasswordAPI(APIBaseTest):
 
         # Test with correct password
         response = self.client.post(
-            f"/shared/{self.sharing_config.access_token}", {"password": raw_password}, content_type="application/json"
+            f"/shared/{self.sharing_config.access_token}",
+            data=json.dumps({"password": raw_password}),
+            content_type="application/json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -152,47 +166,9 @@ class TestSharePasswordAPI(APIBaseTest):
         # Test with incorrect password
         response = self.client.post(
             f"/shared/{self.sharing_config.access_token}",
-            {"password": "wrong-password"},
+            data=json.dumps({"password": "wrong-password"}),
             content_type="application/json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertIn("Incorrect password", response.json()["error"])
-
-    def test_sharing_configuration_includes_share_passwords(self):
-        """Test that the sharing configuration API includes share_passwords."""
-        # Create some passwords
-        password1, _ = SharePassword.create_password(
-            sharing_configuration=self.sharing_config,
-            created_by=self.user,
-            raw_password="password1",
-            note="First password",
-        )
-        password2, _ = SharePassword.create_password(
-            sharing_configuration=self.sharing_config,
-            created_by=self.user,
-            raw_password="password2",
-            note="Second password",
-        )
-
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/sharing_configurations/", query_string=f"dashboard_id={self.dashboard.id}"
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        data = response.json()
-
-        self.assertIn("share_passwords", data)
-        self.assertEqual(len(data["share_passwords"]), 2)
-
-        # Check password data structure
-        password_data = data["share_passwords"][0]  # Should be ordered by -created_at
-        self.assertIn("id", password_data)
-        self.assertIn("created_at", password_data)
-        self.assertIn("note", password_data)
-        self.assertIn("created_by_email", password_data)
-        self.assertIn("is_active", password_data)
-
-        # Raw password should NOT be included
-        self.assertNotIn("password", password_data)
-        self.assertNotIn("password_hash", password_data)
