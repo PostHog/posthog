@@ -8,8 +8,10 @@ use limiters::redis::QuotaResource;
 use metrics::counter;
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 
+pub const CAPTURE_EVENTS_DROPPED_TOTAL: &str = "capture_events_dropped_total";
+
 pub fn report_dropped_events(cause: &'static str, quantity: u64) {
-    counter!("capture_events_dropped_total", "cause" => cause).increment(quantity);
+    counter!(CAPTURE_EVENTS_DROPPED_TOTAL, "cause" => cause).increment(quantity);
 }
 
 pub fn report_overflow_partition(quantity: u64) {
