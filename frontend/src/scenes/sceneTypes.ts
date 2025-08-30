@@ -41,6 +41,7 @@ export enum Scene {
     ErrorTrackingConfiguration = 'ErrorTrackingConfiguration',
     ErrorTrackingImpact = 'ErrorTrackingImpact',
     ErrorTrackingIssue = 'ErrorTrackingIssue',
+    ErrorTrackingIssueFingerprints = 'ErrorTrackingIssueFingerprints',
     EventDefinition = 'EventDefinition',
     EventDefinitionEdit = 'EventDefinitionEdit',
     Experiment = 'Experiment',

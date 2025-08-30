@@ -943,6 +943,10 @@ export class ApiRequest {
         return this.errorTrackingIssue(into).addPathComponent('merge')
     }
 
+    public errorTrackingIssueSplit(into: ErrorTrackingIssue['id']): ApiRequest {
+        return this.errorTrackingIssue(into).addPathComponent('split')
+    }
+
     public errorTrackingIssueBulk(teamId?: TeamType['id']): ApiRequest {
         return this.errorTrackingIssues(teamId).addPathComponent('bulk')
     }
@@ -2709,6 +2713,16 @@ const api = {
             return await new ApiRequest()
                 .errorTrackingIssueMerge(primaryIssueId)
                 .create({ data: { ids: mergingIssueIds } })
+        },
+
+        async split(
+            issueId: ErrorTrackingIssue['id'],
+            fingerprints: string[],
+            exclusive: boolean
+        ): Promise<{ content: string }> {
+            return await new ApiRequest()
+                .errorTrackingIssueSplit(issueId)
+                .create({ data: { fingerprints: fingerprints, exclusive } })
         },
 
         symbolSets: {
