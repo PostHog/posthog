@@ -61,6 +61,7 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
         mightDropEvents,
         showFilters,
         showExpectedVolume,
+        canEditSource,
         showTesting,
     } = useValues(logic)
 
@@ -295,7 +296,7 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
 
                             <HogFunctionMappings />
 
-                            <HogFunctionCode />
+                            {canEditSource && <HogFunctionCode />}
                             {showTesting ? <HogFunctionTest /> : null}
                             {type === 'source_webhook' && <HogFunctionSourceWebhookTest />}
                             <div className="flex gap-2 justify-end">{saveButtons}</div>
