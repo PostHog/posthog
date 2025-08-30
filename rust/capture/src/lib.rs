@@ -1,5 +1,6 @@
 pub mod api;
 pub mod config;
+pub mod limiters;
 pub mod prometheus;
 pub mod router;
 pub mod server;
