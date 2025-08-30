@@ -15,21 +15,31 @@ use crate::{
     v0_request::ProcessingContext,
 };
 
+#[async_trait::async_trait]
+trait ScopedLimiterTrait: Send + Sync {
+    async fn is_limited(&self, token: &str) -> bool;
+    async fn partition_event_indices(
+        &self,
+        indices_to_events: &HashMap<usize, RawEvent>,
+        indices: &[usize],
+    ) -> (Vec<usize>, Vec<usize>);
+    fn resource(&self) -> &QuotaResource;
+}
+
 #[derive(Clone)]
-struct ScopedLimiter {
+struct ScopedLimiter<F> {
     resource: QuotaResource,
     limiter: RedisLimiter,
     // predicate supplied here should match RawEvents TO BE DROPPED
     // if the limit for this team/token has been exceeded
-    event_matcher: Box<dyn Fn(&RawEvent) -> bool + Send + Sync + Clone>,
+    event_matcher: F,
 }
 
-impl ScopedLimiter {
-    fn new(
-        resource: QuotaResource,
-        limiter: RedisLimiter,
-        event_matcher: Box<dyn Fn(&RawEvent) -> bool + Send + Sync + Clone>,
-    ) -> Self {
+impl<F> ScopedLimiter<F>
+where
+    F: Fn(&RawEvent) -> bool + Send + Sync + Clone,
+{
+    fn new(resource: QuotaResource, limiter: RedisLimiter, event_matcher: F) -> Self {
         Self {
             resource,
             limiter,
@@ -45,7 +55,7 @@ impl ScopedLimiter {
     async fn partition_event_indices(
         &self,
         indices_to_events: &HashMap<usize, RawEvent>,
-        indices: &Vec<usize>,
+        indices: &[usize],
     ) -> (Vec<usize>, Vec<usize>) {
         indices.iter().partition(|&i| {
             let e: &RawEvent = indices_to_events.get(i).unwrap();
@@ -54,7 +64,31 @@ impl ScopedLimiter {
     }
 }
 
-#[derive(Clone)]
+#[async_trait::async_trait]
+impl<F> ScopedLimiterTrait for ScopedLimiter<F>
+where
+    F: Fn(&RawEvent) -> bool + Send + Sync + Clone,
+{
+    async fn is_limited(&self, token: &str) -> bool {
+        self.limiter.is_limited(token).await
+    }
+
+    async fn partition_event_indices(
+        &self,
+        indices_to_events: &HashMap<usize, RawEvent>,
+        indices: &[usize],
+    ) -> (Vec<usize>, Vec<usize>) {
+        indices.iter().partition(|&i| {
+            let e: &RawEvent = indices_to_events.get(i).unwrap();
+            (self.event_matcher)(e)
+        })
+    }
+
+    fn resource(&self) -> &QuotaResource {
+        &self.resource
+    }
+}
+
 pub struct CaptureQuotaLimiter {
     capture_mode: CaptureMode,
 
@@ -65,7 +99,7 @@ pub struct CaptureQuotaLimiter {
     // these are scoped to a specific event subset (e.g. survey events, AI events, etc.)
     // and ONLY filter out those events if the quota is exceeded. Add new scoped limiters
     // to this list as needed
-    scoped_limiters: Vec<ScopedLimiter>,
+    scoped_limiters: Vec<Box<dyn ScopedLimiterTrait>>,
 
     // this is the global billing limiter - if a token matches this limiter bucket,
     // all events are dropped for the incoming payload. Due to this, this limiter
@@ -75,6 +109,10 @@ pub struct CaptureQuotaLimiter {
 
 impl CaptureQuotaLimiter {
     pub fn new(config: &Config, redis_client: Arc<RedisClient>) -> Self {
+        let err_msg = format!(
+            "failed to create global limiter: {:?}",
+            &config.capture_mode
+        );
         let global_limiter = RedisLimiter::new(
             Duration::from_secs(5),
             redis_client.clone(),
@@ -83,10 +121,7 @@ impl CaptureQuotaLimiter {
             Self::get_resource_for_mode(config.capture_mode.clone()),
             ServiceName::Capture,
         )
-        .expect(&format!(
-            "failed to create global limiter: {:?}",
-            &config.capture_mode
-        ));
+        .expect(&err_msg);
 
         Self {
             capture_mode: config.capture_mode.clone(),
@@ -97,11 +132,11 @@ impl CaptureQuotaLimiter {
         }
     }
 
-    pub fn add_scoped_limiter(
-        mut self,
-        resource: QuotaResource,
-        event_matcher: Box<dyn Fn(&RawEvent) -> bool + Send + Sync + Clone>,
-    ) -> Self {
+    pub fn add_scoped_limiter<F>(mut self, resource: QuotaResource, event_matcher: F) -> Self
+    where
+        F: Fn(&RawEvent) -> bool + Send + Sync + Clone + 'static,
+    {
+        let err_msg = format!("failed to create scoped limiter: {:?}", resource);
         let limiter = ScopedLimiter::new(
             resource.clone(),
             RedisLimiter::new(
@@ -112,10 +147,10 @@ impl CaptureQuotaLimiter {
                 resource.clone(),
                 ServiceName::Capture,
             )
-            .expect(&format!("failed to create scoped limiter: {:?}", resource)),
+            .expect(&err_msg),
             event_matcher,
         );
-        self.scoped_limiters.push(limiter);
+        self.scoped_limiters.push(Box::new(limiter));
 
         self
     }
@@ -145,15 +180,15 @@ impl CaptureQuotaLimiter {
                 .partition_event_indices(&indices_to_events, &filtered_indices)
                 .await;
 
-            if limiter.limiter.is_limited(token).await {
+            if limiter.is_limited(token).await {
                 // retain only events that this limiter doesn't drop
                 filtered_indices = unmatched_indices;
 
                 // report quota limit exceeded for this limiter
                 let dropped_count = matched_indices.len() as u64;
                 if dropped_count > 0 {
-                    report_quota_limit_exceeded(&limiter.resource, dropped_count);
-                    let dropped_events_tag = format!("{}_over_quota", limiter.resource.as_str());
+                    report_quota_limit_exceeded(limiter.resource(), dropped_count);
+                    let dropped_events_tag = format!("{}_over_quota", limiter.resource().as_str());
                     counter!(CAPTURE_EVENTS_DROPPED_TOTAL, "cause" => dropped_events_tag)
                         .increment(dropped_count);
                 }

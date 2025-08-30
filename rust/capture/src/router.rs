@@ -31,7 +31,7 @@ pub struct State {
     pub sink: Arc<dyn sinks::Event + Send + Sync>,
     pub timesource: Arc<dyn TimeSource + Send + Sync>,
     pub redis: Arc<dyn Client + Send + Sync>,
-    pub quota_limiter: CaptureQuotaLimiter,
+    pub quota_limiter: Arc<CaptureQuotaLimiter>,
     pub token_dropper: Arc<TokenDropper>,
     pub event_size_limit: usize,
     pub historical_cfg: HistoricalConfig,
@@ -118,7 +118,7 @@ pub fn router<
         sink: Arc::new(sink),
         timesource: Arc::new(timesource),
         redis,
-        quota_limiter,
+        quota_limiter: Arc::new(quota_limiter),
         event_size_limit,
         token_dropper: Arc::new(token_dropper),
         historical_cfg: HistoricalConfig::new(
