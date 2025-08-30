@@ -88,6 +88,34 @@ const Table = (): JSX.Element => {
                     detail="It looks like there are no issues affecting this event, please try a different one."
                 />
             }
+            expandable={{
+                noIndent: true,
+                expandedRowRender: function RenderExpandedRow(record) {
+                    return (
+                        <LemonTable
+                            embedded
+                            stealth
+                            columns={[
+                                { dataIndex: 'row' },
+                                { title: record.event, dataIndex: 'event' },
+                                { title: `No ${record.event}`, dataIndex: 'no_event' },
+                            ]}
+                            dataSource={[
+                                {
+                                    row: 'Exception occurred',
+                                    event: record.population.both,
+                                    no_event: record.population.exception_only,
+                                },
+                                {
+                                    row: 'No exception',
+                                    event: record.population.success_only,
+                                    no_event: record.population.neither,
+                                },
+                            ]}
+                        />
+                    )
+                },
+            }}
         />
     )
 }
