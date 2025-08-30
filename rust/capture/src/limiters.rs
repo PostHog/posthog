@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use common_redis::RedisClient;
+use common_redis::Client;
 use common_types::RawEvent;
 use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, QUOTA_LIMITER_CACHE_KEY};
 use metrics::counter;
@@ -94,9 +94,9 @@ where
 pub struct CaptureQuotaLimiter {
     capture_mode: CaptureMode,
 
+    redis_timeout: Duration,
     redis_key_prefix: Option<String>,
-
-    redis_client: Arc<RedisClient>,
+    redis_client: Arc<dyn Client + Send + Sync>,
 
     // these are scoped to a specific event subset (e.g. survey events, AI events, etc.)
     // and ONLY filter out those events if the quota is exceeded. Add new scoped limiters
@@ -110,13 +110,17 @@ pub struct CaptureQuotaLimiter {
 }
 
 impl CaptureQuotaLimiter {
-    pub fn new(config: &Config, redis_client: Arc<RedisClient>) -> Self {
+    pub fn new(
+        config: &Config,
+        redis_client: Arc<dyn Client + Send + Sync>,
+        redis_timeout: Duration,
+    ) -> Self {
         let err_msg = format!(
             "failed to create global limiter: {:?}",
             &config.capture_mode
         );
         let global_limiter = RedisLimiter::new(
-            Duration::from_secs(5),
+            redis_timeout,
             redis_client.clone(),
             QUOTA_LIMITER_CACHE_KEY.to_string(),
             config.redis_key_prefix.clone(),
@@ -127,6 +131,7 @@ impl CaptureQuotaLimiter {
 
         Self {
             capture_mode: config.capture_mode.clone(),
+            redis_timeout,
             redis_key_prefix: config.redis_key_prefix.clone(),
             redis_client: redis_client.clone(),
             global_limiter,
@@ -142,7 +147,7 @@ impl CaptureQuotaLimiter {
         let limiter = ScopedLimiter::new(
             resource.clone(),
             RedisLimiter::new(
-                Duration::from_secs(5),
+                self.redis_timeout,
                 self.redis_client.clone(),
                 QUOTA_LIMITER_CACHE_KEY.to_string(),
                 self.redis_key_prefix.clone(),

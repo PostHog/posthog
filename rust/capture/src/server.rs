@@ -141,24 +141,25 @@ where
     // add new "scoped" quota limiters here as new quota tracking buckets are added
     // to PostHog! Here a "scoped" limiter is one that should be INDEPENDENT of the
     // global billing limiter applied here to every event batch
-    let quota_limiter = CaptureQuotaLimiter::new(&config, redis_client.clone())
-        .add_scoped_limiter(
-            QuotaResource::Exceptions,
-            Box::new(|e: &RawEvent| e.event.as_str() == "$exception"),
-        )
-        .add_scoped_limiter(
-            QuotaResource::Surveys,
-            Box::new(|e: &RawEvent| {
-                matches!(
-                    e.event.as_str(),
-                    "survey sent" | "survey shown" | "survey dismissed"
-                )
-            }),
-        )
-        .add_scoped_limiter(
-            QuotaResource::LLMEvents,
-            Box::new(|e: &RawEvent| e.event.starts_with("$ai_")),
-        );
+    let quota_limiter =
+        CaptureQuotaLimiter::new(&config, redis_client.clone(), Duration::from_secs(5))
+            .add_scoped_limiter(
+                QuotaResource::Exceptions,
+                Box::new(|e: &RawEvent| e.event.as_str() == "$exception"),
+            )
+            .add_scoped_limiter(
+                QuotaResource::Surveys,
+                Box::new(|e: &RawEvent| {
+                    matches!(
+                        e.event.as_str(),
+                        "survey sent" | "survey shown" | "survey dismissed"
+                    )
+                }),
+            )
+            .add_scoped_limiter(
+                QuotaResource::LLMEvents,
+                Box::new(|e: &RawEvent| e.event.starts_with("$ai_")),
+            );
 
     // TODO: remove this once we have a billing limiter
     let token_dropper = config
