@@ -89,6 +89,7 @@ class TestErrorTracking(BaseTest):
         assert override_one.version == 1
 
         override_two = ErrorTrackingIssueFingerprintV2.objects.filter(fingerprint="fingerprint_two").first()
+        assert override_two
         # the overrides point to different issues
         assert override_one.issue_id != override_two.issue_id
 
@@ -103,6 +104,8 @@ class TestErrorTracking(BaseTest):
         override_one = ErrorTrackingIssueFingerprintV2.objects.filter(fingerprint="fingerprint_one").first()
         override_two = ErrorTrackingIssueFingerprintV2.objects.filter(fingerprint="fingerprint_two").first()
 
+        assert override_one
+        assert override_two
         # the overrides point to the same new issue
         assert override_one.issue_id == override_two.issue_id
 
