@@ -1,5 +1,6 @@
 #[path = "common/integration_utils.rs"]
 mod integration_utils;
+use integration_utils::DEFAULT_CONFIG;
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -9,13 +10,15 @@ use axum::http::StatusCode;
 use axum::Router;
 use axum_test_helper::TestClient;
 use common_redis::MockRedisClient;
+use common_types::RawEvent;
 use health::HealthRegistry;
-use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, QUOTA_LIMITER_CACHE_KEY};
+use limiters::redis::{QuotaResource, QUOTA_LIMITER_CACHE_KEY};
 use limiters::token_dropper::TokenDropper;
 use serde_json::Value;
 
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
+use capture::limiters::CaptureQuotaLimiter;
 use capture::router::router;
 use capture::sinks::Event;
 use capture::time::TimeSource;
@@ -56,11 +59,11 @@ impl TimeSource for FixedTimeSource {
 }
 
 async fn setup_billing_limited_router(token: &str, is_limited: bool) -> (Router, MemorySink) {
-    setup_router_with_limits(token, is_limited, false, false).await
+    setup_router_with_limits(token, is_limited, false, false, false).await
 }
 
 async fn setup_survey_limited_router(token: &str, is_survey_limited: bool) -> (Router, MemorySink) {
-    setup_router_with_limits(token, false, is_survey_limited, false).await
+    setup_router_with_limits(token, false, is_survey_limited, false, false).await
 }
 
 async fn setup_router_with_limits(
@@ -68,6 +71,7 @@ async fn setup_router_with_limits(
     is_billing_limited: bool,
     is_survey_limited: bool,
     is_ai_limited: bool,
+    is_exceptions_limited: bool,
 ) -> (Router, MemorySink) {
     let liveness = HealthRegistry::new("billing_limit_tests");
     let sink = MemorySink::default();
@@ -75,74 +79,75 @@ async fn setup_router_with_limits(
         time: "2025-07-31T12:00:00Z".to_string(),
     };
 
+    let mut cfg = DEFAULT_CONFIG.clone();
+    cfg.capture_mode = CaptureMode::Events;
+
     // Set up billing limit for the specific token using zrangebyscore
     let billing_key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, "events");
-    let redis = if is_billing_limited {
-        Arc::new(MockRedisClient::new().zrangebyscore_ret(&billing_key, vec![token.to_string()]))
+    let mut redis = if is_billing_limited {
+        MockRedisClient::new().zrangebyscore_ret(&billing_key, vec![token.to_string()])
     } else {
-        Arc::new(MockRedisClient::new())
+        MockRedisClient::new()
     };
-
-    let billing_limiter = RedisLimiter::new(
-        Duration::from_secs(60),
-        redis.clone(),
-        QUOTA_LIMITER_CACHE_KEY.to_string(),
-        None,
-        QuotaResource::Events,
-        ServiceName::Capture,
-    )
-    .unwrap();
 
     // Set up survey limiter - always required now
     let survey_key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, "surveys");
-    let survey_redis = Arc::new(MockRedisClient::new().zrangebyscore_ret(
+    redis = redis.zrangebyscore_ret(
         &survey_key,
         if is_survey_limited {
             vec![token.to_string()]
         } else {
             vec![]
         },
-    ));
-
-    let survey_limiter = RedisLimiter::new(
-        Duration::from_secs(60),
-        survey_redis,
-        QUOTA_LIMITER_CACHE_KEY.to_string(),
-        None,
-        QuotaResource::Surveys,
-        ServiceName::Capture,
-    )
-    .unwrap();
+    );
 
     // Set up AI events limiter with its own Redis client
     let ai_key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, "llm_events");
-    let ai_redis = Arc::new(MockRedisClient::new().zrangebyscore_ret(
+    redis = redis.zrangebyscore_ret(
         &ai_key,
         if is_ai_limited {
             vec![token.to_string()]
         } else {
             vec![]
         },
-    ));
+    );
 
-    let llm_events_limiter = RedisLimiter::new(
-        Duration::from_secs(60),
-        ai_redis,
-        QUOTA_LIMITER_CACHE_KEY.to_string(),
-        None,
-        QuotaResource::LLMEvents,
-        ServiceName::Capture,
-    )
-    .unwrap();
+    let exceptions_key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, "exceptions");
+    redis = redis.zrangebyscore_ret(
+        &exceptions_key,
+        if is_exceptions_limited {
+            vec![token.to_string()]
+        } else {
+            vec![]
+        },
+    );
+    let redis = Arc::new(redis);
+
+    let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60))
+        .add_scoped_limiter(
+            QuotaResource::Exceptions,
+            Box::new(|e: &RawEvent| e.event.as_str() == "$exception"),
+        )
+        .add_scoped_limiter(
+            QuotaResource::Surveys,
+            Box::new(|e: &RawEvent| {
+                matches!(
+                    e.event.as_str(),
+                    "survey sent" | "survey shown" | "survey dismissed"
+                )
+            }),
+        )
+        .add_scoped_limiter(
+            QuotaResource::LLMEvents,
+            Box::new(|e: &RawEvent| e.event.starts_with("$ai_")),
+        );
 
     let app = router(
         timesource,
         liveness,
         sink.clone(),
         redis,
-        billing_limiter,
-        survey_limiter,
-        llm_events_limiter,
+        quota_limiter,
         TokenDropper::default(),
         false, // metrics
         CaptureMode::Events,
@@ -506,7 +511,7 @@ async fn test_survey_quota_limit_ignores_non_survey_events() {
 #[tokio::test]
 async fn test_both_billing_and_survey_limits_applied() {
     let token = "test_token_both_limits";
-    let (router, sink) = setup_router_with_limits(token, true, true, false).await; // Both billing and survey limited
+    let (router, sink) = setup_router_with_limits(token, true, true, false, false).await; // Both billing and survey limited
     let client = TestClient::new(router);
 
     let events = [
@@ -837,46 +842,19 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
     // Configure set_nx_ex to return true (key was set successfully, first time seeing this submission)
     let submission_key = format!("survey-submission:{token}:submission_first");
     redis_client = redis_client.set_nx_ex_ret(&submission_key, Ok(true));
-
     let redis = Arc::new(redis_client);
 
-    let billing_limiter = RedisLimiter::new(
-        Duration::from_secs(60),
-        redis.clone(),
-        QUOTA_LIMITER_CACHE_KEY.to_string(),
-        None,
-        QuotaResource::Events,
-        ServiceName::Capture,
-    )
-    .unwrap();
+    let mut cfg = DEFAULT_CONFIG.clone();
+    cfg.capture_mode = CaptureMode::Events;
 
-    let survey_limiter = RedisLimiter::new(
-        Duration::from_secs(60),
-        redis.clone(),
-        QUOTA_LIMITER_CACHE_KEY.to_string(),
-        None,
-        QuotaResource::Surveys,
-        ServiceName::Capture,
-    )
-    .unwrap();
+    let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60));
 
-    let llm_events_limiter = RedisLimiter::new(
-        Duration::from_secs(60),
-        redis.clone(),
-        QUOTA_LIMITER_CACHE_KEY.to_string(),
-        None,
-        QuotaResource::LLMEvents,
-        ServiceName::Capture,
-    )
-    .unwrap();
     let app = router(
         timesource,
         liveness,
         sink.clone(),
         redis,
-        billing_limiter,
-        survey_limiter,
-        llm_events_limiter,
+        quota_limiter,
         TokenDropper::default(),
         false,
         CaptureMode::Events,
@@ -935,46 +913,19 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
     // Configure set_nx_ex to return false (key already exists, submission already processed)
     let submission_key = format!("survey-submission:{token}:submission_duplicate");
     redis_client = redis_client.set_nx_ex_ret(&submission_key, Ok(false));
-
     let redis = Arc::new(redis_client);
 
-    let billing_limiter = RedisLimiter::new(
-        Duration::from_secs(60),
-        redis.clone(),
-        QUOTA_LIMITER_CACHE_KEY.to_string(),
-        None,
-        QuotaResource::Events,
-        ServiceName::Capture,
-    )
-    .unwrap();
+    let mut cfg = DEFAULT_CONFIG.clone();
+    cfg.capture_mode = CaptureMode::Events;
 
-    let survey_limiter = RedisLimiter::new(
-        Duration::from_secs(60),
-        redis.clone(),
-        QUOTA_LIMITER_CACHE_KEY.to_string(),
-        None,
-        QuotaResource::Surveys,
-        ServiceName::Capture,
-    )
-    .unwrap();
+    let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60));
 
-    let llm_events_limiter = RedisLimiter::new(
-        Duration::from_secs(60),
-        redis.clone(),
-        QUOTA_LIMITER_CACHE_KEY.to_string(),
-        None,
-        QuotaResource::LLMEvents,
-        ServiceName::Capture,
-    )
-    .unwrap();
     let app = router(
         timesource,
         liveness,
         sink.clone(),
         redis,
-        billing_limiter,
-        survey_limiter,
-        llm_events_limiter,
+        quota_limiter,
         TokenDropper::default(),
         false,
         CaptureMode::Events,
@@ -1038,43 +989,17 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
 
     let redis = Arc::new(redis_client);
 
-    let billing_limiter = RedisLimiter::new(
-        Duration::from_secs(60),
-        redis.clone(),
-        QUOTA_LIMITER_CACHE_KEY.to_string(),
-        None,
-        QuotaResource::Events,
-        ServiceName::Capture,
-    )
-    .unwrap();
+    let mut cfg = DEFAULT_CONFIG.clone();
+    cfg.capture_mode = CaptureMode::Events;
 
-    let survey_limiter = RedisLimiter::new(
-        Duration::from_secs(60),
-        redis.clone(),
-        QUOTA_LIMITER_CACHE_KEY.to_string(),
-        None,
-        QuotaResource::Surveys,
-        ServiceName::Capture,
-    )
-    .unwrap();
+    let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60));
 
-    let llm_events_limiter = RedisLimiter::new(
-        Duration::from_secs(60),
-        redis.clone(),
-        QUOTA_LIMITER_CACHE_KEY.to_string(),
-        None,
-        QuotaResource::LLMEvents,
-        ServiceName::Capture,
-    )
-    .unwrap();
     let app = router(
         timesource,
         liveness,
         sink.clone(),
         redis,
-        billing_limiter,
-        survey_limiter,
-        llm_events_limiter,
+        quota_limiter,
         TokenDropper::default(),
         false,
         CaptureMode::Events,
@@ -1353,13 +1278,13 @@ async fn test_ai_events_quota_ignores_non_ai_events() {
 
 // Helper function to set up router with AI limiting
 async fn setup_ai_limited_router(token: &str, is_ai_limited: bool) -> (Router, MemorySink) {
-    setup_router_with_limits(token, false, false, is_ai_limited).await
+    setup_router_with_limits(token, false, false, is_ai_limited, false).await
 }
 
 #[tokio::test]
 async fn test_both_billing_and_ai_limits_applied() {
     let token = "test_token";
-    let (app, sink) = setup_router_with_limits(token, true, false, true).await;
+    let (app, sink) = setup_router_with_limits(token, true, false, true, false).await;
     let client = TestClient::new(app);
 
     let mixed_event = serde_json::json!({
@@ -1398,7 +1323,7 @@ async fn test_both_billing_and_ai_limits_applied() {
 #[tokio::test]
 async fn test_ai_and_survey_limits_interaction() {
     let token = "test_token";
-    let (app, sink) = setup_router_with_limits(token, false, true, true).await;
+    let (app, sink) = setup_router_with_limits(token, false, true, true, false).await;
     let client = TestClient::new(app);
 
     let mixed_event = serde_json::json!({
@@ -1441,7 +1366,7 @@ async fn test_ai_and_survey_limits_interaction() {
 #[tokio::test]
 async fn test_all_three_limits_applied() {
     let token = "test_token";
-    let (app, sink) = setup_router_with_limits(token, true, true, true).await;
+    let (app, sink) = setup_router_with_limits(token, true, true, true, true).await;
     let client = TestClient::new(app);
 
     let mixed_event = serde_json::json!({
@@ -1717,44 +1642,17 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
 
     let redis = Arc::new(redis_client);
 
-    let billing_limiter = RedisLimiter::new(
-        Duration::from_secs(60),
-        redis.clone(),
-        QUOTA_LIMITER_CACHE_KEY.to_string(),
-        None,
-        QuotaResource::Events,
-        ServiceName::Capture,
-    )
-    .unwrap();
+    let mut cfg = DEFAULT_CONFIG.clone();
+    cfg.capture_mode = CaptureMode::Events;
 
-    let survey_limiter = RedisLimiter::new(
-        Duration::from_secs(60),
-        redis.clone(),
-        QUOTA_LIMITER_CACHE_KEY.to_string(),
-        None,
-        QuotaResource::Surveys,
-        ServiceName::Capture,
-    )
-    .unwrap();
-
-    let llm_events_limiter = RedisLimiter::new(
-        Duration::from_secs(60),
-        redis.clone(),
-        QUOTA_LIMITER_CACHE_KEY.to_string(),
-        None,
-        QuotaResource::LLMEvents,
-        ServiceName::Capture,
-    )
-    .unwrap();
+    let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60));
 
     let app = router(
         timesource,
         liveness,
         sink.clone(),
         redis,
-        billing_limiter,
-        survey_limiter,
-        llm_events_limiter,
+        quota_limiter,
         TokenDropper::default(),
         false,
         CaptureMode::Events,
