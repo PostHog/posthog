@@ -47,11 +47,13 @@ where
         }
     }
 
+    #[allow(dead_code)]
     async fn is_limited(&self, token: &str) -> bool {
         self.limiter.is_limited(token).await
     }
 
     // partition indices in the event map instead of cloning/copying events
+    #[allow(dead_code)]
     async fn partition_event_indices(
         &self,
         indices_to_events: &HashMap<usize, RawEvent>,
