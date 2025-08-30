@@ -314,14 +314,14 @@ export class PluginServer {
             })
         }
 
-        process.on('unhandledRejection', (error: Error | any) => {
+        process.on('unhandledRejection', async (error: Error | any) => {
             logger.error('🤮', `Unhandled Promise Rejection`, { error: String(error) })
 
             captureException(error, {
                 extra: { detected_at: `pluginServer.ts on unhandledRejection` },
             })
 
-            void this.stop(error)
+            await this.stop(error)
         })
 
         process.on('uncaughtException', async (error: Error) => {
