@@ -25,12 +25,34 @@
   - `KAFKA_HOSTS=localhost:9092`
   - `REDIS_URL=redis://localhost:6379`
 
-**Start Command**
+**Complete Setup Workflow**
+1. **Install Dependencies**:
+   ```bash
+   # Python dependencies
+   uv sync
+   
+   # JavaScript dependencies  
+   pnpm install
+   ```
+
+2. **Activate Virtual Environment**:
+   ```bash
+   source .venv/bin/activate
+   ```
+
+3. **Start PostHog**:
+   ```bash
+   bin/start --minimal
+   ```
+
+4. **Optional - Capture Logs** (for debugging):
+   ```bash
+   script -q -f -c "source .venv/bin/activate && bin/start --minimal" logs/mprocs-$(date +%F-%H%M%S).log
+   ```
+
+**Quick Start Command**
 - From an activated venv (recommended):
-  - `uv sync && source .venv/bin/activate`
-  - `bin/start --minimal`
-- Capture a full session log (helpful for triage):
-  - `script -q -f -c "bin/start --minimal" logs/mprocs-$(date +%F-%H%M%S).log`
+  - `uv sync && source .venv/bin/activate && bin/start --minimal`
 
 **What Runs In Minimal**
 - Docker: Postgres, Redis, Redis7, ClickHouse, Zookeeper, Kafka, Object Storage, Proxy.
@@ -57,6 +79,17 @@
 - Health: `http://localhost:8010/_health`.
 - ClickHouse HTTP: `http://localhost:8123`.
 - MinIO console: `http://localhost:19001`.
+
+**Current Status (2024-08-30)**
+- ✅ Dependencies verified: mprocs, uv, pnpm, docker all installed
+- ✅ Python deps installed: `uv sync` completed successfully  
+- ✅ JS deps installed: `pnpm install` completed with some peer dep warnings
+- ✅ **PostHog running successfully!** `bin/start --minimal` working after activating venv
+
+**Success!**
+- All core services are UP: backend, celery-worker, plugin-server, frontend, docker-compose, property-defs-rs, capture, feature-flags, migrate-clickhouse
+- Only celery-beat is DOWN (expected - set to autostart: false in minimal config)
+- App should be accessible at http://localhost:8010
 
 **Notes**
 - We avoided code changes; the only repo additions were `.env` and this doc.
