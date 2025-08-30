@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common_redis::RedisClient;
+use common_types::RawEvent;
 use health::{ComponentStatus, HealthRegistry};
 use limiters::redis::ServiceName;
 use tokio::net::TcpListener;
@@ -12,10 +13,9 @@ use crate::config::CaptureMode;
 use crate::config::Config;
 
 use limiters::overflow::OverflowLimiter;
-use limiters::redis::{
-    QuotaResource, RedisLimiter, OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_CACHE_KEY,
-};
+use limiters::redis::{QuotaResource, RedisLimiter, OVERFLOW_LIMITER_CACHE_KEY};
 
+use crate::limiters::CaptureQuotaLimiter;
 use crate::router;
 use crate::router::BATCH_BODY_SIZE;
 use crate::sinks::fallback::FallbackSink;
@@ -138,41 +138,30 @@ where
             .expect("failed to create redis client"),
     );
 
-    let billing_limiter = RedisLimiter::new(
-        Duration::from_secs(5),
-        redis_client.clone(),
-        QUOTA_LIMITER_CACHE_KEY.to_string(),
-        config.redis_key_prefix.clone(),
-        match config.capture_mode {
-            CaptureMode::Events => QuotaResource::Events,
-            CaptureMode::Recordings => QuotaResource::Recordings,
-        },
-        ServiceName::Capture,
-    )
-    .expect("failed to create billing limiter");
+    // add new "scoped" quota limiters here as new quota tracking buckets are added
+    // to PostHog! Here a "scoped" limiter is one that should be INDEPENDENT of the
+    // global billing limiter applied here to every event batch
+    let quota_limiter =
+        CaptureQuotaLimiter::new(&config, redis_client.clone(), Duration::from_secs(5))
+            .add_scoped_limiter(
+                QuotaResource::Exceptions,
+                Box::new(|e: &RawEvent| e.event.as_str() == "$exception"),
+            )
+            .add_scoped_limiter(
+                QuotaResource::Surveys,
+                Box::new(|e: &RawEvent| {
+                    matches!(
+                        e.event.as_str(),
+                        "survey sent" | "survey shown" | "survey dismissed"
+                    )
+                }),
+            )
+            .add_scoped_limiter(
+                QuotaResource::LLMEvents,
+                Box::new(|e: &RawEvent| e.event.starts_with("$ai_")),
+            );
 
-    // Survey quota limiting - create for all capture modes (won't be used for recordings but required by router)
-    let survey_limiter = RedisLimiter::new(
-        Duration::from_secs(5),
-        redis_client.clone(),
-        QUOTA_LIMITER_CACHE_KEY.to_string(),
-        config.redis_key_prefix.clone(),
-        QuotaResource::Surveys,
-        ServiceName::Capture,
-    )
-    .expect("failed to create survey limiter");
-
-    // LLM events quota limiting - create for all capture modes
-    let llm_events_limiter = RedisLimiter::new(
-        Duration::from_secs(5),
-        redis_client.clone(),
-        QUOTA_LIMITER_CACHE_KEY.to_string(),
-        config.redis_key_prefix.clone(),
-        QuotaResource::LLMEvents,
-        ServiceName::Capture,
-    )
-    .expect("failed to create AI events limiter");
-
+    // TODO: remove this once we have a billing limiter
     let token_dropper = config
         .drop_events_by_token_distinct_id
         .clone()
@@ -198,9 +187,7 @@ where
         liveness,
         sink,
         redis_client,
-        billing_limiter,
-        survey_limiter,
-        llm_events_limiter,
+        quota_limiter,
         token_dropper,
         config.export_prometheus,
         config.capture_mode,
