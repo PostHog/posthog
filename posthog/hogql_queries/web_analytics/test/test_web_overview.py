@@ -1067,10 +1067,10 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         sql_utc = print_ast(hogql_query, context=context_utc, dialect="clickhouse")
 
-        assert "web_bounces_combined.period_bucket, toDateTime64(" in sql_utc
-        assert "toTimeZone(web_bounces_combined.period_bucket," not in sql_utc
+        assert "web_pre_aggregated_bounces.period_bucket, toDateTime64(" in sql_utc
+        assert "toTimeZone(web_pre_aggregated_bounces.period_bucket," not in sql_utc
 
-        assert "toTimeZone(web_bounces_combined.period_bucket," in sql_with_tz
+        assert "toTimeZone(web_pre_aggregated_bounces.period_bucket," in sql_with_tz
         # Simplified approach - just check timezone conversion exists
 
     @snapshot_clickhouse_queries
@@ -1095,8 +1095,8 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         sql_utc = print_ast(hogql_query, context=context_utc, dialect="clickhouse")
 
-        assert "web_bounces_combined.period_bucket, toDateTime64(" in sql_utc
-        assert "toTimeZone(web_bounces_combined.period_bucket, " not in sql_utc
+        assert "web_pre_aggregated_bounces.period_bucket, toDateTime64(" in sql_utc
+        assert "toTimeZone(web_pre_aggregated_bounces.period_bucket, " not in sql_utc
 
     def test_convertToProjectTimezone_affects_date_range_calculation(self):
         # Set team to PST timezone

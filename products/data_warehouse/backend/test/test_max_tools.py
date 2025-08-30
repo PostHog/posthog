@@ -334,3 +334,13 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
             )
             result = await tool.ainvoke(tool_call.model_dump(), config=cast(RunnableConfig, config))
             self.assertEqual(result.content, "```sql\nSELECT 'hello;world' FROM events\n```")
+
+    def test_current_query_included_in_system_prompt_template(self):
+        """Test that the system prompt template includes the current query section."""
+        tool = HogQLGeneratorTool(team=self.team, user=self.user, state=AssistantState(messages=[]))
+
+        # Verify the system prompt template contains the expected current query section
+        self.assertIn("The current HogQL query", tool.root_system_prompt_template)
+        self.assertIn("<current_query>", tool.root_system_prompt_template)
+        self.assertIn("{current_query}", tool.root_system_prompt_template)
+        self.assertIn("</current_query>", tool.root_system_prompt_template)
