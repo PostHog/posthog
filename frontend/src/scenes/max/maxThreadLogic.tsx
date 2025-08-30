@@ -27,6 +27,7 @@ import { uuid } from 'lib/utils'
 import { maxContextLogic } from 'scenes/max/maxContextLogic'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
+import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
 import { urls } from 'scenes/urls'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
@@ -124,6 +125,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 'setAutoRun',
                 'loadConversationHistorySuccess',
             ],
+            maxSettingsLogic,
+            ['loadCoreMemory'],
         ],
     })),
 
@@ -463,6 +466,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         completeThreadGeneration: () => {
             // Update the conversation history to include the new conversation
             actions.loadConversationHistory({ doNotUpdateCurrentThread: true })
+            actions.loadCoreMemory() // Memory might have been updated, which we want reflected in the settings UI
 
             if (!values.conversation) {
                 return

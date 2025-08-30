@@ -31,6 +31,8 @@ class MaxChatOpenAI(ChatOpenAI):
     def __init__(self, *args, user: "User", team: "Team", **kwargs):
         if "max_retries" not in kwargs:
             kwargs["max_retries"] = 3
+        if "stream_usage" not in kwargs:
+            kwargs["stream_usage"] = True
         super().__init__(*args, **kwargs)
         self._user = user
         self._team = team
