@@ -21,7 +21,7 @@ export function ChartGradients({
     metric,
 }: ChartGradientsProps): JSX.Element {
     const colors = useChartColors()
-    const goalColors = getGoalAwareColors(metric, colors)
+    const goalColors = getGoalAwareColors(metric?.goal, colors)
 
     if (lower < 0 && upper > 0) {
         const zeroOffset = (-lower / (upper - lower)) * 100

@@ -20,7 +20,7 @@ export const renderTooltipContent = (variantResult: ExperimentVariantResult, met
     const intervalLabel = getIntervalLabel(variantResult)
     const significant = isSignificant(variantResult)
 
-    const isWinning = isGoalAwareWinning(variantResult, metric)
+    const isWinning = isGoalAwareWinning(variantResult, metric.goal)
 
     return (
         <div className="flex flex-col gap-1">
@@ -46,7 +46,7 @@ export const renderTooltipContent = (variantResult: ExperimentVariantResult, met
             {isBayesianResult(variantResult) ? (
                 <div className="flex justify-between items-center">
                     <span className="text-muted-alt font-semibold">Chance to win:</span>
-                    <span className="font-semibold">{formatGoalAwareChanceToWin(variantResult, metric)}</span>
+                    <span className="font-semibold">{formatGoalAwareChanceToWin(variantResult, metric.goal)}</span>
                 </div>
             ) : (
                 <div className="flex justify-between items-center">

@@ -382,7 +382,7 @@ export function MetricRowGroup({
                 const isLastRow = index === variantResults.length - 1
                 const significant = isSignificant(variant)
                 const deltaPositive = isDeltaPositive(variant)
-                const isWinning = isGoalAwareWinning(variant, metric)
+                const isWinning = isGoalAwareWinning(variant, metric.goal)
                 const deltaText = formatDeltaPercent(variant)
 
                 return (

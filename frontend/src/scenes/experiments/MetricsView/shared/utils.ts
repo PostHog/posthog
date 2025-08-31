@@ -279,21 +279,24 @@ export function getMetricSubtitleValues(
  * Applies goal direction logic to return the appropriate value based on metric goal.
  * Returns whenIncrease if goal is 'increase' (or undefined), otherwise whenDecrease.
  */
-export function applyGoalDirection<T>(metric: ExperimentMetric, whenIncrease: T, whenDecrease: T): T {
-    return metric.goal === 'decrease' ? whenDecrease : whenIncrease
+export function applyGoalDirection<T>(goal: 'increase' | 'decrease' | undefined, whenIncrease: T, whenDecrease: T): T {
+    return goal === 'decrease' ? whenDecrease : whenIncrease
 }
 
-export function isGoalAwareWinning(result: ExperimentVariantResult, metric: ExperimentMetric): boolean | undefined {
+export function isGoalAwareWinning(
+    result: ExperimentVariantResult,
+    goal: 'increase' | 'decrease' | undefined
+): boolean | undefined {
     const deltaPositive = isDeltaPositive(result)
     if (deltaPositive === undefined) {
         return undefined
     }
-    return applyGoalDirection(metric, deltaPositive, !deltaPositive)
+    return applyGoalDirection(goal, deltaPositive, !deltaPositive)
 }
 
 export function getGoalAwareChanceToWin(
     result: ExperimentVariantResult,
-    metric: ExperimentMetric
+    goal: 'increase' | 'decrease' | undefined
 ): number | null | undefined {
     if (!isBayesianResult(result)) {
         return null
@@ -303,11 +306,14 @@ export function getGoalAwareChanceToWin(
         return chanceToWin
     }
     // When goal is to decrease, invert chance to win because lower values are better
-    return applyGoalDirection(metric, chanceToWin, 1 - chanceToWin)
+    return applyGoalDirection(goal, chanceToWin, 1 - chanceToWin)
 }
 
-export function formatGoalAwareChanceToWin(result: ExperimentVariantResult, metric: ExperimentMetric): string {
-    const chanceToWin = getGoalAwareChanceToWin(result, metric)
+export function formatGoalAwareChanceToWin(
+    result: ExperimentVariantResult,
+    goal: 'increase' | 'decrease' | undefined
+): string {
+    const chanceToWin = getGoalAwareChanceToWin(result, goal)
     return formatChanceToWin(chanceToWin)
 }
 
@@ -321,10 +327,10 @@ export interface GoalAwareColors {
  * When goal is decrease, positive and negative colors are swapped.
  */
 export function getGoalAwareColors(
-    metric: ExperimentMetric | undefined,
+    goal: 'increase' | 'decrease' | undefined,
     colors: { BAR_POSITIVE: string; BAR_NEGATIVE: string }
 ): GoalAwareColors {
-    if (!metric?.goal || metric.goal === 'increase') {
+    if (!goal || goal === 'increase') {
         return {
             positive: colors.BAR_POSITIVE,
             negative: colors.BAR_NEGATIVE,
