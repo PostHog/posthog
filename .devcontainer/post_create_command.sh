@@ -6,7 +6,7 @@ echo "🚀 Setting up PostHog development environment..."
 # Install uv (Python package manager)
 echo "📦 Installing uv..."
 curl -LsSf https://astral.sh/uv/install.sh | sh
-source ~/.local/bin/env
+export PATH="$HOME/.local/bin:$PATH"
 echo "✅ uv installed"
 
 # Install uvicorn (ASGI server)
