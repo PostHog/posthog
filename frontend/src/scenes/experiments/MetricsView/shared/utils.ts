@@ -277,9 +277,9 @@ export function getMetricSubtitleValues(
 
 /**
  * Applies goal direction logic to return the appropriate value based on metric goal.
- * Returns whenDecrease if goal is 'decrease', otherwise whenIncrease.
+ * Returns whenIncrease if goal is 'increase' (or undefined), otherwise whenDecrease.
  */
-export function applyGoalDirection<T>(metric: ExperimentMetric, whenDecrease: T, whenIncrease: T): T {
+export function applyGoalDirection<T>(metric: ExperimentMetric, whenIncrease: T, whenDecrease: T): T {
     return metric.goal === 'decrease' ? whenDecrease : whenIncrease
 }
 
@@ -288,7 +288,7 @@ export function isGoalAwareWinning(result: ExperimentVariantResult, metric: Expe
     if (deltaPositive === undefined) {
         return undefined
     }
-    return applyGoalDirection(metric, !deltaPositive, deltaPositive)
+    return applyGoalDirection(metric, deltaPositive, !deltaPositive)
 }
 
 export function getGoalAwareChanceToWin(
@@ -303,7 +303,7 @@ export function getGoalAwareChanceToWin(
         return chanceToWin
     }
     // When goal is to decrease, invert chance to win because lower values are better
-    return applyGoalDirection(metric, 1 - chanceToWin, chanceToWin)
+    return applyGoalDirection(metric, chanceToWin, 1 - chanceToWin)
 }
 
 export function formatGoalAwareChanceToWin(result: ExperimentVariantResult, metric: ExperimentMetric): string {
