@@ -45,6 +45,10 @@ if [ -f .env ]; then
     set +o allexport
 fi
 
+# Ensure a per-run log directory exists for custom logging configs
+export MPROCS_LOG_DIR=${MPROCS_LOG_DIR:-"$REPOSITORY_ROOT/logs/mprocs-$(date +%F-%H%M%S)"}
+mkdir -p "$MPROCS_LOG_DIR"
+
 ./bin/download-mmdb
 
 if ! command -v mprocs &>/dev/null; then

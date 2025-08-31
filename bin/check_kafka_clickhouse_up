@@ -2,9 +2,17 @@
 
 set -e
 
-# Check Kafka
+# Check Kafka (use KAFKA_HOSTS if provided; fallback to localhost:9092)
+BROKERS=${KAFKA_HOSTS:-localhost:9092}
+FIRST_BROKER=${BROKERS%%,*}
+HOST=${FIRST_BROKER%%:*}
+PORT=${FIRST_BROKER##*:}
+if [ "$HOST" = "$PORT" ]; then
+  PORT=9092
+fi
+
 while true; do
-nc -z localhost 9092 && break || echo 'Checking Kafka status...' && sleep 1
+  nc -z "$HOST" "$PORT" && break || echo "Checking Kafka status at $HOST:$PORT..." && sleep 1
 done
 
 ./bin/check_clickhouse_up
