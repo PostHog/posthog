@@ -10,8 +10,9 @@ import { KafkaConsumer } from '../../kafka/consumer'
 import { Hub, RawClickHouseEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
+import { HogFunctionFilterGlobals } from '../types'
 import { execHog } from '../utils/hog-exec'
-import { HogFunctionFilterGlobals, convertClickhouseRawEventToFilterGlobals } from '../utils/hog-function-filtering'
+import { convertClickhouseRawEventToFilterGlobals } from '../utils/hog-function-filtering'
 import { CdpConsumerBase } from './cdp-base.consumer'
 
 export type BehavioralEvent = {
