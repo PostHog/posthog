@@ -209,6 +209,7 @@ services:
             PGPASSWORD: posthog
             DEPLOYMENT: hobby
             CDP_API_URL: 'http://plugins:6738'
+            TEMPORAL_HOST: temporal
 
     web:
         <<: *worker
