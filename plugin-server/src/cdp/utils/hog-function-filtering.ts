@@ -441,3 +441,7 @@ export async function filterFunctionInstrumented(options: {
     }
     return result
 }
+
+export {
+    HogFunctionFilterGlobals, // We have a timeout so we don't need to worry about much more than that
+}
