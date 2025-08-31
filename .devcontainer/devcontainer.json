@@ -69,5 +69,7 @@
         "ultram4rine.sqltools-clickhouse-driver"
     ],
     // Use 'forwardPorts' to make a list of ports inside the container available locally.
-    "forwardPorts": [8000, 5432, 6379, 8123, 8234, 9000, 9092, 9440, 9009]
+    "forwardPorts": [8000, 5432, 6379, 8123, 8234, 9000, 9092, 9440, 9009],
+    // Install required tools after container creation
+    "postCreateCommand": "bash -c 'curl -LsSf https://astral.sh/uv/install.sh | sh && curl --proto \"=https\" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && source ~/.cargo/env && cargo install sqlx-cli mprocs'"
 }
