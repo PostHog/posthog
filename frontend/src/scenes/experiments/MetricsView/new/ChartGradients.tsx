@@ -1,6 +1,7 @@
 import { ExperimentMetric } from '~/queries/schema/schema-general'
 
 import { useChartColors } from '../shared/colors'
+import { getGoalAwareColors } from '../shared/utils'
 
 interface ChartGradientsProps {
     lower?: number
@@ -20,34 +21,17 @@ export function ChartGradients({
     metric,
 }: ChartGradientsProps): JSX.Element {
     const colors = useChartColors()
-
-    // Determine colors based on goal
-    const getNegativeColor = (): string => {
-        if (!metric?.goal) {
-            return colors.BAR_NEGATIVE
-        }
-        return metric.goal === 'decrease' ? colors.BAR_POSITIVE : colors.BAR_NEGATIVE
-    }
-
-    const getPositiveColor = (): string => {
-        if (!metric?.goal) {
-            return colors.BAR_POSITIVE
-        }
-        return metric.goal === 'decrease' ? colors.BAR_NEGATIVE : colors.BAR_POSITIVE
-    }
-
-    const negativeColor = getNegativeColor()
-    const positiveColor = getPositiveColor()
+    const goalColors = getGoalAwareColors(metric, colors)
 
     if (lower < 0 && upper > 0) {
         const zeroOffset = (-lower / (upper - lower)) * 100
         return (
             <defs>
                 <linearGradient id={gradientId} x1="0" x2="1" y1="0" y2="0">
-                    <stop offset="0%" stopColor={negativeColor} />
-                    <stop offset={`${zeroOffset}%`} stopColor={negativeColor} />
-                    <stop offset={`${zeroOffset}%`} stopColor={positiveColor} />
-                    <stop offset="100%" stopColor={positiveColor} />
+                    <stop offset="0%" stopColor={goalColors.negative} />
+                    <stop offset={`${zeroOffset}%`} stopColor={goalColors.negative} />
+                    <stop offset={`${zeroOffset}%`} stopColor={goalColors.positive} />
+                    <stop offset="100%" stopColor={goalColors.positive} />
                 </linearGradient>
             </defs>
         )
@@ -56,7 +40,7 @@ export function ChartGradients({
     return (
         <defs>
             <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="0">
-                <stop offset="100%" stopColor={upper <= 0 ? negativeColor : positiveColor} />
+                <stop offset="100%" stopColor={upper <= 0 ? goalColors.negative : goalColors.positive} />
             </linearGradient>
         </defs>
     )

@@ -308,12 +308,12 @@ export function ExperimentMetricForm({
             </div>
             <div>
                 <LemonLabel className="mb-1">Goal</LemonLabel>
-                <LemonSelect
+                <LemonSelect<'increase' | 'decrease'>
                     value={metric.goal || 'increase'}
-                    onChange={(value) => handleSetMetric({ ...metric, goal: value as 'increase' | 'decrease' })}
+                    onChange={(value) => handleSetMetric({ ...metric, goal: value })}
                     options={[
-                        { value: 'increase', label: 'Increase (higher is better)' },
-                        { value: 'decrease', label: 'Decrease (lower is better)' },
+                        { value: 'increase' as const, label: 'Increase (higher is better)' },
+                        { value: 'decrease' as const, label: 'Decrease (lower is better)' },
                     ]}
                     fullWidth
                 />
