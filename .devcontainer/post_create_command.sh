@@ -6,7 +6,13 @@ echo "🚀 Setting up PostHog development environment..."
 # Install uv (Python package manager)
 echo "📦 Installing uv..."
 curl -LsSf https://astral.sh/uv/install.sh | sh
+source ~/.local/bin/env
 echo "✅ uv installed"
+
+# Install uvicorn (ASGI server)
+echo "🌐 Installing uvicorn..."
+uv tool install uvicorn
+echo "✅ uvicorn installed"
 
 # Install Rust toolchain
 echo "🦀 Installing Rust..."
