@@ -283,7 +283,7 @@ export function applyGoalDirection<T>(goal: 'increase' | 'decrease' | undefined,
     return goal === 'decrease' ? whenDecrease : whenIncrease
 }
 
-export function isGoalAwareWinning(
+export function isWinning(
     result: ExperimentVariantResult,
     goal: 'increase' | 'decrease' | undefined
 ): boolean | undefined {
@@ -294,7 +294,7 @@ export function isGoalAwareWinning(
     return applyGoalDirection(goal, deltaPositive, !deltaPositive)
 }
 
-export function getGoalAwareChanceToWin(
+export function getChanceToWin(
     result: ExperimentVariantResult,
     goal: 'increase' | 'decrease' | undefined
 ): number | null | undefined {
@@ -309,15 +309,15 @@ export function getGoalAwareChanceToWin(
     return applyGoalDirection(goal, chanceToWin, 1 - chanceToWin)
 }
 
-export function formatGoalAwareChanceToWin(
+export function formatChanceToWinForGoal(
     result: ExperimentVariantResult,
     goal: 'increase' | 'decrease' | undefined
 ): string {
-    const chanceToWin = getGoalAwareChanceToWin(result, goal)
+    const chanceToWin = getChanceToWin(result, goal)
     return formatChanceToWin(chanceToWin)
 }
 
-export interface GoalAwareColors {
+export interface MetricColors {
     positive: string
     negative: string
 }
@@ -326,10 +326,10 @@ export interface GoalAwareColors {
  * Returns colors mapped according to the metric goal.
  * When goal is decrease, positive and negative colors are swapped.
  */
-export function getGoalAwareColors(
+export function getMetricColors(
     goal: 'increase' | 'decrease' | undefined,
     colors: { BAR_POSITIVE: string; BAR_NEGATIVE: string }
-): GoalAwareColors {
+): MetricColors {
     if (!goal || goal === 'increase') {
         return {
             positive: colors.BAR_POSITIVE,

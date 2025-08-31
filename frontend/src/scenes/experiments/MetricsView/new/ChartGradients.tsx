@@ -1,7 +1,7 @@
 import { ExperimentMetric } from '~/queries/schema/schema-general'
 
 import { useChartColors } from '../shared/colors'
-import { getGoalAwareColors } from '../shared/utils'
+import { getMetricColors } from '../shared/utils'
 
 interface ChartGradientsProps {
     lower?: number
@@ -21,7 +21,7 @@ export function ChartGradients({
     metric,
 }: ChartGradientsProps): JSX.Element {
     const colors = useChartColors()
-    const goalColors = getGoalAwareColors(metric?.goal, colors)
+    const goalColors = getMetricColors(metric?.goal, colors)
 
     if (lower < 0 && upper > 0) {
         const zeroOffset = (-lower / (upper - lower)) * 100
