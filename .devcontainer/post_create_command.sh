@@ -26,4 +26,4 @@ cargo install sqlx-cli mprocs
 echo "✅ Rust tools installed"
 
 echo "🎉 PostHog development environment setup complete!"
-echo "💡 You can now run: ./ee/bin/docker-ch-dev-web"
+echo "💡 Continue steps here: https://posthog.com/handbook/engineering/developing-locally#option-1-developing-with-codespaces"
