@@ -192,10 +192,9 @@ jobs:
 
             - name: Run sqlx migrations
               if: needs.changes.outputs.rust == 'true'
-              env:
-                  PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
               run: |
-                  cd ../ && sqlx migrate run --source rust/persons_migrations/
+                  PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
+                    sqlx migrate run -D "$PERSONS_DATABASE_URL" --source persons_migrations/
 
             - name: Download MaxMind Database
               if: needs.changes.outputs.rust == 'true'
