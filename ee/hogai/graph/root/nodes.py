@@ -187,6 +187,7 @@ class RootNodeUIContextMixin(AssistantNode):
         config: RunnableConfig,
         insight: MaxInsightContext,
         query_runner: AssistantQueryExecutor,
+        dashboard_filters: Optional[dict] = None,
         heading: Optional[str] = None,
     ) -> str | None:
         """
@@ -209,8 +210,10 @@ class RootNodeUIContextMixin(AssistantNode):
 
             query_obj = cast(SupportedQueryTypes, insight.query)
 
-            if insight.filtersOverride or insight.variablesOverride:
+            if dashboard_filters or insight.filtersOverride or insight.variablesOverride:
                 query_dict = insight.query.model_dump(mode="json")
+                if dashboard_filters:
+                    query_dict = apply_dashboard_filters_to_dict(query_dict, dashboard_filters, self._team)
                 if insight.filtersOverride:
                     query_dict = apply_dashboard_filters_to_dict(query_dict, insight.filtersOverride, self._team)
                 if insight.variablesOverride:
