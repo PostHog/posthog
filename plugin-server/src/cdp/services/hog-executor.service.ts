@@ -5,6 +5,7 @@ import { Counter, Histogram } from 'prom-client'
 import { ExecResult, convertHogToJS } from '@posthog/hogvm'
 
 import { instrumented } from '~/common/tracing/tracing-utils'
+import { ACCESS_TOKEN_PLACEHOLDER } from '~/config/constants'
 import {
     CyclotronInvocationQueueParametersEmailSchema,
     CyclotronInvocationQueueParametersFetchSchema,
@@ -567,9 +568,9 @@ export class HogExecutorService {
         const integrationInputs = await this.hogInputsService.loadIntegrationInputs(invocation.hogFunction)
 
         if (Object.keys(integrationInputs).length > 0) {
-            for (const [, value] of Object.entries(integrationInputs)) {
+            for (const [key, value] of Object.entries(integrationInputs)) {
                 const accessToken: string = value.value.access_token_raw
-                const placeholder: string = value.value.access_token
+                const placeholder: string = ACCESS_TOKEN_PLACEHOLDER + invocation.hogFunction.inputs?.[key]?.value
 
                 if (placeholder && accessToken) {
                     const replace = (val: string) => val.replaceAll(placeholder, accessToken)

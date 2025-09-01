@@ -1,3 +1,4 @@
+import threading
 from datetime import timedelta
 from typing import Any
 
@@ -6,19 +7,27 @@ from django.utils.timezone import now
 
 import structlog
 import posthoganalytics
+from asgiref.sync import async_to_sync
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
+from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.constants import VIDEO_EXPORT_TASK_QUEUE
 from posthog.event_usage import report_user_action
 from posthog.models import Insight, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.exported_asset import ExportedAsset, get_content_response
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
+from posthog.settings.temporal import TEMPORAL_WORKFLOW_MAX_ATTEMPTS
 from posthog.tasks import exporter
+from posthog.temporal.common.client import async_connect
+from posthog.temporal.exports_video.workflow import VideoExportInputs, VideoExportWorkflow
+
+VIDEO_EXPORT_SEMAPHORE = threading.Semaphore(10)  # Allow max 10 concurrent video exports
 
 logger = structlog.get_logger(__name__)
 
@@ -126,7 +135,35 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             send_feature_flag_events=False,
         )
         if blocking_exports and not force_async:
-            exporter.export_asset(instance.id)
+            if instance.export_format in ("video/mp4", "video/webm", "image/gif"):
+                # recordings-only
+                if not (instance.export_context and instance.export_context.get("session_recording_id")):
+                    raise serializers.ValidationError(
+                        {"export_format": ["Video export supports session recordings only."]}
+                    )
+
+                logger.info("starting_video_export_workflow", asset_id=instance.id)
+
+                async def _start():
+                    client = await async_connect()
+                    await client.execute_workflow(
+                        VideoExportWorkflow.run,
+                        VideoExportInputs(exported_asset_id=instance.id),
+                        id=f"export-video-{instance.id}",
+                        task_queue=VIDEO_EXPORT_TASK_QUEUE,
+                        retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
+                        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                    )
+
+                with VIDEO_EXPORT_SEMAPHORE:
+                    try:
+                        async_to_sync(_start)()
+                        logger.info("video_export_workflow_dispatched", asset_id=instance.id)
+                    except Exception as e:
+                        logger.exception("video_export_workflow_dispatch_failed", asset_id=instance.id, error=str(e))
+                        raise
+            else:
+                exporter.export_asset(instance.id)
         else:
             exporter.export_asset.delay(instance.id)
 
