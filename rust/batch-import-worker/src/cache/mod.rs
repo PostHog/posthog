@@ -3,21 +3,18 @@ use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 pub mod memory;
-pub mod redis;
 
 pub use memory::MemoryIdentifyCache;
-pub use redis::RedisIdentifyCache;
 
 /// Trait for caching user_id -> device_id mappings to determine when to inject $identify events
-#[async_trait::async_trait]
 pub trait IdentifyCache: Send + Sync + std::fmt::Debug {
-    async fn has_seen_user_device(
+    fn has_seen_user_device(
         &self,
         team_id: i32,
         user_id: &str,
         device_id: &str,
     ) -> Result<bool, Error>;
-    async fn mark_seen_user_device(
+    fn mark_seen_user_device(
         &self,
         team_id: i32,
         user_id: &str,
@@ -49,9 +46,8 @@ impl MockIdentifyCache {
     }
 }
 
-#[async_trait::async_trait]
 impl IdentifyCache for MockIdentifyCache {
-    async fn has_seen_user_device(
+    fn has_seen_user_device(
         &self,
         team_id: i32,
         user_id: &str,
@@ -62,7 +58,7 @@ impl IdentifyCache for MockIdentifyCache {
         Ok(seen.contains(&key))
     }
 
-    async fn mark_seen_user_device(
+    fn mark_seen_user_device(
         &self,
         team_id: i32,
         user_id: &str,
