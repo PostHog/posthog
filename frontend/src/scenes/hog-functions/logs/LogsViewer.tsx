@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCalendar, IconSearch } from '@posthog/icons'
+import { IconCalendar, IconList, IconSearch, IconTableOfContents } from '@posthog/icons'
 import {
     LemonButton,
     LemonInput,
@@ -217,11 +217,28 @@ export function LogsViewer({
 
                     {typeof props.groupByInstanceId !== 'boolean' && (
                         <LemonSelect
+                            size="small"
                             value={isGrouped}
                             onChange={(checked) => setIsGrouped(checked)}
                             options={[
-                                { label: 'Grouped', value: true },
-                                { label: 'Ungrouped', value: false },
+                                {
+                                    label: <IconTableOfContents />,
+                                    value: true,
+                                    labelInMenu: (
+                                        <>
+                                            <IconTableOfContents className="mr-1" /> Group logs by invocation
+                                        </>
+                                    ),
+                                },
+                                {
+                                    label: <IconList />,
+                                    value: false,
+                                    labelInMenu: (
+                                        <>
+                                            <IconList className="mr-1" /> No grouping
+                                        </>
+                                    ),
+                                },
                             ]}
                         />
                     )}
