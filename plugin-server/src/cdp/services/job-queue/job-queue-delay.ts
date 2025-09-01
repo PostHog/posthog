@@ -42,12 +42,18 @@ export const getDelayByQueue = (queue: CyclotronJobQueueDelayKind): number => {
 export class CyclotronJobQueueDelay {
     private kafkaConsumer?: KafkaConsumer
     private kafkaProducer?: KafkaProducerWrapper
+    private queue: CyclotronJobQueueDelayKind
 
     constructor(
         private config: PluginsServerConfig,
-        private queue: CyclotronJobQueueDelayKind,
+        queue: CyclotronJobQueueKind,
         private consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
-    ) {}
+    ) {
+        if (!['delay_24h', 'delay_60m', 'delay_10m'].includes(queue)) {
+            throw new Error(`CyclotronJobQueueDelay requires a delay queue. Received: ${queue}`)
+        }
+        this.queue = queue as CyclotronJobQueueDelayKind
+    }
 
     /**
      * Helper to only start the producer related code (e.g. when not a consumer)
