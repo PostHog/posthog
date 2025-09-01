@@ -109,7 +109,6 @@ case "$RS_SVC" in
     export RUST_BACKTRACE=1
     export KAFKA_HOSTS=localhost:9092
     export DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
-    export REDIS_URL=redis://localhost:6379/
     export BIND_HOST=0.0.0.0
     export BIND_PORT=3301
     export ENCRYPTION_KEYS=00beef0000beef0000beef0000beef00
