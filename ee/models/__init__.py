@@ -14,6 +14,7 @@ from .license import License
 from .property_definition import EnterprisePropertyDefinition
 from .rbac.access_control import AccessControl
 from .rbac.role import Role, RoleMembership
+from .session_summaries import SingleSessionSummary
 
 __all__ = [
     "AccessControl",
@@ -31,4 +32,5 @@ __all__ = [
     "License",
     "Role",
     "RoleMembership",
+    "SingleSessionSummary",
 ]
