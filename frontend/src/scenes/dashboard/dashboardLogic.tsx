@@ -1383,6 +1383,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             try {
                 breakpoint()
 
+                const refreshStartTime = performance.now()
                 // when one insight is refreshed manually, we want to avoid cache and force a refresh of the insight
                 // hence using 'force_blocking', small cost to give latest data for the insight
                 // also it's then consistent with the dashboard refresh button
@@ -1397,6 +1398,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     values.urlVariables
                 )
 
+                eventUsageLogic.actions.reportDashboardTileRefreshed(
+                    dashboardId,
+                    tile,
+                    values.urlFilters,
+                    values.urlVariables,
+                    Math.floor(performance.now() - refreshStartTime),
+                    true
+                )
+
                 if (refreshedInsight) {
                     dashboardsModel.actions.updateDashboardInsight(refreshedInsight)
                     actions.setRefreshStatus(insight.short_id)
@@ -1408,32 +1418,42 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         refreshDashboardItems: async ({ action, forceRefresh }, breakpoint) => {
+            const dashboardRefreshStartTime = performance.now()
             const isInitialLoad =
                 action === DashboardLoadAction.InitialLoad || action === DashboardLoadAction.InitialLoadWithVariables
             const isInitialLoadOrUpdate = isInitialLoad || action === DashboardLoadAction.Update
 
             const dashboardId: number = props.id
-            const sortedInsights = (values.insightTiles || [])
+            const allInsightTiles = values.insightTiles || []
+            const totalTileCount = allInsightTiles.length
+
+            const sortedTilesToRefresh = allInsightTiles
                 // sort tiles so we poll them in the exact order they are computed on the backend
                 .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-                .map((t) => t.insight)
-                .filter((i): i is QueryBasedInsightModel => !!i)
+                .filter(
+                    (t): t is DashboardTile<QueryBasedInsightModel> & { insight: QueryBasedInsightModel } => !!t.insight
+                )
                 // only refresh stale insights
                 .filter(
-                    (i) =>
+                    (t) =>
                         forceRefresh ||
                         !isInitialLoadOrUpdate ||
-                        !i.cache_target_age ||
-                        dayjs(i.cache_target_age).isBefore(dayjs())
+                        !t.insight.cache_target_age ||
+                        dayjs(t.insight.cache_target_age).isBefore(dayjs())
                 )
 
-            if (sortedInsights.length > 0) {
+            const tilesStaleCount = sortedTilesToRefresh.length
+            let tilesRefreshedCount = 0
+            let tilesErroredCount = 0
+            let tilesAbortedCount = 0
+
+            if (sortedTilesToRefresh.length > 0) {
                 await breakpoint()
                 actions.resetIntermittentFilters()
 
                 // Set refresh status for all insights
                 actions.setRefreshStatuses(
-                    sortedInsights.map((item) => item.short_id),
+                    sortedTilesToRefresh.map((tile) => tile.insight.short_id),
                     false,
                     true
                 )
@@ -1442,7 +1462,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 cache.abortController = new AbortController()
                 const methodOptions: ApiMethodOptions = { signal: cache.abortController.signal }
 
-                const fetchSyncInsightFunctions = sortedInsights.map((insight) => async () => {
+                const fetchSyncInsightFunctions = sortedTilesToRefresh.map((tile) => async () => {
+                    const insight = tile.insight
                     const queryId = uuid()
                     const queryStartTime = performance.now()
                     const dashboardId: number = props.id
@@ -1451,6 +1472,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.setRefreshStatus(insight.short_id, true, true)
 
                     try {
+                        const insightRefreshStartTime = performance.now()
                         const refreshedInsight = await getInsightWithRetry(
                             values.currentTeamId,
                             insight,
@@ -1465,15 +1487,28 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         if (refreshedInsight) {
                             dashboardsModel.actions.updateDashboardInsight(refreshedInsight)
                             actions.setRefreshStatus(insight.short_id)
+                            tilesRefreshedCount++
+
+                            eventUsageLogic.actions.reportDashboardTileRefreshed(
+                                dashboardId,
+                                tile,
+                                values.urlFilters,
+                                values.urlVariables,
+                                Math.floor(performance.now() - insightRefreshStartTime),
+                                true
+                            )
                         } else {
                             actions.setRefreshError(insight.short_id)
+                            tilesErroredCount++
                         }
                     } catch (e: any) {
                         if (shouldCancelQuery(e)) {
                             console.warn(`Insight refresh cancelled for ${insight.short_id} due to abort signal:`, e)
                             actions.abortQuery({ queryId, queryStartTime })
+                            tilesAbortedCount++
                         } else {
                             actions.setRefreshError(insight.short_id, e)
+                            tilesErroredCount++
                         }
                     }
                 })
@@ -1501,7 +1536,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         primary_interaction_id: dashboardQueryId,
                         time_to_see_data_ms: Math.floor(performance.now() - startTime),
                         api_response_bytes: responseBytes,
-                        insights_fetched: sortedInsights.length,
+                        insights_fetched: sortedTilesToRefresh.length,
                         insights_fetched_cached: values.dashboard?.tiles.reduce(
                             (acc, curr) => acc + (curr.is_cached ? 1 : 0),
                             0
@@ -1512,9 +1547,20 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                 eventUsageLogic.actions.reportDashboardRefreshed(
                     dashboardId,
+                    values.dashboard,
+                    values.urlFilters,
+                    values.urlVariables,
                     values.lastDashboardRefresh,
                     action,
-                    forceRefresh
+                    !!forceRefresh,
+                    {
+                        totalTileCount,
+                        tilesStaleCount,
+                        tilesRefreshedCount,
+                        tilesErroredCount,
+                        tilesAbortedCount,
+                        refreshDurationMs: Math.floor(performance.now() - dashboardRefreshStartTime),
+                    }
                 )
             }
         },
