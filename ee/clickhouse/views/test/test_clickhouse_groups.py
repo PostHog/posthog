@@ -187,7 +187,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
                 "notebook": None,
             },
         )
-        self.assertFalse(ResourceNotebook.objects.filter(group=group).exists())
+        self.assertFalse(ResourceNotebook.objects.filter(group=group.id).exists())
         self.assertEqual(0, Notebook.objects.filter(team=self.team).count())
 
     @freeze_time("2021-05-02")
@@ -205,7 +205,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/groups/find?group_type_index={index}&group_key={key}")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, "Should return 200 OK")
-        relationships = ResourceNotebook.objects.filter(group=group)
+        relationships = ResourceNotebook.objects.filter(group=group.id)
         self.assertIsNotNone(relationships)
         self.assertEqual(
             response.json(),
@@ -238,7 +238,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
         notebook = Notebook.objects.create(team=self.team, title="Mr. Krabs Notes")
-        ResourceNotebook.objects.create(group=group, notebook=notebook)
+        ResourceNotebook.objects.create(group=group.id, notebook=notebook)
 
         response = self.client.get(f"/api/projects/{self.team.id}/groups/find?group_type_index={index}&group_key={key}")
 
@@ -278,7 +278,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, "Should return 200 OK")
         final_notebook_count = Notebook.objects.filter(team=self.team).count()
         self.assertEqual(final_notebook_count, initial_notebook_count, "Notebook creation should be rolled back")
-        self.assertFalse(ResourceNotebook.objects.filter(group=group).exists())
+        self.assertFalse(ResourceNotebook.objects.filter(group=group.id).exists())
         mock_relationship_create.assert_called_once()
         self.assertEqual(len(logs.records), 1)
         log = logs.records[0]
