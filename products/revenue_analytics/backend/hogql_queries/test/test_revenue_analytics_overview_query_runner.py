@@ -237,7 +237,7 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_revenue_analytics_overview_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="product",
+                    key="revenue_analytics_product.name",
                     operator=PropertyOperator.EXACT,
                     value=["Product C"],  # Equivalent to `prod_c` but we're querying by name
                 )
@@ -259,7 +259,7 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_revenue_analytics_overview_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="product",
+                    key="revenue_analytics_product.name",
                     operator=PropertyOperator.EXACT,
                     value=["Product A", "Product C"],
                 )
@@ -309,7 +309,7 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             date_range=DateRange(date_from="2023-11-01", date_to="2024-01-31"),
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="source",
+                    key="source_label",
                     operator=PropertyOperator.EXACT,
                     value=["revenue_analytics.events.purchase"],
                 )
@@ -348,7 +348,7 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             date_range=DateRange(date_from="2023-11-01", date_to="2024-01-31"),
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="source",
+                    key="source_label",
                     operator=PropertyOperator.EXACT,
                     value=["revenue_analytics.events.purchase"],
                 )

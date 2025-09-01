@@ -17,7 +17,7 @@ from posthog.schema import (
     DateRange,
     HogQLQueryModifiers,
     PropertyOperator,
-    RevenueAnalyticsGroupBy,
+    RevenueAnalyticsBreakdown,
     RevenueAnalyticsMRRQuery,
     RevenueAnalyticsMRRQueryResponse,
     RevenueAnalyticsPropertyFilter,
@@ -269,22 +269,22 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self,
         date_range: DateRange | None = None,
         interval: SimpleIntervalType | None = None,
-        group_by: list[RevenueAnalyticsGroupBy] | None = None,
+        breakdown: list[RevenueAnalyticsBreakdown] | None = None,
         properties: list[RevenueAnalyticsPropertyFilter] | None = None,
     ):
         if date_range is None:
             date_range = DateRange(date_from="-6m")
         if interval is None:
             interval = SimpleIntervalType.MONTH
-        if group_by is None:
-            group_by = []
+        if breakdown is None:
+            breakdown = []
         if properties is None:
             properties = []
 
         return RevenueAnalyticsMRRQuery(
             dateRange=date_range,
             interval=interval,
-            groupBy=group_by,
+            breakdown=breakdown,
             properties=properties,
             modifiers=HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True),
         )
@@ -293,11 +293,11 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self,
         date_range: DateRange | None = None,
         interval: SimpleIntervalType | None = None,
-        group_by: list[RevenueAnalyticsGroupBy] | None = None,
+        breakdown: list[RevenueAnalyticsBreakdown] | None = None,
         properties: list[RevenueAnalyticsPropertyFilter] | None = None,
     ):
         with freeze_time(self.QUERY_TIMESTAMP):
-            query = self._build_query(date_range, interval, group_by, properties)
+            query = self._build_query(date_range, interval, breakdown, properties)
             runner = RevenueAnalyticsMRRQueryRunner(
                 team=self.team,
                 query=query,
@@ -322,7 +322,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_revenue_analytics_mrr_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="source",
+                    key="source_label",
                     operator=PropertyOperator.EXACT,
                     value=["non-existent-source"],
                 )
@@ -617,7 +617,9 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results, [])
 
     def test_with_data_and_product_grouping(self):
-        results = self._run_revenue_analytics_mrr_query(group_by=[RevenueAnalyticsGroupBy.PRODUCT]).results
+        results = self._run_revenue_analytics_mrr_query(
+            breakdown=[RevenueAnalyticsBreakdown(property="revenue_analytics_product.name")]
+        ).results
 
         self.assertEqual(len(results), 6)
 
@@ -693,7 +695,10 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_with_data_and_double_grouping(self):
         results = self._run_revenue_analytics_mrr_query(
-            group_by=[RevenueAnalyticsGroupBy.COHORT, RevenueAnalyticsGroupBy.PRODUCT]
+            breakdown=[
+                RevenueAnalyticsBreakdown(property="revenue_analytics_customer.cohort"),
+                RevenueAnalyticsBreakdown(property="revenue_analytics_product.name"),
+            ]
         ).results
 
         # 12 comes from the 6 products * 2 cohorts
@@ -845,7 +850,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_revenue_analytics_mrr_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="product",
+                    key="revenue_analytics_product.name",
                     operator=PropertyOperator.EXACT,
                     value=["Product C"],  # Equivalent to `prod_c` but we're querying by name
                 )
@@ -858,10 +863,10 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # When grouping results should be exactly the same, just the label changes
         results = self._run_revenue_analytics_mrr_query(
-            group_by=[RevenueAnalyticsGroupBy.PRODUCT],
+            breakdown=[RevenueAnalyticsBreakdown(property="revenue_analytics_product.name")],
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="product",
+                    key="revenue_analytics_product.name",
                     operator=PropertyOperator.EXACT,
                     value=["Product C"],  # Equivalent to `prod_c` but we're querying by name
                 )
@@ -876,7 +881,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_revenue_analytics_mrr_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="country",
+                    key="revenue_analytics_customer.country",
                     operator=PropertyOperator.EXACT,
                     value=["US"],
                 )
@@ -937,7 +942,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_revenue_analytics_mrr_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="source",
+                    key="source_label",
                     operator=PropertyOperator.EXACT,
                     value=["revenue_analytics.events.purchase"],
                 )
@@ -1039,7 +1044,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_revenue_analytics_mrr_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="source",
+                    key="source_label",
                     operator=PropertyOperator.EXACT,
                     value=["revenue_analytics.events.purchase"],
                 )
@@ -1084,14 +1089,14 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_revenue_analytics_mrr_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="source",
+                    key="source_label",
                     operator=PropertyOperator.EXACT,
                     value=["revenue_analytics.events.purchase"],
                 )
             ],
-            group_by=[
-                RevenueAnalyticsGroupBy.PRODUCT,
-                RevenueAnalyticsGroupBy.COUPON,
+            breakdown=[
+                RevenueAnalyticsBreakdown(property="revenue_analytics_product.name"),
+                RevenueAnalyticsBreakdown(property="revenue_analytics_coupon.name"),
             ],
         ).results
 

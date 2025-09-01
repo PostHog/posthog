@@ -2433,6 +2433,7 @@ export type BreakdownType =
     | 'hogql'
     | 'data_warehouse'
     | 'data_warehouse_person_property'
+    | 'revenue_analytics'
 export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
 export type SimpleIntervalType = 'day' | 'month'
 export type SmoothingType = number

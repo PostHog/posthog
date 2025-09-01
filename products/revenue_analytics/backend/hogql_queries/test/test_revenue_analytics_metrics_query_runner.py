@@ -17,7 +17,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     IntervalType,
     PropertyOperator,
-    RevenueAnalyticsGroupBy,
+    RevenueAnalyticsBreakdown,
     RevenueAnalyticsMetricsQuery,
     RevenueAnalyticsMetricsQueryResponse,
     RevenueAnalyticsPropertyFilter,
@@ -271,15 +271,15 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self,
         date_range: DateRange | None = None,
         interval: IntervalType | None = None,
-        group_by: list[RevenueAnalyticsGroupBy] | None = None,
+        breakdown: list[RevenueAnalyticsBreakdown] | None = None,
         properties: list[RevenueAnalyticsPropertyFilter] | None = None,
     ):
         if date_range is None:
             date_range = DateRange(date_from="-6m")
         if interval is None:
             interval = IntervalType.MONTH
-        if group_by is None:
-            group_by = []
+        if breakdown is None:
+            breakdown = []
         if properties is None:
             properties = []
 
@@ -287,7 +287,7 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             query = RevenueAnalyticsMetricsQuery(
                 dateRange=date_range,
                 interval=interval,
-                groupBy=group_by,
+                breakdown=breakdown,
                 properties=properties,
                 modifiers=HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True),
             )
@@ -315,7 +315,7 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_revenue_analytics_metrics_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="source",
+                    key="source_label",
                     operator=PropertyOperator.EXACT,
                     value=["non-existent-source"],
                 )
@@ -677,7 +677,9 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_with_data_and_product_grouping(self):
-        results = self._run_revenue_analytics_metrics_query(group_by=[RevenueAnalyticsGroupBy.PRODUCT]).results
+        results = self._run_revenue_analytics_metrics_query(
+            breakdown=[RevenueAnalyticsBreakdown(property="revenue_analytics_product.name")]
+        ).results
 
         self.assertEqual(len(results), 48)  # 6 Products * 8 insights = 48
 
@@ -800,7 +802,7 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_revenue_analytics_metrics_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="product",
+                    key="revenue_analytics_product.name",
                     operator=PropertyOperator.EXACT,
                     value=["Product C"],  # Equivalent to `prod_c` but we're querying by name
                 ),
@@ -812,10 +814,10 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # When grouping results should be exactly the same, just the label changes
         results = self._run_revenue_analytics_metrics_query(
-            group_by=[RevenueAnalyticsGroupBy.PRODUCT],
+            breakdown=[RevenueAnalyticsBreakdown(property="revenue_analytics_product.name")],
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="product",
+                    key="revenue_analytics_product.name",
                     operator=PropertyOperator.EXACT,
                     value=["Product C"],  # Equivalent to `prod_c` but we're querying by name
                 ),
@@ -832,7 +834,7 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_revenue_analytics_metrics_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="product",
+                    key="revenue_analytics_product.name",
                     operator=PropertyOperator.EXACT,
                     value=["Product A", "Product C"],
                 ),
@@ -866,7 +868,7 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_revenue_analytics_metrics_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="country",
+                    key="revenue_analytics_customer.country",
                     operator=PropertyOperator.EXACT,
                     value=["US"],
                 )
@@ -946,7 +948,7 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_revenue_analytics_metrics_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="source",
+                    key="source_label",
                     operator=PropertyOperator.EXACT,
                     value=["revenue_analytics.events.purchase"],
                 )
@@ -986,7 +988,7 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_revenue_analytics_metrics_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="source",
+                    key="source_label",
                     operator=PropertyOperator.EXACT,
                     value=["revenue_analytics.events.purchase"],
                 )
