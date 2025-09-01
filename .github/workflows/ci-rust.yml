@@ -177,6 +177,11 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev --directory ..
 
+            - name: Install sqlx-cli
+              if: needs.changes.outputs.rust == 'true'
+              run: |
+                  cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+
             - name: Set up databases
               if: needs.changes.outputs.rust == 'true'
               env:
@@ -185,6 +190,13 @@ jobs:
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
               run: cd ../ && python manage.py setup_test_environment
+
+            - name: Run sqlx migrations
+              if: needs.changes.outputs.rust == 'true'
+              env:
+                  PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+              run: |
+                  cd ../ && sqlx migrate run --source rust/persons_migrations/
 
             - name: Download MaxMind Database
               if: needs.changes.outputs.rust == 'true'
