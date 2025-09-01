@@ -1,5 +1,3 @@
-# Generated migration for cleaning null values from team arrays
-
 from django.db import migrations
 
 
