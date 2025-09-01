@@ -148,12 +148,7 @@ export const llmAnalyticsDatasetsLogic = kea<llmAnalyticsDatasetsLogicType>([
     listeners(({ asyncActions, values, selectors }) => ({
         setFilters: async ({ debounce }, _, __, previousState) => {
             const oldFilters = selectors.filters(previousState)
-            const firstLoad = selectors.rawFilters(previousState) === null
             const { filters } = values
-
-            if (firstLoad) {
-                return
-            }
 
             if (!objectsEqual(oldFilters, filters)) {
                 await asyncActions.loadDatasets(debounce)
