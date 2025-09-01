@@ -163,10 +163,10 @@ jobs:
               run: |
                   # Run Django migrations first (excluding managed=False models)
                   python manage.py migrate
-                  # Then run persons migrations using sqlx
-                  PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
+                  # Then run persons migrations using sqlx; comment out until we've merged
+                  # PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
                     sqlx database create 2>/dev/null || true
-                  PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
+                  # PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
                     sqlx migrate run --source rust/persons_migrations/
 
             # Now we can consider this PR's migrations
