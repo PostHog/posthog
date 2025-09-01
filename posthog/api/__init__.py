@@ -32,6 +32,8 @@ from products.llm_analytics.backend.api import LLMProxyViewSet
 from products.messaging.backend.api import MessageCategoryViewSet, MessagePreferencesViewSet, MessageTemplatesViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
 
+from ee.api.vercel import vercel_installation, vercel_product
+
 from ..heatmaps.heatmaps_api import HeatmapViewSet, LegacyHeatmapViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
 from ..session_recordings.session_recording_playlist_api import SessionRecordingPlaylistViewSet
@@ -544,6 +546,17 @@ if EE_AVAILABLE:
         r"persons", EnterprisePersonViewSet, "environment_persons", ["team_id"]
     )
     router.register(r"person", LegacyEnterprisePersonViewSet, "persons")
+    router.register(
+        r"vercel/v1/installations",
+        vercel_installation.VercelInstallationViewSet,
+        "vercel_installations",
+    )
+    router.register(
+        r"vercel/v1/products",
+        vercel_product.VercelProductViewSet,
+        "vercel_products",
+    )
+
 else:
     environment_insights_router, legacy_project_insights_router = register_grandfathered_environment_nested_viewset(
         r"insights", InsightViewSet, "environment_insights", ["team_id"]

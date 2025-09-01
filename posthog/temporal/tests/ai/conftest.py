@@ -2,7 +2,6 @@ from collections.abc import AsyncGenerator, Callable
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock
 
 import pytest_asyncio
 from redis import (
@@ -10,6 +9,7 @@ from redis import (
     asyncio as aioredis,
 )
 
+from posthog.models.user import User
 from posthog.redis import TEST_clear_clients, get_async_client, get_client
 from posthog.temporal.ai.session_summary.summarize_session_group import SessionGroupSummaryInputs
 from posthog.temporal.ai.session_summary.types.group import SessionGroupSummaryOfSummariesInputs
@@ -20,22 +20,26 @@ from ee.hogai.session_summaries.constants import (
     SESSION_SUMMARIES_STREAMING_MODEL,
     SESSION_SUMMARIES_SYNC_MODEL,
 )
+from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
 from ee.hogai.session_summaries.tests.conftest import *
+from ee.models.session_summaries import ExtraSummaryContext, SessionSummaryRunMeta, SingleSessionSummary
 
 
 @pytest.fixture
-def mock_single_session_summary_inputs(
-    mock_user: MagicMock,
-    mock_team: MagicMock,
-) -> Callable:
+def mock_single_session_summary_inputs() -> Callable:
     """Factory to produce inputs for single-session-summary related workflows/activities"""
 
-    def _create_inputs(session_id: str, redis_key_base: str = "test_key_base") -> SingleSessionSummaryInputs:
+    def _create_inputs(
+        session_id: str,
+        team_id: int,
+        user_id: int,
+        redis_key_base: str = "test_key_base",
+    ) -> SingleSessionSummaryInputs:
         return SingleSessionSummaryInputs(
             session_id=session_id,
-            user_id=mock_user.id,
-            team_id=mock_team.id,
+            user_id=user_id,
+            team_id=team_id,
             redis_key_base=redis_key_base,
             model_to_use=SESSION_SUMMARIES_STREAMING_MODEL,
         )
@@ -45,7 +49,6 @@ def mock_single_session_summary_inputs(
 
 @pytest.fixture
 def mock_single_session_summary_llm_inputs(
-    mock_user: MagicMock,
     mock_events_mapping: dict[str, list[Any]],
     mock_event_ids_mapping: dict[str, str],
     mock_events_columns: list[str],
@@ -54,10 +57,13 @@ def mock_single_session_summary_llm_inputs(
 ) -> Callable:
     """Factory to produce inputs for single-session summarization LLM calls, usually stored in Redis"""
 
-    def _create_inputs(session_id: str) -> SingleSessionSummaryLlmInputs:
+    def _create_inputs(
+        session_id: str,
+        user_id: int,
+    ) -> SingleSessionSummaryLlmInputs:
         return SingleSessionSummaryLlmInputs(
             session_id=session_id,
-            user_id=mock_user.id,
+            user_id=user_id,
             summary_prompt="Generate a summary for this session",
             system_prompt="You are a helpful assistant that summarizes user sessions",
             simplified_events_mapping=mock_events_mapping,
@@ -74,17 +80,19 @@ def mock_single_session_summary_llm_inputs(
 
 
 @pytest.fixture
-def mock_session_group_summary_inputs(
-    mock_user: MagicMock,
-    mock_team: MagicMock,
-) -> Callable:
+def mock_session_group_summary_inputs() -> Callable:
     """Factory to produce inputs for session-group-summary related workflows/activities"""
 
-    def _create_inputs(session_ids: list[str], redis_key_base: str = "test_input_base") -> SessionGroupSummaryInputs:
+    def _create_inputs(
+        session_ids: list[str],
+        team_id: int,
+        user_id: int,
+        redis_key_base: str = "test_input_base",
+    ) -> SessionGroupSummaryInputs:
         return SessionGroupSummaryInputs(
             session_ids=session_ids,
-            user_id=mock_user.id,
-            team_id=mock_team.id,
+            user_id=user_id,
+            team_id=team_id,
             redis_key_base=redis_key_base,
             min_timestamp_str="2025-03-30T00:00:00.000000+00:00",
             max_timestamp_str="2025-04-01T23:59:59.999999+00:00",
@@ -95,18 +103,19 @@ def mock_session_group_summary_inputs(
 
 
 @pytest.fixture
-def mock_session_group_summary_of_summaries_inputs(
-    mock_user: MagicMock,
-) -> Callable:
+def mock_session_group_summary_of_summaries_inputs() -> Callable:
     """Factory to produce inputs for session-group-summary-of-summaries related activities"""
 
     def _create_inputs(
         single_session_summaries_inputs: list[SingleSessionSummaryInputs],
+        user_id: int,
+        team_id: int,
         redis_key_base: str = "test_input_base",
     ) -> SessionGroupSummaryOfSummariesInputs:
         return SessionGroupSummaryOfSummariesInputs(
             single_session_summaries_inputs=single_session_summaries_inputs,
-            user_id=mock_user.id,
+            user_id=user_id,
+            team_id=team_id,
             redis_key_base=redis_key_base,
             model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
         )
@@ -233,3 +242,102 @@ def sync_redis_test_setup():
         yield context
     finally:
         context.cleanup()
+
+
+@pytest.fixture
+def mock_extra_summary_context() -> ExtraSummaryContext:
+    """Create a mock ExtraSummaryContext for testing."""
+    return ExtraSummaryContext(focus_area="conversion_funnel")
+
+
+@pytest.fixture
+def mock_session_summary_run_meta() -> SessionSummaryRunMeta:
+    """Create a mock SessionSummaryRunMeta for testing."""
+    return SessionSummaryRunMeta(
+        model_used=SESSION_SUMMARIES_SYNC_MODEL,
+        visual_confirmation=True,
+    )
+
+
+@pytest.fixture
+def mock_exception_event_ids() -> list[str]:
+    """Create a list of mock exception event IDs for testing."""
+    return ["mnop3456", "xyz98765"]  # From mock data, mnop3456 has an exception
+
+
+@pytest.fixture
+def mock_session_summary_serializer(
+    mock_enriched_llm_json_response: dict[str, Any],
+) -> SessionSummarySerializer:
+    """Create a valid SessionSummarySerializer instance for testing."""
+    serializer = SessionSummarySerializer(data=mock_enriched_llm_json_response)
+    if not serializer.is_valid():
+        raise ValueError(f"Invalid session summary data: {serializer.errors}")
+    return serializer
+
+
+@pytest.fixture
+def mock_intermediate_session_summary_serializer(
+    mock_intermediate_llm_json_response: dict[str, Any],
+) -> SessionSummarySerializer:
+    """Create an intermediate SessionSummarySerializer instance for testing (without UUIDs)."""
+    serializer = SessionSummarySerializer(data=mock_intermediate_llm_json_response)
+    if not serializer.is_valid():
+        raise ValueError(f"Invalid session summary data: {serializer.errors}")
+    return serializer
+
+
+@pytest.fixture
+def create_single_session_summary(db) -> Callable:
+    """Factory to create SingleSessionSummary instances in the database."""
+
+    def _create_summary(
+        team_id: int,
+        session_id: str,
+        summary: SessionSummarySerializer,
+        exception_event_ids: list[str] | None = None,
+        extra_summary_context: ExtraSummaryContext | None = None,
+        run_metadata: SessionSummaryRunMeta | None = None,
+        created_by: User | None = None,
+    ) -> None:
+        SingleSessionSummary.objects.add_summary(
+            team_id=team_id,
+            session_id=session_id,
+            summary=summary,
+            exception_event_ids=exception_event_ids or [],
+            extra_summary_context=extra_summary_context,
+            run_metadata=run_metadata,
+            created_by=created_by,
+        )
+
+    return _create_summary
+
+
+@pytest.fixture
+def mock_single_session_summary(
+    create_single_session_summary,
+    team,
+    user,
+    mock_session_id: str,
+    mock_session_summary_serializer: SessionSummarySerializer,
+    mock_exception_event_ids: list[str],
+    mock_extra_summary_context: ExtraSummaryContext,
+    mock_session_summary_run_meta: SessionSummaryRunMeta,
+) -> SingleSessionSummary:
+    """Create a single session summary in the database."""
+    create_single_session_summary(
+        team_id=team.id,
+        session_id=mock_session_id,
+        summary=mock_session_summary_serializer,
+        exception_event_ids=mock_exception_event_ids,
+        extra_summary_context=mock_extra_summary_context,
+        run_metadata=mock_session_summary_run_meta,
+        created_by=user,
+    )
+    summary = SingleSessionSummary.objects.get_summary(
+        team_id=team.id,
+        session_id=mock_session_id,
+        extra_summary_context=mock_extra_summary_context,
+    )
+    assert summary is not None, "Summary should exist in DB"
+    return summary
