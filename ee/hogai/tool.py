@@ -75,11 +75,19 @@ class session_summarization(BaseModel):
     use_current_filters: bool = Field(
         description="""
         - Whether to use current filters from user's UI to find relevant session recordings.
+        - IMPORTANT: Should be always `false` if the current filters or `search_session_recordings` tool are not present in the conversation history.
         - Examples:
-          * If the user says to use "current/selected/opened/my/all/these" filters or session recordings - set to `true`
-          * If the query is highly related to the current filters - set to `true`
-          * If the query is explicitly unrelated to current filters, set to `false`
-          * If the query has highly specific requirements not present in the current filters, set to `false`
+          * Set to `true` if one of the conditions is met:
+            - the user wants to summarize "current/selected/opened/my/all/these" session recordings
+            - the user wants to use "current/these" filters
+            - if the query is highly related to the current filters
+            - if the query doesn't specify any filters/conditions
+            - the user refers to what they're "looking at" or "viewing"
+          * Set to `false` if one of the conditions is met:
+            - no current filters or `search_session_recordings` tool are present in the conversation
+            - the user specifies date/time period different from the current filters
+            - the user specifies specific conditions (user, device, id, URL, etc.) not present in the current filters
+            - the the query is highly specific and not related to the current filters
         """
     )
 

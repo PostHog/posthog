@@ -31,18 +31,23 @@ def call_root_for_replay_sessions(demo_org_team_user):
         .compile(checkpointer=DjangoCheckpointer())
     )
 
-    async def callable(messages: str | list[AssistantMessageUnion]) -> AssistantMessage:
+    async def callable(
+        messages: str | list[AssistantMessageUnion], include_search_session_recordings_context: bool
+    ) -> AssistantMessage:
         conversation = await Conversation.objects.acreate(team=demo_org_team_user[1], user=demo_org_team_user[2])
         initial_state = AssistantState(
             messages=[HumanMessage(content=messages)] if isinstance(messages, str) else messages
         )
-        # Simulate session replay page context
+        # Conditionally include session replay page context
+        contextual_tools = (
+            {"search_session_recordings": {"current_filters": {"date_from": "-7d", "filter_test_accounts": True}}}
+            if include_search_session_recordings_context
+            else {}
+        )
         config = {
             "configurable": {
                 "thread_id": conversation.id,
-                "contextual_tools": {
-                    "search_session_recordings": {"current_filters": {"date_from": "-7d", "filter_test_accounts": True}}
-                },
+                "contextual_tools": contextual_tools,
             }
         }
         raw_state = await graph.ainvoke(initial_state, config)
@@ -60,11 +65,15 @@ def call_root_for_replay_sessions(demo_org_team_user):
 @pytest.mark.django_db
 @patch("posthoganalytics.feature_enabled", return_value=True)
 async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_replay_sessions, pytestconfig):
-    """Test routing between search_session_recordings (contextual) and session_summarization (root)."""
+    """Test routing between search_session_recordings (contextual) and session_summarization (root) with context."""
+
+    # Create a wrapper that includes context
+    async def task_with_context(input: str) -> AssistantMessage:
+        return await call_root_for_replay_sessions(input, include_search_session_recordings_context=True)
 
     await MaxPublicEval(
         experiment_name="tool_routing_session_replay",
-        task=call_root_for_replay_sessions,
+        task=task_with_context,
         scores=[ToolRelevance(semantic_similarity_args={"change", "session_summarization_query"})],
         data=[
             # Cases where search_session_recordings should be used (filtering/searching)
@@ -73,6 +82,7 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
                 expected=AssistantToolCall(
                     id="1",
                     name="search_session_recordings",
+                    # Expect the period to be guessed from current filters
                     args={"change": "show me recordings from mobile users"},
                 ),
             ),
@@ -89,7 +99,7 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
                 expected=AssistantToolCall(
                     id="3",
                     name="search_session_recordings",
-                    args={"change": "show recordings longer than 5 minutes"},
+                    args={"change": "show only recordings longer than 5 minutes"},
                 ),
             ),
             # Cases where session_summarization should be used (analysis/summary)
@@ -98,15 +108,21 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
                 expected=AssistantToolCall(
                     id="5",
                     name="session_summarization",
-                    args={"session_summarization_query": "summarize sessions from yesterday"},
+                    args={
+                        "session_summarization_query": "summarize sessions from yesterday",
+                        "use_current_filters": False,  # Specific time frame differs from current filters
+                    },
                 ),
             ),
             EvalCase(
-                input="watch sessions of the user 09081 in the last 7 days",
+                input="watch sessions of the user 09081 in the last 30 days",
                 expected=AssistantToolCall(
                     id="6",
                     name="session_summarization",
-                    args={"session_summarization_query": "watch sessions of the user 09081 in the last 7 days"},
+                    args={
+                        "session_summarization_query": "watch sessions of the user 09081 in the last 30 days",
+                        "use_current_filters": False,  # Specific user and timeframe
+                    },
                 ),
             ),
             EvalCase(
@@ -114,24 +130,86 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
                 expected=AssistantToolCall(
                     id="7",
                     name="session_summarization",
-                    args={"session_summarization_query": "analyze mobile user sessions from last week"},
+                    args={
+                        "session_summarization_query": "analyze mobile user sessions from last week",
+                        "use_current_filters": False,  # Specific device type and timeframe
+                    },
                 ),
             ),
-            # Edge cases - ambiguous queries
+            # Cases where use_current_filters should be true (referring to current/selected filters)
             EvalCase(
-                input="show me what users did on the checkout page",
+                input="summarize these sessions",
                 expected=AssistantToolCall(
-                    id="9",
+                    id="11",
                     name="session_summarization",
-                    args={"session_summarization_query": "show me what users did on the checkout page"},
+                    args={
+                        "session_summarization_query": "summarize these sessions",
+                        "use_current_filters": True,  # "these" refers to current filters
+                    },
                 ),
             ),
             EvalCase(
-                input="replay user sessions from this morning",
+                input="summarize all sessions",
                 expected=AssistantToolCall(
-                    id="10",
+                    id="14",
                     name="session_summarization",
-                    args={"session_summarization_query": "replay user sessions from this morning"},
+                    args={
+                        "session_summarization_query": "summarize all sessions",
+                        "use_current_filters": True,  # "all" in context of filtered view
+                    },
+                ),
+            ),
+        ],
+        pytestconfig=pytestconfig,
+    )
+
+
+@pytest.mark.django_db
+@patch("posthoganalytics.feature_enabled", return_value=True)
+async def eval_session_summarization_no_context(patch_feature_enabled, call_root_for_replay_sessions, pytestconfig):
+    """Test session summarization without search_session_recordings context - use_current_filters should always be false."""
+
+    # Create a wrapper that excludes context
+    async def task_with_context(input: str) -> AssistantMessage:
+        return await call_root_for_replay_sessions(input, include_search_session_recordings_context=False)
+
+    await MaxPublicEval(
+        experiment_name="session_summarization_no_context",
+        task=task_with_context,  # Using default include_search_session_recordings_context=False
+        scores=[ToolRelevance(semantic_similarity_args={"session_summarization_query"})],
+        data=[
+            # All cases should have use_current_filters=false when no context
+            EvalCase(
+                input="summarize sessions from yesterday",
+                expected=AssistantToolCall(
+                    id="1",
+                    name="session_summarization",
+                    args={
+                        "session_summarization_query": "summarize sessions from yesterday",
+                        "use_current_filters": False,  # No context, always false
+                    },
+                ),
+            ),
+            EvalCase(
+                input="analyze the current recordings from today",
+                expected=AssistantToolCall(
+                    id="3",
+                    name="session_summarization",
+                    args={
+                        "session_summarization_query": "analyze the current recordings from today",
+                        "use_current_filters": False,  # Even with "current", no context means false
+                    },
+                ),
+            ),
+            EvalCase(
+                input="watch all my session recordings",
+                expected=AssistantToolCall(
+                    id="5",
+                    name="session_summarization",
+                    args={
+                        "session_summarization_query": "watch all session recordings",
+                        "use_current_filters": False,  # Even with "all", no context means false
+                    },
                 ),
             ),
         ],

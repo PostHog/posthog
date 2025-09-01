@@ -196,7 +196,7 @@ class _SharedAssistantState(BaseState):
     """
     session_summarization_query: Optional[str] = Field(default=None)
     """
-    The user's query for summarizing sessions.
+    The user's query for summarizing sessions. Always pass the user's complete, unmodified query.
     """
     use_current_filters: Optional[bool] = Field(default=None)
     """
