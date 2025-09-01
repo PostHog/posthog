@@ -151,7 +151,7 @@ The user didn't provide any current filters. It means that you need to:
 - Assume the `use_current_filters` should be always `false`
 """
 
-SESSION_SUMMARIZATION_PROMPT__WITH_REPLAY_CONTEXT = """
+SESSION_SUMMARIZATION_PROMPT_WITH_REPLAY_CONTEXT = """
 The user also provided current filters. It means that you need to:
 - Convert the user query into a `session_summarization_query`
 - The query should be used to understand the user's intent

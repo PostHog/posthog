@@ -58,9 +58,9 @@ from .prompts import (
     ROOT_INSIGHTS_CONTEXT_PROMPT,
     ROOT_SYSTEM_PROMPT,
     ROOT_UI_CONTEXT_PROMPT,
-    SESSION_SUMMARIZATION_PROMPT__WITH_REPLAY_CONTEXT,
     SESSION_SUMMARIZATION_PROMPT_BASE,
     SESSION_SUMMARIZATION_PROMPT_NO_REPLAY_CONTEXT,
+    SESSION_SUMMARIZATION_PROMPT_WITH_REPLAY_CONTEXT,
 )
 
 # Map query kinds to their respective full UI query classes
@@ -626,7 +626,7 @@ class RootNode(RootNodeUIContextMixin):
         else:
             current_filters = search_session_recordings_context["current_filters"]
             conditional_template = PromptTemplate.from_template(
-                SESSION_SUMMARIZATION_PROMPT__WITH_REPLAY_CONTEXT, template_format="mustache"
+                SESSION_SUMMARIZATION_PROMPT_WITH_REPLAY_CONTEXT, template_format="mustache"
             )
             conditional_context = conditional_template.format_prompt(
                 current_filters=json.dumps(current_filters)
