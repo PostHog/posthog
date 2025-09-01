@@ -310,14 +310,13 @@ class RootNode(RootNodeUIContextMixin):
         """
         Check if the user has the session summarization feature flag enabled.
         """
-        return True
-        # return posthoganalytics.feature_enabled(
-        #     "max-session-summarization",
-        #     str(self._user.distinct_id),
-        #     groups={"organization": str(self._team.organization_id)},
-        #     group_properties={"organization": {"id": str(self._team.organization_id)}},
-        #     send_feature_flag_events=False,
-        # )
+        return posthoganalytics.feature_enabled(
+            "max-session-summarization",
+            str(self._user.distinct_id),
+            groups={"organization": str(self._team.organization_id)},
+            group_properties={"organization": {"id": str(self._team.organization_id)}},
+            send_feature_flag_events=False,
+        )
 
     def _has_insight_search_feature_flag(self) -> bool:
         """
@@ -398,30 +397,20 @@ class RootNode(RootNodeUIContextMixin):
             state, config, extra_tools=["retrieve_billing_information"] if should_add_billing_tool else []
         )
 
-        # Capture the rendered prompt before sending to LLM
-        prompt_values = {
-            "core_memory": self.core_memory_text,
-            "project_datetime": self.project_now,
-            "project_timezone": self.project_timezone,
-            "project_name": self._team.name,
-            "organization_name": self._team.organization.name,
-            "user_full_name": self._user.get_full_name(),
-            "user_email": self._user.email,
-            "ui_context": ui_context,
-            "billing_context": billing_context_prompt,
-        }
-
-        # Format the prompt to see what's being sent to the LLM
-        rendered_messages = prompt.format_messages(**prompt_values)
-        rendered_prompt = "\n\n".join([f"[{msg.__class__.__name__}]\n{msg.content}" for msg in rendered_messages])
-
-        # Save to wakawaka.txt
-        with open("wakawaka.txt", "w") as f:
-            f.write("=== RENDERED PROMPT SENT TO LLM ===\n\n")
-            f.write(rendered_prompt)
-            f.write("\n\n=== END OF PROMPT ===\n")
-
-        message = chain.invoke(prompt_values, config)
+        message = chain.invoke(
+            {
+                "core_memory": self.core_memory_text,
+                "project_datetime": self.project_now,
+                "project_timezone": self.project_timezone,
+                "project_name": self._team.name,
+                "organization_name": self._team.organization.name,
+                "user_full_name": self._user.get_full_name(),
+                "user_email": self._user.email,
+                "ui_context": ui_context,
+                "billing_context": billing_context_prompt,
+            },
+            config,
+        )
         message = cast(LangchainAIMessage, message)
 
         return PartialAssistantState(
@@ -515,38 +504,6 @@ class RootNode(RootNodeUIContextMixin):
             from ee.hogai.tool import retrieve_billing_information
 
             available_tools.append(retrieve_billing_information)
-
-        # Capture tool definitions being sent to the model
-        import json
-
-        tool_definitions = []
-        for tool in available_tools:
-            if hasattr(tool, "__name__"):
-                # It's a class/function
-                tool_name = getattr(tool, "__name__", str(tool))
-                tool_doc = getattr(tool, "__doc__", "")
-                if hasattr(tool, "model_json_schema"):
-                    # Pydantic model
-                    schema = tool.model_json_schema()
-                else:
-                    schema = {}
-            else:
-                # It's an instance of MaxTool
-                tool_name = tool.name
-                tool_doc = tool.description
-                schema = tool.args_schema.model_json_schema() if hasattr(tool, "args_schema") else {}
-
-            tool_definitions.append({"name": tool_name, "description": tool_doc, "schema": schema})
-
-        # Save to yokoyoko.txt
-        with open("yokoyoko.txt", "w") as f:
-            f.write("=== TOOL DEFINITIONS BOUND TO MODEL ===\n\n")
-            f.write(f"Total tools: {len(available_tools)}\n\n")
-            for i, tool_def in enumerate(tool_definitions, 1):
-                f.write(f"--- Tool {i}: {tool_def['name']} ---\n")
-                f.write(f"Description: {tool_def['description']}\n")
-                f.write(f"Schema: {json.dumps(tool_def['schema'], indent=2)}\n\n")
-            f.write("=== END OF TOOL DEFINITIONS ===\n")
 
         return base_model.bind_tools(available_tools, strict=True, parallel_tool_calls=False)
 
