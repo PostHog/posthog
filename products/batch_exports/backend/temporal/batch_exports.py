@@ -590,10 +590,10 @@ async def try_produce_run_status_app_metrics(status: BatchExportRun.Status | str
 
 def configure_default_ssl_context():
     """Setup a default SSL context for Kafka."""
-    context = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     context.options |= ssl.OP_NO_SSLv2
     context.options |= ssl.OP_NO_SSLv3
-    context.verify_mode = ssl.CERT_OPTIONAL
+    context.verify_mode = ssl.CERT_REQUIRED
     context.load_default_certs()
     return context
 
