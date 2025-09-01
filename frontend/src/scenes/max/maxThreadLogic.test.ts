@@ -796,6 +796,7 @@ describe('maxThreadLogic', () => {
                 id: MOCK_CONVERSATION_ID,
                 status: ConversationStatus.Idle,
                 title: 'Test conversation',
+                user: MOCK_DEFAULT_BASIC_USER,
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
                 messages: [],
