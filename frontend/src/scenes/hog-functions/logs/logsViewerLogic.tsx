@@ -520,6 +520,9 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
 
             // TODO: Add the logs to the right reducer
             if (values.isGrouped) {
+                actions.loadMoreGroupedLogsSuccess(
+                    groupLogs([...values.hiddenLogs, ...values.groupedLogs.flatMap((group) => group.entries)])
+                )
             } else {
                 actions.loadMoreUngroupedLogsSuccess(
                     [...values.unGroupedLogs, ...values.hiddenLogs].sort((a, b) => b.timestamp.diff(a.timestamp))
