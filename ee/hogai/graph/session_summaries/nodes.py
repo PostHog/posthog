@@ -295,14 +295,15 @@ class SessionSummarizationNode(AssistantNode):
                 replay_filters = MaxRecordingUniversalFilters.model_validate(current_filters)
             # If not - generate filters to get session ids from DB
             else:
-                replay_filters = await self._generate_replay_filters(state.session_summarization_query)
-                if not replay_filters:
+                generated_filters = await self._generate_replay_filters(state.session_summarization_query)
+                if not generated_filters:
                     self._log_failure(
                         f"No Replay filters were generated for session summarization: {state.session_summarization_query}",
                         conversation_id,
                         start_time,
                     )
                     return self._create_error_response(self._base_error_instructions, state)
+                replay_filters = generated_filters
             # Query the filters to get session ids
             session_ids = await database_sync_to_async(self._get_session_ids_with_filters, thread_sensitive=False)(
                 replay_filters
