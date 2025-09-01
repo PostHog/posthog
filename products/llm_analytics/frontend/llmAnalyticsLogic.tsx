@@ -171,8 +171,6 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     return 'users'
                 } else if (sceneKey === 'llmAnalyticsPlayground') {
                     return 'playground'
-                } else if (sceneKey === 'llmAnalyticsDatasets') {
-                    return 'datasets'
                 }
                 return 'dashboard'
             },
