@@ -424,7 +424,7 @@ const MarketingDashboard = (): JSX.Element => {
         return (
             <>
                 {feedbackBanner}
-                <LemonBanner type="info">
+                <LemonBanner type="warning">
                     You need to configure your marketing data sources in the settings{' '}
                     <Link to={urls.settings('environment-marketing-analytics')}>here</Link>.
                 </LemonBanner>
