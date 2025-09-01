@@ -677,12 +677,13 @@ function InternalDataTableVisualization(
         visualizationType === ChartDisplayType.ActionsAreaGraph ||
         visualizationType === ChartDisplayType.ActionsStackedBar
     ) {
+        const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
+        const _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
         component = (
             <LineGraph
                 className="p-2"
-                xData={xData}
-                yData={yData}
-                seriesBreakdownData={seriesBreakdownData}
+                xData={_xData}
+                yData={_yData}
                 visualizationType={visualizationType}
                 chartSettings={chartSettings}
                 dashboardId={dashboardId}
