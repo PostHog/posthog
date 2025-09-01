@@ -581,6 +581,7 @@ async def try_produce_run_status_app_metrics(status: BatchExportRun.Status | str
         )
         try:
             await fut
+            await producer.flush()
         except Exception:
             LOGGER.exception(
                 "Metrics production failed", team_id=team_id, batch_export_id=batch_export_id, metric_kind=metric_kind
