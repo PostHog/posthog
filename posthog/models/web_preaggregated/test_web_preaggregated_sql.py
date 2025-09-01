@@ -241,16 +241,18 @@ class TestWebPreaggregatedInserts(WebAnalyticsPreAggregatedTestBase):
             date_start=date_start,
             date_end=date_end,
             team_ids=[self.team.pk],
+            table_name="web_pre_aggregated_bounces",
         )
         stats_insert = WEB_STATS_INSERT_SQL(
             date_start=date_start,
             date_end=date_end,
             team_ids=[self.team.pk],
+            table_name="web_pre_aggregated_stats",
         )
+
+        # Basic smoke test - ensures both insert queries execute without errors
         sync_execute(stats_insert)
         sync_execute(bounces_insert)
-
-        # Very basic smoke test - ensures both insert queries execute without errors
         assert True
 
     def test_insert_queries_contain_all_columns_for_stats(self):
@@ -258,6 +260,7 @@ class TestWebPreaggregatedInserts(WebAnalyticsPreAggregatedTestBase):
             date_start="2024-01-01",
             date_end="2024-01-02",
             team_ids=[self.team.pk],
+            table_name="web_pre_aggregated_stats",
         )
 
         expected_stats_columns = get_web_stats_insert_columns()
@@ -265,7 +268,7 @@ class TestWebPreaggregatedInserts(WebAnalyticsPreAggregatedTestBase):
             assert f"\n    {column}" in stats_insert
 
         # Verify it has explicit column list format
-        assert "INSERT INTO web_stats_daily\n(" in stats_insert
+        assert "INSERT INTO web_pre_aggregated_stats\n(" in stats_insert
         assert ")\n\n    SELECT" in stats_insert
 
     def test_insert_queries_contain_all_columns_for_bounces(self):
@@ -274,6 +277,7 @@ class TestWebPreaggregatedInserts(WebAnalyticsPreAggregatedTestBase):
             date_start="2024-01-01",
             date_end="2024-01-02",
             team_ids=[self.team.pk],
+            table_name="web_pre_aggregated_bounces",
         )
 
         expected_bounces_columns = get_web_bounces_insert_columns()
@@ -281,7 +285,7 @@ class TestWebPreaggregatedInserts(WebAnalyticsPreAggregatedTestBase):
             assert f"\n    {column}" in bounces_insert
 
         # Verify it has explicit column list format
-        assert "INSERT INTO web_bounces_daily\n(" in bounces_insert
+        assert "INSERT INTO web_pre_aggregated_bounces\n(" in bounces_insert
         assert ")\n\n    SELECT" in bounces_insert
 
 

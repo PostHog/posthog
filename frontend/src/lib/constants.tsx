@@ -134,7 +134,9 @@ export enum ShownAsValue {
 
 // Retention constants
 export const RETENTION_RECURRING = 'retention_recurring'
-export const RETENTION_FIRST_TIME = 'retention_first_time'
+// hasn't been renamed to 'retention_first_occurrence_matching_filters' until schema migration
+export const RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS = 'retention_first_time'
+export const RETENTION_FIRST_EVER_OCCURRENCE = 'retention_first_ever_occurrence'
 
 export const WEBHOOK_SERVICES: Record<string, string> = {
     Slack: 'slack.com',
@@ -293,8 +295,9 @@ export const FEATURE_FLAGS = {
     MAX_SESSION_SUMMARIZATION: 'max-session-summarization', // owner: #team-max-ai
     EXPERIMENTS_RATIO_METRIC: 'experiments-ratio-metric', // owner: @andehen #team-experiments
     CDP_NEW_PRICING: 'cdp-new-pricing', // owner: #team-messaging
-    COMMENT_TEXT_FILTERING: 'comment-text-filtering', // owner: @pauldambra #team-replay
     IMPROVED_COOKIELESS_MODE: 'improved-cookieless-mode', // owner: @robbie-c #team-web-analytics
+    REPLAY_EXPORT_SHORT_VIDEO: 'replay-export-short-video', // owner: @veryayskiy #team-replay
+    REPLAY_EXPORT_FULL_VIDEO: 'replay-export-full-video', // owner: @veryayskiy #team-replay
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

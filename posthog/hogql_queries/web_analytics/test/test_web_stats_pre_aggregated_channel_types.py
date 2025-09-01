@@ -327,10 +327,11 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
             date_start="2024-01-01",
             date_end="2024-01-02",
             team_ids=[self.team.pk],
-            table_name="web_stats_daily",
+            table_name="web_pre_aggregated_stats",
+            granularity="hourly",
             select_only=True,
         )
-        insert_sql = f"INSERT INTO web_stats_daily\n{select_sql}"
+        insert_sql = f"INSERT INTO web_pre_aggregated_stats\n{select_sql}"
         sync_execute(insert_sql)
 
     def _calculate_channel_type_query(

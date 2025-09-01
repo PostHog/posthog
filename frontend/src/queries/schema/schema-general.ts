@@ -2390,7 +2390,6 @@ export type FileSystemIconType =
     | 'insightLifecycle'
     | 'insightStickiness'
     | 'insightHogQL'
-    | 'code'
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
     iconType?: FileSystemIconType
@@ -3863,6 +3862,8 @@ export const externalDataSources = [
     'Vitally',
     'BigQuery',
     'Chargebee',
+    'RevenueCat',
+    'Polar',
     'GoogleAds',
     'MetaAds',
     'Klaviyo',
