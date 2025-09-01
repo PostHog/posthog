@@ -308,8 +308,6 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     })
                     await breakpoint(10)
 
-                    console.log('results', results)
-
                     return groupLogs(results)
                 },
                 loadMoreGroupedLogs: async () => {
@@ -383,10 +381,13 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                             }
                         }
 
-                        if (existingLogsToUpdate.length) {
+                        if (newLogsToImmediateAdd.length) {
                             // Update the existing logs with the new data
                             actions.loadGroupedLogsSuccess(
-                                sanitizeGroupedLogs([...existingLogsToUpdate, ...values.groupedLogs])
+                                groupLogs([
+                                    ...newLogsToImmediateAdd,
+                                    ...values.groupedLogs.flatMap((group) => group.entries),
+                                ])
                             )
                         }
                     } else {
