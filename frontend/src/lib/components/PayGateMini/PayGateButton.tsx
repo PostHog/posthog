@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useValues as useKeaValues } from 'kea'
 import { useMemo } from 'react'
 
 import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
@@ -19,7 +18,7 @@ export const PayGateButton = ({ feature, currentUsage, ...buttonProps }: PayGate
     const { productWithFeature, featureInfo, gateVariant, isAddonProduct, scrollToProduct, isTrialEligible } =
         useValues(payGateMiniLogic({ feature, currentUsage }))
     const { startPaymentEntryFlow } = useActions(paymentEntryLogic)
-    const { featureFlags } = useKeaValues(featureFlagLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const ctaLink = useMemo(() => {
         if (gateVariant === 'add-card' && !isAddonProduct) {

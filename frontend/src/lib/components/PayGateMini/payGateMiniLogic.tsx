@@ -112,9 +112,8 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
         ],
         isTrialEligible: [
             (s) => [s.productWithFeature],
-            (productWithFeature: BillingProductV2Type | BillingProductV2AddonType | undefined) => {
-                const addon = productWithFeature as BillingProductV2AddonType
-                return !!addon?.trial
+            (productWithFeature) => {
+                return !!productWithFeature?.trial
             },
         ],
         gateVariant: [
