@@ -354,15 +354,14 @@ impl SymbolSetRecord {
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
-        sqlx::query!(
+        let _ignored = sqlx::query!(
             r#"
             DELETE FROM posthog_errortrackingsymbolset WHERE id = $1
             "#,
             self.id
         )
         .execute(e)
-        .await
-        .expect("Got at least one row back");
+        .await; // We don't really care if this fails, since it's a robustness thing anyway
 
         capture_symbol_set_deleted(self.team_id, &self.set_ref, self.storage_ptr.as_deref());
 
