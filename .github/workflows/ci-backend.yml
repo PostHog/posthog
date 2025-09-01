@@ -97,8 +97,9 @@ jobs:
                         - 'products/*/backend/migrations/*.py'
                         - 'products/*/migrations/*.py'  # Legacy structure
                         - 'rust/persons-migrator/persons_migrations/*.sql'
+                        - 'products/**/migrations/*.py'
+                        - 'rust/persons_migrations/*.sql'
                         - 'rust/bin/migrate-persons'
->>>>>>> 2b92ca7bdb (feat(persons): use sqlx for persons migrations)
 
     check-migrations:
         needs: [changes]
@@ -160,13 +161,13 @@ jobs:
 
             - name: Run migrations up to master
               run: |
-                  # Run persons migrations using sqlx
+                  # Run Django migrations first (excluding managed=False models)
+                  python manage.py migrate
+                  # Then run persons migrations using sqlx
                   PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
                     sqlx database create 2>/dev/null || true
                   PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
-                    sqlx migrate run --source rust/persons-migrator/persons_migrations/
-                  # Run Django migrations (excluding managed=False models)
-                  python manage.py migrate
+                    sqlx migrate run --source rust/persons_migrations/
 
             # Now we can consider this PR's migrations
             - name: Checkout this PR
@@ -279,17 +280,17 @@ jobs:
 
             - name: Run migrations for this PR
               run: |
-                  # Run persons migrations using sqlx
-                  PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
-                    sqlx migrate run --source rust/persons-migrator/persons_migrations/
-                  # Run Django migrations (excluding managed=False models)
+                  # Run Django migrations first (excluding managed=False models)
                   python manage.py migrate
+                  # Then run persons migrations using sqlx
+                  PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
+                    sqlx migrate run --source rust/persons_migrations/
 
             - name: Check migrations
               run: |
                   # Check sqlx persons migrations
                   PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
-                    sqlx migrate info --source rust/persons-migrator/persons_migrations/
+                    sqlx migrate info --source rust/persons_migrations/
                   # Check Django migrations (will not create migrations for managed=False models)
                   python manage.py makemigrations --check --dry-run
                   git fetch origin master
@@ -687,17 +688,17 @@ jobs:
                   bin/check_kafka_clickhouse_up
                   bin/check_postgres_up
 
-            - name: Run persons migrations
+            - name: Run Django and persons migrations
               if: ${{ needs.changes.outputs.backend == 'true' }}
               shell: bash
               run: |
-                  # Run persons migrations using sqlx before running tests
+                  # Run Django migrations first
+                  python manage.py migrate
+                  # Then run persons migrations using sqlx
                   PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
                     sqlx database create 2>/dev/null || true
                   PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
-                    sqlx migrate run --source rust/persons-migrator/persons_migrations/
-                  # Run Django migrations
-                  python manage.py migrate
+                    sqlx migrate run --source rust/persons_migrations/
 
             - name: Wait for Temporal
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
@@ -923,16 +924,16 @@ jobs:
                   bin/check_kafka_clickhouse_up
                   bin/check_postgres_up
 
-            - name: Run persons migrations
+            - name: Run Django and persons migrations
               shell: bash
               run: |
-                  # Run persons migrations using sqlx before running tests
+                  # Run Django migrations first
+                  python manage.py migrate
+                  # Then run persons migrations using sqlx
                   PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
                     sqlx database create 2>/dev/null || true
                   PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
-                    sqlx migrate run --source rust/persons-migrator/persons_migrations/
-                  # Run Django migrations
-                  python manage.py migrate
+                    sqlx migrate run --source rust/persons_migrations/
 
             - name: Run async migrations tests
               run: |
