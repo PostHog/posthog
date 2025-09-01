@@ -11,12 +11,9 @@ from posthog.temporal.common.clickhouse import ClickHouseClient
 
 @retry(
     retry=retry_if_exception_type(aiohttp.client_exceptions.ClientOSError),
-    # if retrying doesn't work, raise the actual error, not a retry error
+    # on attempts expired, raise the exception encountered in our code, not tenacity's retry error
     reraise=True,
-    # try again after 0.2 seconds
-    # and then exponentially waits up to a max of 3 seconds between requests
     wait=wait_random_exponential(multiplier=0.2, max=3),
-    # make a maximum of 3 attempts before stopping
     stop=stop_after_attempt(3),
 )
 async def execute_query(query: str, clickhouse_client: ClickHouseClient):
