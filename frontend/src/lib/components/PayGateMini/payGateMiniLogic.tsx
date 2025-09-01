@@ -110,6 +110,13 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
             (s) => [s.nextPlanWithFeature],
             (nextPlanWithFeature) => nextPlanWithFeature?.features.find((f) => f.key === props.feature),
         ],
+        isTrialEligible: [
+            (s) => [s.productWithFeature],
+            (productWithFeature: BillingProductV2Type | BillingProductV2AddonType | undefined) => {
+                const addon = productWithFeature as BillingProductV2AddonType
+                return !!addon?.trial
+            },
+        ],
         gateVariant: [
             (s) => [
                 s.billingLoading,

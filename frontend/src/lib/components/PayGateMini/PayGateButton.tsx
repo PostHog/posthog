@@ -1,8 +1,11 @@
 import { useActions, useValues } from 'kea'
+import { useValues as useKeaValues } from 'kea'
 import { useMemo } from 'react'
 
 import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getUpgradeProductLink } from 'scenes/billing/billing-utils'
 import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
 import { urls } from 'scenes/urls'
@@ -13,10 +16,10 @@ import { PayGateMiniLogicProps, payGateMiniLogic } from './payGateMiniLogic'
 
 type PayGateButtonProps = PayGateMiniLogicProps & Partial<LemonButtonProps>
 export const PayGateButton = ({ feature, currentUsage, ...buttonProps }: PayGateButtonProps): JSX.Element | null => {
-    const { productWithFeature, featureInfo, gateVariant, isAddonProduct, scrollToProduct } = useValues(
-        payGateMiniLogic({ feature, currentUsage })
-    )
+    const { productWithFeature, featureInfo, gateVariant, isAddonProduct, scrollToProduct, isTrialEligible } =
+        useValues(payGateMiniLogic({ feature, currentUsage }))
     const { startPaymentEntryFlow } = useActions(paymentEntryLogic)
+    const { featureFlags } = useKeaValues(featureFlagLogic)
 
     const ctaLink = useMemo(() => {
         if (gateVariant === 'add-card' && !isAddonProduct) {
@@ -37,12 +40,15 @@ export const PayGateButton = ({ feature, currentUsage, ...buttonProps }: PayGate
 
     const ctaLabel = useMemo(() => {
         if (gateVariant === 'add-card') {
+            if (featureFlags[FEATURE_FLAGS.PLATFORM_START_TRIAL_CTA] === 'test') {
+                return isTrialEligible ? 'Start trial' : 'Upgrade now'
+            }
             return 'Upgrade now'
         } else if (gateVariant === 'contact-sales') {
             return 'Contact sales'
         }
         return 'Move to PostHog Cloud'
-    }, [gateVariant])
+    }, [gateVariant, isTrialEligible, featureFlags])
 
     if (gateVariant === 'add-card' && !isAddonProduct) {
         return (
