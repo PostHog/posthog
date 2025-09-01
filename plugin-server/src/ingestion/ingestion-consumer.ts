@@ -31,8 +31,6 @@ import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing
 import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch.interface'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
 import { FlushResult, PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
-import { PostgresDualWritePersonRepository } from '../worker/ingestion/persons/repositories/postgres-dualwrite-person-repository'
-import { PostgresPersonRepository } from '../worker/ingestion/persons/repositories/postgres-person-repository'
 import { deduplicateEvents } from './deduplication/events'
 import { DeduplicationRedis, createDeduplicationRedis } from './deduplication/redis-client'
 import {
@@ -153,20 +151,7 @@ export class IngestionConsumer {
         this.ingestionWarningLimiter = new MemoryRateLimiter(1, 1.0 / 3600)
         this.hogTransformer = new HogTransformerService(hub)
 
-        const personRepositoryOptions = {
-            calculatePropertiesSize: this.hub.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
-            comparisonEnabled: this.hub.PERSONS_DUAL_WRITE_COMPARISON_ENABLED,
-        }
-
-        const personRepository = this.hub.PERSONS_DUAL_WRITE_ENABLED
-            ? new PostgresDualWritePersonRepository(
-                  this.hub.db.postgres,
-                  this.hub.db.postgresPersonMigration,
-                  personRepositoryOptions
-              )
-            : new PostgresPersonRepository(this.hub.db.postgres, personRepositoryOptions)
-
-        this.personStore = new BatchWritingPersonsStore(personRepository, this.hub.db.kafkaProducer, {
+        this.personStore = new BatchWritingPersonsStore(this.hub.personRepository, this.hub.db.kafkaProducer, {
             dbWriteMode: this.hub.PERSON_BATCH_WRITING_DB_WRITE_MODE,
             maxConcurrentUpdates: this.hub.PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
             maxOptimisticUpdateRetries: this.hub.PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
