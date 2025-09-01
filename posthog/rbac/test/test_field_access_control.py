@@ -54,7 +54,7 @@ class TestFieldAccessControlDecorator(BaseTest):
         """Test that serializer validation works with decorated fields"""
         team = Team.objects.create(
             organization=self.organization,
-            api_token="token123",
+            api_token="token123abc",
         )
 
         class TeamSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):

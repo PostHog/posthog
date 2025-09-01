@@ -796,7 +796,7 @@ class SessionRecordingViewSet(
             )
 
         # Load recordings from ClickHouse to get distinct_ids for ones that don't exist in Postgres
-        # Create minimal query with only session_ids
+        # Create minimal query with only session_ids - pass None for user to bypass access control filtering
         query_data = {
             "session_ids": session_recording_ids,
             "date_from": None,
@@ -804,10 +804,17 @@ class SessionRecordingViewSet(
             "kind": "RecordingsQuery",
         }
         query = RecordingsQuery.model_validate(query_data)
-        recordings, _, _ = list_recordings_from_query(query, cast(User, request.user), self.team)
+        recordings, _, _ = list_recordings_from_query(query, None, self.team)
+
+        # Filter recordings based on access control - only allow deletion of recordings user has editor access to
+        user_access_control = self.user_access_control
+        accessible_recordings = []
+        for recording in recordings:
+            if user_access_control.check_access_level_for_object(recording, required_level="editor"):
+                accessible_recordings.append(recording)
 
         # Filter out recordings that are already deleted
-        non_deleted_recordings = [recording for recording in recordings if not recording.deleted]
+        non_deleted_recordings = [recording for recording in accessible_recordings if not recording.deleted]
 
         # First, bulk create any missing records
         session_recordings_to_create = [

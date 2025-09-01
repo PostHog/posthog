@@ -1,5 +1,6 @@
 import pytest
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from rest_framework import status
 
@@ -41,10 +42,10 @@ class TestSessionRecordingAccessControl(APIBaseTest):
 
         # Create a test recording
         self.recording = SessionRecording.objects.create(
-            team=self.team, session_id="test_session_123", distinct_id="user123"
+            team=self.team, session_id="test_session_123", distinct_id="user123", deleted=False
         )
 
-    def _create_access_control(self, user, resource="recording", resource_id=None, access_level="viewer"):
+    def _create_access_control(self, user, resource="session_recording", resource_id=None, access_level="viewer"):
         """Helper to create access control for a user"""
         membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
         return AccessControl.objects.create(
@@ -55,7 +56,8 @@ class TestSessionRecordingAccessControl(APIBaseTest):
             organization_member=membership,
         )
 
-    def test_viewer_can_retrieve_recording(self):
+    @patch("posthog.session_recordings.models.session_recording.SessionRecording.load_metadata", return_value=True)
+    def test_viewer_can_retrieve_recording(self, mock_load_metadata):
         """Test that a user with viewer access can retrieve a recording"""
         self._create_access_control(self.viewer_user, access_level="viewer")
 
@@ -74,7 +76,8 @@ class TestSessionRecordingAccessControl(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_viewer_cannot_delete_recording(self):
+    @patch("posthog.session_recordings.models.session_recording.SessionRecording.load_metadata", return_value=True)
+    def test_viewer_cannot_delete_recording(self, mock_load_metadata):
         """Test that a user with viewer access cannot delete a recording"""
         self._create_access_control(self.viewer_user, access_level="viewer")
 
@@ -84,7 +87,8 @@ class TestSessionRecordingAccessControl(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertIn("You do not have editor access", response.json()["detail"])
 
-    def test_editor_can_delete_recording(self):
+    @patch("posthog.session_recordings.models.session_recording.SessionRecording.load_metadata", return_value=True)
+    def test_editor_can_delete_recording(self, mock_load_metadata):
         """Test that a user with editor access can delete a recording"""
         self._create_access_control(self.editor_user, access_level="editor")
 
@@ -97,12 +101,16 @@ class TestSessionRecordingAccessControl(APIBaseTest):
         self.recording.refresh_from_db()
         self.assertTrue(self.recording.deleted)
 
-    def test_editor_can_bulk_delete_recordings(self):
+    @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
+    def test_editor_can_bulk_delete_recordings(self, mock_list_recordings):
         """Test that a user with editor access can bulk delete recordings"""
         # Create additional recordings
         recording2 = SessionRecording.objects.create(
-            team=self.team, session_id="test_session_456", distinct_id="user456"
+            team=self.team, session_id="test_session_456", distinct_id="user456", deleted=False
         )
+
+        # Mock the ClickHouse query to return our test recordings
+        mock_list_recordings.return_value = ([self.recording, recording2], False, "")
 
         self._create_access_control(self.editor_user, access_level="editor")
 
@@ -121,7 +129,8 @@ class TestSessionRecordingAccessControl(APIBaseTest):
         self.assertTrue(self.recording.deleted)
         self.assertTrue(recording2.deleted)
 
-    def test_no_access_user_cannot_view_recording(self):
+    @patch("posthog.session_recordings.models.session_recording.SessionRecording.load_metadata", return_value=True)
+    def test_no_access_user_cannot_view_recording(self, mock_load_metadata):
         """Test that a user with no access cannot view a recording"""
         self._create_access_control(self.no_access_user, access_level="none")
 
@@ -130,20 +139,23 @@ class TestSessionRecordingAccessControl(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_specific_recording_access(self):
+    @patch("posthog.session_recordings.models.session_recording.SessionRecording.load_metadata", return_value=True)
+    def test_specific_recording_access(self, mock_load_metadata):
         """Test that a user can have access to specific recordings only"""
         # Create another recording
         recording2 = SessionRecording.objects.create(
-            team=self.team, session_id="test_session_789", distinct_id="user789"
+            team=self.team, session_id="test_session_789", distinct_id="user789", deleted=False
         )
 
         # Give viewer access to only the first recording
         self._create_access_control(
-            self.viewer_user, resource="recording", resource_id=str(self.recording.id), access_level="viewer"
+            self.viewer_user, resource="session_recording", resource_id=str(self.recording.id), access_level="viewer"
         )
 
         # Set resource-level access to none
-        self._create_access_control(self.viewer_user, resource="recording", resource_id=None, access_level="none")
+        self._create_access_control(
+            self.viewer_user, resource="session_recording", resource_id=None, access_level="none"
+        )
 
         self.client.force_login(self.viewer_user)
 
@@ -155,7 +167,8 @@ class TestSessionRecordingAccessControl(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{recording2.session_id}/")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_org_admin_has_full_access(self):
+    @patch("posthog.session_recordings.models.session_recording.SessionRecording.load_metadata", return_value=True)
+    def test_org_admin_has_full_access(self, mock_load_metadata):
         """Test that organization admins have full access to recordings"""
         # Make user an org admin
         membership = OrganizationMembership.objects.get(user=self.editor_user, organization=self.organization)
@@ -168,14 +181,15 @@ class TestSessionRecordingAccessControl(APIBaseTest):
         response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/{self.recording.session_id}/")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
-    def test_role_based_access(self):
+    @patch("posthog.session_recordings.models.session_recording.SessionRecording.load_metadata", return_value=True)
+    def test_role_based_access(self, mock_load_metadata):
         """Test that roles can be used to grant recording access"""
         # Create a role with editor access to recordings
         role = Role.objects.create(name="Recording Editors", organization=self.organization)
         RoleMembership.objects.create(user=self.editor_user, role=role)
 
         # Grant the role editor access
-        AccessControl.objects.create(team=self.team, resource="recording", access_level="editor", role=role)
+        AccessControl.objects.create(team=self.team, resource="session_recording", access_level="editor", role=role)
 
         self.client.force_login(self.editor_user)
         response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/{self.recording.session_id}/")
