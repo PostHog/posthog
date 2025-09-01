@@ -817,59 +817,93 @@ class _Printer(Visitor[str]):
 
         return None  # nothing to optimize
 
-    def __get_ops_format(self, node: ast.CompareOperation, left: str, right: str) -> str:
-        beautified_ops = {
-            ast.CompareOperationOp.Eq: f"{left} = {right}",
-            ast.CompareOperationOp.NotEq: f"{left} != {right}",
-            ast.CompareOperationOp.Like: f"{left} LIKE {right}",
-            ast.CompareOperationOp.NotLike: f"{left} NOT LIKE {right}",
-            ast.CompareOperationOp.ILike: f"{left} ILIKE {right}",
-            ast.CompareOperationOp.NotILike: f"{left} NOT ILIKE {right}",
-            ast.CompareOperationOp.In: f"{left} IN {right}",
-            ast.CompareOperationOp.NotIn: f"{left} NOT IN {right}",
-            ast.CompareOperationOp.GlobalIn: f"{left} GLOBAL IN {right}",
-            ast.CompareOperationOp.GlobalNotIn: f"{left} GLOBAL NOT IN {right}",
-            ast.CompareOperationOp.Regex: f"{left} REGEXP {right}",
-            ast.CompareOperationOp.NotRegex: f"{left} NOT REGEXP {right}",
-            ast.CompareOperationOp.IRegex: f"{left} IREGEXP {right}",
-            ast.CompareOperationOp.NotIRegex: f"{left} NOT IREGEXP {right}",
-            ast.CompareOperationOp.Gt: f"{left} > {right}",
-            ast.CompareOperationOp.GtEq: f"{left} >= {right}",
-            ast.CompareOperationOp.Lt: f"{left} < {right}",
-            ast.CompareOperationOp.LtEq: f"{left} <= {right}",
-            ast.CompareOperationOp.InCohort: f"{left} IN COHORT {right}",
-            ast.CompareOperationOp.NotInCohort: f"{left} NOT IN COHORT {right}",
-        }
+    def __get_sql_op(self, op: ast.CompareOperationOp, left: str, right: str) -> str:
+        match op:
+            case ast.CompareOperationOp.Eq:
+                return f"{left} = {right}"
+            case ast.CompareOperationOp.NotEq:
+                return f"{left} != {right}"
+            case ast.CompareOperationOp.Like:
+                return f"{left} LIKE {right}"
+            case ast.CompareOperationOp.NotLike:
+                return f"{left} NOT LIKE {right}"
+            case ast.CompareOperationOp.ILike:
+                return f"{left} ILIKE {right}"
+            case ast.CompareOperationOp.NotILike:
+                return f"{left} NOT ILIKE {right}"
+            case ast.CompareOperationOp.In:
+                return f"{left} IN {right}"
+            case ast.CompareOperationOp.NotIn:
+                return f"{left} NOT IN {right}"
+            case ast.CompareOperationOp.GlobalIn:
+                return f"{left} GLOBAL IN {right}"
+            case ast.CompareOperationOp.GlobalNotIn:
+                return f"{left} GLOBAL NOT IN {right}"
+            case ast.CompareOperationOp.Regex:
+                return f"{left} REGEXP {right}"
+            case ast.CompareOperationOp.NotRegex:
+                return f"{left} NOT REGEXP {right}"
+            case ast.CompareOperationOp.IRegex:
+                return f"{left} IREGEXP {right}"
+            case ast.CompareOperationOp.NotIRegex:
+                return f"{left} NOT IREGEXP {right}"
+            case ast.CompareOperationOp.Gt:
+                return f"{left} > {right}"
+            case ast.CompareOperationOp.GtEq:
+                return f"{left} >= {right}"
+            case ast.CompareOperationOp.Lt:
+                return f"{left} < {right}"
+            case ast.CompareOperationOp.LtEq:
+                return f"{left} <= {right}"
+            case ast.CompareOperationOp.InCohort:
+                return f"{left} IN COHORT {right}"
+            case ast.CompareOperationOp.NotInCohort:
+                return f"{left} NOT IN COHORT {right}"
+        raise ImpossibleASTError(f"Unknown CompareOperationOp: {op.name}")
 
-        clickhouse_ops = {
-            ast.CompareOperationOp.Eq: f"equals({left}, {right})",
-            ast.CompareOperationOp.NotEq: f"notEquals({left}, {right})",
-            ast.CompareOperationOp.Like: f"like({left}, {right})",
-            ast.CompareOperationOp.NotLike: f"notLike({left}, {right})",
-            ast.CompareOperationOp.ILike: f"ilike({left}, {right})",
-            ast.CompareOperationOp.NotILike: f"notILike({left}, {right})",
-            ast.CompareOperationOp.In: f"in({left}, {right})",
-            ast.CompareOperationOp.NotIn: f"notIn({left}, {right})",
-            ast.CompareOperationOp.GlobalIn: f"globalIn({left}, {right})",
-            ast.CompareOperationOp.GlobalNotIn: f"globalNotIn({left}, {right})",
-            ast.CompareOperationOp.Regex: f"match({left}, {right})",
-            ast.CompareOperationOp.NotRegex: f"not(match({left}, {right}))",
-            ast.CompareOperationOp.IRegex: f"match({left}, concat('(?i)', {right}))",
-            ast.CompareOperationOp.NotIRegex: f"not(match({left}, concat('(?i)', {right})))",
-            ast.CompareOperationOp.Gt: f"greater({left}, {right})",
-            ast.CompareOperationOp.GtEq: f"greaterOrEquals({left}, {right})",
-            ast.CompareOperationOp.Lt: f"less({left}, {right})",
-            ast.CompareOperationOp.LtEq: f"lessOrEquals({left}, {right})",
-            ast.CompareOperationOp.InCohort: f"{left} IN COHORT {right}",
-            ast.CompareOperationOp.NotInCohort: f"{left} NOT IN COHORT {right}",
-        }
-
-        try:
-            op = beautified_ops[node.op] if self.context.pretty_print else clickhouse_ops[node.op]
-        except KeyError:
-            raise ImpossibleASTError(f"Unknown CompareOperationOp: {node.op.name}")
-
-        return op
+    def __get_clickhouse_op(self, op: ast.CompareOperationOp, left: str, right: str) -> str:
+        match op:
+            case ast.CompareOperationOp.Eq:
+                return f"equals({left}, {right})"
+            case ast.CompareOperationOp.NotEq:
+                return f"notEquals({left}, {right})"
+            case ast.CompareOperationOp.Like:
+                return f"like({left}, {right})"
+            case ast.CompareOperationOp.NotLike:
+                return f"notLike({left}, {right})"
+            case ast.CompareOperationOp.ILike:
+                return f"ilike({left}, {right})"
+            case ast.CompareOperationOp.NotILike:
+                return f"notILike({left}, {right})"
+            case ast.CompareOperationOp.In:
+                return f"in({left}, {right})"
+            case ast.CompareOperationOp.NotIn:
+                return f"notIn({left}, {right})"
+            case ast.CompareOperationOp.GlobalIn:
+                return f"globalIn({left}, {right})"
+            case ast.CompareOperationOp.GlobalNotIn:
+                return f"globalNotIn({left}, {right})"
+            case ast.CompareOperationOp.Regex:
+                return f"match({left}, {right})"
+            case ast.CompareOperationOp.NotRegex:
+                return f"not(match({left}, {right}))"
+            case ast.CompareOperationOp.IRegex:
+                return f"match({left}, concat('(?i)', {right}))"
+            case ast.CompareOperationOp.NotIRegex:
+                return f"not(match({left}, concat('(?i)', {right})))"
+            case ast.CompareOperationOp.Gt:
+                return f"greater({left}, {right})"
+            case ast.CompareOperationOp.GtEq:
+                return f"greaterOrEquals({left}, {right})"
+            case ast.CompareOperationOp.Lt:
+                return f"less({left}, {right})"
+            case ast.CompareOperationOp.LtEq:
+                return f"lessOrEquals({left}, {right})"
+            case ast.CompareOperationOp.InCohort:
+                return f"{left} IN COHORT {right}"
+            case ast.CompareOperationOp.NotInCohort:
+                return f"{left} NOT IN COHORT {right}"
+        raise ImpossibleASTError(f"Unknown CompareOperationOp: {op.name}")
 
     def visit_compare_operation(self, node: ast.CompareOperation):
         # If either side of the operation is a property that is part of a property group, special optimizations may
@@ -900,7 +934,13 @@ class _Printer(Visitor[str]):
         value_if_one_side_is_null = False
         value_if_both_sides_are_null = False
 
-        op = self.__get_ops_format(node, left, right)  # different format for pretty_print
+        # Different output formats for pretty_print and clickhouse
+        op = (
+            self.__get_sql_op(node.op, left, right)
+            if self.context.pretty_print
+            else self.__get_clickhouse_op(node.op, left, right)
+        )
+
         if node.op == ast.CompareOperationOp.Eq:
             constant_lambda = lambda left_op, right_op: left_op == right_op
             value_if_both_sides_are_null = True
