@@ -16,6 +16,8 @@ from posthog.schema import (
 )
 
 from posthog.models.notebook.notebook import Notebook
+from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
+from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
 from posthog.temporal.ai.session_summary.summarize_session_group import (
@@ -40,6 +42,9 @@ from ee.hogai.session_summaries.session_group.summary_notebooks import (
 from ee.hogai.session_summaries.utils import logging_session_ids
 from ee.hogai.utils.state import prepare_reasoning_progress_message
 from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
+from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
+    convert_filters_to_recordings_query,
+)
 
 
 class SessionSummarizationNode(AssistantNode):
@@ -124,38 +129,46 @@ class SessionSummarizationNode(AssistantNode):
         max_filters = cast(MaxRecordingUniversalFilters, filters_data)
         return max_filters
 
-    def _get_session_ids_with_filters(
-        self, replay_filters: MaxRecordingUniversalFilters, limit: int = MAX_SESSIONS_TO_SUMMARIZE
-    ) -> list[str] | None:
-        from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
-
-        # Convert Max filters into recordings query format
+    def _convert_max_filters_to_recordings_query(
+        self, max_filters: MaxRecordingUniversalFilters, limit: int = MAX_SESSIONS_TO_SUMMARIZE
+    ) -> RecordingsQuery:
+        """Convert Max-generated filters into recordings query format"""
         properties = []
-        if replay_filters.filter_group and replay_filters.filter_group.values:
-            for inner_group in replay_filters.filter_group.values:
+        if max_filters.filter_group and max_filters.filter_group.values:
+            for inner_group in max_filters.filter_group.values:
                 if hasattr(inner_group, "values"):
                     properties.extend(inner_group.values)
         recordings_query = RecordingsQuery(
-            date_from=replay_filters.date_from,
-            date_to=replay_filters.date_to,
+            date_from=max_filters.date_from,
+            date_to=max_filters.date_to,
             properties=properties,
-            filter_test_accounts=replay_filters.filter_test_accounts,
-            order=replay_filters.order,
+            filter_test_accounts=max_filters.filter_test_accounts,
+            order=max_filters.order,
             # Handle duration filters
             having_predicates=(
                 [
                     {"key": "duration", "type": "recording", "operator": dur.operator, "value": dur.value}
-                    for dur in (replay_filters.duration or [])
+                    for dur in (max_filters.duration or [])
                 ]
-                if replay_filters.duration
+                if max_filters.duration
                 else None
             ),
             limit=limit,
         )
+        return recordings_query
+
+    def _convert_current_filters_to_recordings_query(
+        self, current_filters: dict[str, Any], limit: int = MAX_SESSIONS_TO_SUMMARIZE
+    ) -> RecordingsQuery:
+        """Convert current filters into recordings query format"""
+        # Create a temporary playlist object to use the conversion function
+        temp_playlist = SessionRecordingPlaylist(filters=current_filters)
+        recordings_query = convert_filters_to_recordings_query(temp_playlist)
+        return recordings_query
+
+    def _get_session_ids_with_filters(self, replay_filters: RecordingsQuery) -> list[str] | None:
         # Execute the query to get session IDs
-        query_runner = SessionRecordingListFromQuery(
-            team=self._team, query=recordings_query, hogql_query_modifiers=None
-        )
+        query_runner = SessionRecordingListFromQuery(team=self._team, query=replay_filters, hogql_query_modifiers=None)
         results = query_runner.run()
         # Extract session IDs
         session_ids = [recording["session_id"] for recording in results.results]
@@ -292,7 +305,7 @@ class SessionSummarizationNode(AssistantNode):
                     )
                     return self._create_error_response(self._base_error_instructions, state)
                 current_filters = cast(dict[str, Any], current_filters)
-                replay_filters = MaxRecordingUniversalFilters.model_validate(current_filters)
+                replay_filters = self._convert_current_filters_to_recordings_query(current_filters)
             # If not - generate filters to get session ids from DB
             else:
                 generated_filters = await self._generate_replay_filters(state.session_summarization_query)
@@ -303,7 +316,7 @@ class SessionSummarizationNode(AssistantNode):
                         start_time,
                     )
                     return self._create_error_response(self._base_error_instructions, state)
-                replay_filters = generated_filters
+                replay_filters = self._convert_max_filters_to_recordings_query(generated_filters)
             # Query the filters to get session ids
             session_ids = await database_sync_to_async(self._get_session_ids_with_filters, thread_sensitive=False)(
                 replay_filters
