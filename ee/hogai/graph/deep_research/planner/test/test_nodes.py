@@ -1,25 +1,15 @@
 import warnings
-from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
+from posthog.test.base import BaseTest
+from unittest.mock import AsyncMock, MagicMock, patch
+
 from django.test import override_settings
+
 from langchain_core.messages import AIMessage as LangchainAIMessage
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
-from ee.hogai.graph.deep_research.planner.nodes import DeepResearchPlannerNode, DeepResearchPlannerToolsNode
-from ee.hogai.graph.deep_research.planner.prompts import (
-    FINALIZE_RESEARCH_TOOL_RESULT,
-    NO_TASKS_RESULTS_TOOL_RESULT,
-    WRITE_RESULT_FAILED_TOOL_RESULT,
-    WRITE_RESULT_TOOL_RESULT,
-)
-from ee.hogai.graph.deep_research.types import (
-    DeepResearchSingleTaskResult,
-    DeepResearchState,
-    DeepResearchTodo,
-)
-from ee.hogai.utils.types import InsightArtifact
 from posthog.schema import (
     AssistantHogQLQuery,
     AssistantMessage,
@@ -32,7 +22,16 @@ from posthog.schema import (
     TaskExecutionItem,
     TaskExecutionStatus,
 )
-from posthog.test.base import BaseTest
+
+from ee.hogai.graph.deep_research.planner.nodes import DeepResearchPlannerNode, DeepResearchPlannerToolsNode
+from ee.hogai.graph.deep_research.planner.prompts import (
+    FINALIZE_RESEARCH_TOOL_RESULT,
+    NO_TASKS_RESULTS_TOOL_RESULT,
+    WRITE_RESULT_FAILED_TOOL_RESULT,
+    WRITE_RESULT_TOOL_RESULT,
+)
+from ee.hogai.graph.deep_research.types import DeepResearchSingleTaskResult, DeepResearchState, DeepResearchTodo
+from ee.hogai.utils.types import InsightArtifact
 
 
 def _create_test_artifact(id: str, description: str, sql_query: str = "SELECT 1"):

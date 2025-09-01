@@ -1,6 +1,5 @@
 from ee.hogai.graph.deep_research.base.prompts import AGENT_INFO, INSIGHT_TYPES, POSTHOG_CAPABILITIES_PROMPT
 
-
 DEEP_RESEARCH_ONBOARDING_PROMPT = (
     AGENT_INFO
     + """

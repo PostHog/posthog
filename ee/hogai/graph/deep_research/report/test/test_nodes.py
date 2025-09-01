@@ -1,37 +1,40 @@
-from unittest.mock import MagicMock, patch
 from uuid import uuid4
+
 import pytest
+from unittest.mock import MagicMock, patch
 
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
-from ee.hogai.graph.deep_research.report.nodes import DeepResearchReportNode, FormattedInsight
-from ee.hogai.graph.deep_research.types import (
-    DeepResearchState,
-    PartialDeepResearchState,
-    DeepResearchSingleTaskResult,
-    DeepResearchIntermediateResult,
-    DeepResearchNodeName,
-)
-from ee.hogai.utils.types import InsightArtifact
-from posthog.models import Team, User
 from posthog.schema import (
-    AssistantMessage,
-    AssistantToolCallMessage,
-    AssistantTrendsQuery,
-    AssistantFunnelsQuery,
-    AssistantRetentionQuery,
-    AssistantHogQLQuery,
-    AssistantTrendsEventsNode,
     AssistantFunnelsEventsNode,
-    AssistantRetentionEventsNode,
     AssistantFunnelsFilter,
+    AssistantFunnelsQuery,
+    AssistantHogQLQuery,
+    AssistantMessage,
+    AssistantRetentionEventsNode,
     AssistantRetentionFilter,
-    TaskExecutionStatus,
+    AssistantRetentionQuery,
+    AssistantToolCallMessage,
+    AssistantTrendsEventsNode,
+    AssistantTrendsQuery,
     NotebookUpdateMessage,
     ProsemirrorJSONContent,
+    TaskExecutionStatus,
+)
+
+from posthog.models import Team, User
+
+from ee.hogai.graph.deep_research.report.nodes import DeepResearchReportNode, FormattedInsight
+from ee.hogai.graph.deep_research.types import (
+    DeepResearchIntermediateResult,
+    DeepResearchNodeName,
+    DeepResearchSingleTaskResult,
+    DeepResearchState,
+    PartialDeepResearchState,
 )
 from ee.hogai.notebook.notebook_serializer import NotebookContext
+from ee.hogai.utils.types import InsightArtifact
 
 
 class TestDeepResearchReportNode:
@@ -332,8 +335,12 @@ class TestDeepResearchReportNode:
         mock_astream_notebook.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_arun_raises_error_for_non_tool_call_message(self):
+    @patch.object(DeepResearchReportNode, "_get_model")
+    async def test_arun_raises_error_for_non_tool_call_message(self, mock_get_model):
         """Test that arun raises ValueError when last message is not a tool call."""
+        mock_model = MagicMock()
+        mock_get_model.return_value = mock_model
+
         state = DeepResearchState(
             messages=[AssistantMessage(content="Not a tool call message")], task_results=[], intermediate_results=[]
         )

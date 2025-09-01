@@ -1,5 +1,4 @@
 import '@testing-library/jest-dom'
-
 import { cleanup, render } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 

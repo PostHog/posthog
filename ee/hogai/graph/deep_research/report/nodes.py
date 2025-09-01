@@ -1,30 +1,29 @@
+from langchain_core.messages import ToolMessage as LangchainToolMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
 
-from ee.hogai.graph.deep_research.report.prompts import (
-    DEEP_RESEARCH_REPORT_PROMPT,
-    FINAL_REPORT_USER_PROMPT,
-)
-from ee.hogai.graph.deep_research.types import (
-    DeepResearchNodeName,
-    InsightArtifact,
-    DeepResearchIntermediateResult,
-    DeepResearchState,
-    PartialDeepResearchState,
-)
-from ee.hogai.graph.deep_research.base.nodes import DeepResearchNode
-from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor
-from ee.hogai.notebook.notebook_serializer import NotebookContext
 from posthog.schema import (
+    AssistantFunnelsQuery,
+    AssistantHogQLQuery,
+    AssistantRetentionQuery,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
-    AssistantFunnelsQuery,
-    AssistantRetentionQuery,
-    AssistantHogQLQuery,
 )
+
 from posthog.exceptions_capture import capture_exception
-from langchain_core.messages import ToolMessage as LangchainToolMessage
+
+from ee.hogai.graph.deep_research.base.nodes import DeepResearchNode
+from ee.hogai.graph.deep_research.report.prompts import DEEP_RESEARCH_REPORT_PROMPT, FINAL_REPORT_USER_PROMPT
+from ee.hogai.graph.deep_research.types import (
+    DeepResearchIntermediateResult,
+    DeepResearchNodeName,
+    DeepResearchState,
+    InsightArtifact,
+    PartialDeepResearchState,
+)
+from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor
+from ee.hogai.notebook.notebook_serializer import NotebookContext
 
 
 class FormattedInsight(BaseModel):

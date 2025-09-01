@@ -1,9 +1,20 @@
-from typing import cast
 import uuid
-import structlog
+from typing import cast
 
+import structlog
 from langchain_core.runnables import RunnableConfig
 from langgraph.config import get_stream_writer
+
+from posthog.schema import (
+    AssistantMessage,
+    AssistantToolCallMessage,
+    ReasoningMessage,
+    TaskExecutionMessage,
+    TaskExecutionStatus,
+)
+
+from posthog.exceptions_capture import capture_exception
+from posthog.models import Team, User
 
 from ee.hogai.graph.base import BaseAssistantNode
 from ee.hogai.graph.deep_research.task_executor.prompts import EXECUTE_TASKS_TOOL_RESULT
@@ -15,17 +26,8 @@ from ee.hogai.graph.deep_research.types import (
 )
 from ee.hogai.utils.helpers import find_last_message_of_type
 from ee.hogai.utils.types.base import InsightArtifact
-from posthog.exceptions_capture import capture_exception
-from .tools import ExecuteTasksTool
-from posthog.models import Team, User
-from posthog.schema import (
-    AssistantMessage,
-    AssistantToolCallMessage,
-    ReasoningMessage,
-    TaskExecutionMessage,
-    TaskExecutionStatus,
-)
 
+from .tools import ExecuteTasksTool
 
 logger = structlog.get_logger(__name__)
 

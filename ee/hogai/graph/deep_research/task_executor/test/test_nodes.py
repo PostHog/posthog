@@ -1,16 +1,11 @@
 import uuid
+
+from unittest import TestCase
 from unittest.mock import MagicMock, patch
-from parameterized import parameterized
 
 from langchain_core.runnables import RunnableConfig
+from parameterized import parameterized
 
-from ee.hogai.graph.deep_research.task_executor.nodes import TaskExecutorNode
-from ee.hogai.graph.deep_research.types import (
-    DeepResearchState,
-    DeepResearchSingleTaskResult,
-    PartialDeepResearchState,
-)
-from ee.hogai.utils.types.base import InsightArtifact
 from posthog.schema import (
     AssistantMessage,
     AssistantToolCall,
@@ -21,7 +16,10 @@ from posthog.schema import (
     TaskExecutionMessage,
     TaskExecutionStatus,
 )
-from unittest import TestCase
+
+from ee.hogai.graph.deep_research.task_executor.nodes import TaskExecutorNode
+from ee.hogai.graph.deep_research.types import DeepResearchSingleTaskResult, DeepResearchState, PartialDeepResearchState
+from ee.hogai.utils.types.base import InsightArtifact
 
 
 class TestTaskExecutorNode(TestCase):

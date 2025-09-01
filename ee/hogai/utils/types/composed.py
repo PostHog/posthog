@@ -7,7 +7,6 @@ from ee.hogai.graph.deep_research.types import DeepResearchNodeName, DeepResearc
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState, TaxonomyNodeName
 from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
 
-
 MaxNodeName = AssistantNodeName | TaxonomyNodeName | DeepResearchNodeName
 
 MaxGraphState = AssistantState | TaxonomyAgentState | DeepResearchState

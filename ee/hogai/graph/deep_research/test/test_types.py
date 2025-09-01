@@ -1,23 +1,20 @@
+from posthog.test.base import BaseTest
 from unittest.mock import Mock
+
 from parameterized import parameterized
 from pydantic import ValidationError
 
+from posthog.schema import AssistantMessage, AssistantTrendsQuery, HumanMessage, TaskExecutionItem
+
 from ee.hogai.graph.deep_research.types import (
-    DeepResearchTodo,
-    DeepResearchSingleTaskResult,
     DeepResearchIntermediateResult,
+    DeepResearchSingleTaskResult,
     DeepResearchState,
+    DeepResearchTodo,
     PartialDeepResearchState,
     _SharedDeepResearchState,
 )
 from ee.hogai.utils.types import InsightArtifact
-from posthog.schema import (
-    TaskExecutionItem,
-    AssistantTrendsQuery,
-    HumanMessage,
-    AssistantMessage,
-)
-from posthog.test.base import BaseTest
 
 """
 Test suite for type system consistency across multi-node deep research workflow.

@@ -1,6 +1,5 @@
 from ee.hogai.graph.deep_research.base.prompts import AGENT_INFO
 
-
 DEEP_RESEARCH_REPORT_PROMPT = (
     AGENT_INFO
     + """

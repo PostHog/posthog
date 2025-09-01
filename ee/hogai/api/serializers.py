@@ -1,6 +1,8 @@
-from langgraph.graph.state import CompiledStateGraph
+from typing import Any
+
 import pydantic
 from asgiref.sync import async_to_sync
+from langgraph.graph.state import CompiledStateGraph
 from rest_framework import serializers
 
 from ee.hogai.graph.deep_research.graph import DeepResearchAssistantGraph
@@ -13,7 +15,7 @@ from ee.models.assistant import Conversation
 _conversation_fields = ["id", "status", "title", "created_at", "updated_at", "type"]
 
 
-CONVERSATION_TYPE_MAP = {
+CONVERSATION_TYPE_MAP: dict[Conversation.Type, tuple[type[Any], type[Any]]] = {
     Conversation.Type.DEEP_RESEARCH: (DeepResearchAssistantGraph, DeepResearchState),
     Conversation.Type.ASSISTANT: (AssistantGraph, AssistantState),
     Conversation.Type.TOOL_CALL: (AssistantGraph, AssistantState),
@@ -39,11 +41,11 @@ class ConversationSerializer(serializers.ModelSerializer):
     async def get_messages(self, conversation: Conversation):
         team = self.context["team"]
         user = self.context["user"]
-        graph_class, state_class = CONVERSATION_TYPE_MAP[conversation.type]
-        graph: CompiledStateGraph = graph_class(team, user).compile_full_graph()  # type: ignore
+        graph_class, state_class = CONVERSATION_TYPE_MAP[conversation.type]  # type: ignore[index]
+        graph: CompiledStateGraph = graph_class(team, user).compile_full_graph()
         snapshot = await graph.aget_state({"configurable": {"thread_id": str(conversation.id)}})
         try:
             state = state_class.model_validate(snapshot.values)
-            return [message.model_dump() for message in state.messages if should_output_assistant_message(message)]  # type: ignore
+            return [message.model_dump() for message in state.messages if should_output_assistant_message(message)]
         except (pydantic.ValidationError, KeyError):
             return []

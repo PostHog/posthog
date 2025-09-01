@@ -1,16 +1,19 @@
-from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
+
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from asgiref.sync import async_to_sync
 from langchain_core.messages import AIMessage as LangchainAIMessage
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
+from posthog.schema import AssistantMessage, HumanMessage
+
+from posthog.models import Team, User
+
 from ee.hogai.graph.deep_research.onboarding.nodes import DeepResearchOnboardingNode
 from ee.hogai.graph.deep_research.types import DeepResearchState, PartialDeepResearchState
 from ee.models import CoreMemory
-from posthog.models import Team, User
-from posthog.schema import AssistantMessage, HumanMessage
 
 
 class TestDeepResearchOnboardingNode:
@@ -273,19 +276,21 @@ class TestDeepResearchOnboardingNode:
             mock_prompt = MagicMock()
             mock_prompt_template.from_messages.return_value = mock_prompt
 
+            mock_model = AsyncMock()
             mock_chain = AsyncMock()
             mock_chain.ainvoke.return_value = LangchainAIMessage(
                 content="Test response", response_metadata={"id": "test_id"}
             )
             mock_prompt.__or__ = MagicMock(return_value=mock_chain)
 
-            state = DeepResearchState(
-                messages=[HumanMessage(content="Earlier message"), HumanMessage(content="Latest user message")]
-            )
+            with patch.object(self.node, "_get_model", return_value=mock_model):
+                state = DeepResearchState(
+                    messages=[HumanMessage(content="Earlier message"), HumanMessage(content="Latest user message")]
+                )
 
-            async_to_sync(self.node.arun)(state, self.config)
+                async_to_sync(self.node.arun)(state, self.config)
 
-            mock_prompt_template.from_messages.assert_called_once_with([("human", "Latest user message")])
+                mock_prompt_template.from_messages.assert_called_once_with([("human", "Latest user message")])
 
     @parameterized.expand(
         [
@@ -305,18 +310,20 @@ class TestDeepResearchOnboardingNode:
             mock_prompt = MagicMock()
             mock_prompt_template.from_messages.return_value = mock_prompt
 
+            mock_model = AsyncMock()
             mock_chain = AsyncMock()
             mock_chain.ainvoke.return_value = LangchainAIMessage(
                 content="Response", response_metadata={"id": "test_id"}
             )
             mock_prompt.__or__ = MagicMock(return_value=mock_chain)
 
-            state = DeepResearchState(messages=[HumanMessage(content=message_content)])
+            with patch.object(self.node, "_get_model", return_value=mock_model):
+                state = DeepResearchState(messages=[HumanMessage(content=message_content)])
 
-            result = async_to_sync(self.node.arun)(state, self.config)
+                result = async_to_sync(self.node.arun)(state, self.config)
 
-            mock_prompt_template.from_messages.assert_called_once_with([("human", expected_content)])
-            assert isinstance(result, PartialDeepResearchState)
+                mock_prompt_template.from_messages.assert_called_once_with([("human", expected_content)])
+                assert isinstance(result, PartialDeepResearchState)
 
     def test_error_handling_in_model_invocation(self):
         """Test error handling when the model invocation fails."""

@@ -5,13 +5,10 @@ from typing import Annotated, Literal, Optional
 from langgraph.graph import END, START
 from pydantic import BaseModel, Field
 
+from posthog.schema import PlanningStepStatus, TaskExecutionItem, TaskExecutionStatus
+
 from ee.hogai.utils.types import AssistantMessageUnion, BaseState, InsightArtifact, add_and_merge_messages
 from ee.hogai.utils.types.base import append, replace
-from posthog.schema import (
-    PlanningStepStatus,
-    TaskExecutionItem,
-    TaskExecutionStatus,
-)
 
 
 class DeepResearchTodo(BaseModel):

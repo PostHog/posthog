@@ -306,7 +306,7 @@ class NotebookSerializer:
     def __init__(self, context: Optional[NotebookContext] = None):
         self.context = context
         # Cache for converted queries to avoid repeated conversions during streaming
-        self._converted_query_cache: dict[str, dict] = {}
+        self._converted_query_cache: dict[int, dict] = {}
 
     def to_json_paragraph(self, input: str | list[ProsemirrorJSONContent]) -> ProsemirrorJSONContent:
         if isinstance(input, list):
@@ -709,6 +709,9 @@ class NotebookSerializer:
 
             self._converted_query_cache[query_id] = converted
             return converted
+
+        # Return non-Assistant queries unchanged
+        return query
 
     def _create_ph_query_node(self, insight_id: str) -> Optional[ProsemirrorJSONContent]:
         """

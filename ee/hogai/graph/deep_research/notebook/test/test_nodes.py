@@ -1,14 +1,16 @@
-from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
+
+from posthog.test.base import APIBaseTest
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
+from posthog.schema import HumanMessage, NotebookUpdateMessage, ProsemirrorJSONContent
+
 from ee.hogai.graph.deep_research.notebook.nodes import DeepResearchNotebookPlanningNode
 from ee.hogai.graph.deep_research.types import DeepResearchState, PartialDeepResearchState
 from ee.models.assistant import Conversation
-from posthog.schema import HumanMessage, NotebookUpdateMessage, ProsemirrorJSONContent
-from posthog.test.base import APIBaseTest
 
 
 class TestDeepResearchNotebookPlanningNode(APIBaseTest):

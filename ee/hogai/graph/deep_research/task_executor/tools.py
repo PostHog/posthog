@@ -1,27 +1,29 @@
-from typing import cast, Optional
-from collections.abc import Callable
 import uuid
+from collections.abc import Callable
+from typing import Optional, cast
 
-from langchain_core.prompts import ChatPromptTemplate
-from langgraph.graph.state import CompiledStateGraph
 import structlog
-from langchain_core.runnables import RunnableLambda, RunnableConfig
+from langchain_core.messages import AIMessage as LangchainAIMessage
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import RunnableConfig, RunnableLambda
 from langchain_core.runnables.utils import AddableDict
-
-from ee.hogai.graph.deep_research.types import DeepResearchSingleTaskResult
-from ee.hogai.utils.types import (
-    AssistantState,
-    VisualizationMessage,
-)
-from posthog.exceptions_capture import capture_exception
-from posthog.schema import AssistantMessage, HumanMessage, ReasoningMessage
-from langchain_core.messages import (
-    AIMessage as LangchainAIMessage,
-)
-from ee.hogai.utils.types.base import InsightArtifact
-from posthog.schema import AssistantToolCallMessage, TaskExecutionItem, TaskExecutionStatus
-from ee.hogai.graph.deep_research.task_executor.prompts import AGENT_TASK_PROMPT_TEMPLATE
 from langchain_openai import ChatOpenAI
+from langgraph.graph.state import CompiledStateGraph
+
+from posthog.schema import (
+    AssistantToolCallMessage,
+    HumanMessage,
+    ReasoningMessage,
+    TaskExecutionItem,
+    TaskExecutionStatus,
+)
+
+from posthog.exceptions_capture import capture_exception
+
+from ee.hogai.graph.deep_research.task_executor.prompts import AGENT_TASK_PROMPT_TEMPLATE
+from ee.hogai.graph.deep_research.types import DeepResearchSingleTaskResult
+from ee.hogai.utils.types import AssistantState, VisualizationMessage
+from ee.hogai.utils.types.base import AssistantMessageUnion, InsightArtifact
 
 logger = structlog.get_logger(__name__)
 
@@ -123,7 +125,7 @@ class ExecuteTasksTool:
             ):
                 if not chunk:
                     continue
-                content = chunk[2]
+                content = chunk[2]  # type: ignore[index]
 
                 node_name = self._extract_node_name(content)
 
@@ -187,11 +189,11 @@ class ExecuteTasksTool:
         )
 
     def _extract_artifacts(
-        self, subgraph_result_messages: list[AssistantMessage], task: TaskExecutionItem
+        self, subgraph_result_messages: list[AssistantMessageUnion], task: TaskExecutionItem
     ) -> list[InsightArtifact]:
         """Extract artifacts from insights subgraph execution results."""
 
-        artifacts = []
+        artifacts: list[InsightArtifact] = []
         for message in subgraph_result_messages:
             if isinstance(message, VisualizationMessage) and message.id:
                 artifact = InsightArtifact(
@@ -205,7 +207,7 @@ class ExecuteTasksTool:
     def _extract_node_name(self, content: AddableDict) -> str | None:
         """Extract the node name from a graph path tuple."""
         node_name = next(iter(content.keys()))
-        return node_name.value
+        return str(node_name)
 
     def _process_stream_message(
         self,

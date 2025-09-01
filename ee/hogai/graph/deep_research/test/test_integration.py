@@ -1,41 +1,44 @@
-from unittest.mock import patch, Mock
 from typing import Any
 from uuid import uuid4
 
-from langchain_core.runnables import RunnableConfig
+from posthog.test.base import APIBaseTest
+from unittest.mock import Mock, patch
+
 from langchain_core.messages import AIMessage as LangchainAIMessage
+from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
 from parameterized import parameterized
 from pydantic import ValidationError
 
-from ee.hogai.graph.deep_research.graph import DeepResearchAssistantGraph
-from ee.hogai.graph.deep_research.onboarding.nodes import DeepResearchOnboardingNode
-from ee.hogai.graph.deep_research.notebook.nodes import DeepResearchNotebookPlanningNode
-from ee.hogai.graph.deep_research.planner.nodes import DeepResearchPlannerNode, DeepResearchPlannerToolsNode
-from ee.hogai.graph.deep_research.task_executor.nodes import TaskExecutorNode
-from ee.hogai.graph.deep_research.report.nodes import DeepResearchReportNode
-from ee.hogai.graph.deep_research.types import (
-    DeepResearchState,
-    DeepResearchTodo,
-    DeepResearchSingleTaskResult,
-    DeepResearchIntermediateResult,
-)
-from ee.hogai.graph.graph import InsightsAssistantGraph
-from ee.models.assistant import Conversation
-from posthog.models.notebook import Notebook
 from posthog.schema import (
-    HumanMessage,
     AssistantMessage,
+    AssistantTrendsQuery,
+    HumanMessage,
+    MultiVisualizationMessage,
     PlanningMessage,
     PlanningStep,
     PlanningStepStatus,
     TaskExecutionItem,
     TaskExecutionStatus,
-    MultiVisualizationMessage,
     VisualizationItem,
-    AssistantTrendsQuery,
 )
-from posthog.test.base import APIBaseTest
+
+from posthog.models.notebook import Notebook
+
+from ee.hogai.graph.deep_research.graph import DeepResearchAssistantGraph
+from ee.hogai.graph.deep_research.notebook.nodes import DeepResearchNotebookPlanningNode
+from ee.hogai.graph.deep_research.onboarding.nodes import DeepResearchOnboardingNode
+from ee.hogai.graph.deep_research.planner.nodes import DeepResearchPlannerNode, DeepResearchPlannerToolsNode
+from ee.hogai.graph.deep_research.report.nodes import DeepResearchReportNode
+from ee.hogai.graph.deep_research.task_executor.nodes import TaskExecutorNode
+from ee.hogai.graph.deep_research.types import (
+    DeepResearchIntermediateResult,
+    DeepResearchSingleTaskResult,
+    DeepResearchState,
+    DeepResearchTodo,
+)
+from ee.hogai.graph.graph import InsightsAssistantGraph
+from ee.models.assistant import Conversation
 
 
 @patch("ee.hogai.graph.deep_research.base.nodes.DeepResearchNode._get_model")

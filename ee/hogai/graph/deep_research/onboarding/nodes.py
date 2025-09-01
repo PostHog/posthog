@@ -1,23 +1,16 @@
-from ee.hogai.graph.deep_research.base.nodes import DeepResearchNode
-from ee.hogai.graph.deep_research.onboarding.prompts import DEEP_RESEARCH_ONBOARDING_PROMPT
-from ee.hogai.utils.helpers import extract_content_from_ai_message
-from ee.hogai.graph.deep_research.types import (
-    DeepResearchState,
-    PartialDeepResearchState,
-)
-from langchain_core.runnables import RunnableConfig
-from langchain_core.prompts import ChatPromptTemplate
 from typing import Literal, cast
 from uuid import uuid4
 
-from langchain_core.messages import (
-    AIMessage as LangchainAIMessage,
-)
+from langchain_core.messages import AIMessage as LangchainAIMessage
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import (
-    AssistantMessage,
-    HumanMessage,
-)
+from posthog.schema import AssistantMessage, HumanMessage
+
+from ee.hogai.graph.deep_research.base.nodes import DeepResearchNode
+from ee.hogai.graph.deep_research.onboarding.prompts import DEEP_RESEARCH_ONBOARDING_PROMPT
+from ee.hogai.graph.deep_research.types import DeepResearchState, PartialDeepResearchState
+from ee.hogai.utils.helpers import extract_content_from_ai_message
 
 
 class DeepResearchOnboardingNode(DeepResearchNode):

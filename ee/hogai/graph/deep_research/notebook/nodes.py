@@ -1,16 +1,11 @@
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import RunnableConfig
+
+from posthog.schema import HumanMessage
+
 from ee.hogai.graph.deep_research.base.nodes import DeepResearchNode
 from ee.hogai.graph.deep_research.notebook.prompts import DEEP_RESEARCH_NOTEBOOK_PLANNING_PROMPT
-from ee.hogai.graph.deep_research.types import (
-    DeepResearchNodeName,
-    DeepResearchState,
-    PartialDeepResearchState,
-)
-from langchain_core.runnables import RunnableConfig
-from langchain_core.prompts import ChatPromptTemplate
-
-from posthog.schema import (
-    HumanMessage,
-)
+from ee.hogai.graph.deep_research.types import DeepResearchNodeName, DeepResearchState, PartialDeepResearchState
 
 
 class DeepResearchNotebookPlanningNode(DeepResearchNode):

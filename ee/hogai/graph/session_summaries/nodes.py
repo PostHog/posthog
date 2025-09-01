@@ -78,15 +78,17 @@ class SessionSummarizationNode(AssistantNode):
             self.logger.exception("Stream writer not available for notebook update")
             return
         # Check if we have a notebook_id in the state
-        if not state.notebook_id:
+        if not state.notebook_short_id:
             self.logger.exception("No notebook_id in state, skipping notebook update")
             return
         if partial:
             # Create a notebook update message; not providing id to count it as a partial message on FE
-            notebook_message = NotebookUpdateMessage(notebook_id=state.notebook_id, content=content)
+            notebook_message = NotebookUpdateMessage(notebook_id=state.notebook_short_id, content=content)
         else:
             # If not partial - means the final state of the notebook to show "Open the notebook" button in the UI
-            notebook_message = NotebookUpdateMessage(notebook_id=state.notebook_id, content=content, id=str(uuid4()))
+            notebook_message = NotebookUpdateMessage(
+                notebook_id=state.notebook_short_id, content=content, id=str(uuid4())
+            )
         # Stream the notebook update
         message = (notebook_message, {"langgraph_node": AssistantNodeName.SESSION_SUMMARIZATION})
         writer(("session_summarization_node", "messages", message))
@@ -302,10 +304,10 @@ class SessionSummarizationNode(AssistantNode):
             else:
                 # Check if the notebook is provided, create a notebook to fill if not
                 notebook = None
-                if not state.notebook_id:
+                if not state.notebook_short_id:
                     notebook = await create_empty_notebook_for_summary(user=self._user, team=self._team)
                     # Could be moved to a separate "create notebook" node (or reuse the one from deep research)
-                    state.notebook_id = notebook.short_id
+                    state.notebook_short_id = notebook.short_id
                 # For large groups, process in detail, searching for patterns
                 # TODO: Allow users to define the pattern themselves (or rather catch it from the query)
                 self._stream_progress(
@@ -326,7 +328,7 @@ class SessionSummarizationNode(AssistantNode):
                 session_summarization_query=None,
                 root_tool_call_id=None,
                 # Ensure to pass the notebook id to the next node
-                notebook_id=state.notebook_id,
+                notebook_short_id=state.notebook_short_id,
             )
         except Exception as err:
             self._log_failure("Session summarization failed", conversation_id, start_time, err)
@@ -343,7 +345,7 @@ class SessionSummarizationNode(AssistantNode):
             ],
             session_summarization_query=None,
             root_tool_call_id=None,
-            notebook_id=state.notebook_id,
+            notebook_short_id=state.notebook_short_id,
         )
 
     def _log_failure(self, message: str, conversation_id: str, start_time: float, error: Any = None):

@@ -1,16 +1,17 @@
 from django.test import TestCase
 
 from posthog.schema import (
-    ProsemirrorJSONContent,
-    Mark,
-    AssistantTrendsQuery,
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
+    AssistantTrendsQuery,
+    Mark,
+    ProsemirrorJSONContent,
 )
+
 from ee.hogai.notebook.notebook_serializer import (
     MarkdownTokenizer,
-    NotebookSerializer,
     NotebookContext,
+    NotebookSerializer,
     cast_assistant_query,
 )
 from ee.hogai.utils.types import InsightArtifact

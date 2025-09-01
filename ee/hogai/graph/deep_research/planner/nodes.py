@@ -1,16 +1,30 @@
 import logging
+from typing import Literal, cast
+from uuid import uuid4
+
+from langchain_core.messages import (
+    AIMessage as LangchainAIMessage,
+    ToolMessage as LangchainToolMessage,
+)
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import RunnableConfig
+from pydantic import Field
+
+from posthog.schema import (
+    AssistantMessage,
+    AssistantToolCall,
+    AssistantToolCallMessage,
+    HumanMessage,
+    MultiVisualizationMessage,
+    PlanningMessage,
+    PlanningStep,
+    ProsemirrorJSONContent,
+    VisualizationItem,
+)
+
+from posthog.models.notebook import Notebook
 
 from ee.hogai.graph.deep_research.base.nodes import DeepResearchNode
-from ee.hogai.notebook.notebook_serializer import NotebookSerializer
-from ee.hogai.utils.helpers import extract_content_from_ai_message
-from ee.hogai.graph.deep_research.types import (
-    DeepResearchIntermediateResult,
-    TaskExecutionItem,
-    DeepResearchTodo,
-    DeepResearchState,
-    PartialDeepResearchState,
-    InsightArtifact,
-)
 from ee.hogai.graph.deep_research.planner.prompts import (
     ARTIFACTS_READ_FAILED_TOOL_RESULT,
     ARTIFACTS_READ_TOOL_RESULT,
@@ -24,31 +38,17 @@ from ee.hogai.graph.deep_research.planner.prompts import (
     WRITE_RESULT_FAILED_TOOL_RESULT,
     WRITE_RESULT_TOOL_RESULT,
 )
-from langchain_core.runnables import RunnableConfig
-from langchain_core.prompts import ChatPromptTemplate
-from typing import Literal, cast
-from uuid import uuid4
-
-from langchain_core.messages import (
-    AIMessage as LangchainAIMessage,
-    ToolMessage as LangchainToolMessage,
+from ee.hogai.graph.deep_research.types import (
+    DeepResearchIntermediateResult,
+    DeepResearchState,
+    DeepResearchTodo,
+    InsightArtifact,
+    PartialDeepResearchState,
+    TaskExecutionItem,
 )
-from pydantic import Field
-
+from ee.hogai.notebook.notebook_serializer import NotebookSerializer
+from ee.hogai.utils.helpers import extract_content_from_ai_message
 from ee.hogai.utils.types import WithCommentary
-from posthog.schema import (
-    AssistantMessage,
-    AssistantToolCall,
-    AssistantToolCallMessage,
-    HumanMessage,
-    PlanningMessage,
-    PlanningStep,
-    ProsemirrorJSONContent,
-    VisualizationItem,
-    MultiVisualizationMessage,
-)
-from posthog.models.notebook import Notebook
-
 
 logger = logging.getLogger(__name__)
 

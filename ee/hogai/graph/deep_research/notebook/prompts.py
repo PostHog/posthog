@@ -1,6 +1,5 @@
 from ee.hogai.graph.deep_research.base.prompts import AGENT_INFO, INSIGHT_TYPES, POSTHOG_CAPABILITIES_PROMPT
 
-
 DEEP_RESEARCH_NOTEBOOK_PLANNING_PROMPT = (
     AGENT_INFO
     + """
