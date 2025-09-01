@@ -33,6 +33,7 @@ from posthog.event_usage import report_user_action
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 
+from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT, SLASH_COMMAND_REMEMBER
 from ee.hogai.llm import MaxChatOpenAI
@@ -40,7 +41,7 @@ from ee.hogai.utils.helpers import filter_and_merge_messages, find_last_message_
 from ee.hogai.utils.markdown import remove_markdown
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.models.assistant import CoreMemory
-from ee.hogai.graph.base import AssistantNode
+
 from .parsers import MemoryCollectionCompleted, compressed_memory_parser, raise_memory_updated
 from .prompts import (
     ENQUIRY_INITIAL_MESSAGE,

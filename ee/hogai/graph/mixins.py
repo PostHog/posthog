@@ -7,14 +7,14 @@ from django.utils import timezone
 
 from langchain_core.runnables import RunnableConfig
 
-from ee.hogai.utils.types.base import BaseState, BaseStateWithIntermediateSteps
-from ee.models import Conversation, CoreMemory
+from posthog.schema import ReasoningMessage
+
 from posthog.event_usage import groups
 from posthog.models import Team
 from posthog.models.action.action import Action
 from posthog.models.user import User
-from posthog.schema import ReasoningMessage
 
+from ee.hogai.utils.types.base import BaseState, BaseStateWithIntermediateSteps
 from ee.models import Conversation, CoreMemory
 
 

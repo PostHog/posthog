@@ -15,13 +15,26 @@ from langgraph.types import StreamMode
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel
 
+from posthog.schema import (
+    AssistantEventType,
+    AssistantGenerationStatusEvent,
+    AssistantGenerationStatusType,
+    AssistantMessage,
+    FailureMessage,
+    HumanMessage,
+    MaxBillingContext,
+    ReasoningMessage,
+)
+
+from posthog import event_usage
+from posthog.event_usage import report_user_action
+from posthog.models import Team, User
+from posthog.sync import database_sync_to_async
+
 from ee.hogai.graph.base import BaseAssistantNode
 from ee.hogai.graph.graph import AssistantCompiledStateGraph
 from ee.hogai.utils.exceptions import GenerationCanceled
-from ee.hogai.utils.helpers import (
-    extract_content_from_ai_message,
-    should_output_assistant_message,
-)
+from ee.hogai.utils.helpers import extract_content_from_ai_message, should_output_assistant_message
 from ee.hogai.utils.state import (
     GraphMessageUpdateTuple,
     GraphTaskStartedUpdateTuple,
@@ -33,11 +46,7 @@ from ee.hogai.utils.state import (
     validate_state_update,
     validate_value_update,
 )
-from ee.hogai.utils.types import (
-    AssistantMessageOrStatusUnion,
-    AssistantMessageUnion,
-    AssistantOutput,
-)
+from ee.hogai.utils.types import AssistantMessageOrStatusUnion, AssistantMessageUnion, AssistantOutput
 from ee.hogai.utils.types.base import AssistantMode
 from ee.hogai.utils.types.composed import (
     MaxGraphState,
@@ -47,21 +56,6 @@ from ee.hogai.utils.types.composed import (
     MaxPartialGraphStateWithMessages,
 )
 from ee.models import Conversation
-from posthog.event_usage import report_user_action
-from posthog import event_usage
-from posthog.models import Team, User
-from posthog.schema import (
-    AssistantEventType,
-    AssistantGenerationStatusEvent,
-    AssistantGenerationStatusType,
-    AssistantMessage,
-    FailureMessage,
-    HumanMessage,
-    MaxBillingContext,
-    ReasoningMessage,
-)
-from posthog.sync import database_sync_to_async
-
 
 logger = structlog.get_logger(__name__)
 

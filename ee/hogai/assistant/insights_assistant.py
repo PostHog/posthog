@@ -2,13 +2,12 @@ from collections.abc import AsyncGenerator
 from typing import Any, Optional
 from uuid import UUID
 
+from posthog.schema import AssistantMessage, HumanMessage, MaxBillingContext, VisualizationMessage
+
+from posthog.models import Team, User
+
 from ee.hogai.assistant.base import BaseAssistant
-from ee.hogai.graph import (
-    FunnelGeneratorNode,
-    RetentionGeneratorNode,
-    SQLGeneratorNode,
-    TrendsGeneratorNode,
-)
+from ee.hogai.graph import FunnelGeneratorNode, RetentionGeneratorNode, SQLGeneratorNode, TrendsGeneratorNode
 from ee.hogai.graph.base import BaseAssistantNode
 from ee.hogai.graph.graph import InsightsAssistantGraph
 from ee.hogai.graph.query_executor.nodes import QueryExecutorNode
@@ -22,13 +21,6 @@ from ee.hogai.utils.types import (
 )
 from ee.hogai.utils.types.composed import MaxNodeName
 from ee.models import Conversation
-from posthog.models import Team, User
-from posthog.schema import (
-    AssistantMessage,
-    HumanMessage,
-    MaxBillingContext,
-    VisualizationMessage,
-)
 
 
 class InsightsAssistant(BaseAssistant):

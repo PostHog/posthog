@@ -20,25 +20,6 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StateSnapshot
 from pydantic import BaseModel
 
-from ee.hogai.assistant.base import BaseAssistant
-from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.graph.funnels.nodes import FunnelsSchemaGeneratorOutput
-from ee.hogai.graph.graph import AssistantCompiledStateGraph
-from ee.hogai.graph.memory import prompts as memory_prompts
-from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
-from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT
-from ee.hogai.graph.trends.nodes import TrendsSchemaGeneratorOutput
-from ee.hogai.tool import search_documentation
-from ee.hogai.utils.tests import FakeChatOpenAI, FakeRunnableLambdaWithTokenCounter
-from ee.hogai.utils.types import (
-    AssistantMode,
-    AssistantNodeName,
-    AssistantOutput,
-    AssistantState,
-    PartialAssistantState,
-)
-from ee.models.assistant import Conversation, CoreMemory
-from posthog.models import Action
 from posthog.schema import (
     AssistantEventType,
     AssistantFunnelsEventsNode,
@@ -72,8 +53,10 @@ from posthog.schema import (
 
 from posthog.models import Action
 
+from ee.hogai.assistant.base import BaseAssistant
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.funnels.nodes import FunnelsSchemaGeneratorOutput
+from ee.hogai.graph.graph import AssistantCompiledStateGraph
 from ee.hogai.graph.memory import prompts as memory_prompts
 from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
 from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT

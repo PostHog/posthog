@@ -15,9 +15,9 @@ from posthog.schema import (
 
 from posthog.exceptions_capture import capture_exception
 
+from ee.hogai.graph.base import AssistantNode
 from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
 
-from ee.hogai.graph.base import AssistantNode
 from .prompts import (
     FALLBACK_EXAMPLE_PROMPT,
     FUNNEL_STEPS_EXAMPLE_PROMPT,

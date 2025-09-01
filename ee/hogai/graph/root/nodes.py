@@ -20,8 +20,6 @@ from langgraph.errors import NodeInterrupt
 from posthoganalytics import capture_exception
 from pydantic import BaseModel
 
-from ee.hogai.utils.helpers import find_last_ui_context
-from ee.hogai.utils.types.base import BaseState, BaseStateWithMessages
 from posthog.schema import (
     AssistantContextualTool,
     AssistantMessage,
@@ -37,7 +35,6 @@ from posthog.schema import (
     RetentionQuery,
     TrendsQuery,
 )
-from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
 
 from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters_to_dict,
@@ -45,12 +42,15 @@ from posthog.hogql_queries.apply_dashboard_filters import (
 )
 from posthog.models.organization import OrganizationMembership
 
+from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatOpenAI
+from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
+from ee.hogai.utils.helpers import find_last_ui_context
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import BaseState, BaseStateWithMessages
 
-from ee.hogai.graph.base import AssistantNode
 from .prompts import (
     ROOT_BILLING_CONTEXT_ERROR_PROMPT,
     ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT,

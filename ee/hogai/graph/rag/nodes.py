@@ -17,10 +17,9 @@ from posthog.hogql_queries.ai.vector_search_query_runner import (
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Action
 
+from ee.hogai.graph.base import AssistantNode
 from ee.hogai.utils.embeddings import embed_search_query, get_azure_embeddings_client
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-
-from ee.hogai.graph.base import AssistantNode
 
 NEXT_RAG_NODES = ["trends", "funnel", "retention", "sql", "end"]
 NextRagNode = Literal["trends", "funnel", "retention", "sql", "end"]

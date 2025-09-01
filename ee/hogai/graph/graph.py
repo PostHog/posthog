@@ -1,8 +1,9 @@
-from collections.abc import Hashable
-from typing import Any, Literal, Optional, cast, Generic, Protocol, runtime_checkable
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Hashable
+from typing import Any, Generic, Literal, Optional, Protocol, cast, runtime_checkable
 
 from langgraph.graph.state import CompiledStateGraph, StateGraph
+
+from posthog.schema import ReasoningMessage
 
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -15,9 +16,6 @@ from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from ee.hogai.utils.types.base import BaseState
 from ee.hogai.utils.types.composed import MaxNodeName
-from posthog.models.team.team import Team
-from posthog.models.user import User
-from posthog.schema import ReasoningMessage
 
 from .base import StateType
 from .funnels.nodes import FunnelGeneratorNode, FunnelGeneratorToolsNode

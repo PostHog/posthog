@@ -1,16 +1,15 @@
 from typing import Any, Optional
 from uuid import UUID
 
+from posthog.schema import HumanMessage, MaxBillingContext
+
+from posthog.models import Team, User
+
 from ee.hogai.assistant.insights_assistant import InsightsAssistant
 from ee.hogai.assistant.main_assistant import MainAssistant
 from ee.hogai.utils.types.base import AssistantMode
 from ee.hogai.utils.types.composed import MaxGraphStateWithMessages, MaxPartialGraphStateWithMessages
 from ee.models import Conversation
-from posthog.models import Team, User
-from posthog.schema import (
-    HumanMessage,
-    MaxBillingContext,
-)
 
 
 class Assistant:

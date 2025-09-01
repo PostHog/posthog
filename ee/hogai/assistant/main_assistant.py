@@ -5,6 +5,10 @@ from uuid import UUID
 from langchain_core.messages import AIMessageChunk
 from pydantic import BaseModel
 
+from posthog.schema import AssistantMessage, HumanMessage, MaxBillingContext, VisualizationMessage
+
+from posthog.models import Team, User
+
 from ee.hogai.assistant.base import BaseAssistant
 from ee.hogai.graph import (
     AssistantGraph,
@@ -16,9 +20,7 @@ from ee.hogai.graph import (
 )
 from ee.hogai.graph.base import BaseAssistantNode
 from ee.hogai.graph.taxonomy.types import TaxonomyNodeName
-from ee.hogai.utils.state import (
-    GraphMessageUpdateTuple,
-)
+from ee.hogai.utils.state import GraphMessageUpdateTuple
 from ee.hogai.utils.types import (
     AssistantMode,
     AssistantNodeName,
@@ -28,13 +30,6 @@ from ee.hogai.utils.types import (
 )
 from ee.hogai.utils.types.composed import MaxNodeName
 from ee.models import Conversation
-from posthog.models import Team, User
-from posthog.schema import (
-    AssistantMessage,
-    HumanMessage,
-    MaxBillingContext,
-    VisualizationMessage,
-)
 
 
 class MainAssistant(BaseAssistant):
