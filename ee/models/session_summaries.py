@@ -39,7 +39,7 @@ class SingleSessionSummaryManager(models.Manager["SingleSessionSummary"]):
     """Manager for SingleSessionSummary with utility methods."""
 
     def get_summary(
-        self, team_id: int, session_id: str, extra_summary_context: ExtraSummaryContext | None = None
+        self, team_id: int, session_id: str, *, extra_summary_context: ExtraSummaryContext | None = None
     ) -> Optional["SingleSessionSummary"]:
         """Get a session summary if it exists"""
         queryset = self.filter(team_id=team_id, session_id=session_id)
@@ -68,6 +68,7 @@ class SingleSessionSummaryManager(models.Manager["SingleSessionSummary"]):
         session_id: str,
         summary: SessionSummarySerializer,
         exception_event_ids: list[str],
+        *,
         extra_summary_context: ExtraSummaryContext | None = None,
         run_metadata: SessionSummaryRunMeta | None = None,
         created_by: User | None = None,
@@ -93,6 +94,7 @@ class SingleSessionSummaryManager(models.Manager["SingleSessionSummary"]):
         self,
         team_id: int,
         session_ids: list[str],
+        *,
         extra_summary_context: ExtraSummaryContext | None = None,
         # Summaries could be up to 50kb in JSON, so playing it safe
         limit: int = 100,
@@ -133,6 +135,7 @@ class SingleSessionSummaryManager(models.Manager["SingleSessionSummary"]):
         self,
         team_id: int,
         session_ids: list[str],
+        *,
         extra_summary_context: ExtraSummaryContext | None = None,
     ) -> dict[str, bool]:
         """Check if summaries exist for given session IDs without fetching the full data"""
