@@ -34,7 +34,7 @@ export const LOG_VIEWER_LIMIT = 500
 
 export type LogEntry = {
     message: string
-    instanceId?: string
+    instanceId: string
     level: LogEntryLevel
     timestamp: Dayjs
 }
@@ -158,6 +158,7 @@ const loadGroupedLogs = async (request: LogEntryParams): Promise<GroupedLogEntry
             timestamp: dayjs(entry[0]),
             level: entry[1].toUpperCase(),
             message: entry[2],
+            instanceId: result[0],
         })),
     })) as GroupedLogEntry[]
 }
@@ -209,6 +210,44 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         loadNewerLogs: true,
         setIsGrouped: (isGrouped: boolean) => ({ isGrouped }),
     }),
+    reducers(({ props }) => ({
+        isGrouped: [
+            props.groupByInstanceId ?? true,
+            {
+                setIsGrouped: (_, { isGrouped }) => isGrouped,
+            },
+        ],
+        filters: [
+            {
+                search: '',
+                levels: DEFAULT_LOG_LEVELS,
+                date_from: '-7d',
+                date_to: undefined,
+            } as LogsViewerFilters,
+            {
+                setFilters: (state, { filters }) => ({
+                    ...state,
+                    ...filters,
+                }),
+            },
+        ],
+        isThereMoreToLoad: [
+            true,
+            {
+                markLogsEnd: () => false,
+                loadLogs: () => true,
+            },
+        ],
+        expandedRows: [
+            {} as Record<string, boolean>,
+            {
+                setRowExpanded: (state, { instanceId, expanded }) => ({
+                    ...state,
+                    [instanceId]: expanded,
+                }),
+            },
+        ],
+    })),
     loaders(({ values, actions }) => ({
         logs: [
             [] as GroupedLogEntry[],
@@ -309,44 +348,6 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             },
         ],
     })),
-    reducers(({ props }) => ({
-        isGrouped: [
-            props.groupByInstanceId ?? true,
-            {
-                setIsGrouped: (_, { isGrouped }) => isGrouped,
-            },
-        ],
-        filters: [
-            {
-                search: '',
-                levels: DEFAULT_LOG_LEVELS,
-                date_from: '-7d',
-                date_to: undefined,
-            } as LogsViewerFilters,
-            {
-                setFilters: (state, { filters }) => ({
-                    ...state,
-                    ...filters,
-                }),
-            },
-        ],
-        isThereMoreToLoad: [
-            true,
-            {
-                markLogsEnd: () => false,
-                loadLogs: () => true,
-            },
-        ],
-        expandedRows: [
-            {} as Record<string, boolean>,
-            {
-                setRowExpanded: (state, { instanceId, expanded }) => ({
-                    ...state,
-                    [instanceId]: expanded,
-                }),
-            },
-        ],
-    })),
     selectors(() => ({
         newestLogTimestamp: [
             (s) => [s.logs, s.hiddenLogs],
@@ -405,8 +406,8 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             await breakpoint(500)
             actions.loadLogs()
         },
-        setIsGrouped: async (_, breakpoint) => {
-            await breakpoint(500)
+        setIsGrouped: async (_) => {
+            actions.loadLogsSuccess([])
             actions.loadLogs()
         },
 
