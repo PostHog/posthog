@@ -5729,18 +5729,3 @@ export interface Dataset {
     updated_at: string
     created_by: UserBasicType
 }
-
-export interface DatasetItem {
-    id: string
-    dataset: string
-    team: number
-    input: Record<string, any> | null
-    output: Record<string, any> | null
-    metadata: Record<string, any> | null
-    ref_trace_id: string | null
-    ref_trace_timestamp: string | null
-    ref_span_id: string | null
-    created_by: UserBasicType
-    updated_at: string
-    created_at: string
-}
