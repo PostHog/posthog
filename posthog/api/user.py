@@ -114,6 +114,7 @@ class UserSerializer(serializers.ModelSerializer):
             "anonymize_data",
             "toolbar_mode",
             "has_password",
+            "id",
             "is_staff",
             "is_impersonated",
             "is_impersonated_until",
@@ -143,6 +144,7 @@ class UserSerializer(serializers.ModelSerializer):
             "pending_email",
             "is_email_verified",
             "has_password",
+            "id",
             "is_impersonated",
             "is_impersonated_until",
             "sensitive_session_expires_at",
@@ -405,7 +407,7 @@ class UserViewSet(
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission, UserNoOrgMembershipDeletePermission]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["is_staff"]
+    filterset_fields = ["is_staff", "email"]
     queryset = User.objects.filter(is_active=True)
     lookup_field = "uuid"
 
