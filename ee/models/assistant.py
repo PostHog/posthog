@@ -171,7 +171,7 @@ class CoreMemory(UUIDTModel):
     @property
     def formatted_text(self) -> str:
         if len(self.text) > 5000:
-            # If memory text exceed 5000 characters, truncate it. For the user, the most important bits are at the start
+            # If memory text exceeds 5000 characters, truncate it. For the user, the most important bits are at the start
             # (i.e. foundational /init info) and at the end (i.e. freshest memories)
             return self.text[:2500] + "…" + self.text[-2500:]
         return self.text
