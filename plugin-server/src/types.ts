@@ -40,6 +40,7 @@ import { AppMetrics } from './worker/ingestion/app-metrics'
 import { GroupTypeManager } from './worker/ingestion/group-type-manager'
 import { ClickhouseGroupRepository } from './worker/ingestion/groups/repositories/clickhouse-group-repository'
 import { GroupRepository } from './worker/ingestion/groups/repositories/group-repository.interface'
+import { PersonRepository } from './worker/ingestion/persons/repositories/person-repository'
 import { RustyHook } from './worker/rusty-hook'
 import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
@@ -121,6 +122,9 @@ export type CdpConfig = {
     CDP_WATCHER_SEND_EVENTS: boolean // If true then the watcher will send events to posthog for messaging
     CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS: number // How long to buffer results before observing them
     CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS: number // How many results to buffer before observing them
+    CDP_RATE_LIMITER_BUCKET_SIZE: number // The total bucket size
+    CDP_RATE_LIMITER_REFILL_RATE: number // The number of tokens to be refilled per second
+    CDP_RATE_LIMITER_TTL: number // The expiry for the rate limit key
     CDP_HOG_FILTERS_TELEMETRY_TEAMS: string
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: CyclotronJobQueueKind
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: CyclotronJobQueueSource
@@ -182,6 +186,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     OTEL_EXPORTER_OTLP_ENDPOINT: string
     OTEL_SDK_DISABLED: boolean
     OTEL_TRACES_SAMPLER_ARG: number
+    OTEL_MAX_SPANS_PER_GROUP: number
+    OTEL_MIN_SPAN_DURATION_MS: number
     TASKS_PER_WORKER: number // number of parallel tasks per worker thread
     INGESTION_CONCURRENCY: number // number of parallel event ingestion queues per batch
     INGESTION_BATCH_SIZE: number // kafka consumer batch size
@@ -203,6 +209,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number // starting interval for exponential backoff between retries for optimistic update
     PERSONS_DUAL_WRITE_ENABLED: boolean // Enable dual-write mode for persons to both primary and migration databases
     PERSONS_DUAL_WRITE_COMPARISON_ENABLED: boolean // Enable comparison metrics between primary and secondary DBs during dual-write
+    GROUPS_DUAL_WRITE_ENABLED: boolean // Enable dual-write mode for groups to both primary and migration databases
+    GROUPS_DUAL_WRITE_COMPARISON_ENABLED: boolean // Enable comparison metrics between primary and secondary DBs during dual-write
     TASK_TIMEOUT: number // how many seconds until tasks are timed out
     DATABASE_URL: string // Postgres database URL
     DATABASE_READONLY_URL: string // Optional read-only replica to the main Postgres database
@@ -422,6 +430,7 @@ export interface Hub extends PluginsServerConfig {
     groupTypeManager: GroupTypeManager
     groupRepository: GroupRepository
     clickhouseGroupRepository: ClickhouseGroupRepository
+    personRepository: PersonRepository
     celery: Celery
     // geoip database, setup in workers
     geoipService: GeoIPService

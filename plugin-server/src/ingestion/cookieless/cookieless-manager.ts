@@ -11,8 +11,9 @@ import { getDomain } from 'tldts'
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as siphashDouble from '@posthog/siphash/lib/siphash-double'
 
+import { instrumentFn } from '~/common/tracing/tracing-utils'
+
 import { cookielessRedisErrorCounter, eventDroppedCounter } from '../../main/ingestion-queues/metrics'
-import { runInstrumentedFunction } from '../../main/utils'
 import { CookielessServerHashMode, IncomingEventWithTeam, PipelineEvent, PluginsServerConfig, Team } from '../../types'
 import { ConcurrencyController } from '../../utils/concurrencyController'
 import { RedisOperationError } from '../../utils/db/error'
@@ -270,10 +271,7 @@ export class CookielessManager {
             return this.dropAllCookielessEvents(events, 'cookieless_globally_disabled')
         }
         try {
-            return await runInstrumentedFunction({
-                func: () => this.doBatchInner(events),
-                statsKey: 'cookieless-batch',
-            })
+            return await instrumentFn(`cookieless-batch`, () => this.doBatchInner(events))
         } catch (e) {
             if (e instanceof RedisOperationError) {
                 cookielessRedisErrorCounter.labels({

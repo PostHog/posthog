@@ -231,9 +231,21 @@ def _get_supported_field(field: ast.Field) -> tuple[str, ast.Field] | None:
         if isinstance(property_name, str) and property_name in EVENT_PROPERTY_TO_FIELD:
             return (property_name, ast.Field(chain=[EVENT_PROPERTY_TO_FIELD[property_name]]))
 
+    # Handle properties.metadata.x pattern (for nested properties like metadata.loggedIn)
+    elif len(field.chain) == 3 and field.chain[0] == "properties":
+        property_name = f"{field.chain[1]}.{field.chain[2]}"
+        if isinstance(property_name, str) and property_name in EVENT_PROPERTY_TO_FIELD:
+            return (property_name, ast.Field(chain=[EVENT_PROPERTY_TO_FIELD[property_name]]))
+
     # Handle events.properties.x pattern
     elif len(field.chain) == 3 and field.chain[0] == "events" and field.chain[1] == "properties":
         property_name = field.chain[2]
+        if isinstance(property_name, str) and property_name in EVENT_PROPERTY_TO_FIELD:
+            return (property_name, ast.Field(chain=[EVENT_PROPERTY_TO_FIELD[property_name]]))
+
+    # Handle events.properties.metadata.x pattern (for nested properties like metadata.loggedIn)
+    elif len(field.chain) == 4 and field.chain[0] == "events" and field.chain[1] == "properties":
+        property_name = f"{field.chain[2]}.{field.chain[3]}"
         if isinstance(property_name, str) and property_name in EVENT_PROPERTY_TO_FIELD:
             return (property_name, ast.Field(chain=[EVENT_PROPERTY_TO_FIELD[property_name]]))
 

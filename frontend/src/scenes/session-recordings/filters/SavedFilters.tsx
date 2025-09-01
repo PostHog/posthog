@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
-import { IconCopy, IconTrash } from '@posthog/icons'
+import { IconShare, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
@@ -77,39 +77,48 @@ export function SavedFilters({
         >,
         nameColumn() as LemonTableColumn<SessionRecordingPlaylistType, keyof SessionRecordingPlaylistType | undefined>,
         {
-            width: 0,
+            title: 'Share',
+            width: 40,
             render: function Render(_, playlist) {
                 return (
-                    <div className="flex flex-row gap-1">
-                        <LemonButton
-                            onClick={() => {
-                                const combinedURL = urls.absolute(
-                                    combineUrl(urls.replay(ReplayTabs.Home), { savedFilterId: playlist.short_id }).url
-                                )
-                                void copyToClipboard(combinedURL, 'link to ' + (playlist.name || playlist.derived_name))
-                            }}
-                            title="Copy link to saved filter"
-                            tooltip="Copy link to saved filter"
-                            icon={<IconCopy />}
-                        />
-                        <AccessControlledLemonButton
-                            status="danger"
-                            onClick={() => {
-                                deletePlaylist(playlist)
-                                if (savedFilters.results?.length === 1) {
-                                    setActiveFilterTab('filters')
-                                }
-                            }}
-                            title="Delete saved filter"
-                            tooltip="Delete saved filter"
-                            icon={<IconTrash />}
-                            minAccessLevel={AccessControlLevel.Editor}
-                            resourceType={AccessControlResourceType.SessionRecording}
-                            userAccessLevel={
-                                getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
+                    <LemonButton
+                        onClick={() => {
+                            const combinedURL = urls.absolute(
+                                combineUrl(urls.replay(ReplayTabs.Home), { savedFilterId: playlist.short_id }).url
+                            )
+                            void copyToClipboard(combinedURL, 'link to ' + (playlist.name || playlist.derived_name))
+                        }}
+                        title="Copy link to saved filter"
+                        tooltip="Copy link to saved filter"
+                        icon={<IconShare />}
+                        size="small"
+                    />
+                )
+            },
+        },
+        {
+            title: 'Delete',
+            width: 40,
+            render: function Render(_, playlist) {
+                return (
+                    <AccessControlledLemonButton
+                        status="danger"
+                        onClick={() => {
+                            deletePlaylist(playlist)
+                            if (savedFilters.results?.length === 1) {
+                                setActiveFilterTab('filters')
                             }
-                        />
-                    </div>
+                        }}
+                        title="Delete saved filter"
+                        tooltip="Delete saved filter"
+                        icon={<IconTrash />}
+                        size="small"
+                        minAccessLevel={AccessControlLevel.Editor}
+                        resourceType={AccessControlResourceType.SessionRecording}
+                        userAccessLevel={
+                            getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
+                        }
+                    />
                 )
             },
         },

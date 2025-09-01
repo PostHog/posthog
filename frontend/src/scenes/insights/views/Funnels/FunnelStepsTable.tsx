@@ -26,7 +26,7 @@ import { resultCustomizationsModalLogic } from '../../../../queries/nodes/Insigh
 import { getActionFilterFromFunnelStep, getSignificanceFromBreakdownStep } from './funnelStepTableUtils'
 
 export function FunnelStepsTable(): JSX.Element | null {
-    const { insightProps, insightLoading } = useValues(insightLogic)
+    const { insightProps, insightLoading, editingDisabledReason } = useValues(insightLogic)
     const { breakdownFilter } = useValues(insightVizDataLogic(insightProps))
     const { steps, flattenedBreakdowns, hiddenLegendBreakdowns, getFunnelsColor } = useValues(
         funnelDataLogic(insightProps)
@@ -76,6 +76,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                             }}
                             label={<span className="font-bold">Breakdown</span>}
                             size="small"
+                            disabledReason={editingDisabledReason}
                         />
                     ),
                     dataIndex: 'breakdown_value',
@@ -131,6 +132,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                                         color={color}
                                         type="tertiary"
                                         size="small"
+                                        disabledReason={editingDisabledReason}
                                     />
                                 )}
                             </div>
@@ -144,6 +146,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                                     toggleLegendBreakdownVisibility(getVisibilityKey(breakdown.breakdown_value))
                                 }
                                 label={label}
+                                disabledReason={editingDisabledReason}
                             />
                         )
                     },
