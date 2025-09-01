@@ -311,7 +311,9 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     if (!results.length) {
                         actions.markLogsEnd()
                     }
-                    return results
+
+                    const newLogs = results.filter((log) => !values.allLogEntryKeys.has(toKey(log)))
+                    return [...newLogs, ...values.unGroupedLogs].sort((a, b) => b.timestamp.diff(a.timestamp))
                 },
             },
         ],
@@ -472,7 +474,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     null as Dayjs | null
                 )
 
-                return item ? item.tz(teamLogic.findMounted()?.values.currentTeam?.timezone!) : null
+                return item ? item.tz(teamLogic.findMounted()?.values.currentTeam?.timezone) : null
             },
         ],
 
@@ -514,12 +516,10 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             }
         },
         setFilters: async ({ filters }, breakpoint) => {
-            console.log('setFilters', filters)
             await breakpoint(filters.search ? 500 : 10) // Longer debounce when typing in the search field
-            console.log('setFilters after breakpoint')
             actions.loadLogs()
         },
-        setIsGrouped: async (_) => {
+        setIsGrouped: async () => {
             actions.clearLogs()
             actions.loadLogs()
         },
@@ -537,7 +537,6 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
 
             // TODO: Add the logs to the right reducer
             if (values.isGrouped) {
-                // TODO
             } else {
                 actions.loadMoreUngroupedLogsSuccess(
                     [...values.unGroupedLogs, ...values.hiddenLogs].sort((a, b) => b.timestamp.diff(a.timestamp))
@@ -553,7 +552,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
     beforeUnmount(({ cache }) => {
         clearInterval(cache.pollingTimeout)
     }),
-    actionToUrl(({ values, props }) => {
+    actionToUrl(({ values }) => {
         const syncProperties = (
             properties: Record<string, any>
         ): [string, Record<string, any>, Record<string, any>] => {
@@ -573,7 +572,6 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
     }),
     urlToAction(({ actions, values }) => {
         const reactToTabChange = (_: any, search: Record<string, any>): void => {
-            console.log('reactToTabChange', search)
             Object.keys(search).forEach((key) => {
                 if (key in values.filters && search[key] !== values.filters[key as keyof LogsViewerFilters]) {
                     actions.setFilters({ [key]: search[key] })

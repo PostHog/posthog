@@ -270,6 +270,7 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
                                         timestamp: dayjs(x.timestamp),
                                         level: x.level.toUpperCase() as LogEntryLevel,
                                         message: x.message,
+                                        instanceId: groupedLogEntry.instanceId,
                                     })),
                                 ],
                             }
