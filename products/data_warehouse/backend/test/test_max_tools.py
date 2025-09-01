@@ -104,14 +104,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
         }
 
         mock_result = {
-            "output": FinalAnswerArgs(
-                query="""WITH
-    count() AS kokk
-SELECT
-    kokk
-FROM
-    events"""
-            ),
+            "output": FinalAnswerArgs(query="""WITH count() AS kokk SELECT kokk FROM events"""),
             "intermediate_steps": None,
         }
 
@@ -120,16 +113,7 @@ FROM
             patch.object(
                 HogQLGeneratorTool,
                 "_parse_output",
-                return_value=SQLSchemaGeneratorOutput(
-                    query=AssistantHogQLQuery(
-                        query="""WITH
-    count() AS kokk
-SELECT
-    kokk
-FROM
-    events"""
-                    )
-                ),
+                return_value=SQLSchemaGeneratorOutput(query="""WITH count() AS kokk SELECT kokk FROM events"""),
             ),
         ):
             mock_graph = AsyncMock()
