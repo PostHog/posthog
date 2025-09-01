@@ -4,7 +4,6 @@ import datetime as dt
 
 from unittest.mock import patch
 
-from posthog.temporal.data_imports.sources.linkedin_ads.constants import CIRCUIT_BREAKER_THRESHOLD
 from posthog.temporal.data_imports.sources.linkedin_ads.utils import (
     _failure_counts,
     _last_failure_time,
@@ -22,6 +21,11 @@ from posthog.temporal.data_imports.sources.linkedin_ads.utils import (
     validate_date_format,
     validate_pivot_value,
 )
+from posthog.temporal.data_imports.sources.linkedin_ads.utils.constants import (
+    CIRCUIT_BREAKER_THRESHOLD,
+    CIRCUIT_BREAKER_TIMEOUT,
+)
+from posthog.temporal.data_imports.sources.linkedin_ads.utils.schemas import LinkedinAdsResource
 
 
 class TestLinkedInAdsValidators:
@@ -118,7 +122,7 @@ class TestLinkedInAdsCircuitBreaker:
         # Circuit should be closed
         assert check_circuit_breaker(account_id) is False
 
-    @patch('time.time')
+    @patch("time.time")
     def test_circuit_breaker_timeout_reset(self, mock_time):
         """Test circuit breaker resets after timeout."""
         account_id = "123456789"
@@ -133,7 +137,7 @@ class TestLinkedInAdsCircuitBreaker:
         assert check_circuit_breaker(account_id) is True
 
         # Advance time past timeout
-        mock_time.return_value = 400  # Beyond 300 second timeout
+        mock_time.return_value = CIRCUIT_BREAKER_TIMEOUT + 100  # Beyond 300 second timeout
 
         # Circuit should be closed now
         assert check_circuit_breaker(account_id) is False
@@ -145,10 +149,7 @@ class TestLinkedInAdsDataFlattening:
     def test_flatten_date_range(self):
         """Test date range flattening."""
         item = {
-            "dateRange": {
-                "start": {"year": 2025, "month": 8, "day": 1},
-                "end": {"year": 2025, "month": 8, "day": 31}
-            }
+            "dateRange": {"start": {"year": 2025, "month": 8, "day": 1}, "end": {"year": 2025, "month": 8, "day": 31}}
         }
         flattened = {}
 
@@ -169,9 +170,7 @@ class TestLinkedInAdsDataFlattening:
 
     def test_flatten_pivot_values_campaign(self):
         """Test pivot values flattening for campaign."""
-        item = {
-            "pivotValues": ["urn:li:sponsoredCampaign:987654321"]
-        }
+        item = {"pivotValues": ["urn:li:sponsoredCampaign:987654321"]}
         flattened = {}
 
         flatten_pivot_values(item, flattened, "campaign_stats")
@@ -180,9 +179,7 @@ class TestLinkedInAdsDataFlattening:
 
     def test_flatten_pivot_values_campaign_group(self):
         """Test pivot values flattening for campaign group."""
-        item = {
-            "pivotValues": ["urn:li:sponsoredCampaignGroup:123456789"]
-        }
+        item = {"pivotValues": ["urn:li:sponsoredCampaignGroup:123456789"]}
         flattened = {}
 
         flatten_pivot_values(item, flattened, "campaign_group_stats")
@@ -191,9 +188,7 @@ class TestLinkedInAdsDataFlattening:
 
     def test_flatten_pivot_values_invalid_id(self):
         """Test pivot values flattening with invalid ID."""
-        item = {
-            "pivotValues": ["urn:li:sponsoredCampaign:invalid_id"]
-        }
+        item = {"pivotValues": ["urn:li:sponsoredCampaign:invalid_id"]}
         flattened = {}
 
         flatten_pivot_values(item, flattened, "campaign_stats")
@@ -221,12 +216,7 @@ class TestLinkedInAdsDataFlattening:
 
     def test_flatten_change_audit_stamps(self):
         """Test change audit stamps flattening."""
-        item = {
-            "changeAuditStamps": {
-                "created": {"time": 1609459200000},
-                "lastModified": {"time": 1609545600000}
-            }
-        }
+        item = {"changeAuditStamps": {"created": {"time": 1609459200000}, "lastModified": {"time": 1609545600000}}}
         flattened = {}
 
         flatten_change_audit_stamps(item, flattened)
@@ -239,16 +229,10 @@ class TestLinkedInAdsDataFlattening:
         item = {
             "id": "123456789",
             "name": "Test Campaign",
-            "dateRange": {
-                "start": {"year": 2025, "month": 8, "day": 1},
-                "end": {"year": 2025, "month": 8, "day": 1}
-            },
+            "dateRange": {"start": {"year": 2025, "month": 8, "day": 1}, "end": {"year": 2025, "month": 8, "day": 1}},
             "pivotValues": ["urn:li:sponsoredCampaign:987654321"],
             "costInUsd": "25.50",
-            "changeAuditStamps": {
-                "created": {"time": 1609459200000},
-                "lastModified": {"time": 1609545600000}
-            }
+            "changeAuditStamps": {"created": {"time": 1609459200000}, "lastModified": {"time": 1609545600000}},
         }
 
         flattened = flatten_data_item(item, "campaign_stats")
@@ -263,22 +247,13 @@ class TestLinkedInAdsDataFlattening:
 
     def test_determine_primary_keys_analytics(self):
         """Test primary key determination for analytics data."""
-        from posthog.temporal.data_imports.sources.linkedin_ads.schemas import LinkedinAdsResource
-
-        data = [
-            {
-                "pivotValues": ["urn:li:sponsoredCampaign:123"],
-                "date_range_start": dt.date(2025, 8, 1)
-            }
-        ]
+        data = [{"pivotValues": ["urn:li:sponsoredCampaign:123"], "date_range_start": dt.date(2025, 8, 1)}]
 
         keys = determine_primary_keys(LinkedinAdsResource.CampaignStats, data)
         assert keys == ["pivotValues", "date_range_start"]
 
     def test_determine_primary_keys_entity(self):
         """Test primary key determination for entity data."""
-        from posthog.temporal.data_imports.sources.linkedin_ads.schemas import LinkedinAdsResource
-
         data = [{"id": "123456789", "name": "Test"}]
 
         keys = determine_primary_keys(LinkedinAdsResource.Campaigns, data)
@@ -286,7 +261,5 @@ class TestLinkedInAdsDataFlattening:
 
     def test_determine_primary_keys_no_data(self):
         """Test primary key determination with no data."""
-        from posthog.temporal.data_imports.sources.linkedin_ads.schemas import LinkedinAdsResource
-
         keys = determine_primary_keys(LinkedinAdsResource.Campaigns, [])
         assert keys is None

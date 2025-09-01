@@ -266,9 +266,6 @@ class LinkedinAdsService:
             Tuple of (date_start, date_end) strings
         """
         if should_use_incremental_field and incremental_field and incremental_field_type:
-            if incremental_field_type is None:
-                raise ValueError("incremental_field_type can't be None when should_use_incremental_field is True")
-
             # Determine last value using incremental_field_type
             if db_incremental_field_last_value is None:
                 last_value = (dt.datetime.now() - dt.timedelta(days=30)).strftime("%Y-%m-%d")

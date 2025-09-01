@@ -28,8 +28,7 @@ class TestLinkedinAdsService:
         )
 
         self.config = LinkedinAdsSourceConfig(
-            account_id="123456789",
-            linkedin_ads_integration_id=str(self.integration.id)
+            account_id="123456789", linkedin_ads_integration_id=str(self.integration.id)
         )
 
     def test_service_initialization(self):
@@ -44,10 +43,7 @@ class TestLinkedinAdsService:
     def test_service_validates_configuration(self):
         """Test service validates configuration on initialization."""
         # Test missing account ID
-        invalid_config = LinkedinAdsSourceConfig(
-            account_id="",
-            linkedin_ads_integration_id=str(self.integration.id)
-        )
+        invalid_config = LinkedinAdsSourceConfig(account_id="", linkedin_ads_integration_id=str(self.integration.id))
 
         with pytest.raises(ValueError, match="LinkedIn account ID is required"):
             LinkedinAdsService(invalid_config, self.team.id)
@@ -55,14 +51,13 @@ class TestLinkedinAdsService:
     def test_service_validates_account_id_format(self):
         """Test service validates account ID format."""
         invalid_config = LinkedinAdsSourceConfig(
-            account_id="invalid",
-            linkedin_ads_integration_id=str(self.integration.id)
+            account_id="invalid", linkedin_ads_integration_id=str(self.integration.id)
         )
 
         with pytest.raises(ValueError, match="Invalid LinkedIn account ID format"):
             LinkedinAdsService(invalid_config, self.team.id)
 
-    @patch('posthog.models.integration.Integration.objects.get')
+    @patch("posthog.models.integration.Integration.objects.get")
     def test_get_authenticated_client_success(self, mock_get):
         """Test successful client authentication."""
         mock_integration = Mock()
@@ -71,11 +66,13 @@ class TestLinkedinAdsService:
 
         service = LinkedinAdsService(self.config, self.team.id)
 
-        with patch('posthog.temporal.data_imports.sources.linkedin_ads.service.service.LinkedinAdsClient') as mock_client:
+        with patch(
+            "posthog.temporal.data_imports.sources.linkedin_ads.service.service.LinkedinAdsClient"
+        ) as mock_client:
             service._get_authenticated_client()
             mock_client.assert_called_once_with("test_token")
 
-    @patch('posthog.models.integration.Integration.objects.get')
+    @patch("posthog.models.integration.Integration.objects.get")
     def test_get_authenticated_client_missing_integration(self, mock_get):
         """Test client authentication with missing integration."""
         mock_get.side_effect = Integration.DoesNotExist()
@@ -93,13 +90,7 @@ class TestLinkedinAdsService:
         resource_map = service._get_resource_method_map(mock_client)
 
         # Check that all expected resources are mapped
-        expected_resources = [
-            "campaign_stats",
-            "campaign_group_stats",
-            "campaigns",
-            "campaign_groups",
-            "accounts"
-        ]
+        expected_resources = ["campaign_stats", "campaign_group_stats", "campaigns", "campaign_groups", "accounts"]
 
         for resource in expected_resources:
             assert resource in resource_map
@@ -166,7 +157,7 @@ class TestLinkedinAdsDateHandler:
 
         # Should not go back further than sync frequency allows
         result_date = datetime.strptime(result, "%Y-%m-%d")
-        now = datetime.now()
+        now = datetime(2023, 1, 22)  # Fixed date for consistent testing
         delta = (now - result_date).days
 
         # Should be limited by sync frequency (around 7 days)

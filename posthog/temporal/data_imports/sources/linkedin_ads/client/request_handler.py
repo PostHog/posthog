@@ -46,7 +46,7 @@ class LinkedinAdsRequestHandler:
             LinkedinAdsError: For various API errors
             requests.exceptions.RequestException: For request failures
         """
-        endpoint = url.split('/')[-1]  # Extract endpoint for logging
+        endpoint = url.split("/")[-1]  # Extract endpoint for logging
 
         for attempt in range(self.max_retries + 1):
             try:
@@ -109,11 +109,17 @@ class LinkedinAdsRequestHandler:
             endpoint: API endpoint being called
             attempt: Current attempt number
         """
-        retry_after = int(response.headers.get('Retry-After', self.rate_limit_delay))
-        logger.warning("LinkedIn API rate limit hit, retrying",
-                      endpoint=endpoint,
-                      attempt=attempt + 1,
-                      retry_after=retry_after)
+        retry_after_header = response.headers.get("Retry-After", str(self.rate_limit_delay))
+
+        try:
+            retry_after = int(retry_after_header)
+        except ValueError:
+            # If Retry-After is not an integer, use default delay
+            retry_after = self.rate_limit_delay
+
+        logger.warning(
+            "LinkedIn API rate limit hit, retrying", endpoint=endpoint, attempt=attempt + 1, retry_after=retry_after
+        )
         time.sleep(retry_after)
 
     def _handle_server_error(self, response: requests.Response, endpoint: str, attempt: int) -> None:
@@ -124,12 +130,14 @@ class LinkedinAdsRequestHandler:
             endpoint: API endpoint being called
             attempt: Current attempt number
         """
-        delay = self.retry_delay * (2 ** attempt) + random.uniform(0, 1)
-        logger.warning("LinkedIn API server error, retrying",
-                      endpoint=endpoint,
-                      attempt=attempt + 1,
-                      status_code=response.status_code,
-                      delay=delay)
+        delay = self.retry_delay * (2**attempt) + random.uniform(0, 1)
+        logger.warning(
+            "LinkedIn API server error, retrying",
+            endpoint=endpoint,
+            attempt=attempt + 1,
+            status_code=response.status_code,
+            delay=delay,
+        )
         time.sleep(delay)
 
     def _handle_timeout(self, endpoint: str, attempt: int) -> None:
@@ -139,15 +147,13 @@ class LinkedinAdsRequestHandler:
             endpoint: API endpoint being called
             attempt: Current attempt number
         """
-        delay = self.retry_delay * (2 ** attempt)
-        logger.warning("LinkedIn API request timeout, retrying",
-                      endpoint=endpoint,
-                      attempt=attempt + 1,
-                      delay=delay)
+        delay = self.retry_delay * (2**attempt)
+        logger.warning("LinkedIn API request timeout, retrying", endpoint=endpoint, attempt=attempt + 1, delay=delay)
         time.sleep(delay)
 
-    def _handle_request_exception(self, error: requests.exceptions.RequestException,
-                                 endpoint: str, attempt: int) -> None:
+    def _handle_request_exception(
+        self, error: requests.exceptions.RequestException, endpoint: str, attempt: int
+    ) -> None:
         """Handle general request exceptions with exponential backoff.
 
         Args:
@@ -155,12 +161,14 @@ class LinkedinAdsRequestHandler:
             endpoint: API endpoint being called
             attempt: Current attempt number
         """
-        delay = self.retry_delay * (2 ** attempt)
-        logger.warning("LinkedIn API request failed, retrying",
-                      endpoint=endpoint,
-                      attempt=attempt + 1,
-                      error=str(error),
-                      delay=delay)
+        delay = self.retry_delay * (2**attempt)
+        logger.warning(
+            "LinkedIn API request failed, retrying",
+            endpoint=endpoint,
+            attempt=attempt + 1,
+            error=str(error),
+            delay=delay,
+        )
         time.sleep(delay)
 
     def _raise_timeout_error(self, endpoint: str) -> None:
@@ -174,16 +182,13 @@ class LinkedinAdsRequestHandler:
         capture_exception(LinkedinAdsError(error_msg))
         raise LinkedinAdsError(error_msg)
 
-    def _raise_request_exception(self, error: requests.exceptions.RequestException,
-                                endpoint: str) -> None:
+    def _raise_request_exception(self, error: requests.exceptions.RequestException, endpoint: str) -> None:
         """Raise request exception after max retries exceeded.
 
         Args:
             error: Request exception that occurred
             endpoint: API endpoint being called
         """
-        logger.exception("LinkedIn API request failed",
-                        error=str(error),
-                        endpoint=endpoint)
+        logger.exception("LinkedIn API request failed", error=str(error), endpoint=endpoint)
         capture_exception(error)
         raise
