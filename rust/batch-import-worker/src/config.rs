@@ -1,6 +1,8 @@
 use crate::job::backoff::BackoffPolicy;
-use common_kafka::config::KafkaConfig;
 use envconfig::Envconfig;
+
+// Re-export KafkaConfig for testing
+pub use common_kafka::config::KafkaConfig;
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
@@ -56,6 +58,20 @@ pub struct Config {
     // 0 means unlimited retries
     #[envconfig(from = "BACKOFF_MAX_ATTEMPTS", default = "0")]
     pub backoff_max_attempts: u32,
+
+    // Redis URL for caching
+    #[envconfig(from = "REDIS_URL", default = "")]
+    pub redis_url: String,
+
+    // TTL for identify cache keys in Redis (default: 24 hours)
+    #[envconfig(from = "IDENTIFY_REDIS_CACHE_TTL_SECONDS", default = "86400")]
+    pub identify_redis_cache_ttl_seconds: u64,
+
+    // In-memory cache configuration
+    #[envconfig(from = "IDENTIFY_MEMORY_CACHE_CAPACITY", default = "1000000")]
+    pub identify_memory_cache_capacity: u64,
+    #[envconfig(from = "IDENTIFY_MEMORY_CACHE_TTL_SECONDS", default = "3600")]
+    pub identify_memory_cache_ttl_seconds: u64,
 }
 
 impl Config {
@@ -83,57 +99,30 @@ impl Config {
 mod tests {
     use super::*;
 
-    fn create_test_config() -> Config {
-        Config {
-            chunk_size: 100000000,
-            host: "::".to_string(),
-            port: 3301,
-            kafka: KafkaConfig {
-                kafka_producer_linger_ms: 20,
-                kafka_producer_queue_mib: 400,
-                kafka_producer_queue_messages: 10000,
-                kafka_message_timeout_ms: 10000,
-                kafka_compression_codec: "none".to_string(),
-                kafka_tls: false,
-                kafka_hosts: "localhost:9092".to_string(),
-            },
-            database_url: "postgres://test".to_string(),
-            max_pg_connections: 4,
-            encryption_keys: "test_key".to_string(),
-            kafka_topic_main: "test_main_topic".to_string(),
-            kafka_topic_historical: "test_historical_topic".to_string(),
-            kafka_topic_overflow: "test_overflow_topic".to_string(),
-            backoff_initial_seconds: 60,
-            backoff_max_seconds: 3600,
-            backoff_multiplier: 2.0,
-            backoff_max_attempts: 0,
-        }
-    }
-
     #[test]
     fn test_resolve_kafka_topic_main() {
-        let config = create_test_config();
+        let config = Config::init_from_env().unwrap();
         let result = config.resolve_kafka_topic("main").unwrap();
-        assert_eq!(result, "test_main_topic");
+        assert_eq!(result, "events_plugin_ingestion");
     }
 
     #[test]
     fn test_resolve_kafka_topic_historical() {
-        let config = create_test_config();
+        let config = Config::init_from_env().unwrap();
         let result = config.resolve_kafka_topic("historical").unwrap();
-        assert_eq!(result, "test_historical_topic");
+        assert_eq!(result, "events_plugin_ingestion_historical");
     }
 
     #[test]
     fn test_resolve_kafka_topic_overflow() {
-        let config = create_test_config();
+        let config = Config::init_from_env().unwrap();
         let result = config.resolve_kafka_topic("overflow").unwrap();
-        assert_eq!(result, "test_overflow_topic");
+        assert_eq!(result, "events_plugin_ingestion_overflow");
     }
 
     #[test]
     fn test_resolve_kafka_topic_unknown() {
-        let config = create_test_config();
+        let config = Config::init_from_env().unwrap();
         let result = config.resolve_kafka_topic("unknown");
         assert!(result.is_err());
         assert!(result
@@ -144,7 +133,7 @@ mod tests {
 
     #[test]
     fn test_resolve_kafka_topic_empty() {
-        let config = create_test_config();
+        let config = Config::init_from_env().unwrap();
         let result = config.resolve_kafka_topic("");
         assert!(result.is_err());
         assert!(result
@@ -155,7 +144,7 @@ mod tests {
 
     #[test]
     fn test_resolve_kafka_topic_case_sensitive() {
-        let config = create_test_config();
+        let config = Config::init_from_env().unwrap();
         let result = config.resolve_kafka_topic("MAIN");
         assert!(result.is_err());
         assert!(result
@@ -166,7 +155,7 @@ mod tests {
 
     #[test]
     fn test_backoff_policy_defaults() {
-        let config = create_test_config();
+        let config = Config::init_from_env().unwrap();
         let p = config.backoff_policy();
         assert_eq!(p.initial_delay.as_secs(), 60);
         assert_eq!(p.max_delay.as_secs(), 3600);

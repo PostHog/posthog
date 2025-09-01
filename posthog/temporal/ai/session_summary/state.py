@@ -9,12 +9,14 @@ from redis import asyncio as aioredis
 from posthog.redis import get_async_client
 
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_DB_DATA_REDIS_TTL
+from ee.models.session_summaries import ExtraSummaryContext, SingleSessionSummary
 
 T = TypeVar("T")
 
 
 class StateActivitiesEnum(Enum):
     SESSION_DB_DATA = "session_db_data"  # Events from DB
+    # TODO: Remove the state enum as all the session summary storage/extraction should go through Postgres now
     SESSION_SUMMARY = "session_summary"  # Single-session summaries (per session)
     SESSION_GROUP_EXTRACTED_PATTERNS = "extracted_patterns"  # Patterns from all the summaries
     SESSION_GROUP_PATTERNS_ASSIGNMENTS = "patterns_assignments"  # Patterns assignments for all the sessions
@@ -148,3 +150,24 @@ async def get_data_str_from_redis(
         raise ValueError(
             f"Failed to decompress output data ({raw_redis_data}) for Redis key {redis_key} ({label.value}): {err}"
         ) from err
+
+
+def get_ready_summaries_from_db(
+    session_ids: list[str], team_id: int, extra_summary_context: ExtraSummaryContext | None
+) -> list[SingleSessionSummary]:
+    has_next = True
+    offset = 0
+    ready_summaries = []
+    while has_next:
+        summaries = SingleSessionSummary.objects.get_bulk_summaries(
+            team_id=team_id,
+            session_ids=session_ids,
+            extra_summary_context=extra_summary_context,
+            limit=100,
+            offset=offset,
+        )
+        ready_summaries.extend(summaries.results)
+        if not summaries.has_next:
+            has_next = False
+        offset += 100
+    return ready_summaries

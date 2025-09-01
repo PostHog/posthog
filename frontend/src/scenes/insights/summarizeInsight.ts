@@ -25,7 +25,6 @@ import {
     Node,
 } from '~/queries/schema/schema-general'
 import {
-    isCalendarHeatmapQuery,
     isDataTableNode,
     isEventsQuery,
     isFunnelsQuery,
@@ -214,8 +213,6 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
         return `${capitalizeFirstLetter(
             context.aggregationLabel(query.aggregation_group_type_index, true).singular
         )} lifecycle based on ${getDisplayNameFromEntityNode(query.series[0])}`
-    } else if (isCalendarHeatmapQuery(query)) {
-        return `Calendar heatmap of ${getDisplayNameFromEntityNode(query.series[0])}`
     }
     return ''
 }
