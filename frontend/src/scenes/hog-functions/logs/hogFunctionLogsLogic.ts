@@ -93,7 +93,7 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
     props({} as LogsViewerLogicProps), // TODO: Remove `stage` from props, it isn't needed here for anything
     key(({ sourceType, sourceId }) => `${sourceType}:${sourceId}`),
     connect((props: LogsViewerLogicProps) => ({
-        values: [logsViewerLogic(props), ['logs']],
+        values: [logsViewerLogic(props), ['groupedLogs']],
         actions: [logsViewerLogic(props), ['addLogGroups', 'setRowExpanded']],
     })),
     actions({
