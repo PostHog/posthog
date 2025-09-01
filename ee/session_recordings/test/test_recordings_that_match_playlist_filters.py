@@ -153,7 +153,7 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         mock_list_recordings_from_query.assert_not_called()
         mock_capture_exception.assert_not_called()
 
-        assert self._get_counts_from_redis(playlist) == json.dumps(existing_value)
+        assert self._get_counts_from_redis(playlist) == existing_value
 
     @patch("posthoganalytics.capture_exception")
     @patch("ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query")
@@ -370,7 +370,7 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         mock_list_recordings_from_query.assert_not_called()
         mock_capture_exception.assert_not_called()
 
-        assert self._get_counts_from_redis(playlist) == json.dumps(existing_value)
+        assert self._get_counts_from_redis(playlist) == existing_value
 
     @patch("posthoganalytics.capture_exception")
     @patch("ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query")
@@ -392,7 +392,7 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         mock_list_recordings_from_query.assert_not_called()
         mock_capture_exception.assert_not_called()
 
-        assert self._get_counts_from_redis(playlist) == json.dumps(existing_value)
+        assert self._get_counts_from_redis(playlist) == existing_value
 
     @patch("posthoganalytics.capture_exception")
     @patch("ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query")
