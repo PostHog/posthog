@@ -12,9 +12,7 @@ import { PluginsServerConfig } from '../../../types'
 import { logger } from '../../../utils/logger'
 import { CyclotronJobInvocation, CyclotronJobQueueKind } from '../../types'
 
-export const getDelayQueue = (
-    queueScheduledAt: DateTime
-): CyclotronJobQueueKind => {
+export const getDelayQueue = (queueScheduledAt: DateTime): CyclotronJobQueueKind => {
     // if (queueScheduledAt > DateTime.now().plus({ hours: 24 })) {
     //     return 'delay_24h'
     // }
@@ -151,7 +149,10 @@ export class CyclotronJobQueueDelay {
                 let delayMs = Math.max(0, scheduledTime.getTime() - now)
                 const waitTime = Math.min(delayMs, maxDelayMs)
 
-                logger.info('🔁', `${this.name} - Waiting for ${waitTime}ms before processing ${messages.indexOf(message) + 1}/${messages.length} invocation ${message.key}`)
+                logger.info(
+                    '🔁',
+                    `${this.name} - Waiting for ${waitTime}ms before processing ${messages.indexOf(message) + 1}/${messages.length} invocation ${message.key}`
+                )
 
                 delayMs -= waitTime
 
@@ -190,7 +191,7 @@ export class CyclotronJobQueueDelay {
                 logger.info('🔁', `${this.name} - Error processing message ${message.key}`, {
                     offset: message.offset,
                     result,
-                    error
+                    error,
                 })
                 throw error
             }
