@@ -604,7 +604,7 @@ class PostHogTestCase(SimpleTestCase):
 
         with connection.cursor() as cursor:
             for table in PERSONS_DB_MODELS:
-                cursor.execute(f"TRUNCATE TABLE {table} CASCADE")
+                cursor.execute(f"TRUNCATE TABLE posthog_{table} CASCADE")
 
     def validate_basic_html(self, html_message, site_url, preheader=None):
         # absolute URLs are used
