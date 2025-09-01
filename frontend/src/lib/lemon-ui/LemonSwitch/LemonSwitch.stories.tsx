@@ -122,7 +122,7 @@ SizesLoading.parameters = { testOptions: { waitForLoadersToDisappear: false } }
 export const WithAccessControl = (): JSX.Element => {
     return (
         <div className="deprecated-space-y-2">
-            <RawLemonSwitch
+            <LemonSwitch
                 label="Enabled (admin ≥ admin)"
                 checked={true}
                 onChange={() => {}}
@@ -130,7 +130,7 @@ export const WithAccessControl = (): JSX.Element => {
                 minAccessLevel="admin"
                 resourceType={AccessControlResourceType.Project}
             />
-            <RawLemonSwitch
+            <LemonSwitch
                 label="Disabled (viewer < admin)"
                 checked={false}
                 onChange={() => {}}
