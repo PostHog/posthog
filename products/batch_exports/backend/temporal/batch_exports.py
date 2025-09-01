@@ -559,7 +559,7 @@ async def try_produce_run_status_app_metrics(status: BatchExportRun.Status | str
             metric_name = "succeeded"
         case BatchExportRun.Status.CANCELLED:
             metric_kind = "cancellation"
-            metric_name = "cancelled"
+            metric_name = "canceled"
         case _:
             metric_kind = "failure"
             metric_name = "failed"
