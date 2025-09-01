@@ -1711,53 +1711,38 @@ def team_api_test_factory():
 
         @parameterized.expand(
             [
+                ("app_urls_with_nulls", "app_urls", ["https://example.com", None], status.HTTP_400_BAD_REQUEST),
                 (
-                    "app_urls_mixed_nulls",
-                    "app_urls",
-                    ["https://example.com", None, "https://test.com", None],
-                    ["https://example.com", "https://test.com"],
-                    None,
-                ),
-                ("app_urls_all_nulls", "app_urls", [None, None, None], [], None),
-                (
-                    "app_urls_mixed_valid_and_null",
-                    "app_urls",
-                    ["https://new.com", None, "https://another.com"],
-                    ["https://new.com", "https://another.com"],
-                    ["https://existing.com"],
-                ),
-                (
-                    "recording_domains_mixed_nulls",
+                    "recording_domains_with_nulls",
                     "recording_domains",
-                    [None, "https://example.com", None, "https://test.com"],
-                    ["https://example.com", "https://test.com"],
-                    None,
+                    [None, "example.com"],
+                    status.HTTP_400_BAD_REQUEST,
                 ),
-                ("recording_domains_none_field", "recording_domains", None, None, None),
+                ("app_urls_valid", "app_urls", ["https://example.com", "https://test.com"], status.HTTP_200_OK),
+                ("recording_domains_valid", "recording_domains", ["example.com", "test.com"], status.HTTP_200_OK),
+                ("recording_domains_none", "recording_domains", None, status.HTTP_200_OK),
             ]
         )
-        def test_filters_null_values(self, name, field_name, input_data, expected_output, setup_data):
-            if setup_data is not None:
-                setattr(self.team, field_name, setup_data)
-                self.team.save()
-
+        def test_array_field_null_validation(self, name, field_name, input_data, expected_status):
+            """Test that null values in arrays are properly rejected after migration 0839."""
             response = self.client.patch("/api/environments/@current/", {field_name: input_data})
+            assert response.status_code == expected_status
 
-            assert response.status_code == status.HTTP_200_OK
-            response_data = response.json()
+            if expected_status == status.HTTP_200_OK:
+                # For successful requests, verify the data was saved correctly
+                response_data = response.json()
+                if input_data is None:
+                    assert response_data[field_name] is None
+                else:
+                    assert response_data[field_name] == input_data
 
-            if expected_output is None:
-                assert response_data[field_name] is None
-            else:
-                assert response_data[field_name] == expected_output
+                self.team.refresh_from_db()
+                actual_value = getattr(self.team, field_name)
 
-            self.team.refresh_from_db()
-            actual_value = getattr(self.team, field_name)
-
-            if expected_output is None:
-                assert actual_value is None
-            else:
-                assert actual_value == expected_output
+                if input_data is None:
+                    assert actual_value is None
+                else:
+                    assert actual_value == input_data
 
     return TestTeamAPI
 
