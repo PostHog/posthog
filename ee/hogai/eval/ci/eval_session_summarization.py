@@ -179,6 +179,26 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
                     },
                 ),
             ),
+            # Ambiguous cases
+            EvalCase(
+                input="show me the summary of what users did with our app in the last 7 days",
+                expected=AssistantToolCall(
+                    id="12",
+                    name="session_summarization",
+                    args={
+                        "session_summarization_query": "show me what users did with our app",
+                        "should_use_current_filters": True,  # Analyzing user behavior, use current context
+                    },
+                ),
+            ),
+            EvalCase(
+                input="show me sessions with users who visited checkout page",
+                expected=AssistantToolCall(
+                    id="13",
+                    name="search_session_recordings",
+                    args={"change": "show me sessions with users who visited checkout page"},
+                ),
+            ),
         ],
         pytestconfig=pytestconfig,
     )
