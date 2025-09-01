@@ -2655,40 +2655,10 @@ class TestPrinter(BaseTest):
 
             assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot  # type: ignore
 
-    def test_beautify_function_normalization(self):
-        """Test function name normalization with loose_syntax parameter."""
-        loose_context = HogQLContext(
-            team_id=self.team.pk,
-            enable_select_queries=True,
-            case_insensitive_function_names=True,
-            beautify=True,
-            preserve_placeholders=True,
-        )
-
-        # Test basic function normalization - aggregation functions
-        query_ast = parse_select("SELECT COUNT() FROM events")
-        loose_result = print_ast(query_ast, loose_context, "hogql")
-
-        self.assertIn("count()", loose_result)
-        self.assertNotIn("COUNT()", loose_result)
-
-        # Test multiple aggregation functions
-        query_ast = parse_select("SELECT SUM(value), AVG(score), MAX(age) FROM events")
-        loose_result = print_ast(query_ast, loose_context, "hogql")
-
-        self.assertIn("sum(", loose_result)
-        self.assertIn("avg(", loose_result)
-        self.assertIn("max(", loose_result)
-
-        query_ast = parse_select("SELECT countIF(active = 1) FROM events")
-        loose_result = print_ast(query_ast, loose_context, "hogql")
-        self.assertIn("countIf(", loose_result)
-
     def test_beautify_preserves_placeholders(self):
         loose_context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
-            case_insensitive_function_names=True,
             preserve_placeholders=True,
         )
 
@@ -2705,7 +2675,6 @@ class TestPrinter(BaseTest):
             enable_select_queries=True,
             limit_top_select=False,
             beautify=True,
-            case_insensitive_function_names=True,
         )
 
         query_ast = parse_select(
@@ -2721,7 +2690,6 @@ class TestPrinter(BaseTest):
             enable_select_queries=True,
             limit_top_select=False,
             beautify=True,
-            case_insensitive_function_names=True,
         )
 
         query_ast = parse_select("SELECT countIf(equals(event, 'test'))")

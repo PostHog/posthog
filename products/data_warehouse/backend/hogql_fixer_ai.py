@@ -192,7 +192,6 @@ class HogQLQueryFixerTool(MaxTool):
             team=self._team,
             enable_select_queries=True,
             database=database,
-            case_insensitive_function_names=True,
             limit_top_select=False,
             beautify=True,
             preserve_placeholders=True,

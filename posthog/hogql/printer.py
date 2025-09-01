@@ -52,7 +52,7 @@ from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
-from posthog.hogql.visitor import Visitor, clone_expr
+from posthog.hogql.visitor import CloningVisitor, Visitor, clone_expr
 
 from posthog.clickhouse.materialized_columns import (
     MaterializedColumn,
@@ -269,6 +269,14 @@ def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
     while isinstance(expr_type, ast.FieldAliasType):
         expr_type = expr_type.type
     return expr_type
+
+
+class LooseSyntax(CloningVisitor):
+    def visit_call(self, node: ast.Call):
+        corrected_name = find_function_name_case_insensitive(node.name)
+        if corrected_name != node.name:
+            node.name = corrected_name
+        return super().visit_call(node)
 
 
 class _Printer(Visitor[str]):
@@ -1104,10 +1112,6 @@ class _Printer(Visitor[str]):
         return None  # nothing to optimize
 
     def visit_call(self, node: ast.Call):
-        if self.context.case_insensitive_function_names:
-            corrected_name = find_function_name_case_insensitive(node.name)
-            if corrected_name != node.name:
-                node.name = corrected_name
         # If the argument(s) are part of a property group, special optimizations may apply here to ensure that data
         # skipping indexes can be used when possible.
         if optimized_property_group_call := self.__get_optimized_property_group_call(node):

@@ -20,7 +20,6 @@ def test_get_schema_description(snapshot):
         team_id=team.id,
         enable_select_queries=True,
         database=database,
-        case_insensitive_function_names=True,
         limit_top_select=False,
         beautify=True,
     )
@@ -54,7 +53,6 @@ def test_get_user_prompt(snapshot):
         team_id=team.id,
         enable_select_queries=True,
         database=database,
-        case_insensitive_function_names=True,
         limit_top_select=False,
         beautify=True,
     )
