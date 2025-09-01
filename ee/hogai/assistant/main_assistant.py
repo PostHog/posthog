@@ -89,6 +89,7 @@ class MainAssistant(BaseAssistant):
             AssistantNodeName.MEMORY_ONBOARDING_FINALIZE,
             TaxonomyNodeName.LOOP_NODE,
             AssistantNodeName.SESSION_SUMMARIZATION,
+            AssistantNodeName.INSIGHTS_SEARCH,
         }
 
     @property

@@ -1,7 +1,8 @@
 import time
 import logging
+from typing import Literal, Optional, TypedDict
+
 from django.core.cache import caches
-from typing import Optional, Literal, TypedDict
 
 
 class RateLimitValues(TypedDict):

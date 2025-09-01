@@ -1,5 +1,8 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import {
     DISPLAY_TYPES_WITHOUT_DETAILED_RESULTS,
     DISPLAY_TYPES_WITHOUT_LEGEND,
@@ -9,7 +12,6 @@ import { parseProperties } from 'lib/components/PropertyFilters/utils'
 import { NON_TIME_SERIES_DISPLAY_TYPES, NON_VALUES_ON_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils'
-import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { getClampedFunnelStepRange } from 'scenes/funnels/funnelUtils'
@@ -25,8 +27,8 @@ import { extractValidationError, getAllEventNames, queryFromKind } from '~/queri
 import {
     BreakdownFilter,
     CompareFilter,
-    DatabaseSchemaField,
     DataWarehouseNode,
+    DatabaseSchemaField,
     DateRange,
     FunnelExclusionSteps,
     FunnelsFilter,
@@ -60,7 +62,6 @@ import {
     getShowValuesOnSeries,
     getYAxisScaleType,
     isActionsNode,
-    isCalendarHeatmapQuery,
     isDataWarehouseNode,
     isEventsNode,
     isFunnelsQuery,
@@ -110,7 +111,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateBreakdownFilter: (breakdownFilter: BreakdownFilter) => ({ breakdownFilter }),
         updateCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         updateDisplay: (display: ChartDisplayType | undefined) => ({ display }),
-        updateHiddenLegendIndexes: (hiddenLegendIndexes: number[] | undefined) => ({ hiddenLegendIndexes }),
         setTimedOutQueryId: (id: string | null) => ({ id }),
         setIsIntervalManuallySet: (isIntervalManuallySet: boolean) => ({ isIntervalManuallySet }),
         toggleFormulaMode: true,
@@ -153,7 +153,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         isTrends: [(s) => [s.querySource], (q) => isTrendsQuery(q)],
-        isCalendarHeatmap: [(s) => [s.querySource], (q) => isCalendarHeatmapQuery(q)],
         isFunnels: [(s) => [s.querySource], (q) => isFunnelsQuery(q)],
         isRetention: [(s) => [s.querySource], (q) => isRetentionQuery(q)],
         isPaths: [(s) => [s.querySource], (q) => isPathsQuery(q)],
@@ -166,6 +165,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (q, display, dateRange) =>
                 (isTrendsQuery(q) || isStickinessQuery(q)) &&
                 display !== ChartDisplayType.WorldMap &&
+                display !== ChartDisplayType.CalendarHeatmap &&
                 dateRange?.date_from !== 'all',
         ],
         supportsPercentStackView: [(s) => [s.querySource], (q) => supportsPercentStackView(q)],
@@ -222,7 +222,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         yAxisScaleType: [(s) => [s.querySource], (q) => (q ? getYAxisScaleType(q) : null)],
         showMultipleYAxes: [(s) => [s.querySource], (q) => (q ? getShowMultipleYAxes(q) : null)],
         resultCustomizationBy: [(s) => [s.querySource], (q) => (q ? getResultCustomizationBy(q) : null)],
-        goalLines: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? getGoalLines(q) : null)],
+        goalLines: [(s) => [s.querySource], (q) => (isTrendsQuery(q) || isFunnelsQuery(q) ? getGoalLines(q) : null)],
         insightFilter: [(s) => [s.querySource], (q) => (q ? filterForQuery(q) : null)],
         trendsFilter: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.trendsFilter : null)],
         funnelsFilter: [(s) => [s.querySource], (q) => (isFunnelsQuery(q) ? q.funnelsFilter : null)],
@@ -567,9 +567,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateDisplay: ({ display }) => {
             actions.updateInsightFilter({ display })
         },
-        updateHiddenLegendIndexes: ({ hiddenLegendIndexes }) => {
-            actions.updateInsightFilter({ hiddenLegendIndexes })
-        },
 
         // data loading side effects i.e. displaying loading screens for queries with longer duration
         loadData: async ({ queryId }, breakpoint) => {
@@ -749,6 +746,11 @@ const handleQuerySourceUpdateSideEffects = (
 
     // Remove breakdown filter if display type is BoldNumber because it is not supported
     if (kind === NodeKind.TrendsQuery && maybeChangedDisplay === ChartDisplayType.BoldNumber) {
+        mergedUpdate['breakdownFilter'] = null
+    }
+
+    // Remove breakdown filter if display type is Heatmap because it is not supported
+    if (kind === NodeKind.TrendsQuery && maybeChangedDisplay === ChartDisplayType.CalendarHeatmap) {
         mergedUpdate['breakdownFilter'] = null
     }
 

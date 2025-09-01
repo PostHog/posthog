@@ -1,3 +1,7 @@
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
+
 import { IconFlask } from '@posthog/icons'
 import {
     LemonBanner,
@@ -14,17 +18,16 @@ import {
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
-import { IconAreaChart } from 'lib/lemon-ui/icons'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
-import { useEffect, useState } from 'react'
-import { urls } from 'scenes/urls'
+import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
 import { Query } from '~/queries/Query/Query'
@@ -47,14 +50,13 @@ import {
     ProgressStatus,
 } from '~/types'
 
-import { CONCLUSION_DISPLAY_CONFIG, EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { DuplicateExperimentModal } from '../DuplicateExperimentModal'
+import { CONCLUSION_DISPLAY_CONFIG, EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatusColor } from '../experimentsLogic'
 import { getIndexForVariant } from '../legacyExperimentCalculations'
 import { modalsLogic } from '../modalsLogic'
 import { getExperimentInsightColour } from '../utils'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 export function VariantTag({
     experimentId,
@@ -119,15 +121,26 @@ export function VariantTag({
     )
 }
 
-export function ResultsTag({ metricIndex = 0 }: { metricIndex?: number }): JSX.Element {
-    const { isPrimaryMetricSignificant, significanceDetails } = useValues(experimentLogic)
-    const result: { color: LemonTagType; label: string } = isPrimaryMetricSignificant(metricIndex)
+export function ResultsTag({ metricUuid }: { metricUuid?: string }): JSX.Element {
+    const { isPrimaryMetricSignificant, significanceDetails, experiment } = useValues(experimentLogic)
+
+    // Use first primary metric UUID if not provided
+    const uuid = metricUuid || experiment.metrics?.[0]?.uuid || ''
+    if (!uuid) {
+        return (
+            <LemonTag type="primary">
+                <b className="uppercase">Not significant</b>
+            </LemonTag>
+        )
+    }
+
+    const result: { color: LemonTagType; label: string } = isPrimaryMetricSignificant(uuid)
         ? { color: 'success', label: 'Significant' }
         : { color: 'primary', label: 'Not significant' }
 
-    if (significanceDetails(metricIndex)) {
+    if (significanceDetails(uuid)) {
         return (
-            <Tooltip title={significanceDetails(metricIndex)}>
+            <Tooltip title={significanceDetails(uuid)}>
                 <LemonTag className="cursor-pointer" type={result.color}>
                     <b className="uppercase">{result.label}</b>
                 </LemonTag>

@@ -1,5 +1,9 @@
 import './ViewLinkModal.scss'
 
+import { useActions, useValues } from 'kea'
+import { Field, Form } from 'kea-forms'
+import { useState } from 'react'
+
 import { IconCollapse, IconExpand } from '@posthog/icons'
 import {
     LemonButton,
@@ -10,12 +14,10 @@ import {
     LemonSelect,
     LemonTag,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { Field, Form } from 'kea-forms'
+
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { HogQLDropdown } from 'lib/components/HogQLDropdown/HogQLDropdown'
 import { IconSwapHoriz } from 'lib/lemon-ui/icons'
-import { useState } from 'react'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 
 import { DatabaseSchemaField } from '~/queries/schema/schema-general'
@@ -35,8 +37,8 @@ export function ViewLinkModal({ mode }: ViewLinkModalProps): JSX.Element {
             description={
                 mode === 'revenue_analytics' ? (
                     <span>
-                        Define a join between the <code>persons</code> table and the <code>customer_revenue_view</code>{' '}
-                        Revenue analytics view. <br />
+                        Define a join between either the <code>persons</code> or <code>groups</code> table and the{' '}
+                        <code>customer_revenue_view</code> Revenue analytics view. <br />
                         <br />
                         <b>All</b> fields from the joined table or view will be accessible in queries at the top level
                         without needing to explicitly join the view. This will also enable you to see revenue for a

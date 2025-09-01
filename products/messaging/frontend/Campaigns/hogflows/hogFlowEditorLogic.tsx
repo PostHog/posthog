@@ -1,42 +1,56 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import {
-    applyEdgeChanges,
-    applyNodeChanges,
+    Edge,
     EdgeChange,
-    getOutgoers,
     MarkerType,
+    Node,
     NodeChange,
     Position,
     ReactFlowInstance,
+    applyEdgeChanges,
+    applyNodeChanges,
+    getOutgoers,
 } from '@xyflow/react'
-import { Edge, Node } from '@xyflow/react'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
-import { uuid } from 'lib/utils'
+import type { DragEvent } from 'react'
 
-import { campaignLogic, CampaignLogicProps } from '../campaignLogic'
+import { lemonToast } from '@posthog/lemon-ui'
+
+import { uuid } from 'lib/utils'
+import { urls } from 'scenes/urls'
+
+import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
+import { CampaignLogicProps, campaignLogic } from '../campaignLogic'
 import { getFormattedNodes } from './autolayout'
 import { BOTTOM_HANDLE_POSITION, NODE_HEIGHT, NODE_WIDTH, TOP_HANDLE_POSITION } from './constants'
 import type { hogFlowEditorLogicType } from './hogFlowEditorLogicType'
 import { getHogFlowStep } from './steps/HogFlowSteps'
+import { getSmartStepPath } from './steps/SmartEdge'
 import { StepViewNodeHandle } from './steps/types'
 import type { HogFlow, HogFlowAction, HogFlowActionNode } from './types'
-import type { DragEvent } from 'react'
-import { getSmartStepPath } from './steps/SmartEdge'
 
 const getEdgeId = (edge: HogFlow['edges'][number]): string => `${edge.from}->${edge.to} ${edge.index ?? ''}`.trim()
 
-export type HogFlowEditorMode = 'build' | 'test'
+export const HOG_FLOW_EDITOR_MODES = ['build', 'test'] as const
+export type HogFlowEditorMode = (typeof HOG_FLOW_EDITOR_MODES)[number]
 
 export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     props({} as CampaignLogicProps),
     path((key) => ['scenes', 'hogflows', 'hogFlowEditorLogic', key]),
     key((props) => `${props.id}`),
     connect((props: CampaignLogicProps) => ({
-        values: [campaignLogic(props), ['campaign', 'edgesByActionId']],
+        values: [
+            campaignLogic(props),
+            ['campaign', 'edgesByActionId'],
+            optOutCategoriesLogic(),
+            ['categories', 'categoriesLoading'],
+        ],
         actions: [
             campaignLogic(props),
             ['setCampaignInfo', 'setCampaignActionConfig', 'setCampaignAction', 'setCampaignActionEdges'],
+            optOutCategoriesLogic(),
+            ['loadCategories'],
         ],
     })),
     actions({
@@ -129,6 +143,21 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             (s) => [s.nodes, s.selectedNodeId],
             (nodes, selectedNodeId) => {
                 return nodes.find((node) => node.id === selectedNodeId) ?? null
+            },
+        ],
+        selectedNodeCanBeDeleted: [
+            (s) => [s.selectedNode, s.nodes, s.edges],
+            (selectedNode, nodes, edges) => {
+                if (!selectedNode) {
+                    return false
+                }
+
+                const outgoingNodes = getOutgoers(selectedNode, nodes, edges)
+                if (outgoingNodes.length === 1) {
+                    return true
+                }
+
+                return new Set(outgoingNodes.map((node) => node.id)).size === 1
             },
         ],
     }),
@@ -397,4 +426,38 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             }
         },
     })),
+
+    actionToUrl(({ values }) => {
+        const syncProperty = (
+            key: string,
+            value: string | null
+        ): [string, Record<string, any>, Record<string, any>] => {
+            return [
+                router.values.location.pathname,
+                {
+                    ...router.values.searchParams,
+                    [key]: value,
+                },
+                router.values.hashParams,
+            ]
+        }
+
+        return {
+            setSelectedNodeId: () => syncProperty('selectedNodeId', values.selectedNodeId ?? null),
+            setMode: () => syncProperty('mode', values.mode),
+        }
+    }),
+    urlToAction(({ actions }) => {
+        const reactToTabChange = (_: any, search: Record<string, string>): void => {
+            const { selectedNodeId, mode } = search
+            actions.setSelectedNodeId(selectedNodeId ?? null)
+            if (mode && HOG_FLOW_EDITOR_MODES.includes(mode as HogFlowEditorMode)) {
+                actions.setMode(mode as HogFlowEditorMode)
+            }
+        }
+
+        return {
+            [urls.messagingCampaign(':id', ':tab')]: reactToTabChange,
+        }
+    }),
 ])

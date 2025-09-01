@@ -116,8 +116,4 @@ python manage.py runserver 8080 &
 
 pnpm --filter=@posthog/frontend build:products
 
-if [ "$START_CYPRESS" -eq 1 ] 2>/dev/null; then
-  pnpm cypress open --config-file cypress.e2e.config.ts
-elif [ "$START_PLAYWRIGHT" -eq 1 ] 2>/dev/null; then
-  pnpm --filter=@posthog/playwright exec playwright test --ui
-fi
+pnpm --filter=@posthog/playwright exec playwright test --ui

@@ -2,18 +2,21 @@ from typing import Any
 
 from posthog.hogql import ast
 from posthog.hogql.database.models import (
-    IntegerDatabaseField,
-    StringDatabaseField,
-    DateTimeDatabaseField,
-    LazyTable,
-    FieldOrTable,
-    LazyTableToAdd,
     BooleanDatabaseField,
     DatabaseField,
+    DateDatabaseField,
+    DateTimeDatabaseField,
+    FieldOrTable,
+    IntegerDatabaseField,
+    LazyTable,
+    LazyTableToAdd,
+    StringDatabaseField,
     Table,
 )
 
 QUERY_LOG_ARCHIVE_FIELDS: dict[str, FieldOrTable] = {
+    "event_date": DateDatabaseField(name="event_date", nullable=False),
+    "event_time": DateTimeDatabaseField(name="event_time", nullable=False),
     "query_id": StringDatabaseField(name="query_id", nullable=False),
     "endpoint": StringDatabaseField(name="lc_id", nullable=False),
     "query": StringDatabaseField(name="lc_query__query", nullable=False),
@@ -27,7 +30,10 @@ QUERY_LOG_ARCHIVE_FIELDS: dict[str, FieldOrTable] = {
     "result_bytes": IntegerDatabaseField(name="result_bytes", nullable=False),
     "memory_usage": IntegerDatabaseField(name="memory_usage", nullable=False),
     "status": StringDatabaseField(name="type", nullable=False),
+    "exception_code": IntegerDatabaseField(name="exception_code", nullable=False),
     "is_personal_api_key_request": BooleanDatabaseField(name="is_personal_api_key_request", nullable=False),
+    "api_key_label": StringDatabaseField(name="lc_api_key_label", nullable=False),
+    "api_key_mask": StringDatabaseField(name="lc_api_key_mask", nullable=False),
     "cpu_microseconds": IntegerDatabaseField(name="ProfileEvents_OSCPUVirtualTimeMicroseconds", nullable=False),
     "RealTimeMicroseconds": IntegerDatabaseField(name="ProfileEvents_RealTimeMicroseconds", nullable=False),
     "S3ListObjects": IntegerDatabaseField(name="ProfileEvents_S3ListObjects", nullable=False),
@@ -109,6 +115,8 @@ class QueryLogArchiveTable(LazyTable):
 
 class RawQueryLogArchiveTable(Table):
     fields: dict[str, FieldOrTable] = {
+        "event_date": DateDatabaseField(name="event_date", nullable=False),
+        "event_time": DateTimeDatabaseField(name="event_time", nullable=False),
         "team_id": IntegerDatabaseField(name="team_id", nullable=False),
         "query_id": StringDatabaseField(name="query_id", nullable=False),
         "lc_id": StringDatabaseField(name="lc_id", nullable=False),
@@ -123,7 +131,10 @@ class RawQueryLogArchiveTable(Table):
         "result_bytes": IntegerDatabaseField(name="result_bytes", nullable=False),
         "memory_usage": IntegerDatabaseField(name="memory_usage", nullable=False),
         "type": StringDatabaseField(name="type", nullable=False),
+        "exception_code": IntegerDatabaseField(name="exception_code", nullable=False),
         "lc_access_method": StringDatabaseField(name="lc_access_method", nullable=False),
+        "lc_api_key_label": StringDatabaseField(name="lc_api_key_label", nullable=False),
+        "lc_api_key_mask": StringDatabaseField(name="lc_api_key_mask", nullable=False),
         "lc_query__kind": StringDatabaseField(name="lc_query__kind", nullable=False),
         "ProfileEvents_OSCPUVirtualTimeMicroseconds": IntegerDatabaseField(
             name="ProfileEvents_OSCPUVirtualTimeMicroseconds", nullable=False

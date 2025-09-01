@@ -1,9 +1,12 @@
 import { useValues } from 'kea'
+
+import { DateDisplay } from 'lib/components/DateDisplay'
 import { dayjs } from 'lib/dayjs'
 import { capitalizeFirstLetter, shortTimeZone } from 'lib/utils'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { getFormattedDate } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
+import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
 import { FunnelsActorsQuery, NodeKind, TrendsFilter } from '~/queries/schema/schema-general'
@@ -12,7 +15,6 @@ import { ChartParams, GraphDataset, GraphType } from '~/types'
 
 import { funnelDataLogic } from './funnelDataLogic'
 import { funnelPersonsModalLogic } from './funnelPersonsModalLogic'
-import { teamLogic } from 'scenes/teamLogic'
 
 const LineGraphWrapper = ({ inCardView, children }: { inCardView?: boolean; children: JSX.Element }): JSX.Element => {
     if (inCardView) {
@@ -28,9 +30,16 @@ export function FunnelLineGraph({
     showPersonsModal: showPersonsModalProp = true,
 }: Omit<ChartParams, 'filters'>): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { indexedSteps, aggregationTargetLabel, incompletenessOffsetFromEnd, querySource, interval, insightData } =
-        useValues(funnelDataLogic(insightProps))
-    const { weekStartDay } = useValues(teamLogic)
+    const {
+        indexedSteps,
+        goalLines,
+        aggregationTargetLabel,
+        incompletenessOffsetFromEnd,
+        querySource,
+        interval,
+        insightData,
+    } = useValues(funnelDataLogic(insightProps))
+    const { weekStartDay, timezone } = useValues(teamLogic)
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
 
     if (!isInsightQueryNode(querySource)) {
@@ -50,6 +59,7 @@ export function FunnelLineGraph({
                 isInProgress={incompletenessOffsetFromEnd < 0}
                 inSharedMode={!!inSharedMode}
                 showPersonsModal={showPersonsModal}
+                goalLines={goalLines ?? []}
                 tooltip={{
                     showHeader: false,
                     hideColorCol: true,
@@ -84,11 +94,19 @@ export function FunnelLineGraph({
                                   ? points.pointsIntersectingClick[0].dataset
                                   : points.pointsIntersectingLine[0].dataset
                               const day = dataset?.days?.[index] ?? ''
-                              const label = dataset?.label ?? dataset?.labels?.[index] ?? ''
 
-                              const title = `${capitalizeFirstLetter(
-                                  aggregationTargetLabel.plural
-                              )} converted on ${dayjs(label).format('MMMM Do YYYY')}`
+                              const title = (
+                                  <>
+                                      {capitalizeFirstLetter(aggregationTargetLabel.plural)} converted on{' '}
+                                      <DateDisplay
+                                          interval={interval || 'day'}
+                                          resolvedDateRange={insightData?.resolved_date_range}
+                                          timezone={timezone}
+                                          weekStartDay={weekStartDay}
+                                          date={day?.toString() || ''}
+                                      />
+                                  </>
+                              )
 
                               const query: FunnelsActorsQuery = {
                                   kind: NodeKind.FunnelsActorsQuery,
@@ -103,6 +121,7 @@ export function FunnelLineGraph({
                               })
                           }
                 }
+                hideAnnotations={inSharedMode}
             />
         </LineGraphWrapper>
     )

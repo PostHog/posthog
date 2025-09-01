@@ -1,4 +1,7 @@
-import { IconInfo, IconPlay, IconRedo, IconTestTube, IconX } from '@posthog/icons'
+import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
+
+import { IconInfo, IconPlay, IconRedo } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -10,21 +13,19 @@ import {
     ProfilePicture,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
+
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { urls } from 'scenes/urls'
 
-import { hogFlowEditorTestLogic } from './hogFlowEditorTestLogic'
 import { campaignLogic } from '../../campaignLogic'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
-import { getHogFlowStep } from '../steps/HogFlowSteps'
+import { hogFlowEditorTestLogic } from './hogFlowEditorTestLogic'
 
 export function HogFlowTestPanelNonSelected(): JSX.Element {
     return (
-        <div className="p-2 w-120">
+        <div className="p-2">
             <div className="p-8 text-center rounded border bg-surface-secondary">
                 <div className="text-muted">Please select a node...</div>
             </div>
@@ -34,7 +35,6 @@ export function HogFlowTestPanelNonSelected(): JSX.Element {
 
 export function HogFlowEditorTestPanel(): JSX.Element | null {
     const { selectedNode } = useValues(hogFlowEditorLogic)
-    const { setSelectedNodeId } = useActions(hogFlowEditorLogic)
     const { logicProps } = useValues(campaignLogic)
     const { sampleGlobals, isTestInvocationSubmitting, testResult, shouldLoadSampleGlobals } = useValues(
         hogFlowEditorTestLogic(logicProps)
@@ -49,33 +49,14 @@ export function HogFlowEditorTestPanel(): JSX.Element | null {
         return null
     }
 
-    const Step = getHogFlowStep(selectedNode.data.type)
-
     return (
         <Form
             logic={hogFlowEditorTestLogic}
             props={logicProps}
             formKey="testInvocation"
             enableFormOnSubmit
-            className="flex overflow-hidden flex-col flex-1 w-180"
+            className="flex overflow-hidden flex-col flex-1"
         >
-            {/* Header */}
-            <div className="flex justify-between items-center px-2 my-2 w-full">
-                <h3 className="flex gap-1 items-center mb-0 font-semibold">
-                    <IconTestTube className="text-lg" />
-                    Testing - <span className="text-lg">{Step?.icon}</span> {selectedNode.data.name}
-                </h3>
-                <div className="flex gap-2 items-center">
-                    <LemonButton
-                        size="xsmall"
-                        icon={<IconX />}
-                        onClick={() => setSelectedNodeId(null)}
-                        aria-label="close"
-                    />
-                </div>
-            </div>
-
-            <LemonDivider className="my-0" />
             {/* Body */}
             <div className="flex overflow-y-auto flex-col flex-1 gap-2 p-2">
                 {/* Event Information */}

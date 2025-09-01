@@ -1,11 +1,14 @@
 import './SessionRecordingPreview.scss'
 
-import { IconBug, IconCursorClick, IconKeyboard, IconLive } from '@posthog/icons'
 import clsx from 'clsx'
-import { useValues, useActions } from 'kea'
+import { useActions, useValues } from 'kea'
+
+import { IconBug, IconCursorClick, IconKeyboard, IconLive } from '@posthog/icons'
+
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -14,7 +17,7 @@ import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToN
 import { asDisplay } from 'scenes/persons/person-utils'
 import { SimpleTimeLabel } from 'scenes/session-recordings/components/SimpleTimeLabel'
 import { countryTitleFrom } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
-import { playerSettingsLogic, TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { TimestampFormat, playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { urls } from 'scenes/urls'
 
 import { RecordingsQuery } from '~/queries/schema/schema-general'
@@ -26,12 +29,16 @@ import {
     MAX_SELECTED_RECORDINGS,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 
 export interface SessionRecordingPreviewProps {
     recording: SessionRecordingType
     isActive?: boolean
     onClick?: () => void
+    /**
+     * Whether to show a sessionRecordingPlaylistLogic selection checkbox on this preview.
+     * @default false
+     */
+    selectable?: boolean
 }
 
 function RecordingDuration({ recordingDuration }: { recordingDuration: number | undefined }): JSX.Element {
@@ -200,7 +207,7 @@ function ItemCheckbox({ recording }: { recording: SessionRecordingType }): JSX.E
     return (
         <LemonCheckbox
             checked={selectedRecordingsIds.some((s) => s === recording.id)}
-            dataAttr="select-recording"
+            data-attr="select-recording"
             aria-label="Select recording"
             disabledReason={
                 selectedRecordingsIds.length >= MAX_SELECTED_RECORDINGS
@@ -219,7 +226,12 @@ function ItemCheckbox({ recording }: { recording: SessionRecordingType }): JSX.E
     )
 }
 
-export function SessionRecordingPreview({ recording, isActive, onClick }: SessionRecordingPreviewProps): JSX.Element {
+export function SessionRecordingPreview({
+    recording,
+    isActive,
+    onClick,
+    selectable = false,
+}: SessionRecordingPreviewProps): JSX.Element {
     const { playlistTimestampFormat } = useValues(playerSettingsLogic)
 
     const { filters } = useValues(sessionRecordingsPlaylistLogic)
@@ -241,7 +253,7 @@ export function SessionRecordingPreview({ recording, isActive, onClick }: Sessio
                 )}
                 onClick={() => onClick?.()}
             >
-                <ItemCheckbox recording={recording} />
+                {selectable && <ItemCheckbox recording={recording} />}
                 <div className="grow overflow-hidden deprecated-space-y-1 ml-1">
                     <div className="flex items-center justify-between gap-x-0.5">
                         <div className="flex overflow-hidden font-medium ph-no-capture">

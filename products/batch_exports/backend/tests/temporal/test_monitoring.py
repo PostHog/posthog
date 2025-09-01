@@ -1,10 +1,11 @@
-import datetime as dt
 import uuid
-from unittest.mock import MagicMock, patch
+import datetime as dt
 
 import pytest
-import pytest_asyncio
 from freezegun import freeze_time
+from unittest.mock import MagicMock, patch
+
+import pytest_asyncio
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -12,11 +13,8 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog import constants
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import afetch_batch_export_runs_in_range
-from posthog.temporal.tests.utils.models import (
-    acreate_batch_export,
-    adelete_batch_export,
-    afetch_batch_export_runs,
-)
+from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
+
 from products.batch_exports.backend.temporal.monitoring import (
     BatchExportMonitoringInputs,
     BatchExportMonitoringWorkflow,

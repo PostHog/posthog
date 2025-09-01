@@ -1,14 +1,18 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { featureFlagLogic as enabledFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import { allOperatorsMapping, dateStringToDayJs, debounce, hasFormErrors, isObject } from 'lib/utils'
+import { FeatureFlagsSet, featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
+import { allOperatorsMapping, debounce, hasFormErrors, isObject } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import { Scene } from 'scenes/sceneTypes'
 import {
     branchingConfigToDropdownValue,
@@ -16,10 +20,12 @@ import {
     createBranchingConfig,
     getDefaultBranchingType,
 } from 'scenes/surveys/components/question-branching/utils'
+import { getDemoDataForSurvey } from 'scenes/surveys/utils/demoDataGenerator'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
-import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
 import { CompareFilter, DataTableNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
@@ -58,25 +64,22 @@ import {
     SurveyStats,
 } from '~/types'
 
-import { ProductIntentContext } from 'lib/utils/product-intents'
-import posthog from 'posthog-js'
-import { getDemoDataForSurvey } from 'scenes/surveys/utils/demoDataGenerator'
-import { userLogic } from 'scenes/userLogic'
 import {
-    defaultSurveyAppearance,
-    defaultSurveyFieldValues,
     NEW_SURVEY,
     NewSurvey,
     SURVEY_CREATED_SOURCE,
     SURVEY_RATING_SCALE,
+    defaultSurveyAppearance,
+    defaultSurveyFieldValues,
 } from './constants'
 import type { surveyLogicType } from './surveyLogicType'
 import { surveysLogic } from './surveysLogic'
 import {
+    DATE_FORMAT,
     buildPartialResponsesFilter,
+    buildSurveyTimestampFilter,
     calculateSurveyRates,
     createAnswerFilterHogQLExpression,
-    DATE_FORMAT,
     getResponseFieldWithId,
     getSurveyEndDateForQuery,
     getSurveyResponse,
@@ -476,12 +479,14 @@ export const surveyLogic = kea<surveyLogicType>([
         editingSurvey: (editing: boolean) => ({ editing }),
         setDefaultForQuestionType: (
             idx: number,
+            surveyQuestion: SurveyQuestion,
             type: SurveyQuestionType,
             isEditingQuestion: boolean,
             isEditingDescription: boolean,
             isEditingThankYouMessage: boolean
         ) => ({
             idx,
+            surveyQuestion,
             type,
             isEditingQuestion,
             isEditingDescription,
@@ -685,8 +690,8 @@ export const surveyLogic = kea<surveyLogicType>([
                     })
                     return survey
                 } catch (error) {
-                    posthog.captureException('Error duplicating survey', {
-                        error,
+                    posthog.captureException(error, {
+                        action: 'duplicate-survey',
                         survey: payload,
                     })
                     lemonToast.error('Error while duplicating survey. Please try again.')
@@ -1026,20 +1031,27 @@ export const surveyLogic = kea<surveyLogicType>([
             {
                 setDefaultForQuestionType: (
                     state,
-                    { idx, type, isEditingQuestion, isEditingDescription, isEditingThankYouMessage }
+                    { idx, type, surveyQuestion, isEditingQuestion, isEditingDescription, isEditingThankYouMessage }
                 ) => {
                     const question = isEditingQuestion
-                        ? state.questions[idx].question
+                        ? surveyQuestion.question
                         : defaultSurveyFieldValues[type].questions[0].question
                     const description = isEditingDescription
-                        ? state.questions[idx].description
+                        ? surveyQuestion.description
                         : defaultSurveyFieldValues[type].questions[0].description
                     const thankYouMessageHeader = isEditingThankYouMessage
                         ? state.appearance?.thankYouMessageHeader
                         : defaultSurveyFieldValues[type].appearance.thankYouMessageHeader
                     const newQuestions = [...state.questions]
+
+                    const q = {
+                        ...surveyQuestion,
+                    }
+                    if (q.type === SurveyQuestionType.MultipleChoice || q.type === SurveyQuestionType.SingleChoice) {
+                        delete q.hasOpenChoice
+                    }
                     newQuestions[idx] = {
-                        ...state.questions[idx],
+                        ...q,
                         ...(defaultSurveyFieldValues[type].questions[0] as SurveyQuestionBase),
                         question,
                         description,
@@ -1218,38 +1230,7 @@ export const surveyLogic = kea<surveyLogicType>([
         timestampFilter: [
             (s) => [s.survey, s.dateRange],
             (survey: Survey, dateRange: SurveyDateRange): string => {
-                // If no date range provided, use the survey's default date range
-                if (!dateRange) {
-                    return `AND timestamp >= '${getSurveyStartDateForQuery(survey)}'
-                AND timestamp <= '${getSurveyEndDateForQuery(survey)}'`
-                }
-
-                // ----- Handle FROM date -----
-                // Parse the date string to a dayjs object
-                let fromDateDayjs = dateStringToDayJs(dateRange.date_from)
-
-                // Use survey creation date as lower bound if needed
-                const surveyStartDayjs = dayjs(getSurveyStartDateForQuery(survey))
-                if (surveyStartDayjs && fromDateDayjs && fromDateDayjs.isBefore(surveyStartDayjs)) {
-                    fromDateDayjs = surveyStartDayjs
-                }
-
-                // Fall back to survey start date if no valid from date
-                const fromDate = fromDateDayjs
-                    ? fromDateDayjs.utc().format(DATE_FORMAT)
-                    : getSurveyStartDateForQuery(survey)
-
-                // ----- Handle TO date -----
-                // Parse the date string or use current time
-                const toDateDayjs = dateStringToDayJs(dateRange.date_to) || dayjs()
-
-                // Use survey end date as upper bound if it exists
-                const toDate = survey.end_date
-                    ? getSurveyEndDateForQuery(survey)
-                    : toDateDayjs.utc().format(DATE_FORMAT)
-
-                return `AND timestamp >= '${fromDate}'
-                AND timestamp <= '${toDate}'`
+                return buildSurveyTimestampFilter(survey, dateRange)
             },
         ],
         partialResponsesFilter: [
@@ -1648,7 +1629,7 @@ export const surveyLogic = kea<surveyLogicType>([
         defaultInterval: [
             (s) => [s.survey],
             (survey: Survey): IntervalType => {
-                const start = getSurveyStartDateForQuery(survey)
+                const start = dayjs(survey.created_at).utc().startOf('day').format(DATE_FORMAT)
                 const end = getSurveyEndDateForQuery(survey)
                 const diffInDays = dayjs(end).diff(dayjs(start), 'days')
                 const diffInWeeks = dayjs(end).diff(dayjs(start), 'weeks')

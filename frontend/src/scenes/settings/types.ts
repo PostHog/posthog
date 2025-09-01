@@ -55,6 +55,7 @@ export type SettingSectionId =
     | 'user-customization'
     | 'user-danger-zone'
     | 'user-feature-previews'
+    | 'mcp-server'
 
 export type SettingId =
     | 'replay-triggers'
@@ -70,6 +71,7 @@ export type SettingId =
     | 'internal-user-filtering'
     | 'data-theme'
     | 'correlation-analysis'
+    | 'crm-usage-metrics'
     | 'person-display-name'
     | 'path-cleaning'
     | 'datacapture'
@@ -142,9 +144,11 @@ export type SettingId =
     | 'core-memory'
     | 'customization-irl'
     | 'web-analytics-pre-aggregated-tables'
+    | 'web-analytics-opt-in-pre-aggregated-tables-and-api'
     | 'csp-reporting'
     | 'base-currency'
     | 'marketing-settings'
+    | 'mcp-server-configure'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

@@ -17,18 +17,19 @@ Exports:
 * do_preaggregated_table_transforms
 """
 
-from typing import TypeVar, cast, Optional
+from typing import Optional, TypeVar, cast
 
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.base import AST
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.helpers.timestamp_visitor import (
+    is_end_of_day_constant,
     is_simple_timestamp_field_expression,
     is_start_of_day_constant,
-    is_end_of_day_constant,
 )
 from posthog.hogql.visitor import CloningVisitor
+
 from posthog.hogql_queries.web_analytics.pre_aggregated.properties import (
     EVENT_PROPERTY_TO_FIELD,
     SESSION_PROPERTY_TO_FIELD,
@@ -230,9 +231,21 @@ def _get_supported_field(field: ast.Field) -> tuple[str, ast.Field] | None:
         if isinstance(property_name, str) and property_name in EVENT_PROPERTY_TO_FIELD:
             return (property_name, ast.Field(chain=[EVENT_PROPERTY_TO_FIELD[property_name]]))
 
+    # Handle properties.metadata.x pattern (for nested properties like metadata.loggedIn)
+    elif len(field.chain) == 3 and field.chain[0] == "properties":
+        property_name = f"{field.chain[1]}.{field.chain[2]}"
+        if isinstance(property_name, str) and property_name in EVENT_PROPERTY_TO_FIELD:
+            return (property_name, ast.Field(chain=[EVENT_PROPERTY_TO_FIELD[property_name]]))
+
     # Handle events.properties.x pattern
     elif len(field.chain) == 3 and field.chain[0] == "events" and field.chain[1] == "properties":
         property_name = field.chain[2]
+        if isinstance(property_name, str) and property_name in EVENT_PROPERTY_TO_FIELD:
+            return (property_name, ast.Field(chain=[EVENT_PROPERTY_TO_FIELD[property_name]]))
+
+    # Handle events.properties.metadata.x pattern (for nested properties like metadata.loggedIn)
+    elif len(field.chain) == 4 and field.chain[0] == "events" and field.chain[1] == "properties":
+        property_name = f"{field.chain[2]}.{field.chain[3]}"
         if isinstance(property_name, str) and property_name in EVENT_PROPERTY_TO_FIELD:
             return (property_name, ast.Field(chain=[EVENT_PROPERTY_TO_FIELD[property_name]]))
 

@@ -5,6 +5,7 @@ import stringWithWBR from 'lib/utils/stringWithWBR'
 import { currencyFormatter } from 'scenes/billing/billing-utils'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
+
 import { GroupsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { GroupTypeIndex } from '~/types'

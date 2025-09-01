@@ -1,7 +1,9 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -77,8 +79,15 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
          */
         loadSharedMetricSuccess: () => {
             if (props.action === 'duplicate' && values.sharedMetric) {
+                // Generate a new UUID for the duplicated metric's query
+                const duplicatedQuery = {
+                    ...values.sharedMetric.query,
+                    uuid: crypto.randomUUID(),
+                }
+
                 actions.setSharedMetric({
                     ...values.sharedMetric,
+                    query: duplicatedQuery,
                     name: `${values.sharedMetric.name} (duplicate)`,
                     id: undefined,
                 })
@@ -131,7 +140,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
             () => [(_, props) => props.sharedMetricId ?? 'new'],
             (sharedMetricId): string | number => sharedMetricId,
         ],
-        action: [() => [(_, props) => props.action], (action: 'create' | 'update' | 'duplicate') => action],
+        action: [(_, p) => [p.action], (action) => action],
         newSharedMetric: [
             () => [],
             () => ({

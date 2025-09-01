@@ -1,11 +1,14 @@
 from typing import Generic
-from .nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode, StateClassMixin
-from .toolkit import TaxonomyAgentToolkit
+
 from posthog.models import Team, User
-from .types import TaxonomyNodeName
+
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.utils.types import StateType, PartialStateType
 from ee.hogai.graph.graph import BaseAssistantGraph
+from ee.hogai.utils.types import PartialStateType, StateType
+
+from .nodes import StateClassMixin, TaxonomyAgentNode, TaxonomyAgentToolsNode
+from .toolkit import TaxonomyAgentToolkit
+from .types import TaxonomyNodeName
 
 
 class TaxonomyAgent(BaseAssistantGraph[StateType], Generic[StateType, PartialStateType], StateClassMixin):

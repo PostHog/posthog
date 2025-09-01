@@ -136,6 +136,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
                 revenueProperty: 'value',
                 revenueCurrencyProperty: { static: CurrencyCode.ZAR },
                 subscriptionDropoffDays: 45,
+                subscriptionDropoffMode: 'last_event',
                 currencyAwareDecimal: false,
             },
             {
@@ -143,6 +144,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
                 revenueProperty: 'subscription_value',
                 revenueCurrencyProperty: { property: 'currency' },
                 subscriptionDropoffDays: 45,
+                subscriptionDropoffMode: 'after_dropoff_period',
                 currencyAwareDecimal: true,
             },
         ],
@@ -232,6 +234,7 @@ export const MOCK_DEFAULT_USER: UserType = {
     is_email_verified: true,
     is_2fa_enabled: false,
     has_social_auth: false,
+    has_sso_enforcement: false,
     sensitive_session_expires_at: dayjs().add(1, 'hour').toISOString(),
     theme_mode: null,
     team: MOCK_DEFAULT_TEAM,

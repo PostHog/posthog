@@ -2,6 +2,7 @@ import { Message, MessageHeader } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 import { z } from 'zod'
 
+import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { MessageSizeTooLarge } from '~/utils/db/error'
 import { captureIngestionWarning } from '~/worker/ingestion/utils'
 
@@ -10,7 +11,6 @@ import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { ingestionOverflowingMessagesTotal } from '../main/ingestion-queues/batch-processing/metrics'
 import { latestOffsetTimestampGauge, setUsageInNonPersonEventsCounter } from '../main/ingestion-queues/metrics'
-import { runInstrumentedFunction } from '../main/utils'
 import {
     Hub,
     IncomingEventWithTeam,
@@ -31,11 +31,11 @@ import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing
 import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch.interface'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
 import { FlushResult, PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
-import { PostgresPersonRepository } from '../worker/ingestion/persons/repositories/postgres-person-repository'
 import { deduplicateEvents } from './deduplication/events'
-import { createDeduplicationRedis, DeduplicationRedis } from './deduplication/redis-client'
+import { DeduplicationRedis, createDeduplicationRedis } from './deduplication/redis-client'
 import {
     applyDropEventsRestrictions,
+    applyForceOverflowRestrictions,
     applyPersonProcessingRestrictions,
     parseKafkaMessage,
     resolveTeam,
@@ -151,20 +151,12 @@ export class IngestionConsumer {
         this.ingestionWarningLimiter = new MemoryRateLimiter(1, 1.0 / 3600)
         this.hogTransformer = new HogTransformerService(hub)
 
-        this.personStore = new BatchWritingPersonsStore(
-            new PostgresPersonRepository(this.hub.db.postgres, {
-                calculatePropertiesSize: this.hub.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
-                personPropertiesDbConstraintLimitBytes: this.hub.PERSON_PROPERTIES_DB_CONSTRAINT_LIMIT_BYTES,
-                personPropertiesTrimTargetBytes: this.hub.PERSON_PROPERTIES_TRIM_TARGET_BYTES,
-            }),
-            this.hub.db.kafkaProducer,
-            {
-                dbWriteMode: this.hub.PERSON_BATCH_WRITING_DB_WRITE_MODE,
-                maxConcurrentUpdates: this.hub.PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
-                maxOptimisticUpdateRetries: this.hub.PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
-                optimisticUpdateRetryInterval: this.hub.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
-            }
-        )
+        this.personStore = new BatchWritingPersonsStore(this.hub.personRepository, this.hub.db.kafkaProducer, {
+            dbWriteMode: this.hub.PERSON_BATCH_WRITING_DB_WRITE_MODE,
+            maxConcurrentUpdates: this.hub.PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
+            maxOptimisticUpdateRetries: this.hub.PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
+            optimisticUpdateRetryInterval: this.hub.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
+        })
 
         this.groupStore = new BatchWritingGroupStore(this.hub, {
             maxConcurrentUpdates: this.hub.GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
@@ -200,11 +192,13 @@ export class IngestionConsumer {
         ])
 
         await this.kafkaConsumer.connect(async (messages) => {
-            return await runInstrumentedFunction({
-                statsKey: `ingestionConsumer.handleEachBatch`,
-                sendException: false,
-                func: async () => await this.handleKafkaBatch(messages),
-            })
+            return await instrumentFn(
+                {
+                    key: `ingestionConsumer.handleEachBatch`,
+                    sendException: false,
+                },
+                async () => await this.handleKafkaBatch(messages)
+            )
         })
     }
 
@@ -231,7 +225,7 @@ export class IngestionConsumer {
     }
 
     private runInstrumented<T>(name: string, func: () => Promise<T>): Promise<T> {
-        return runInstrumentedFunction<T>({ statsKey: `ingestionConsumer.${name}`, func })
+        return instrumentFn<T>(`ingestionConsumer.${name}`, func)
     }
 
     private createBreadcrumb(message: Message): KafkaConsumerBreadcrumb {
@@ -629,6 +623,19 @@ export class IngestionConsumer {
         for (const message of messages) {
             const filteredMessage = applyDropEventsRestrictions(message, this.eventIngestionRestrictionManager)
             if (!filteredMessage) {
+                continue
+            }
+
+            const forceOverflowDecision = applyForceOverflowRestrictions(
+                filteredMessage,
+                this.eventIngestionRestrictionManager
+            )
+            if (forceOverflowDecision.shouldRedirect && this.overflowEnabled()) {
+                ingestionEventOverflowed.inc(1)
+                forcedOverflowEventsCounter.inc()
+                void this.promiseScheduler.schedule(
+                    this.emitToOverflow([filteredMessage], forceOverflowDecision.preservePartitionLocality)
+                )
                 continue
             }
 

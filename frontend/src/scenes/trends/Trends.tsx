@@ -1,17 +1,20 @@
-import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
+import { TrendsCalendarHeatMap } from 'scenes/insights/views/CalendarHeatMap'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import { WorldMap } from 'scenes/insights/views/WorldMap'
 
+import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, InsightType, ItemMode } from '~/types'
 
 import { trendsDataLogic } from './trendsDataLogic'
 import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from './viz'
-import { InsightVizNode } from '~/queries/schema/schema-general'
 
 interface Props {
     view: InsightType
@@ -98,6 +101,16 @@ export function TrendInsight({ view, context, embedded, inSharedMode }: Props): 
                 />
             )
         }
+        if (display === ChartDisplayType.CalendarHeatmap) {
+            return (
+                <TrendsCalendarHeatMap
+                    showPersonsModal={showPersonsModal}
+                    context={context}
+                    inCardView={embedded}
+                    inSharedMode={inSharedMode}
+                />
+            )
+        }
     }
 
     return (
@@ -109,6 +122,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode }: Props): 
             )}
             {!embedded &&
                 display !== ChartDisplayType.WorldMap && // the world map doesn't need this cta
+                display !== ChartDisplayType.CalendarHeatmap && // the heatmap doesn't need this cta
                 breakdownFilter &&
                 hasBreakdownMore && (
                     <div className="p-4">

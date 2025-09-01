@@ -1,6 +1,7 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { QueryResult } from 'pg'
+
+import { Properties } from '@posthog/plugin-scaffold'
 
 import { KAFKA_PERSON_DISTINCT_ID } from '../../../../config/kafka-topics'
 import { TopicMessage } from '../../../../kafka/producer'
@@ -11,6 +12,7 @@ import {
     PropertiesLastUpdatedAt,
     RawPerson,
     Team,
+    TeamId,
 } from '../../../../types'
 import { CreatePersonResult, MoveDistinctIdsResult, PersonPropertiesSize } from '../../../../utils/db/db'
 import {
@@ -25,7 +27,7 @@ import { NoRowsUpdatedError, sanitizeSqlIdentifier } from '../../../../utils/uti
 import { oversizedPersonPropertiesTrimmedCounter, personPropertiesSizeViolationCounter } from '../metrics'
 import { canTrimProperty } from '../person-property-utils'
 import { PersonUpdate } from '../person-update-batch'
-import { PersonPropertiesSizeViolationError, PersonRepository } from './person-repository'
+import { InternalPersonWithDistinctId, PersonPropertiesSizeViolationError, PersonRepository } from './person-repository'
 import { PersonRepositoryTransaction } from './person-repository-transaction'
 import { PostgresPersonRepositoryTransaction } from './postgres-person-repository-transaction'
 import { RawPostgresPersonRepository } from './raw-postgres-person-repository'
@@ -61,7 +63,8 @@ export class PostgresPersonRepository
 
     private async handleOversizedPersonProperties(
         person: InternalPerson,
-        update: Partial<InternalPerson>
+        update: Partial<InternalPerson>,
+        tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         const currentSize = await this.personPropertiesSize(person.id)
 
@@ -70,7 +73,7 @@ export class PostgresPersonRepository
                 personPropertiesSizeViolationCounter.inc({
                     violation_type: 'existing_record_violates_limit',
                 })
-                return await this.handleExistingOversizedRecord(person, update)
+                return await this.handleExistingOversizedRecord(person, update, tx)
             } catch (error) {
                 logger.warn('Failed to handle previously oversized person record', {
                     team_id: person.team_id,
@@ -106,7 +109,8 @@ export class PostgresPersonRepository
 
     private async handleExistingOversizedRecord(
         person: InternalPerson,
-        update: Partial<InternalPerson>
+        update: Partial<InternalPerson>,
+        tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         try {
             const trimmedProperties = this.trimPropertiesToFitSize(
@@ -124,7 +128,8 @@ export class PostgresPersonRepository
             const [updatedPerson, kafkaMessages, versionDisparity] = await this.updatePerson(
                 person,
                 trimmedUpdate,
-                'oversized_properties_remediation'
+                'oversized_properties_remediation',
+                tx
             )
             oversizedPersonPropertiesTrimmedCounter.inc({ result: 'success' })
             return [updatedPerson, kafkaMessages, versionDisparity]
@@ -247,6 +252,54 @@ export class PostgresPersonRepository
         }
     }
 
+    async fetchPersonsByDistinctIds(
+        teamPersons: { teamId: TeamId; distinctId: string }[]
+    ): Promise<InternalPersonWithDistinctId[]> {
+        if (teamPersons.length === 0) {
+            return []
+        }
+
+        // Build the WHERE clause for multiple team_id, distinct_id pairs
+        const conditions = teamPersons
+            .map((_, index) => {
+                const teamIdParam = index * 2 + 1
+                const distinctIdParam = index * 2 + 2
+                return `(posthog_persondistinctid.team_id = $${teamIdParam} AND posthog_persondistinctid.distinct_id = $${distinctIdParam})`
+            })
+            .join(' OR ')
+
+        const queryString = `SELECT
+                posthog_person.id,
+                posthog_person.uuid,
+                posthog_person.created_at,
+                posthog_person.team_id,
+                posthog_person.properties,
+                posthog_person.properties_last_updated_at,
+                posthog_person.properties_last_operation,
+                posthog_person.is_user_id,
+                posthog_person.version,
+                posthog_person.is_identified,
+                posthog_persondistinctid.distinct_id
+            FROM posthog_person
+            JOIN posthog_persondistinctid ON (posthog_persondistinctid.person_id = posthog_person.id)
+            WHERE ${conditions}`
+
+        // Flatten the parameters: [teamId1, distinctId1, teamId2, distinctId2, ...]
+        const params = teamPersons.flatMap((person) => [person.teamId, person.distinctId])
+
+        const { rows } = await this.postgres.query<RawPerson & { distinct_id: string }>(
+            PostgresUse.PERSONS_READ,
+            queryString,
+            params,
+            'fetchPersonsByDistinctIds'
+        )
+
+        return rows.map((row) => ({
+            ...this.toPerson(row),
+            distinct_id: row.distinct_id,
+        }))
+    }
+
     async createPerson(
         createdAt: DateTime,
         properties: Properties,
@@ -257,9 +310,11 @@ export class PostgresPersonRepository
         isIdentified: boolean,
         uuid: string,
         distinctIds?: { distinctId: string; version?: number }[],
-        tx?: TransactionClient
+        tx?: TransactionClient,
+        // Used to support dual-write; we want to force the id a person is created with to prevent drift
+        forcedId?: number
     ): Promise<CreatePersonResult> {
-        distinctIds ||= []
+        distinctIds = distinctIds || []
 
         for (const distinctId of distinctIds) {
             distinctId.version ||= 0
@@ -269,47 +324,66 @@ export class PostgresPersonRepository
         const personVersion = 0
 
         try {
-            const { rows } = await this.postgres.query<RawPerson>(
-                tx ?? PostgresUse.PERSONS_WRITE,
+            const baseColumns = [
+                'created_at',
+                'properties',
+                'properties_last_updated_at',
+                'properties_last_operation',
+                'team_id',
+                'is_user_id',
+                'is_identified',
+                'uuid',
+                'version',
+            ]
+            const columns = forcedId ? ['id', ...baseColumns] : baseColumns
+
+            const valuePlaceholders = columns.map((_, i) => `$${i + 1}`).join(', ')
+
+            const baseParams = [
+                createdAt.toISO(),
+                sanitizeJsonbValue(properties),
+                sanitizeJsonbValue(propertiesLastUpdatedAt),
+                sanitizeJsonbValue(propertiesLastOperation),
+                teamId,
+                isUserId,
+                isIdentified,
+                uuid,
+                personVersion,
+            ]
+            const personParams = forcedId ? [forcedId, ...baseParams] : baseParams
+
+            // Find the actual index of team_id in the personParams array (1-indexed for SQL)
+            const teamIdParamIndex = personParams.indexOf(teamId) + 1
+            const distinctIdVersionStartIndex = columns.length + 1
+            const distinctIdStartIndex = distinctIdVersionStartIndex + distinctIds.length
+
+            const query =
                 `WITH inserted_person AS (
-                        INSERT INTO posthog_person (
-                            created_at, properties, properties_last_updated_at,
-                            properties_last_operation, team_id, is_user_id, is_identified, uuid, version
-                        )
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                        INSERT INTO posthog_person (${columns.join(', ')})
+                        VALUES (${valuePlaceholders})
                         RETURNING *
                     )` +
-                    distinctIds
-                        .map(
-                            // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in
-                            // `addDistinctId`
-                            (_, index) => `, distinct_id_${index} AS (
+                distinctIds
+                    .map(
+                        // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in
+                        // `addDistinctId`
+                        (_, index) => `, distinct_id_${index} AS (
                             INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
                             VALUES (
-                                $${11 + index + distinctIds!.length - 1},
+                                $${distinctIdStartIndex + index},
                                 (SELECT id FROM inserted_person),
-                                $5,
-                                $${10 + index})
+                                $${teamIdParamIndex},
+                                $${distinctIdVersionStartIndex + index})
                             )`
-                        )
-                        .join('') +
-                    `SELECT * FROM inserted_person;`,
+                    )
+                    .join('') +
+                ` SELECT * FROM inserted_person;`
+
+            const { rows } = await this.postgres.query<RawPerson>(
+                tx ?? PostgresUse.PERSONS_WRITE,
+                query,
                 [
-                    createdAt.toISO(),
-                    sanitizeJsonbValue(properties),
-                    sanitizeJsonbValue(propertiesLastUpdatedAt),
-                    sanitizeJsonbValue(propertiesLastOperation),
-                    teamId,
-                    isUserId,
-                    isIdentified,
-                    uuid,
-                    personVersion,
-                    // The copy and reverse here is to maintain compatability with pre-existing code
-                    // and tests. Postgres appears to assign IDs in reverse order of the INSERTs in the
-                    // CTEs above, so we need to reverse the distinctIds to match the old behavior where
-                    // we would do a round trip for each INSERT. We shouldn't actually depend on the
-                    // `id` column of distinct_ids, so this is just a simple way to keeps tests exactly
-                    // the same and prove behavior is the same as before.
+                    ...personParams,
                     ...distinctIds
                         .slice()
                         .reverse()
@@ -352,6 +426,7 @@ export class PostgresPersonRepository
         } catch (error) {
             // Handle constraint violation - another process created the person concurrently
             if (error instanceof Error && error.message.includes('unique constraint')) {
+                // This is not of type CreatePersonResult?
                 return {
                     success: false,
                     error: 'CreationConflict',
@@ -451,20 +526,45 @@ export class PostgresPersonRepository
     async moveDistinctIds(
         source: InternalPerson,
         target: InternalPerson,
+        limit?: number,
         tx?: TransactionClient
     ): Promise<MoveDistinctIdsResult> {
         let movedDistinctIdResult: QueryResult<any> | null = null
         try {
-            movedDistinctIdResult = await this.postgres.query(
-                tx ?? PostgresUse.PERSONS_WRITE,
+            const hasLimit = limit !== undefined
+            const query = hasLimit
+                ? `
+                    WITH rows_to_update AS (
+                        SELECT id
+                        FROM posthog_persondistinctid
+                        WHERE person_id = $2
+                          AND team_id = $3
+                        ORDER BY id
+                        FOR UPDATE SKIP LOCKED
+                        LIMIT $4
+                    )
+                    UPDATE posthog_persondistinctid
+                    SET person_id = $1, version = COALESCE(version, 0)::numeric + 1
+                    WHERE id IN (SELECT id FROM rows_to_update)
+                    RETURNING *
                 `
+                : `
                     UPDATE posthog_persondistinctid
                     SET person_id = $1, version = COALESCE(version, 0)::numeric + 1
                     WHERE person_id = $2
                       AND team_id = $3
                     RETURNING *
-                `,
-                [target.id, source.id, target.team_id],
+                `
+
+            const values = [target.id, source.id, target.team_id]
+            if (hasLimit) {
+                values.push(limit)
+            }
+
+            movedDistinctIdResult = await this.postgres.query(
+                tx ?? PostgresUse.PERSONS_WRITE,
+                query,
+                values,
                 'updateDistinctIdPerson'
             )
         } catch (error) {
@@ -529,9 +629,41 @@ export class PostgresPersonRepository
         }
     }
 
-    async addPersonlessDistinctId(teamId: number, distinctId: string): Promise<boolean> {
+    async fetchPersonDistinctIds(person: InternalPerson, limit?: number, tx?: TransactionClient): Promise<string[]> {
+        const hasLimit = limit !== undefined
+        const queryString = hasLimit
+            ? `
+                SELECT distinct_id
+                FROM posthog_persondistinctid
+                WHERE person_id = $1 AND team_id = $2
+                ORDER BY id
+                LIMIT $3
+            `
+            : `
+                SELECT distinct_id
+                FROM posthog_persondistinctid
+                WHERE person_id = $1 AND team_id = $2
+                ORDER BY id
+            `
+
+        const values = [person.id, person.team_id]
+        if (hasLimit) {
+            values.push(limit)
+        }
+
+        const { rows } = await this.postgres.query<{ distinct_id: string }>(
+            tx ?? PostgresUse.PERSONS_WRITE,
+            queryString,
+            values,
+            'fetchPersonDistinctIds'
+        )
+
+        return rows.map((row) => row.distinct_id)
+    }
+
+    async addPersonlessDistinctId(teamId: number, distinctId: string, tx?: TransactionClient): Promise<boolean> {
         const result = await this.postgres.query(
-            PostgresUse.PERSONS_WRITE,
+            tx ?? PostgresUse.PERSONS_WRITE,
             `
                 INSERT INTO posthog_personlessdistinctid (team_id, distinct_id, is_merged, created_at)
                 VALUES ($1, $2, false, now())
@@ -548,7 +680,7 @@ export class PostgresPersonRepository
 
         // ON CONFLICT ... DO NOTHING won't give us our RETURNING, so we have to do another SELECT
         const existingResult = await this.postgres.query(
-            PostgresUse.PERSONS_WRITE,
+            tx ?? PostgresUse.PERSONS_WRITE,
             `
                 SELECT is_merged
                 FROM posthog_personlessdistinctid
@@ -694,7 +826,7 @@ export class PostgresPersonRepository
             return [updatedPerson, [kafkaMessage], versionDisparity > 0]
         } catch (error) {
             if (this.isPropertiesSizeConstraintViolation(error) && tag !== 'oversized_properties_remediation') {
-                return await this.handleOversizedPersonProperties(person, update)
+                return await this.handleOversizedPersonProperties(person, update, tx)
             }
 
             // Re-throw other errors

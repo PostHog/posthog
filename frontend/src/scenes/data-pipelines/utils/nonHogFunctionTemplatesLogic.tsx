@@ -1,5 +1,7 @@
-import { Link } from '@posthog/lemon-ui'
 import { connect, kea, path, props, selectors } from 'kea'
+
+import { Link } from '@posthog/lemon-ui'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanizeBatchExportName } from 'scenes/data-pipelines/batch-exports/utils'
@@ -7,11 +9,11 @@ import { sourceWizardLogic } from 'scenes/data-warehouse/new/sourceWizardLogic'
 import { DATA_WAREHOUSE_SOURCE_ICON_MAP } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { userLogic } from 'scenes/userLogic'
 
+import { SourceConfig } from '~/queries/schema/schema-general'
 import { BATCH_EXPORT_SERVICE_NAMES, HogFunctionTemplateType } from '~/types'
 
 import { BATCH_EXPORT_ICON_MAP } from '../batch-exports/BatchExportIcon'
 import type { nonHogFunctionTemplatesLogicType } from './nonHogFunctionTemplatesLogicType'
-import { SourceConfig } from '~/queries/schema/schema-general'
 
 export interface NonHogFunctionTemplatesLogicProps {
     availableSources: Record<string, SourceConfig>

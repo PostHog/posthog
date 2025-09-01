@@ -1,11 +1,9 @@
-import {} from 'kea'
+import { IconAtSign, IconMemory } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { Scene } from 'scenes/sceneTypes'
 
 import { AssistantContextualTool } from '~/queries/schema/schema-assistant-messages'
-
-import { IconAtSign, IconMemory } from '@posthog/icons'
-import { Scene } from 'scenes/sceneTypes'
 
 /** Static tool definition for display purposes. */
 export interface ToolDefinition<N extends string = string> {
@@ -29,7 +27,7 @@ export interface ToolDefinition<N extends string = string> {
 /** Active instance of a tool. */
 export interface ToolRegistration extends Pick<ToolDefinition, 'name' | 'description'> {
     /** A unique identifier for the tool */
-    identifier: AssistantContextualTool
+    identifier: keyof typeof TOOL_DEFINITIONS
     /**
      * Optional specific @posthog/icons icon
      * @default <IconWrench />
@@ -49,16 +47,20 @@ export interface ToolRegistration extends Pick<ToolDefinition, 'name' | 'descrip
         description: string
     }
     /** Optional: When in context, the tool can add items to the pool of Max's suggested questions */
-    suggestions?: string[] // TODO: Suggestions aren't used yet, pending a refactor of maxLogic's allSuggestions
+    suggestions?: string[]
     /** The callback function that will be executed with the LLM's tool call output */
     callback?: (toolOutput: any) => void | Promise<void>
 }
 
-export const TOOL_DEFINITIONS: Omit<Record<AssistantContextualTool, ToolDefinition>, 'fix_hogql_query'> = {
-    create_and_query_insight: {
-        name: 'Edit the insight',
-        description: "Edit the insight you're viewing",
-        product: Scene.Insight,
+export const TOOL_DEFINITIONS: Omit<
+    Record<AssistantContextualTool, ToolDefinition>,
+    'fix_hogql_query' | 'search_insights'
+> = {
+    session_summarization: {
+        name: 'Summarize sessions',
+        description: 'Summarize sessions to analyze real user behavior',
+        product: null,
+        flag: 'max-session-summarization',
     },
     search_docs: {
         name: 'Search docs',
@@ -70,9 +72,14 @@ export const TOOL_DEFINITIONS: Omit<Record<AssistantContextualTool, ToolDefiniti
         description: 'Navigate to other places in PostHog',
         product: null,
     },
+    create_and_query_insight: {
+        name: 'Edit the insight',
+        description: "Edit the insight you're viewing",
+        product: Scene.Insight,
+    },
     search_session_recordings: {
         name: 'Search recordings',
-        description: 'Search recordings for interesting sessions',
+        description: 'Search recordings quickly',
         product: Scene.Replay,
     },
     generate_hogql_query: {
@@ -101,11 +108,16 @@ export const TOOL_DEFINITIONS: Omit<Record<AssistantContextualTool, ToolDefiniti
         description: 'Manage function variables in Hog functions',
         product: Scene.DataPipelines,
     },
-    search_error_tracking_issues: {
+    filter_error_tracking_issues: {
         name: 'Filter issues',
         description: 'Filter issues to dig into errors',
         product: Scene.ErrorTracking,
-        flag: 'error-tracking-scene-max-tool',
+    },
+    find_error_tracking_impactful_issue_event_list: {
+        name: 'Find impactful issues',
+        description: 'Find impactful issues affecting your conversion, activation, or any other events',
+        product: Scene.ErrorTracking,
+        flag: FEATURE_FLAGS.ERROR_TRACKING_IMPACT_MAX_TOOL,
     },
     experiment_results_summary: {
         name: 'Summarize experiment results',
@@ -117,6 +129,11 @@ export const TOOL_DEFINITIONS: Omit<Record<AssistantContextualTool, ToolDefiniti
         name: 'Create surveys',
         description: 'Create surveys in seconds',
         product: Scene.Surveys,
+    },
+    create_message_template: {
+        name: 'Create email templates',
+        description: 'Create email templates from scratch or using a URL for inspiration',
+        product: Scene.Messaging,
     },
 }
 

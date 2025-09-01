@@ -1,25 +1,25 @@
-import dataclasses
-import inspect
 import sys
-from enum import StrEnum
-from typing import Any, Literal, Optional, Union, get_args
+import inspect
+import dataclasses
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from enum import StrEnum
+from typing import Any, Literal, Optional, Union, get_args
 
-from posthog.hogql.base import Type, Expr, CTE, ConstantType, UnknownType, AST
+from posthog.hogql.base import AST, CTE, ConstantType, Expr, Type, UnknownType
 from posthog.hogql.constants import ConstantDataType, HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
+    DatabaseField,
+    ExpressionField,
+    FieldOrTable,
     FieldTraverser,
     LazyJoin,
+    LazyTable,
+    StringArrayDatabaseField,
     StringJSONDatabaseField,
     Table,
     VirtualTable,
-    LazyTable,
-    FieldOrTable,
-    DatabaseField,
-    StringArrayDatabaseField,
-    ExpressionField,
 )
 from posthog.hogql.errors import NotImplementedError, QueryError, ResolutionError
 
@@ -173,6 +173,7 @@ class BaseTableType(Type):
                     table_type=self, name=name, expr=field.expr, isolate_scope=field.isolate_scope or False
                 )
             return FieldType(name=name, table_type=self)
+
         raise QueryError(f"Field not found: {name}")
 
 
@@ -250,6 +251,8 @@ class SelectQueryType(Type):
     anonymous_tables: list[Union["SelectQueryType", "SelectSetQueryType"]] = field(default_factory=list)
     # the parent select query, if this is a lambda
     parent: Optional[Union["SelectQueryType", "SelectSetQueryType"]] = None
+    # whether this type is related to a lambda scope
+    is_lambda_type: bool = False
 
     def get_alias_for_table_type(self, table_type: TableOrSelectType) -> Optional[str]:
         for key, value in self.tables.items():

@@ -1,6 +1,6 @@
-import importlib
 import json
 import pkgutil
+import importlib
 from typing import Any, Literal
 
 from asgiref.sync import async_to_sync
@@ -8,11 +8,14 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
+from posthog.schema import AssistantContextualTool, AssistantNavigateUrls
+
+from posthog.models import Team, User
+
 import products
+
 from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.hogai.utils.types import AssistantState
-from posthog.models import Team, User
-from posthog.schema import AssistantContextualTool, AssistantNavigateUrls
 
 
 # Lower casing matters here. Do not change it.
@@ -26,6 +29,7 @@ class create_and_query_insight(BaseModel):
         description=(
             "A description of the query to generate, encapsulating the details of the user's request. "
             "Include all relevant context from earlier messages too, as the tool won't see that conversation history. "
+            "If an existing insight has been used as a starting point, include that insight's filters and query in the description. "
             "Don't be overly prescriptive with event or property names, unless the user indicated they mean this specific name (e.g. with quotes). "
             "If the users seems to ask for a list of entities, rather than a count, state this explicitly."
         )
@@ -39,44 +43,59 @@ class search_insights(BaseModel):
     """
 
     search_query: str = Field(
-        description="IMPORTANT: Pass the user's COMPLETE, UNMODIFIED query exactly as they wrote it. Do NOT summarize, truncate, or extract keywords. For example, if the user says 'look for inkeep insights in all my insights', pass exactly 'look for inkeep insights in all my insights', not just 'inkeep' or 'inkeep insights'."
+        description="The user's query to search for insights. "
+        "Include all relevant context from earlier messages too, as the tool won't see that conversation history."
     )
 
 
 class session_summarization(BaseModel):
     """
-    Analyze sessions by finding relevant sessions based on user query and summarizing their events.
-    Use this tool for summarizing sessions, when users ask to summarize (e.g. watch, analyze) specific sessions (e.g. replays, recordings)
+    - Summarize session recordings to find patterns and issues by summarizing sessions' events.
+    - When to use the tool:
+      * When the user asks to summarize session recordings
+        - "summarize" synonyms: "watch", "analyze", "review", and similar
+        - "session recordings" synonyms: "sessions", "recordings", "replays", "user sessions", and similar
+    - When NOT to use the tool:
+      * When the user asks to find, search for, or look up session recordings, but doesn't ask to summarize them
+      * When users asks to update, change, or adjust session recordings filters
     """
 
     session_summarization_query: str = Field(
-        description="The user's complete query for session summarization. This will be used to find relevant sessions. Examples: 'summarize sessions from yesterday', 'watch what user X did on the checkout page', 'analyze mobile user sessions from last week'"
+        description="""
+        - The user's complete query for session recordings summarization.
+        - This will be used to find relevant session recordings.
+        - Always pass the user's complete, unmodified query.
+        - Examples:
+          * 'summarize all session recordings from yesterday'
+          * 'analyze mobile user session recordings from last week, even if 1 second'
+          * 'watch last 300 session recordings of MacOS users from US'
+          * and similar
+        """
+    )
+    should_use_current_filters: bool = Field(
+        description="""
+        - Whether to use current filters from user's UI to find relevant session recordings.
+        - IMPORTANT: Should be always `false` if the current filters or `search_session_recordings` tool are not present in the conversation history.
+        - Examples:
+          * Set to `true` if one of the conditions is met:
+            - the user wants to summarize "current/selected/opened/my/all/these" session recordings
+            - the user wants to use "current/these" filters
+            - the user's query specifies filters identical to the current filters
+            - if the user's query doesn't specify any filters/conditions
+            - the user refers to what they're "looking at" or "viewing"
+          * Set to `false` if one of the conditions is met:
+            - no current filters or `search_session_recordings` tool are present in the conversation
+            - the user specifies date/time period different from the current filters
+            - the user specifies conditions (user, device, id, URL, etc.) not present in the current filters
+        """,
     )
 
 
 class search_documentation(BaseModel):
     """
-    Search PostHog documentation to answer questions about features, concepts, and usage. Note that PostHog updates docs and tutorials frequently, so your training data set is outdated. Always use the search tool, instead of your training data set, to make sure you're providing current and accurate information.
-
-    Use the search tool when the user asks about:
-    - How to use PostHog
-    - How to use PostHog features
-    - How to contact support or other humans
-    - How to report bugs
-    - How to submit feature requests
-    and/or when the user:
-    - Needs help understanding PostHog concepts
-    - Has questions about SDK integration or instrumentation
-      - e.g. `posthog.capture('event')`, `posthog.captureException(err)`,
-        `posthog.identify(userId)`, `capture({ ... })` not working, etc.
-    - Troubleshooting missing or unexpected data
-      - e.g. "Events aren't arriving", "Why don't I see errors on the dashboard?"
-    - Wants to know more about PostHog the company
-    - Has questions about incidents or system status
-    - Has PostHog-related questions that don't match your other specialized tools
-    - Has disabled session replay and needs help turning it back on
-
-    Don't use this tool if the necessary information is already in the conversation or context, except when you need to check whether an assumption presented is correct or not.
+    Answer the question using the latest PostHog documentation. This performs a documentation search.
+    PostHog docs and tutorials change frequently, which makes this tool required.
+    Do NOT use this tool if the necessary information is already in the conversation or context (except when you need to check whether an assumption presented is correct or not).
     """
 
 

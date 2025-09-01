@@ -1,13 +1,4 @@
-jest.mock('~/utils/request', () => {
-    const original = jest.requireActual('~/utils/request')
-    return {
-        ...original,
-        fetch: jest.fn().mockImplementation((url, options) => {
-            return original.fetch(url, options)
-        }),
-    }
-})
-
+// sort-imports-ignore
 import { createServer } from 'http'
 import { DateTime } from 'luxon'
 import { AddressInfo } from 'net'
@@ -15,7 +6,6 @@ import { AddressInfo } from 'net'
 import { CyclotronInvocationQueueParametersFetchType } from '~/schema/cyclotron'
 import { truth } from '~/tests/helpers/truth'
 import { logger } from '~/utils/logger'
-import { fetch } from '~/utils/request'
 
 import { HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
 import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../../../src/cdp/types'
@@ -26,6 +16,19 @@ import { promisifyCallback } from '../../utils/utils'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
 import { EXTEND_OBJECT_KEY } from './hog-executor.service'
+
+// Mock before importing fetch
+jest.mock('~/utils/request', () => {
+    const original = jest.requireActual('~/utils/request')
+    return {
+        ...original,
+        fetch: jest.fn().mockImplementation((url, options) => {
+            return original.fetch(url, options)
+        }),
+    }
+})
+
+import { fetch } from '~/utils/request'
 
 const cleanLogs = (logs: string[]): string[] => {
     // Replaces the function time with a fixed value to simplify testing
@@ -1060,6 +1063,51 @@ describe('Hog Executor', () => {
                 {
                   "X-Test": "test",
                 }
+            `)
+        })
+
+        it('replaces access token placeholders in body, headers, and url', async () => {
+            const mockIntegrationInputs = {
+                oauth: {
+                    value: {
+                        access_token_raw: 'actual_secret_token_12345',
+                    },
+                },
+            }
+
+            jest.spyOn(executor['hogInputsService'], 'loadIntegrationInputs').mockResolvedValue(mockIntegrationInputs)
+
+            const invocation = createExampleInvocation()
+            invocation.state.globals.inputs = mockIntegrationInputs
+            invocation.hogFunction.inputs = {
+                oauth: { value: 123 },
+            }
+            invocation.state.vmState = { stack: [] } as any
+            invocation.queueParameters = {
+                type: 'fetch',
+                url: 'https://example.com/test?q=$$_access_token_placeholder_123',
+                method: 'POST',
+                headers: {
+                    'X-Test': '$$_access_token_placeholder_123',
+                    Authorization: 'Bearer $$_access_token_placeholder_123',
+                },
+                body: '$$_access_token_placeholder_123',
+            } as any
+
+            await executor.executeFetch(invocation)
+
+            expect(jest.mocked(fetch).mock.calls[0] as any).toMatchInlineSnapshot(`
+                [
+                  "https://example.com/test?q=actual_secret_token_12345",
+                  {
+                    "body": "actual_secret_token_12345",
+                    "headers": {
+                      "Authorization": "Bearer actual_secret_token_12345",
+                      "X-Test": "actual_secret_token_12345",
+                    },
+                    "method": "POST",
+                  },
+                ]
             `)
         })
     })

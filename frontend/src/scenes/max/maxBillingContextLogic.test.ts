@@ -1,15 +1,16 @@
 import { expectLogic } from 'kea-test-utils'
+
 import { dayjs } from 'lib/dayjs'
+import * as billingUtils from 'scenes/billing/billing-utils'
+import { BillingSpendResponse, BillingSpendResponseBreakdownType } from 'scenes/billing/billingSpendLogic'
+import { BillingUsageResponse, BillingUsageResponseBreakdownType } from 'scenes/billing/billingUsageLogic'
+import { Destination } from 'scenes/pipeline/types'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { BillingPlan, BillingType, StartupProgramLabel, TeamType } from '~/types'
-import { Destination } from 'scenes/pipeline/types'
 
-import { maxBillingContextLogic, billingToMaxContext } from './maxBillingContextLogic'
-import { BillingUsageResponse, BillingUsageResponseBreakdownType } from 'scenes/billing/billingUsageLogic'
-import { BillingSpendResponse, BillingSpendResponseBreakdownType } from 'scenes/billing/billingSpendLogic'
-import * as billingUtils from 'scenes/billing/billing-utils'
+import { billingToMaxContext, maxBillingContextLogic } from './maxBillingContextLogic'
 
 const mockBilling: BillingType = {
     customer_id: '123',

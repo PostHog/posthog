@@ -5,6 +5,7 @@ import { types as pgTypes } from 'pg'
 import { ConnectionOptions } from 'tls'
 
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 
 import { getPluginServerCapabilities } from '../../capabilities'
 import { EncryptedFields } from '../../cdp/encryption-utils'
@@ -18,7 +19,10 @@ import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { AppMetrics } from '../../worker/ingestion/app-metrics'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { ClickhouseGroupRepository } from '../../worker/ingestion/groups/repositories/clickhouse-group-repository'
+import { PostgresDualWriteGroupRepository } from '../../worker/ingestion/groups/repositories/postgres-dualwrite-group-repository'
 import { PostgresGroupRepository } from '../../worker/ingestion/groups/repositories/postgres-group-repository'
+import { PostgresDualWritePersonRepository } from '../../worker/ingestion/persons/repositories/postgres-dualwrite-person-repository'
+import { PostgresPersonRepository } from '../../worker/ingestion/persons/repositories/postgres-person-repository'
 import { RustyHook } from '../../worker/rusty-hook'
 import { ActionManagerCDP } from '../action-manager-cdp'
 import { isTestEnv } from '../env-utils'
@@ -83,6 +87,14 @@ export async function createHub(
     logger.info('👍', `Kafka ready`)
 
     const postgres = new PostgresRouter(serverConfig)
+
+    // Instantiate a second router for the Persons database migration
+    const postgresPersonMigration = new PostgresRouter({
+        ...serverConfig,
+        PERSONS_DATABASE_URL: serverConfig.PERSONS_MIGRATION_DATABASE_URL || serverConfig.PERSONS_DATABASE_URL,
+        PERSONS_READONLY_DATABASE_URL:
+            serverConfig.PERSONS_MIGRATION_READONLY_DATABASE_URL || serverConfig.PERSONS_READONLY_DATABASE_URL,
+    })
     // TODO: assert tables are reachable (async calls that cannot be in a constructor)
     logger.info('👍', `Postgres Router ready`)
 
@@ -105,6 +117,7 @@ export async function createHub(
 
     const db = new DB(
         postgres,
+        postgresPersonMigration,
         redisPool,
         cookielessRedisPool,
         kafkaProducer,
@@ -120,14 +133,29 @@ export async function createHub(
     const actionManager = new ActionManager(postgres, pubSub)
     const actionManagerCDP = new ActionManagerCDP(postgres)
     const actionMatcher = new ActionMatcher(postgres, actionManager)
-    const groupTypeManager = new GroupTypeManager(postgres, teamManager)
-    const groupRepository = new PostgresGroupRepository(postgres)
+
+    const groupRepository = serverConfig.GROUPS_DUAL_WRITE_ENABLED
+        ? new PostgresDualWriteGroupRepository(postgres, postgresPersonMigration, {
+              comparisonEnabled: serverConfig.GROUPS_DUAL_WRITE_COMPARISON_ENABLED,
+          })
+        : new PostgresGroupRepository(postgres)
+    const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
+
+    const personRepositoryOptions = {
+        calculatePropertiesSize: serverConfig.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
+        comparisonEnabled: serverConfig.PERSONS_DUAL_WRITE_COMPARISON_ENABLED,
+    }
+    const personRepository = serverConfig.PERSONS_DUAL_WRITE_ENABLED
+        ? new PostgresDualWritePersonRepository(postgres, postgresPersonMigration, personRepositoryOptions)
+        : new PostgresPersonRepository(postgres, personRepositoryOptions)
+
     const clickhouseGroupRepository = new ClickhouseGroupRepository(kafkaProducer)
     const cookielessManager = new CookielessManager(serverConfig, cookielessRedisPool, teamManager)
     const geoipService = new GeoIPService(serverConfig)
     await geoipService.get()
     const encryptedFields = new EncryptedFields(serverConfig)
     const integrationManager = new IntegrationManagerService(pubSub, postgres, encryptedFields)
+    const quotaLimiting = new QuotaLimiting(serverConfig, teamManager)
 
     const hub: Hub = {
         ...serverConfig,
@@ -135,6 +163,7 @@ export async function createHub(
         capabilities,
         db,
         postgres,
+        postgresPersonMigration,
         redisPool,
         cookielessRedisPool,
         kafka,
@@ -156,6 +185,7 @@ export async function createHub(
         actionMatcher,
         groupRepository,
         clickhouseGroupRepository,
+        personRepository,
         actionManager,
         actionManagerCDP,
         geoipService,
@@ -171,6 +201,7 @@ export async function createHub(
         cookielessManager,
         pubSub,
         integrationManager,
+        quotaLimiting,
     }
 
     return hub
@@ -183,7 +214,12 @@ export const closeHub = async (hub: Hub): Promise<void> => {
     }
     logger.info('💤', 'Closing kafka, redis, postgres...')
     await hub.pubSub.stop()
-    await Promise.allSettled([hub.kafkaProducer.disconnect(), hub.redisPool.drain(), hub.postgres?.end()])
+    await Promise.allSettled([
+        hub.kafkaProducer.disconnect(),
+        hub.redisPool.drain(),
+        hub.postgres?.end(),
+        hub.postgresPersonMigration?.end(),
+    ])
     await hub.redisPool.clear()
     await hub.cookielessRedisPool.clear()
     logger.info('💤', 'Closing cookieless manager...')

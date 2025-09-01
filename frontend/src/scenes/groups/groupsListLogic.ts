@@ -1,5 +1,7 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
+
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -10,7 +12,6 @@ import { DataTableNode } from '~/queries/schema/schema-general'
 import { GroupPropertyFilter, GroupTypeIndex } from '~/types'
 
 import type { groupsListLogicType } from './groupsListLogicType'
-import posthog from 'posthog-js'
 
 export interface GroupsListLogicProps {
     groupTypeIndex: GroupTypeIndex

@@ -1,21 +1,25 @@
-import datetime as dt
+# ruff: noqa: T201 allow print statements
+
 import logging
 import secrets
+import datetime as dt
 from time import monotonic
 from typing import Optional
 
 from django.core import exceptions
 from django.core.management.base import BaseCommand
 
-from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
+from dagster_graphql import DagsterGraphQLClient
+
 from posthog.demo.matrix import Matrix, MatrixManager
 from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.demo.products.spikegpt import SpikeGPTMatrix
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import Team
-from posthog.taxonomy.taxonomy import PERSON_PROPERTIES_ADAPTED_FROM_EVENT
-from dagster_graphql import DagsterGraphQLClient
 from posthog.settings import DAGSTER_UI_HOST, DAGSTER_UI_PORT
+from posthog.taxonomy.taxonomy import PERSON_PROPERTIES_ADAPTED_FROM_EVENT
+
+from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
 
 logging.getLogger("kafka").setLevel(logging.ERROR)  # Hide kafka-python's logspam
 
@@ -126,17 +130,22 @@ class Command(BaseCommand):
                         matrix_manager.reset_master()
                     else:
                         team = Team.objects.get(pk=existing_team_id)
-                        existing_user = team.organization.members.first()
-                        matrix_manager.run_on_team(team, existing_user)
+                        user = team.organization.members.first()
+                        matrix_manager.run_on_team(team, user)
                 else:
-                    matrix_manager.ensure_account_and_save(
+                    organization, team, user = matrix_manager.ensure_account_and_save(
                         email,
                         "Employee 427",
                         "Hedgebox Inc.",
                         is_staff=bool(options.get("staff")),
                         password=password,
-                        disallow_collision=True,
+                        email_collision_handling="disambiguate",
                     )
+                    # Optionally generate demo issues for issue tracker if extension is available
+                    gen_issues = getattr(self, "generate_demo_issues", None)
+                    team_for_issues = getattr(matrix_manager, "team", None)
+                    if callable(gen_issues) and team_for_issues is not None:
+                        gen_issues(team_for_issues)
             except exceptions.ValidationError as e:
                 print(f"Error: {e}")
             else:
@@ -146,12 +155,12 @@ class Command(BaseCommand):
                     else (
                         f"\nDemo data ready for project {team.name}!\n"
                         if existing_team_id is not None
-                        else f"\nDemo data ready for {email}!\n\n"
+                        else f"\nDemo data ready for {user.email}!\n\n"
                         "Pre-fill the login form with this link:\n"
-                        f"http://localhost:8000/login?email={email}\n"
+                        f"http://localhost:8000/login?email={user.email}\n"
                         f"The password is:\n{password}\n\n"
                         "If running demo mode (DEMO=1), log in instantly with this link:\n"
-                        f"http://localhost:8000/signup?email={email}\n"
+                        f"http://localhost:8000/signup?email={user.email}\n"
                     )
                 )
             print("Materializing common columns...")

@@ -1,9 +1,14 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api, { CountedPaginatedResponse } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { FeatureFlagsSet, featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import { Scene } from 'scenes/sceneTypes'
 import {
     SURVEY_CREATED_SOURCE,
@@ -11,18 +16,15 @@ import {
     SURVEY_PAGE_SIZE,
     SurveyTemplate,
 } from 'scenes/surveys/constants'
+import { sanitizeSurvey } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { featureFlagLogic as enabledFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { AvailableFeature, Breadcrumb, ProductKey, ProgressStatus, Survey } from '~/types'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { ProductIntentContext } from 'lib/utils/product-intents'
-import { sanitizeSurvey } from 'scenes/surveys/utils'
 import type { surveysLogicType } from './surveysLogicType'
 
 export enum SurveysTabs {

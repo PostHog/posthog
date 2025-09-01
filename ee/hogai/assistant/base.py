@@ -1,11 +1,11 @@
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, Literal, Optional, cast
+from typing import Any, Literal, Optional, cast, get_args
 from uuid import UUID, uuid4
 
-import posthoganalytics
 import structlog
+import posthoganalytics
 from asgiref.sync import async_to_sync
 from langchain_core.callbacks.base import BaseCallbackHandler
 from langchain_core.messages import AIMessageChunk
@@ -48,7 +48,7 @@ from ee.hogai.utils.types.composed import (
 )
 from ee.models import Conversation
 from posthog.event_usage import report_user_action
-from posthog.exceptions_capture import capture_exception
+from posthog import event_usage
 from posthog.models import Team, User
 from posthog.schema import (
     AssistantEventType,
@@ -127,6 +127,7 @@ class BaseAssistant(ABC):
                     "is_first_conversation": is_new_conversation,
                     "$session_id": self._session_id,
                     "assistant_mode": mode.value,
+                    "$groups": event_usage.groups(team=team),
                 },
                 trace_id=trace_id,
             )
@@ -264,16 +265,7 @@ class BaseAssistant(ABC):
 
                 if not isinstance(e, GenerationCanceled):
                     logger.exception("Error in assistant stream", error=e)
-                    posthoganalytics.capture_exception(
-                        e,
-                        distinct_id=self._user.distinct_id if self._user else None,
-                        properties={
-                            "$session_id": self._session_id,
-                            "$ai_trace_id": self._trace_id,
-                            "thread_id": self._conversation.id,
-                            "tag": "max_ai",
-                        },
-                    )
+                    self._capture_exception(e)
 
                     # This is an unhandled error, so we just stop further generation at this point
                     snapshot = await self._graph.aget_state(config)
@@ -390,6 +382,12 @@ class BaseAssistant(ABC):
 
     def _process_message_update(self, update: GraphMessageUpdateTuple) -> BaseModel | None:
         langchain_message, langgraph_state = update[1]
+
+        # Return ready messages as is
+        if isinstance(langchain_message, get_args(AssistantMessageUnion)):
+            return langchain_message
+
+        # If not ready message or chunk, return None
         if not isinstance(langchain_message, AIMessageChunk):
             return None
 
@@ -442,7 +440,7 @@ class BaseAssistant(ABC):
                 return None
         except Exception as e:
             logger.exception("Error in chunk_reasoning_headline", error=e)
-            capture_exception(e)  # not expected, so let's capture
+            self._capture_exception(e)  # not expected, so let's capture
             self._reasoning_headline_chunk = None
             return None
 
@@ -508,3 +506,16 @@ class BaseAssistant(ABC):
         finally:
             self._conversation.status = Conversation.Status.IDLE
             await self._conversation.asave(update_fields=["status", "updated_at"])
+
+    def _capture_exception(self, e: Exception):
+        posthoganalytics.capture_exception(
+            e,
+            distinct_id=self._user.distinct_id if self._user else None,
+            properties={
+                "$session_id": self._session_id,
+                "$ai_trace_id": self._trace_id,
+                "thread_id": self._conversation.id,
+                "tag": "max_ai",
+                "$groups": event_usage.groups(team=self._team),
+            },
+        )

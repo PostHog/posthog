@@ -1,9 +1,10 @@
-import { actions, connect, kea, path, reducers, selectors, listeners, afterMount, beforeUnmount } from 'kea'
-import type { sceneLayoutLogicType } from './sceneLayoutLogicType'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import React from 'react'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import React from 'react'
+import type { sceneLayoutLogicType } from './sceneLayoutLogicType'
 
 export type SceneLayoutContainerRef = React.RefObject<HTMLElement> | null
 

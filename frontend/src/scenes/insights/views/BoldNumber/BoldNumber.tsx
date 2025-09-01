@@ -1,17 +1,19 @@
 import './BoldNumber.scss'
 
-import { IconTrending } from '@posthog/icons'
-import { LemonRow, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { IconFlare, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
-import { percentage } from 'lib/utils'
 import { useLayoutEffect, useRef, useState } from 'react'
 import { useEffect } from 'react'
 import React from 'react'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+
+import { IconTrending } from '@posthog/icons'
+import { LemonRow, Link } from '@posthog/lemon-ui'
+
+import { IconFlare, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
+import { percentage } from 'lib/utils'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
@@ -31,10 +33,12 @@ function useBoldNumberTooltip({
     showPersonsModal,
     isTooltipShown,
     groupTypeLabel,
+    chartId,
 }: {
     showPersonsModal: boolean
     isTooltipShown: boolean
     groupTypeLabel?: string
+    chartId: string
 }): React.RefObject<HTMLDivElement> {
     const { insightProps } = useValues(insightLogic)
     const { series, insightData, trendsFilter, breakdownFilter } = useValues(insightVizDataLogic(insightProps))
@@ -43,7 +47,7 @@ function useBoldNumberTooltip({
     const divRef = useRef<HTMLDivElement>(null)
 
     const divRect = divRef.current?.getBoundingClientRect()
-    const [tooltipRoot, tooltipEl] = ensureTooltip()
+    const [tooltipRoot, tooltipEl] = ensureTooltip(chartId)
 
     useLayoutEffect(() => {
         tooltipEl.style.opacity = isTooltipShown ? '1' : '0'
@@ -93,7 +97,13 @@ export function BoldNumber({ showPersonsModal = true, context }: ChartParams): J
     )
 
     const [isTooltipShown, setIsTooltipShown] = useState(false)
-    const valueRef = useBoldNumberTooltip({ showPersonsModal, isTooltipShown, groupTypeLabel: context?.groupTypeLabel })
+    const chartId = useRef(`boldnumber-${Math.random().toString(36).substring(2, 11)}`)
+    const valueRef = useBoldNumberTooltip({
+        showPersonsModal,
+        isTooltipShown,
+        groupTypeLabel: context?.groupTypeLabel,
+        chartId: chartId.current,
+    })
 
     const showComparison = !!compareFilter?.compare && insightData?.result?.length > 1
     const resultSeries = insightData?.result?.[0] as TrendResult | undefined

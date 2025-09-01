@@ -11,17 +11,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from pydantic import Field, ValidationError, create_model
 
-from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.mixins import TaxonomyReasoningNodeMixin
-from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
-from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
-from ee.hogai.llm import MaxChatOpenAI
-from ee.hogai.utils.helpers import dereference_schema, format_events_prompt
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from posthog.hogql.ai import SCHEMA_MESSAGE
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database, serialize_database
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.schema import (
     AssistantFunnelsQuery,
     AssistantRetentionQuery,
@@ -30,6 +20,19 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
+from posthog.hogql.ai import SCHEMA_MESSAGE
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import create_hogql_database, serialize_database
+
+from posthog.models.group_type_mapping import GroupTypeMapping
+
+from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
+from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
+from ee.hogai.llm import MaxChatOpenAI
+from ee.hogai.utils.helpers import dereference_schema, format_events_yaml
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
+
+from ee.hogai.graph.base import AssistantNode
 from .prompts import (
     ACTIONS_EXPLANATION_PROMPT,
     EVENT_DEFINITIONS_PROMPT,
@@ -108,7 +111,7 @@ class QueryPlannerNode(TaxonomyReasoningNodeMixin, AssistantNode):
                 "react_property_filters": self._get_react_property_filters_prompt(),
                 "react_human_in_the_loop": HUMAN_IN_THE_LOOP_PROMPT,
                 "groups": self._team_group_types,
-                "events": format_events_prompt(events_in_context, self._team),
+                "events": format_events_yaml(events_in_context, self._team),
                 "project_datetime": self.project_now,
                 "project_timezone": self.project_timezone,
                 "project_name": self._team.name,
@@ -230,7 +233,8 @@ class QueryPlannerNode(TaxonomyReasoningNodeMixin, AssistantNode):
                     ][-20:],
                     # The description of a new insight is added to the end of the conversation.
                     ("human", state.root_tool_insight_plan or "_No query description provided._"),
-                ]
+                ],
+                template_format="mustache",
             )
         else:
             # Continuation with intermediate steps

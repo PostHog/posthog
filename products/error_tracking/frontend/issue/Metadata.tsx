@@ -1,10 +1,12 @@
-import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import { useState } from 'react'
+import { match } from 'ts-pattern'
+
+import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+
 import { dayjs } from 'lib/dayjs'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { humanFriendlyLargeNumber } from 'lib/utils'
-import { useState } from 'react'
-import { match } from 'ts-pattern'
 
 import { ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
 
@@ -162,7 +164,9 @@ function renderMetric(name: string, value: number | undefined, loading: boolean,
 }
 
 function renderDate(date: Date): JSX.Element {
-    return <div className="text-xs text-muted whitespace-nowrap">{dayjs(date).format('D MMM YYYY HH:mm (UTC)')}</div>
+    return (
+        <div className="text-xs text-muted whitespace-nowrap">{dayjs(date).utc().format('D MMM YYYY HH:mm (UTC)')}</div>
+    )
 }
 
 function renderDataPoint(d: SparklineDatum): JSX.Element {

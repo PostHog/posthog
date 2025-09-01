@@ -266,11 +266,13 @@
             "request": "launch",
             "module": "dagster",
             "justMyCode": true,
-            "args": ["dev"],
+            "subProcess": true,
+            "envFile": "${workspaceFolder}/.env",
+            "args": ["dev", "--workspace", "${workspaceFolder}/.dagster_home/workspace.yaml"],
             "env": {
                 "DAGSTER_HOME": "${workspaceFolder}/.dagster_home",
-                "DEBUG": "1",
-                "AWS_PROFILE": "dev"
+                "DAGSTER_UI_PORT": "3030",
+                "DEBUG": "1"
             }
         }
     ],

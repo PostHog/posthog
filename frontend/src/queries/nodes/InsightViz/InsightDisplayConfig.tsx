@@ -1,6 +1,12 @@
+import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
+import { ReactNode } from 'react'
+import { useDebouncedCallback } from 'use-debounce'
+
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { LemonSwitch } from '@posthog/lemon-ui'
+
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
@@ -9,10 +15,7 @@ import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
 import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { DEFAULT_DECIMAL_PLACES } from 'lib/utils'
-import posthog from 'posthog-js'
-import { ReactNode } from 'react'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
 import { ResultCustomizationByPicker } from 'scenes/insights/EditorFilters/ResultCustomizationByPicker'
 import { ScalePicker } from 'scenes/insights/EditorFilters/ScalePicker'
@@ -21,29 +24,27 @@ import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter
 import { ShowMultipleYAxesFilter } from 'scenes/insights/EditorFilters/ShowMultipleYAxesFilter'
 import { ShowTrendLinesFilter } from 'scenes/insights/EditorFilters/ShowTrendLinesFilter'
 import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
+import { RetentionDatePicker } from 'scenes/insights/RetentionDatePicker'
+import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
 import { RetentionChartPicker } from 'scenes/insights/filters/RetentionChartPicker'
 import { RetentionDashboardDisplayPicker } from 'scenes/insights/filters/RetentionDashboardDisplayPicker'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { RetentionDatePicker } from 'scenes/insights/RetentionDatePicker'
 import { FunnelBinsPicker } from 'scenes/insights/views/Funnels/FunnelBinsPicker'
 import { FunnelDisplayLayoutPicker } from 'scenes/insights/views/Funnels/FunnelDisplayLayoutPicker'
+import { ConfidenceLevelInput } from 'scenes/insights/views/LineGraph/ConfidenceLevelInput'
+import { MovingAverageIntervalsInput } from 'scenes/insights/views/LineGraph/MovingAverageIntervalsInput'
 import { PathStepPicker } from 'scenes/insights/views/Paths/PathStepPicker'
 import { RetentionBreakdownFilter } from 'scenes/retention/RetentionBreakdownFilter'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
-import { useDebouncedCallback } from 'use-debounce'
 
-import { resultCustomizationsModalLogic } from '~/queries/nodes/InsightViz/resultCustomizationsModalLogic'
 import { isValidBreakdown } from '~/queries/utils'
-import { ChartDisplayType } from '~/types'
-import { ConfidenceLevelInput } from 'scenes/insights/views/LineGraph/ConfidenceLevelInput'
-import { MovingAverageIntervalsInput } from 'scenes/insights/views/LineGraph/MovingAverageIntervalsInput'
-import { LemonSwitch } from '@posthog/lemon-ui'
 import { isTrendsQuery } from '~/queries/utils'
+import { ChartDisplayType } from '~/types'
 
 export function InsightDisplayConfig(): JSX.Element {
-    const { insightProps, canEditInsight } = useValues(insightLogic)
+    const { insightProps, canEditInsight, editingDisabledReason } = useValues(insightLogic)
 
     const {
         querySource,
@@ -73,9 +74,10 @@ export function InsightDisplayConfig(): JSX.Element {
     const { isTrendsFunnel, isStepsFunnel, isTimeToConvertFunnel, isEmptyFunnel } = useValues(
         funnelDataLogic(insightProps)
     )
-    const { hasInsightColors } = useValues(resultCustomizationsModalLogic(insightProps))
 
-    const showCompare = (isTrends && display !== ChartDisplayType.ActionsAreaGraph) || isStickiness
+    const showCompare =
+        (isTrends && display !== ChartDisplayType.ActionsAreaGraph && display !== ChartDisplayType.CalendarHeatmap) ||
+        isStickiness
     const showInterval =
         isTrendsFunnel ||
         isLifecycle ||
@@ -92,7 +94,7 @@ export function InsightDisplayConfig(): JSX.Element {
     )
 
     const advancedOptions: LemonMenuItems = [
-        ...(isTrends || isRetention
+        ...((isTrends || isRetention) && display !== ChartDisplayType.CalendarHeatmap
             ? [
                   {
                       title: 'Display',
@@ -109,7 +111,7 @@ export function InsightDisplayConfig(): JSX.Element {
                   },
               ]
             : []),
-        ...(supportsResultCustomizationBy && hasInsightColors
+        ...(supportsResultCustomizationBy
             ? [
                   {
                       title: (
@@ -126,7 +128,7 @@ export function InsightDisplayConfig(): JSX.Element {
                   },
               ]
             : []),
-        ...(!showPercentStackView && isTrends
+        ...(!showPercentStackView && isTrends && display !== ChartDisplayType.CalendarHeatmap
             ? [
                   {
                       title: axisLabel(display || ChartDisplayType.ActionsLineGraph),
@@ -134,7 +136,7 @@ export function InsightDisplayConfig(): JSX.Element {
                   },
               ]
             : []),
-        ...(!isNonTimeSeriesDisplay && isTrends
+        ...(!isNonTimeSeriesDisplay && isTrends && display !== ChartDisplayType.CalendarHeatmap
             ? [
                   {
                       title: 'Y-axis scale',
@@ -215,7 +217,7 @@ export function InsightDisplayConfig(): JSX.Element {
                   },
               ]
             : []),
-        ...(mightContainFractionalNumbers && isTrends
+        ...(mightContainFractionalNumbers && isTrends && display !== ChartDisplayType.CalendarHeatmap
             ? [
                   {
                       title: 'Decimal places',
@@ -288,6 +290,7 @@ export function InsightDisplayConfig(): JSX.Element {
                             compareFilter={compareFilter}
                             updateCompareFilter={updateCompareFilter}
                             disabled={!canEditInsight || !supportsCompare}
+                            disableReason={editingDisabledReason}
                         />
                     </ConfigFilter>
                 )}
@@ -295,7 +298,7 @@ export function InsightDisplayConfig(): JSX.Element {
             <div className="flex items-center gap-x-2 flex-wrap">
                 {advancedOptions.length > 0 && (
                     <LemonMenu items={advancedOptions} closeOnClickInside={false}>
-                        <LemonButton size="small">
+                        <LemonButton size="small" disabledReason={editingDisabledReason}>
                             <span className="font-medium whitespace-nowrap">
                                 Options
                                 {advancedOptionsCount ? (

@@ -1,9 +1,12 @@
-import math
 import re
+import json
+import math
 from typing import Literal, Optional, TypeVar, cast
 from uuid import uuid4
 
 from django.conf import settings
+
+import posthoganalytics
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
     BaseMessage,
@@ -14,24 +17,11 @@ from langchain_core.messages import (
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langgraph.errors import NodeInterrupt
-import posthoganalytics
 from posthoganalytics import capture_exception
 from pydantic import BaseModel
 
-from ee.hogai.graph.base import AssistantNode
-from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
-from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
-from ee.hogai.llm import MaxChatOpenAI
-
-# Import moved inside functions to avoid circular imports
 from ee.hogai.utils.helpers import find_last_ui_context
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import BaseState, BaseStateWithMessages
-from posthog.hogql_queries.apply_dashboard_filters import (
-    apply_dashboard_filters_to_dict,
-    apply_dashboard_variables_to_dict,
-)
-from posthog.models.organization import OrganizationMembership
 from posthog.schema import (
     AssistantContextualTool,
     AssistantMessage,
@@ -49,6 +39,18 @@ from posthog.schema import (
 )
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
 
+from posthog.hogql_queries.apply_dashboard_filters import (
+    apply_dashboard_filters_to_dict,
+    apply_dashboard_variables_to_dict,
+)
+from posthog.models.organization import OrganizationMembership
+
+from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
+from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
+from ee.hogai.llm import MaxChatOpenAI
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
+
+from ee.hogai.graph.base import AssistantNode
 from .prompts import (
     ROOT_BILLING_CONTEXT_ERROR_PROMPT,
     ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT,
@@ -60,6 +62,9 @@ from .prompts import (
     ROOT_INSIGHTS_CONTEXT_PROMPT,
     ROOT_SYSTEM_PROMPT,
     ROOT_UI_CONTEXT_PROMPT,
+    SESSION_SUMMARIZATION_PROMPT_BASE,
+    SESSION_SUMMARIZATION_PROMPT_NO_REPLAY_CONTEXT,
+    SESSION_SUMMARIZATION_PROMPT_WITH_REPLAY_CONTEXT,
 )
 
 # Map query kinds to their respective full UI query classes
@@ -327,6 +332,18 @@ class RootNode(RootNodeUIContextMixin):
             send_feature_flag_events=False,
         )
 
+    def _has_insight_search_feature_flag(self) -> bool:
+        """
+        Check if the user has the insight search feature flag enabled.
+        """
+        return posthoganalytics.feature_enabled(
+            "max-ai-insight-search",
+            str(self._user.distinct_id),
+            groups={"organization": str(self._team.organization_id)},
+            group_properties={"organization": {"id": str(self._team.organization_id)}},
+            send_feature_flag_events=False,
+        )
+
     """
     Determines the maximum number of tokens allowed in the conversation window.
     """
@@ -335,16 +352,30 @@ class RootNode(RootNodeUIContextMixin):
         from ee.hogai.tool import get_contextual_tool_class
 
         history, new_window_id = self._construct_and_update_messages_window(state, config)
-        # Build system prompt with conditional session summarization section
+        # Build system prompt with conditional session summarization and insight search sections
         system_prompt_template = ROOT_SYSTEM_PROMPT
         # Check if session summarization is enabled for the user
-        if not self._has_session_summarization_feature_flag():
-            # Remove session summarization section from prompt using regex
+        if self._has_session_summarization_feature_flag():
+            context = self._render_session_summarization_context(config)
+            # Inject session summarization context
             system_prompt_template = re.sub(
-                r"\n?<session_summarization>.*?</session_summarization>", "", system_prompt_template, flags=re.DOTALL
+                r"\n?<session_summarization></session_summarization>", context, system_prompt_template, flags=re.DOTALL
             )
-            # Also remove the reference to session_summarization in basic_functionality
-            system_prompt_template = re.sub(r"\n?\d+\. `session_summarization`.*?[^\n]*", "", system_prompt_template)
+        # Check if insight search is enabled for the user
+        if not self._has_insight_search_feature_flag():
+            # Remove the reference to search_insights in basic_functionality
+            system_prompt_template = re.sub(r"\n?\d+\. `search_insights`.*?[^\n]*", "", system_prompt_template)
+            # Remove the insight_search section from prompt using regex
+            system_prompt_template = re.sub(
+                r"\n?<insight_search>.*?</insight_search>", "", system_prompt_template, flags=re.DOTALL
+            )
+            # Remove the CRITICAL ROUTING LOGIC section when insight search is disabled
+            system_prompt_template = re.sub(
+                r"\n?CRITICAL ROUTING LOGIC:.*?(?=Follow these guidelines when retrieving data:)",
+                "",
+                system_prompt_template,
+                flags=re.DOTALL,
+            )
 
         prompt = (
             ChatPromptTemplate.from_messages(
@@ -463,7 +494,10 @@ class RootNode(RootNodeUIContextMixin):
             session_summarization,
         )
 
-        available_tools: list[type[BaseModel]] = [search_insights]
+        available_tools: list[type[BaseModel]] = []
+        # Check if insight search is enabled for the user
+        if self._has_insight_search_feature_flag():
+            available_tools.append(search_insights)
         # Check if session summarization is enabled for the user
         if self._has_session_summarization_feature_flag():
             available_tools.append(session_summarization)
@@ -593,6 +627,27 @@ class RootNode(RootNodeUIContextMixin):
                 return messages[idx:]
         return messages
 
+    def _render_session_summarization_context(self, config: RunnableConfig) -> str:
+        """Render the user context template with the provided context strings."""
+        search_session_recordings_context = self._get_contextual_tools(config).get("search_session_recordings")
+        if (
+            not search_session_recordings_context
+            or not isinstance(search_session_recordings_context, dict)
+            or not search_session_recordings_context.get("current_filters")
+            or not isinstance(search_session_recordings_context["current_filters"], dict)
+        ):
+            conditional_context = SESSION_SUMMARIZATION_PROMPT_NO_REPLAY_CONTEXT
+        else:
+            current_filters = search_session_recordings_context["current_filters"]
+            conditional_template = PromptTemplate.from_template(
+                SESSION_SUMMARIZATION_PROMPT_WITH_REPLAY_CONTEXT, template_format="mustache"
+            )
+            conditional_context = conditional_template.format_prompt(
+                current_filters=json.dumps(current_filters)
+            ).to_string()
+        template = PromptTemplate.from_template(SESSION_SUMMARIZATION_PROMPT_BASE, template_format="mustache")
+        return template.format_prompt(conditional_context=conditional_context).to_string()
+
 
 class RootNodeTools(AssistantNode):
     async def get_reasoning_message(
@@ -664,17 +719,30 @@ class RootNodeTools(AssistantNode):
             return PartialAssistantState(
                 root_tool_call_id=tool_call.id,
                 session_summarization_query=tool_call.args["session_summarization_query"],
+                # Safety net in case the argument is missing to avoid raising exceptions internally
+                should_use_current_filters=tool_call.args.get("should_use_current_filters", False),
                 root_tool_calls_count=tool_call_count + 1,
             )
         elif ToolClass := get_contextual_tool_class(tool_call.name):
             tool_class = ToolClass(team=self._team, user=self._user, state=state)
-            result = await tool_class.ainvoke(tool_call.model_dump(), config)
-            if not isinstance(result, LangchainToolMessage):
-                raise TypeError(f"Expected a {LangchainToolMessage}, got {type(result)}")
+            try:
+                result = await tool_class.ainvoke(tool_call.model_dump(), config)
+            except Exception as e:
+                capture_exception(
+                    e, distinct_id=self._get_user_distinct_id(config), properties=self._get_debug_props(config)
+                )
+                result = AssistantToolCallMessage(
+                    content="The tool raised an internal error. Do not immediately retry the tool call and explain to the user what happened. If the user asks you to retry, you are allowed to do that.",
+                    id=str(uuid4()),
+                    tool_call_id=tool_call.id,
+                    visible=False,
+                )
+            if not isinstance(result, LangchainToolMessage | AssistantToolCallMessage):
+                raise TypeError(f"Expected a {LangchainToolMessage} or {AssistantToolCallMessage}, got {type(result)}")
 
             # If this is a navigation tool call, pause the graph execution
             # so that the frontend can re-initialise Max with a new set of contextual tools.
-            if tool_call.name == "navigate":
+            if tool_call.name == "navigate" and not isinstance(result, AssistantToolCallMessage):
                 navigate_message = AssistantToolCallMessage(
                     content=str(result.content) if result.content else "",
                     ui_payload={tool_call.name: result.artifact},
@@ -706,6 +774,8 @@ class RootNodeTools(AssistantNode):
                         tool_call_id=tool_call.id,
                         visible=tool_class.show_tool_call_message,
                     )
+                    if not isinstance(result, AssistantToolCallMessage)
+                    else result
                 ],
                 root_tool_calls_count=tool_call_count + 1,
             )

@@ -1,5 +1,6 @@
 import { actions, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api, { ApiMethodOptions, PaginatedResponse } from 'lib/api'
 
 import { ExternalDataSource } from '~/types'
@@ -35,7 +36,7 @@ export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
                     return {
                         ...values.dataWarehouseSources,
                         results:
-                            values.dataWarehouseSources?.results.map((s) =>
+                            values.dataWarehouseSources?.results.map((s: ExternalDataSource) =>
                                 s.id === updatedSource.id ? updatedSource : s
                             ) || [],
                     }

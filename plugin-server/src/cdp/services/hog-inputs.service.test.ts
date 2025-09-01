@@ -7,7 +7,7 @@ import { closeHub, createHub } from '~/utils/db/hub'
 import { createHogExecutionGlobals, createHogFunction, insertIntegration } from '../_tests/fixtures'
 import { compileHog } from '../templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
-import { formatHogInput, HogInputsService } from './hog-inputs.service'
+import { HogInputsService, formatHogInput } from './hog-inputs.service'
 
 describe('Hog Inputs', () => {
     let hub: Hub
@@ -126,11 +126,11 @@ describe('Hog Inputs', () => {
                         value: 'event: "{{ event.event }}"',
                         templating: 'liquid',
                     },
-                    slack: { value: 1 },
+                    oauth: { value: 1 },
                 },
                 inputs_schema: [
                     { key: 'hog_templated', type: 'string', required: true },
-                    { key: 'slack', type: 'integration', required: true },
+                    { key: 'oauth', type: 'integration', required: true },
                 ],
             })
 
@@ -150,9 +150,10 @@ describe('Hog Inputs', () => {
         it('should loads inputs with integration inputs', async () => {
             const inputs = await hogInputsService.buildInputs(hogFunction, globals)
 
-            expect(inputs.slack).toMatchInlineSnapshot(`
+            expect(inputs.oauth).toMatchInlineSnapshot(`
                 {
-                  "access_token": "token",
+                  "access_token": "$$_access_token_placeholder_1",
+                  "access_token_raw": "token",
                   "not_encrypted": "not-encrypted",
                   "team": "foobar",
                 }
@@ -164,7 +165,7 @@ describe('Hog Inputs', () => {
 
             const inputs = await hogInputsService.buildInputs(hogFunction, globals)
 
-            expect(inputs.slack).toMatchInlineSnapshot(`null`)
+            expect(inputs.oauth).toMatchInlineSnapshot(`null`)
         })
     })
 })
