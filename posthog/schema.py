@@ -3946,7 +3946,7 @@ class LifecycleFilter(BaseModel):
     )
     showLegend: Optional[bool] = False
     showValuesOnSeries: Optional[bool] = None
-    stacked: Optional[bool] = False
+    stacked: Optional[bool] = True
     toggledLifecycles: Optional[list[LifecycleToggle]] = None
 
 

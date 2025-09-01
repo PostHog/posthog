@@ -15077,7 +15077,7 @@
                     "type": "boolean"
                 },
                 "stacked": {
-                    "default": false,
+                    "default": true,
                     "type": "boolean"
                 },
                 "toggledLifecycles": {
