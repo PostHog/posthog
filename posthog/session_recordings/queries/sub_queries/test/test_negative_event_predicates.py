@@ -267,10 +267,13 @@ class TestNegativeEventPredicates:
         entities = cast(list[EventsNode | ActionsNode | DataWarehouseNode | str], [entity1, entity2])
         result = negative_event_predicates(team, entities)
 
-        # Should create exactly two expressions (one per entity with negative operators)
-        assert len(result) == 2
-        # Both results should be ast.Expr instances
-        assert all(isinstance(expr, ast.Expr) for expr in result)
+        self._compare_with_snapshot(
+            result,
+            [
+                "sql(and(or(equals(events.properties.user_id, NULL), not(JSONHas(events.properties, 'user_id'))), notEquals(events.properties.browser, 'safari'), ifNull(not(match(toString(events.properties.url), '.*\\\\.pdf$')), 1)))",
+                "sql(or(equals(events.properties.referrer, NULL), not(JSONHas(events.properties, 'referrer'))))",
+            ],
+        )
 
     def test_negative_predicates_contain_correct_operators(self):
         from posthog.test.base import BaseTest
