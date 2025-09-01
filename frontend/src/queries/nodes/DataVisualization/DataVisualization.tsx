@@ -211,7 +211,6 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 className="p-2"
                 xData={_xData}
                 yData={_yData}
-                seriesBreakdownData={seriesBreakdownData}
                 visualizationType={visualizationType}
                 chartSettings={chartSettings}
                 dashboardId={dashboardId}
