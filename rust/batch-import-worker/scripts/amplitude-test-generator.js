@@ -240,7 +240,15 @@ class AmplitudeTestGenerator {
             timestamp = this.baseTime;
         }
 
-        this.currentTime = new Date(timestamp.getTime() + 1000); // Advance by 1 second for next event
+        // Ensure strictly increasing timestamps - if the calculated timestamp is not later than current, advance it
+        if (timestamp.getTime() <= this.currentTime.getTime()) {
+            const originalTime = timestamp.toISOString();
+            timestamp = new Date(this.currentTime.getTime() + 1000); // Add 1 second
+            console.log(`⏰ Adjusted timestamp from ${originalTime} to ${timestamp.toISOString()} for strict ordering`);
+        }
+
+        // Update current time to this timestamp + 1 second to ensure next event is later
+        this.currentTime = new Date(timestamp.getTime() + 1000);
 
         const event = {
             event_type: eventType,
@@ -487,7 +495,39 @@ class AmplitudeTestGenerator {
         console.log('=' .repeat(70));
         console.log(`✅ Generated ${this.events.length} total events across 7 scenarios\n`);
 
+        // Verify strict timestamp ordering
+        this.verifyStrictOrdering();
+
         return this.events;
+    }
+
+    // Verify that all timestamps are strictly increasing
+    verifyStrictOrdering() {
+        console.log('🔍 Verifying strict timestamp ordering...');
+
+        let violations = 0;
+        let previousTime = 0;
+
+        for (let i = 0; i < this.events.length; i++) {
+            const event = this.events[i];
+            const currentTime = event.time;
+
+            if (currentTime <= previousTime) {
+                violations++;
+                const prevDate = new Date(previousTime).toISOString();
+                const currDate = new Date(currentTime).toISOString();
+                console.log(`❌ Timestamp violation at event ${i}: ${currDate} <= ${prevDate}`);
+            }
+
+            previousTime = currentTime;
+        }
+
+        if (violations === 0) {
+            console.log(`✅ All ${this.events.length} events have strictly increasing timestamps`);
+            console.log(`📈 Time range: ${new Date(this.events[0].time).toISOString()} → ${new Date(this.events[this.events.length - 1].time).toISOString()}\n`);
+        } else {
+            console.log(`❌ Found ${violations} timestamp violations\n`);
+        }
     }
 
     // Send events to Amplitude

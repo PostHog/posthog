@@ -6,6 +6,11 @@ This directory contains test scripts and utilities for the PostHog Rust batch im
 
 Generates comprehensive test data for testing the PostHog Amplitude identify logic during batch imports.
 
+**Features:**
+- **Strictly Increasing Timestamps**: All events are generated with chronologically ordered timestamps to ensure proper data sequencing
+- **Timestamp Verification**: Automatically validates that all generated events maintain strict temporal ordering
+- **Configurable Time Ranges**: Support for custom time windows and historical data generation
+
 ### Installation
 
 ```bash
