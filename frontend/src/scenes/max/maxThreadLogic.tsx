@@ -539,7 +539,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
         isSharedThread: [
             (s) => [s.conversation, userLogic.selectors.user],
-            (conversation, user): boolean => !!conversation && !!user && conversation.user.uuid !== user.uuid,
+            (conversation, user): boolean => !!conversation?.user && !!user && conversation.user.uuid !== user.uuid,
         ],
 
         threadLoading: [

@@ -777,6 +777,7 @@ export const ChatWithUIContext: StoryFn = () => {
                     title: 'Event Context Test',
                     created_at: '2025-04-29T17:44:21.654307Z',
                     updated_at: '2025-04-29T17:44:29.184791Z',
+                    user: MOCK_DEFAULT_BASIC_USER,
                     messages: [],
                 },
             ],
