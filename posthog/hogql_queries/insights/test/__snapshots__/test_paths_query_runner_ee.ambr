@@ -2531,7 +2531,7 @@
   '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
   FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['s3', 's1', 's5']))
+  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['s1', 's3', 's5']))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -13964,7 +13964,7 @@
   '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
   FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['s3', 's1', 's5']))
+  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['s1', 's3', 's5']))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
