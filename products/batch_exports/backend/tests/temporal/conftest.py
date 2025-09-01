@@ -327,6 +327,7 @@ async def create_clickhouse_tables_and_views(clickhouse_client, django_db_setup)
         CREATE_PERSONS_BATCH_EXPORT_VIEW_BACKFILL,
     )
     from posthog.clickhouse.schema import CREATE_KAFKA_TABLE_QUERIES, build_query
+    from posthog.models.app_metrics2.sql import APP_METRICS2_DATA_TABLE_SQL, APP_METRICS2_MV_TABLE_SQL
 
     create_view_queries = (
         CREATE_EVENTS_BATCH_EXPORT_VIEW,
@@ -351,6 +352,13 @@ async def create_clickhouse_tables_and_views(clickhouse_client, django_db_setup)
     for task in done:
         if exc := task.exception():
             raise exc
+
+    for query in (
+        APP_METRICS2_DATA_TABLE_SQL(),
+        APP_METRICS2_MV_TABLE_SQL(),
+    ):
+        # NOTE: Must be executed in order and after Kafka tables
+        await clickhouse_client.execute_query(query)
 
     return
 
