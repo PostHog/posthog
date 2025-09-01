@@ -47,7 +47,6 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpBehaviouralEventsConsumer'
     private kafkaConsumer: KafkaConsumer
     private actionManager: ActionManagerCDP
-    private filterHashCache = new Map<string, string>()
 
     constructor(hub: Hub, topic: string = KAFKA_EVENTS_JSON, groupId: string = 'cdp-behavioural-events-consumer') {
         super(hub)
@@ -80,16 +79,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
 
     private createFilterHash(bytecode: any): string {
         const data = typeof bytecode === 'string' ? bytecode : JSON.stringify(bytecode)
-
-        // Check cache first
-        if (this.filterHashCache.has(data)) {
-            return this.filterHashCache.get(data)!
-        }
-
-        // Calculate hash and cache it
-        const hash = createHash('sha256').update(data).digest('hex').substring(0, 16)
-        this.filterHashCache.set(data, hash)
-        return hash
+        return createHash('sha256').update(data).digest('hex')
     }
 
     // Evaluate if event matches action using bytecode execution
