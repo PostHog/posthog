@@ -134,11 +134,22 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
                     },
                 ),
             ),
+            EvalCase(
+                input="summarize sessions from the last 30 days, including test accounts",
+                expected=AssistantToolCall(
+                    id="8",
+                    name="session_summarization",
+                    args={
+                        "session_summarization_query": "summarize sessions from the last 30 days with test accounts included",
+                        "should_use_current_filters": False,  # Different time frame/conditions
+                    },
+                ),
+            ),
             # Cases where should_use_current_filters should be true (referring to current/selected filters)
             EvalCase(
                 input="summarize these sessions",
                 expected=AssistantToolCall(
-                    id="11",
+                    id="9",
                     name="session_summarization",
                     args={
                         "session_summarization_query": "summarize these sessions",
@@ -149,11 +160,22 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
             EvalCase(
                 input="summarize all sessions",
                 expected=AssistantToolCall(
-                    id="14",
+                    id="10",
                     name="session_summarization",
                     args={
                         "session_summarization_query": "summarize all sessions",
                         "should_use_current_filters": True,  # "all" in context of filtered view
+                    },
+                ),
+            ),
+            EvalCase(
+                input="summarize sessions from the last 7 days with test accounts filtered out",
+                expected=AssistantToolCall(
+                    id="11",
+                    name="session_summarization",
+                    args={
+                        "session_summarization_query": "summarize sessions from the last 7 days with test accounts filtered out",
+                        "should_use_current_filters": True,  # Matches current filters exactly
                     },
                 ),
             ),
