@@ -12323,8 +12323,7 @@
                 "insightUserPaths",
                 "insightLifecycle",
                 "insightStickiness",
-                "insightHogQL",
-                "code"
+                "insightHogQL"
             ],
             "type": "string"
         },
