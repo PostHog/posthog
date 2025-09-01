@@ -12,7 +12,7 @@ export class CdpCyclotronDelayConsumer extends CdpCyclotronWorker {
     protected name = 'CdpCyclotronDelayConsumer'
 
     constructor(hub: Hub) {
-        super(hub, 'delay_10m')
+        super(hub, 'delay_10m') // TODO: make the queue configurable via an env variable
         this.cyclotronJobQueue = new CyclotronJobQueue(hub, this.queue, (batch) => this.processBatch(batch), 'delay')
     }
 
