@@ -2656,21 +2656,21 @@ class TestPrinter(BaseTest):
             assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot  # type: ignore
 
     def test_pretty_print_preserves_placeholders(self):
-        loose_context = HogQLContext(
+        pretty_print_ctx = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
             keep_placeholders=True,
         )
 
         query_ast = parse_select("SELECT {filters} FROM events")
-        loose_result = print_ast(query_ast, loose_context, "hogql")
+        loose_result = print_ast(query_ast, pretty_print_ctx, "hogql")
         self.assertIn("{filters}", loose_result)
         query_ast = parse_select("SELECT {variables.f} FROM events")
-        loose_result = print_ast(query_ast, loose_context, "hogql")
+        loose_result = print_ast(query_ast, pretty_print_ctx, "hogql")
         self.assertIn("{variables.f}", loose_result)
 
     def test_pretty_print_on_clickhouse_function_call(self):
-        loose_context = HogQLContext(
+        pretty_print_ctx = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
             limit_top_select=False,
@@ -2681,11 +2681,11 @@ class TestPrinter(BaseTest):
             "SELECT event FROM events WHERE equals(event, 'test') AND equals(properties.$os, 'macos')"
         )
 
-        loose_result = print_ast(query_ast, loose_context, "hogql")
+        loose_result = print_ast(query_ast, pretty_print_ctx, "hogql")
         assert loose_result == "SELECT event FROM events WHERE event = 'test' AND properties.$os = 'macos'"
 
     def test_pretty_print_function_call(self):
-        loose_context = HogQLContext(
+        pretty_print_ctx = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
             limit_top_select=False,
@@ -2694,41 +2694,41 @@ class TestPrinter(BaseTest):
 
         query_ast = parse_select("SELECT countIf(equals(event, 'test'))")
 
-        loose_result = print_ast(query_ast, loose_context, "hogql")
+        loose_result = print_ast(query_ast, pretty_print_ctx, "hogql")
         assert loose_result == "SELECT countIf(event = 'test')"
 
     def test_pretty_print_compare_operation(self):
-        loose_context = HogQLContext(
+        pretty_print_ctx = HogQLContext(
             team_id=self.team.pk, enable_select_queries=True, limit_top_select=False, readable_print=True
         )
 
         query_ast = parse_select("SELECT * FROM events WHERE event = 'test' AND properties.$os = 'macos'")
 
-        loose_result = print_ast(query_ast, loose_context, "hogql")
+        loose_result = print_ast(query_ast, pretty_print_ctx, "hogql")
         assert loose_result == "SELECT * FROM events WHERE event = 'test' AND properties.$os = 'macos'"
 
     def test_pretty_print_arithmetic_operation(self):
-        loose_context = HogQLContext(
+        pretty_print_ctx = HogQLContext(
             team_id=self.team.pk, enable_select_queries=True, limit_top_select=False, readable_print=True
         )
 
         query_ast = parse_select("SELECT 30 * 20 + 10")
 
-        loose_result = print_ast(query_ast, loose_context, "hogql")
+        loose_result = print_ast(query_ast, pretty_print_ctx, "hogql")
         assert loose_result == "SELECT 30 * 20 + 10"
 
     def test_placeholder_preservation(self):
-        loose_context = HogQLContext(
+        pretty_print_ctx = HogQLContext(
             team_id=self.team.pk, enable_select_queries=True, limit_top_select=False, keep_placeholders=True
         )
 
         query_ast = parse_select("SELECT {filters} FROM events")
 
-        loose_result = print_ast(query_ast, loose_context, "hogql")
+        loose_result = print_ast(query_ast, pretty_print_ctx, "hogql")
         assert loose_result == "SELECT {filters} FROM events"
 
     def test_pretty_print_boolean_logic(self):
-        loose_context = HogQLContext(
+        pretty_print_ctx = HogQLContext(
             team_id=self.team.pk, enable_select_queries=True, readable_print=True, limit_top_select=False
         )
 
@@ -2736,13 +2736,13 @@ class TestPrinter(BaseTest):
             "SELECT * FROM events WHERE length(properties) > 0 AND timestamp > now() OR event = 'test'"
         )
 
-        loose_result = print_ast(query_ast, loose_context, "hogql")
+        loose_result = print_ast(query_ast, pretty_print_ctx, "hogql")
         assert (
             loose_result == "SELECT * FROM events WHERE length(properties) > 0 AND timestamp > now() OR event = 'test'"
         )
 
     def test_pretty_print_preserves_select_asterisk(self):
-        loose_context = HogQLContext(
+        pretty_print_ctx = HogQLContext(
             team_id=self.team.pk, enable_select_queries=True, readable_print=True, limit_top_select=False
         )
         strict_context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, readable_print=False)
@@ -2754,8 +2754,45 @@ class TestPrinter(BaseTest):
         self.assertNotIn("SELECT *", strict_result)  # Should be expanded
 
         # With readable_print=True - should preserve SELECT *
-        loose_result = print_ast(query_ast, loose_context, "hogql")
+        loose_result = print_ast(query_ast, pretty_print_ctx, "hogql")
         self.assertIn("SELECT *", loose_result)  # Should preserve *
+
+    def test_pretty_print_with_cte(self):
+        pretty_context = HogQLContext(
+            team_id=self.team.pk, enable_select_queries=True, readable_print=True, limit_top_select=False
+        )
+
+        query_ast = parse_select("""WITH
+    last_week AS ((SELECT
+            DISTINCT person_id
+        FROM
+            events
+        WHERE
+            event = 'session' AND toStartOfWeek(timestamp) = toStartOfWeek(now()) - toIntervalWeek(1))),
+    this_week AS ((SELECT
+            DISTINCT person_id
+        FROM
+            events
+        WHERE
+            event = 'session' AND toStartOfWeek(timestamp) = toStartOfWeek(now())))
+SELECT
+    100.0 * count() / (SELECT
+                count()
+            FROM
+                last_week) AS weekly_retention_percentage
+FROM
+    last_week
+WHERE
+    person_id IN (SELECT
+            person_id
+        FROM
+            this_week)""")
+
+        result = print_prepared_ast(query_ast, pretty_context, "hogql")
+        self.assertIn(
+            "WITH last_week AS (SELECT DISTINCT person_id FROM events WHERE event = 'session' AND toStartOfWeek(timestamp) = toStartOfWeek(now()) - toIntervalWeek(1)), this_week AS (SELECT DISTINCT person_id FROM events WHERE event = 'session' AND toStartOfWeek(timestamp) = toStartOfWeek(now()))",
+            result,
+        )
 
 
 class TestPrinted(APIBaseTest):

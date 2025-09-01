@@ -106,7 +106,9 @@ class HogQLGeneratorMixin(AssistantContextMixin):
         try:
             # First pass to fix the query syntax
             fixed_names_query = LooseSyntaxVisitor().visit(parse_select(query, placeholders={}))
-            normalized_query = print_prepared_ast(fixed_names_query, context=hogql_context, dialect="hogql")
+            normalized_query = print_prepared_ast(
+                fixed_names_query, context=hogql_context, dialect="hogql", pretty=True
+            )
 
             # Validate that the query is valid
             print_ast(fixed_names_query, context=hogql_context, dialect="hogql")

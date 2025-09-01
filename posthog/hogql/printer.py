@@ -310,6 +310,15 @@ class _Printer(Visitor[str]):
 
         return response
 
+    def visit_cte(self, node: ast.CTE):
+        """Visit a Common Table Expression (WITH clause entry)."""
+        if node.cte_type == "column":
+            # WITH column_expr AS alias_name
+            return f"{self.visit(node.expr)} AS {node.name}"
+        else:
+            # WITH alias_name AS (SELECT ...)
+            return f"{node.name} AS {self.visit(node.expr)}"
+
     def visit_select_set_query(self, node: ast.SelectSetQuery):
         self._indent -= 1
         ret = self.visit(node.initial_select_query)
@@ -441,7 +450,16 @@ class _Printer(Visitor[str]):
         space = f"\n{self.indent(1)}" if self.pretty else " "
         comma = f",\n{self.indent(1)}" if self.pretty else ", "
 
+        # Build WITH clause if CTEs exist
+        with_clause = None
+        clauses = []
+        if node.ctes and self.context.readable_print:
+            cte_strings = [self.visit(cte) for cte in node.ctes.values()]
+            with_clause = f"WITH{space}{comma.join(cte_strings)}"
+            clauses.append(with_clause)
+
         clauses = [
+            *clauses,
             f"SELECT{space}{'DISTINCT ' if node.distinct else ''}{comma.join(columns)}",
             f"FROM{space}{space.join(joined_tables)}" if len(joined_tables) > 0 else None,
             array_join if array_join else None,
