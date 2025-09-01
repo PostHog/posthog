@@ -68,6 +68,8 @@ pub enum UnhandledError {
 pub enum FrameError {
     #[error(transparent)]
     JavaScript(#[from] JsResolveErr),
+    #[error(transparent)]
+    Hermes(#[from] HermesError),
     #[error("No symbol set for chunk id: {0}")]
     MissingChunkIdData(String),
 }
@@ -124,6 +126,14 @@ pub enum JsResolveErr {
     NoSourcemapUploaded(String),
 }
 
+#[derive(Debug, Error, Serialize, Deserialize)]
+pub enum HermesError {
+    #[error("Data error: {0}")]
+    DataError(#[from] SymbolDataError),
+    #[error("Invalid map: {0}")]
+    InvalidMap(String),
+}
+
 #[derive(Debug, Error, Clone)]
 pub enum EventError {
     #[error("Wrong event type: {0} for event {1}")]
@@ -149,6 +159,20 @@ pub enum EventError {
 impl From<JsResolveErr> for Error {
     fn from(e: JsResolveErr) -> Self {
         FrameError::JavaScript(e).into()
+    }
+}
+
+impl From<HermesError> for Error {
+    fn from(e: HermesError) -> Self {
+        FrameError::Hermes(e).into()
+    }
+}
+
+impl From<FrameError> for UnhandledError {
+    fn from(e: FrameError) -> Self {
+        // TODO - this should be unreachable, but I need to reconsider the error enum structure to make it possible to assert that
+        // at the type level. Leaving for a later refactor for now.
+        UnhandledError::Other(format!("Unhandled resolution error: {}", e.to_string()))
     }
 }
 

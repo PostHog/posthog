@@ -6,11 +6,12 @@ use chunk_id::OrChunkId;
 use reqwest::Url;
 use sourcemap::OwnedSourceMapCache;
 
-use crate::error::Error;
+use crate::{error::Error, langs::hermes::HermesRef, symbol_store::hermesmap::ParsedHermesMap};
 
 pub mod caching;
 pub mod chunk_id;
 pub mod concurrency;
+pub mod hermesmap;
 pub mod saving;
 pub mod sourcemap;
 
@@ -56,13 +57,19 @@ pub trait Provider: Send + Sync + 'static {
 pub struct Catalog {
     // "source map provider"
     pub smp: Box<dyn Provider<Ref = OrChunkId<Url>, Set = OwnedSourceMapCache, Err = Error>>,
+    // Hermes map provider
+    pub hmp: Box<dyn Provider<Ref = OrChunkId<HermesRef>, Set = ParsedHermesMap, Err = Error>>,
 }
 
 impl Catalog {
     pub fn new(
         smp: impl Provider<Ref = OrChunkId<Url>, Set = OwnedSourceMapCache, Err = Error>,
+        hmp: impl Provider<Ref = OrChunkId<HermesRef>, Set = ParsedHermesMap, Err = Error>,
     ) -> Self {
-        Self { smp: Box::new(smp) }
+        Self {
+            smp: Box::new(smp),
+            hmp: Box::new(hmp),
+        }
     }
 }
 
@@ -82,6 +89,13 @@ impl SymbolCatalog<OrChunkId<Url>, OwnedSourceMapCache> for Catalog {
         r: OrChunkId<Url>,
     ) -> Result<Arc<OwnedSourceMapCache>, Error> {
         self.smp.lookup(team_id, r).await
+    }
+}
+
+#[async_trait]
+impl SymbolCatalog<OrChunkId<HermesRef>, ParsedHermesMap> for Catalog {
+    async fn lookup(&self, team_id: i32, r: OrChunkId<HermesRef>) -> Result<Arc<ParsedHermesMap>, Error> {
+        self.hmp.lookup(team_id, r).await
     }
 }
 

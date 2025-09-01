@@ -5,7 +5,7 @@ use symbolic::sourcemapcache::{ScopeLookupResult, SourceLocation, SourcePosition
 
 use crate::{
     error::{Error, FrameError, JsResolveErr, UnhandledError},
-    frames::Frame,
+    frames::{Frame, FrameId},
     langs::CommonFrameMetadata,
     metric_consts::{FRAME_NOT_RESOLVED, FRAME_RESOLVED},
     sanitize_string,
@@ -50,6 +50,10 @@ impl RawJSFrame {
             }
             Err(Error::ResolutionError(FrameError::MissingChunkIdData(chunk_id))) => {
                 Ok(self.handle_resolution_error(JsResolveErr::NoSourcemapUploaded(chunk_id)))
+            }
+            Err(Error::ResolutionError(FrameError::Hermes(e))) => {
+                // TODO - should be unreachable, specialize Error to encode that
+                Err(UnhandledError::from(FrameError::from(e)))
             }
             Err(Error::UnhandledError(e)) => Err(e),
             Err(Error::EventError(_)) => unreachable!(),
@@ -183,7 +187,7 @@ impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
             .unwrap_or(raw_frame.meta.in_app);
 
         let mut res = Self {
-            raw_id: String::new(), // We use placeholders here, as they're overriden at the RawFrame level
+            raw_id: FrameId::placeholder(), // We use placeholders here, as they're overriden at the RawFrame level
             mangled_name: raw_frame.fn_name.clone(),
             line: Some(token.line()),
             column: Some(token.column()),
@@ -229,7 +233,7 @@ impl From<(&RawJSFrame, JsResolveErr, &FrameLocation)> for Frame {
         };
 
         let mut res = Self {
-            raw_id: String::new(),
+            raw_id: FrameId::placeholder(),
             mangled_name: raw_frame.fn_name.clone(),
             line: Some(location.line),
             column: Some(location.column),
@@ -270,7 +274,7 @@ impl From<&RawJSFrame> for Frame {
         let in_app = raw_frame.meta.in_app && !is_anon;
 
         let mut res = Self {
-            raw_id: String::new(),
+            raw_id: FrameId::placeholder(),
             mangled_name: raw_frame.fn_name.clone(),
             line: None,
             column: None,

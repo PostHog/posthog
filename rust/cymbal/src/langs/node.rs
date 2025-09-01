@@ -1,6 +1,6 @@
 use crate::{
     error::{Error, FrameError, JsResolveErr, UnhandledError},
-    frames::{Context, ContextLine, Frame},
+    frames::{Context, ContextLine, Frame, FrameId},
     langs::CommonFrameMetadata,
     metric_consts::{FRAME_NOT_RESOLVED, FRAME_RESOLVED},
     sanitize_string,
@@ -48,6 +48,10 @@ impl RawNodeFrame {
             Err(Error::ResolutionError(FrameError::JavaScript(e))) => Ok((self, e).into()),
             Err(Error::ResolutionError(FrameError::MissingChunkIdData(chunk_id))) => {
                 Ok((self, JsResolveErr::NoSourcemapUploaded(chunk_id)).into())
+            }
+            Err(Error::ResolutionError(FrameError::Hermes(e))) => {
+                // TODO - should be unreachable, specialize Error to encode that
+                Err(UnhandledError::from(FrameError::from(e)))
             }
             Err(Error::UnhandledError(e)) => Err(e),
             Err(Error::EventError(_)) => unreachable!(),
@@ -146,7 +150,7 @@ impl RawNodeFrame {
 impl From<&RawNodeFrame> for Frame {
     fn from(raw: &RawNodeFrame) -> Self {
         Frame {
-            raw_id: String::new(),
+            raw_id: FrameId::placeholder(),
             mangled_name: raw.function.clone(),
             line: raw.lineno,
             column: None,
@@ -184,7 +188,7 @@ impl From<(&RawNodeFrame, SourceLocation<'_>)> for Frame {
             .unwrap_or(raw_frame.meta.in_app);
 
         let mut res = Self {
-            raw_id: String::new(), // We use placeholders here, as they're overriden at the RawFrame level
+            raw_id: FrameId::placeholder(),
             mangled_name: raw_frame.function.clone(),
             line: Some(location.line()),
             column: Some(location.column()),
@@ -226,7 +230,7 @@ impl From<(&RawNodeFrame, JsResolveErr)> for Frame {
         };
 
         let mut res = Self {
-            raw_id: String::new(),
+            raw_id: FrameId::placeholder(),
             mangled_name: raw_frame.function.clone(),
             line: raw_frame.lineno,
             column: raw_frame.colno,
