@@ -43,13 +43,13 @@ def _get_default_posthog_client() -> Client:
 def get_openai_client() -> OpenAI:
     """Get configured OpenAI client or raise appropriate error."""
     client = _get_default_posthog_client()
-    return OpenAI(posthog_client=client)
+    return OpenAI(posthog_client=client, timeout=BASE_LLM_CALL_TIMEOUT_S)
 
 
 def get_async_openai_client() -> AsyncOpenAI:
     """Get configured OpenAI client or raise appropriate error."""
     client = _get_default_posthog_client()
-    return AsyncOpenAI(posthog_client=client)
+    return AsyncOpenAI(posthog_client=client, timeout=BASE_LLM_CALL_TIMEOUT_S)
 
 
 def _prepare_messages(
@@ -108,7 +108,6 @@ async def stream_llm(
         user=user_param,
         stream=True,
         posthog_trace_id=trace_id,
-        timeout=BASE_LLM_CALL_TIMEOUT_S,
     )
     return stream
 
@@ -135,7 +134,6 @@ async def call_llm(
             temperature=SESSION_SUMMARIES_TEMPERATURE,
             user=user_param,
             posthog_trace_id=trace_id,
-            timeout=BASE_LLM_CALL_TIMEOUT_S,
         )
     elif model in SESSION_SUMMARIES_SUPPORTED_REASONING_MODELS:
         result = await client.chat.completions.create(  # type: ignore[call-overload]
@@ -144,7 +142,6 @@ async def call_llm(
             reasoning_effort=SESSION_SUMMARIES_REASONING_EFFORT,
             user=user_param,
             posthog_trace_id=trace_id,
-            timeout=BASE_LLM_CALL_TIMEOUT_S,
         )
     else:
         raise ValueError(
