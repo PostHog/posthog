@@ -551,16 +551,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   to: urls.userInterviews(),
                               }
                             : null,
-                        featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY]
-                            ? {
-                                  identifier: 'LLMAnalytics',
-                                  label: 'LLM analytics',
-                                  icon: <IconAI />,
-                                  to: urls.llmAnalyticsDashboard(),
-                                  tag: 'beta' as const,
-                                  tooltipDocLink: 'https://posthog.com/docs/llm-analytics/dashboard',
-                              }
-                            : null,
+                        {
+                            identifier: 'LLMAnalytics',
+                            label: 'LLM analytics',
+                            icon: <IconAI />,
+                            to: urls.llmAnalyticsDashboard(),
+                            tooltipDocLink: 'https://posthog.com/docs/llm-analytics/dashboard',
+                        },
                         featureFlags[FEATURE_FLAGS.LOGS]
                             ? {
                                   identifier: 'Logs',

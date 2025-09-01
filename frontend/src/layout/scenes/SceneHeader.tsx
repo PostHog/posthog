@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 
-import { IconChevronDown, IconGear, IconInfo, IconPencil, IconX } from '@posthog/icons'
+import { IconChevronDown, IconEllipsis, IconGear, IconPencil, IconX } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -93,20 +93,20 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
                                         ? setForceScenePanelClosedWhenRelative(!forceScenePanelClosedWhenRelative)
                                         : setScenePanelOpen(!scenePanelOpen)
                                 }
-                                icon={<IconInfo className="text-primary" />}
+                                icon={<IconEllipsis className="text-primary" />}
                                 tooltip={
                                     !scenePanelOpen
-                                        ? 'Open info panel'
+                                        ? 'Open Info & actions panel'
                                         : scenePanelIsRelative
-                                          ? 'Force close info panel'
-                                          : 'Close info panel'
+                                          ? 'Force close Info & actions panel'
+                                          : 'Close Info & actions panel'
                                 }
                                 aria-label={
                                     !scenePanelOpen
-                                        ? 'Open info panel'
+                                        ? 'Open Info & actions panel'
                                         : scenePanelIsRelative
-                                          ? 'Force close info panel'
-                                          : 'Close info panel'
+                                          ? 'Force close Info & actions panel'
+                                          : 'Close Info & actions panel'
                                 }
                                 active={scenePanelOpen}
                                 size="small"

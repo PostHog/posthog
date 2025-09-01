@@ -114,6 +114,7 @@ const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
     [ChartDisplayType.ActionsPie]: ChartDisplayType.ActionsBarValue,
     [ChartDisplayType.ActionsTable]: ChartDisplayType.ActionsBarValue,
     [ChartDisplayType.WorldMap]: ChartDisplayType.ActionsBarValue,
+    [ChartDisplayType.CalendarHeatmap]: ChartDisplayType.ActionsBarValue,
 }
 
 /** clean insight queries so that we can check for semantic equality with a deep equality check */

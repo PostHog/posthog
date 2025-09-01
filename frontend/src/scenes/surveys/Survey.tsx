@@ -8,6 +8,7 @@ import { LemonButton, LemonDivider, LemonTag, Link, lemonToast } from '@posthog/
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
@@ -64,6 +65,7 @@ export function SurveyComponent({ id }: SurveyLogicProps): JSX.Element {
 export function SurveyForm({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading, targetingFlagFilters } = useValues(surveyLogic)
     const { loadSurvey, editingSurvey } = useActions(surveyLogic)
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const handleCancelClick = (): void => {
         editingSurvey(false)
@@ -106,7 +108,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                     </div>
                 }
             />
-            <LemonDivider />
+            {!newSceneLayout && <LemonDivider />}
             <SurveyEdit />
             <LemonDivider />
             <SurveyDisplaySummary id={id} survey={survey} targetingFlagFilters={targetingFlagFilters} />

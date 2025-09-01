@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from langchain_core.runnables import RunnableConfig
 
+from posthog.event_usage import groups
 from posthog.models import Team
 from posthog.models.user import User
 
@@ -89,6 +90,7 @@ class AssistantContextMixin(ABC):
             "$session_id": self._get_session_id(config),
             "$ai_trace_id": self._get_trace_id(config),
             "thread_id": self._get_thread_id(config),
+            "$groups": groups(team=self._team),
         }
         if metadata:
             debug_props.update(metadata)

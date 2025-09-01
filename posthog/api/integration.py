@@ -251,7 +251,7 @@ class IntegrationViewSet(
 
         conversion_actions = google_ads.list_google_ads_conversion_actions(customer_id, parent_id)
 
-        if len(conversion_actions) == 0:
+        if not conversion_actions or "results" not in conversion_actions[0]:
             return Response({"conversionActions": []})
 
         conversion_actions = [

@@ -1,6 +1,10 @@
 from posthog.test.base import BaseTest
 
+from posthog.constants import AvailableFeature
 from posthog.models import Team, User
+from posthog.models.organization import Organization, OrganizationMembership
+
+from ee.models.rbac.access_control import AccessControl
 
 
 class TestUser(BaseTest):
@@ -83,3 +87,78 @@ class TestUser(BaseTest):
                     "has_seen_product_intro_for": None,
                 },
             )
+
+    def test_join_with_legacy_access_control(self):
+        # Org without ADVANCED_PERMISSIONS
+        org = Organization.objects.create(name="No-AC Org")
+        org.available_product_features = []
+        org.save()
+
+        Team.objects.create(organization=org, name="Private", access_control=True)
+        open_team_early = Team.objects.create(organization=org, name="Open A", access_control=False)
+
+        user = User.objects.create(email="noac@example.com")
+        user.join(organization=org, level=OrganizationMembership.Level.MEMBER)
+
+        # Current team should be open
+        user.refresh_from_db()
+        self.assertEqual(user.current_team, open_team_early)
+
+    def test_join_with_new_access_control_sets_allowed_team(self):
+        # Org WITH ADVANCED_PERMISSIONS
+        org = Organization.objects.create(name="RBAC Org")
+        org.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": "Advanced permissions"}
+        ]
+        org.save()
+
+        t1 = Team.objects.create(organization=org, name="T1", access_control=False)
+        t2 = Team.objects.create(organization=org, name="T2", access_control=False)
+
+        # Block T1 by default using AccessControl
+        AccessControl.objects.create(team=t1, resource="project", resource_id=str(t1.id), access_level="none")
+
+        user = User.objects.create(email="rbac@example.com")
+        user.join(organization=org, level=OrganizationMembership.Level.MEMBER)
+
+        user.refresh_from_db()
+        # RBAC should pick t2
+        self.assertEqual(user.current_team, t2)
+
+    def test_join_with_new_access_control_fallback_when_no_allowed(self):
+        # If all teams are blocked by RBAC, fallback to the first team
+        org2 = Organization.objects.create(name="RBAC Org Fallback")
+        org2.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": "Advanced permissions"}
+        ]
+        org2.save()
+
+        f1 = Team.objects.create(organization=org2, name="F1", access_control=False)
+        AccessControl.objects.create(team=f1, resource="project", resource_id=str(f1.id), access_level="none")
+
+        user2 = User.objects.create(email="rbacfb@example.com")
+        user2.join(organization=org2, level=OrganizationMembership.Level.MEMBER)
+
+        user2.refresh_from_db()
+        self.assertEqual(user2.current_team, f1)
+
+    def test_join_admin_prefers_first_project_even_with_rbac(self):
+        # Admins bypass RBAC filtering
+        org = Organization.objects.create(name="Admin Org")
+        org.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": "Advanced permissions"}
+        ]
+        org.save()
+
+        t1 = Team.objects.create(organization=org, name="T1", access_control=False)
+        Team.objects.create(organization=org, name="T2", access_control=False)
+
+        # RBAC: explicitly block T1
+        AccessControl.objects.create(team=t1, resource="project", resource_id=str(t1.id), access_level="none")
+
+        user = User.objects.create(email="admin@example.com")
+        user.join(organization=org, level=OrganizationMembership.Level.ADMIN)
+
+        # Admin should be set to the first team
+        user.refresh_from_db()
+        self.assertEqual(user.current_team, t1)
