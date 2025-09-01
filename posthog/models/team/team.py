@@ -271,7 +271,7 @@ class Team(UUIDTClassicModel):
         default=generate_random_token_project,
         validators=[MinLengthValidator(10, "Project's API token must be at least 10 characters long!")],
     )
-    app_urls: ArrayField = ArrayField(models.CharField(max_length=200, null=True), default=list, blank=True)
+    app_urls: ArrayField = ArrayField(models.CharField(max_length=200), default=list, blank=True)
     name = models.CharField(
         max_length=200,
         default="Default project",
@@ -363,7 +363,7 @@ class Team(UUIDTClassicModel):
     data_attributes = models.JSONField(default=get_default_data_attributes)
     person_display_name_properties: ArrayField = ArrayField(models.CharField(max_length=400), null=True, blank=True)
     live_events_columns: ArrayField = ArrayField(models.TextField(), null=True, blank=True)
-    recording_domains: ArrayField = ArrayField(models.CharField(max_length=200, null=True), blank=True, null=True)
+    recording_domains: ArrayField = ArrayField(models.CharField(max_length=200), blank=True, null=True)
     human_friendly_comparison_periods = models.BooleanField(default=False, null=True, blank=True)
     cookieless_server_hash_mode = models.SmallIntegerField(
         default=CookielessServerHashMode.DISABLED, choices=CookielessServerHashMode.choices, null=True
