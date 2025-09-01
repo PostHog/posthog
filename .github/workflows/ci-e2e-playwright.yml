@@ -298,21 +298,21 @@ jobs:
 
                     while [ $attempt -le $max_attempts ]; do
                         echo "Attempt $attempt of $max_attempts to start stack..."
-                        
+
                         if docker compose -f docker-compose.dev.yml down && \
                           docker compose -f docker-compose.dev.yml up -d; then
                             echo "Stack started successfully"
                             exit 0
                         fi
-                        
+
                         echo "Failed to start stack on attempt $attempt"
-                        
+
                         if [ $attempt -lt $max_attempts ]; then
                             sleep_time=$((delay * 2 ** (attempt - 1)))
                             echo "Waiting ${sleep_time} seconds before retry..."
                             sleep $sleep_time
                         fi
-                        
+
                         attempt=$((attempt + 1))
                     done
 
@@ -469,6 +469,7 @@ jobs:
             - name: Apply postgres and clickhouse migrations and setup dev
               if: needs.changes.outputs.shouldRun == 'true'
               run: |
+                  # Run Django and ClickHouse migrations first
                   python manage.py migrate_clickhouse &
                   python manage.py migrate --noinput
 
@@ -481,6 +482,15 @@ jobs:
 
                   python manage.py setup_dev
                   wait
+
+                  # Build and run Rust migrations using dedicated container
+                  docker build -f rust/Dockerfile.migrate -t posthog-migrations:latest ./rust
+                  docker run --rm --network host \
+                    -e PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_e2e_test" \
+                    -e CYCLOTRON_DATABASE_URL="postgres://posthog:posthog@localhost:5432/cyclotron" \
+                    posthog-migrations:latest
+
+                  python manage.py setup_dev
 
             - name: Source celery queues
               if: needs.changes.outputs.shouldRun == 'true'
