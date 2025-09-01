@@ -172,11 +172,11 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
         ],
 
         eventIdByInvocationId: [
-            (s) => [s.logs],
-            (logs) => {
+            (s) => [s.groupedLogs],
+            (groupedLogs) => {
                 const eventIdByInvocationId: Record<string, string> = {}
 
-                for (const record of logs) {
+                for (const record of groupedLogs) {
                     // TRICKY: We have the event ID in different places in different logs. We will standardise this to be the invocation ID in the future.
                     const entryContainingEventId = record.entries.find(
                         (entry) =>
@@ -293,7 +293,7 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
         },
 
         retrySelectedInvocations: async () => {
-            const groupsToRetry = values.logs.filter((x) => values.selectedForRetry[x.instanceId])
+            const groupsToRetry = values.groupedLogs.filter((x) => values.selectedForRetry[x.instanceId])
 
             actions.retryInvocations(groupsToRetry)
         },
@@ -301,7 +301,7 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
         selectAllForRetry: async () => {
             actions.setSelectingMany(true)
 
-            for (const groupedLogEntry of values.logs) {
+            for (const groupedLogEntry of values.groupedLogs) {
                 actions.setSelectedForRetry({
                     [groupedLogEntry.instanceId]: true,
                 })
