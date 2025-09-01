@@ -67,8 +67,17 @@ export function LogsViewer({
 }: LogsViewerProps): JSX.Element {
     const logic = logsViewerLogic(props)
 
-    const { logs, logsLoading, hiddenLogs, hiddenLogsLoading, isThereMoreToLoad, expandedRows, filters, isGrouped } =
-        useValues(logic)
+    const {
+        unGroupedLogs,
+        groupedLogs,
+        logsLoading,
+        hiddenLogs,
+        hiddenLogsLoading,
+        isThereMoreToLoad,
+        expandedRows,
+        filters,
+        isGrouped,
+    } = useValues(logic)
     const { revealHiddenLogs, loadMoreLogs, setFilters, setRowExpanded, setIsGrouped } = useActions(logic)
 
     const logColumns: LemonTableColumn<LogEntry, keyof LogEntry | undefined>[] = [
@@ -260,7 +269,7 @@ export function LogsViewer({
             {isGrouped ? (
                 <LemonTable
                     key="grouped"
-                    dataSource={logs}
+                    dataSource={groupedLogs}
                     loading={logsLoading}
                     className="ph-no-capture overflow-y-auto"
                     rowKey={(record) => record.instanceId}
@@ -292,7 +301,7 @@ export function LogsViewer({
             ) : (
                 <LemonTable
                     key="ungrouped"
-                    dataSource={logs.flatMap((log) => log.entries)}
+                    dataSource={unGroupedLogs}
                     loading={logsLoading}
                     className="ph-no-capture overflow-y-auto"
                     rowKey={(record, index) => `${record.timestamp.toISOString()}-${index}`}
