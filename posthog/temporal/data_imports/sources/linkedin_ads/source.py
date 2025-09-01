@@ -31,7 +31,7 @@ from posthog.warehouse.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class LinkedinAdsSource(BaseSource[LinkedinAdsSourceConfig]):
+class LinkedInAdsSource(BaseSource[LinkedinAdsSourceConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.LINKEDINADS
