@@ -12,7 +12,7 @@ import { PluginsServerConfig } from '../../../types'
 import { logger } from '../../../utils/logger'
 import { CyclotronJobInvocation, CyclotronJobQueueKind } from '../../types'
 
-export const getDelayQueue = (queueScheduledAt: DateTime): CyclotronJobQueueKind => {
+export const getDelayQueue = (_queueScheduledAt: DateTime): CyclotronJobQueueKind => {
     // if (queueScheduledAt > DateTime.now().plus({ hours: 24 })) {
     //     return 'delay_24h'
     // }

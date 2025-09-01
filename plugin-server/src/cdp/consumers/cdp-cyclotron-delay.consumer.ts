@@ -16,6 +16,7 @@ export class CdpCyclotronDelayConsumer extends CdpCyclotronWorker {
         this.cyclotronJobQueue = new CyclotronJobQueue(hub, this.queue, (batch) => this.processBatch(batch), 'delay')
     }
 
+    // eslint-disable-next-line @typescript-eslint/require-await
     public async processBatch(
         invocations: CyclotronJobInvocation[]
     ): Promise<{ backgroundTask: Promise<any>; invocationResults: CyclotronJobInvocationResult[] }> {
