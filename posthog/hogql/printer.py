@@ -450,14 +450,14 @@ class _Printer(Visitor[str]):
         space = f"\n{self.indent(1)}" if self.pretty else " "
         comma = f",\n{self.indent(1)}" if self.pretty else ", "
 
+        with_clause = None
         # Build WITH clause if CTEs exist
-        clauses = []
         if node.ctes and self.context.readable_print:
             cte_strings = [self.visit(cte) for cte in node.ctes.values()]
-            clauses.append(f"WITH{space}{comma.join(cte_strings)}")
+            with_clause = f"WITH{space}{comma.join(cte_strings)}"
 
         clauses = [
-            *clauses,
+            with_clause if with_clause else None,
             f"SELECT{space}{'DISTINCT ' if node.distinct else ''}{comma.join(columns)}",
             f"FROM{space}{space.join(joined_tables)}" if len(joined_tables) > 0 else None,
             array_join if array_join else None,
