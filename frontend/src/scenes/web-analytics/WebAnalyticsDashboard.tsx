@@ -406,7 +406,7 @@ const MainContent = (): JSX.Element => {
 
 const MarketingDashboard = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { createMarketingDataWarehouseNodes } = useValues(marketingAnalyticsLogic)
+    const { validExternalTables, validNativeSources } = useValues(marketingAnalyticsLogic)
 
     const feedbackBanner = (
         <LemonBanner
@@ -420,7 +420,7 @@ const MarketingDashboard = (): JSX.Element => {
         </LemonBanner>
     )
 
-    if (createMarketingDataWarehouseNodes.length === 0) {
+    if (validExternalTables.length === 0 && validNativeSources.length === 0) {
         return (
             <>
                 {feedbackBanner}
