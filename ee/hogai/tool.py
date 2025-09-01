@@ -87,8 +87,7 @@ class session_summarization(BaseModel):
           * Set to `false` if one of the conditions is met:
             - no current filters or `search_session_recordings` tool are present in the conversation
             - the user specifies date/time period different from the current filters
-            - the user specifies specific conditions (user, device, id, URL, etc.) not present in the current filters
-            - the user's query is highly specific and not related to the current filters
+            - the user specifies conditions (user, device, id, URL, etc.) not present in the current filters
         """,
     )
 
