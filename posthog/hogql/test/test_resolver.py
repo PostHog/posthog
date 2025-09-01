@@ -790,7 +790,7 @@ class TestResolver(BaseTest):
         resolve_types(self._select(query), self.context, dialect="hogql")
         resolve_types(self._select(query), self.context, dialect="clickhouse")
 
-    def test_preserve_placeholders(self):
+    def test_keep_placeholders(self):
         """Test that placeholders are preserved when loose_syntax is enabled."""
         query = "SELECT {variables.f} FROM events"
         resolve_types(
@@ -799,8 +799,8 @@ class TestResolver(BaseTest):
                 database=self.database,
                 team_id=self.team.pk,
                 enable_select_queries=True,
-                preserve_placeholders=True,
-                beautify=True,
+                keep_placeholders=True,
+                pretty_print=True,
             ),
             dialect="hogql",
         )

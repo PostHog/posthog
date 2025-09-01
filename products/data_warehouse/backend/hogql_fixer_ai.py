@@ -193,8 +193,8 @@ class HogQLQueryFixerTool(MaxTool):
             enable_select_queries=True,
             database=database,
             limit_top_select=False,
-            beautify=True,
-            preserve_placeholders=True,
+            pretty_print=True,
+            keep_placeholders=True,
         )
 
         all_tables = database.get_all_tables()

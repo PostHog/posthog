@@ -4,6 +4,7 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from posthog.schema import AssistantHogQLQuery
 
+from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database, create_hogql_database
 from posthog.hogql.errors import (
@@ -11,8 +12,10 @@ from posthog.hogql.errors import (
     NotImplementedError as HogQLNotImplementedError,
     ResolutionError,
 )
+from posthog.hogql.functions.mapping import find_function_name_case_insensitive
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import LooseSyntax, print_ast, print_prepared_ast
+from posthog.hogql.printer import print_ast, print_prepared_ast
+from posthog.hogql.visitor import CloningVisitor
 
 from posthog.sync import database_sync_to_async
 
@@ -31,6 +34,19 @@ from .prompts import (
 SQLSchemaGeneratorOutput = SchemaGeneratorOutput[AssistantHogQLQuery]
 
 
+class LooseSyntaxVisitor(CloningVisitor):
+    """
+    Syntax guardrails for Max-generated SQL queries.
+    """
+
+    def visit_call(self, node: ast.Call):
+        """Convert case-insensitive function names to case-sensitive ones."""
+        corrected_name = find_function_name_case_insensitive(node.name)
+        if corrected_name != node.name:
+            node.name = corrected_name
+        return super().visit_call(node)
+
+
 class HogQLGeneratorMixin(AssistantContextMixin):
     _database_instance: Database | None = None
 
@@ -46,8 +62,8 @@ class HogQLGeneratorMixin(AssistantContextMixin):
             database=database,
             enable_select_queries=True,
             limit_top_select=False,
-            beautify=True,
-            preserve_placeholders=True,
+            pretty_print=True,
+            keep_placeholders=True,
         )
         return hogql_context
 
@@ -89,7 +105,7 @@ class HogQLGeneratorMixin(AssistantContextMixin):
             raise PydanticOutputParserException(llm_output="", validation_message="Output is empty")
         try:
             # First pass to fix the query syntax
-            fixed_names_query = LooseSyntax().visit(parse_select(query, placeholders={}))
+            fixed_names_query = LooseSyntaxVisitor().visit(parse_select(query, placeholders={}))
             normalized_query = print_prepared_ast(fixed_names_query, context=hogql_context, dialect="hogql")
 
             # Validate that the query is valid

@@ -42,7 +42,6 @@ from posthog.hogql.functions import (
 from posthog.hogql.functions.mapping import (
     ALL_EXPOSED_FUNCTION_NAMES,
     HOGQL_COMPARISON_MAPPING,
-    find_function_name_case_insensitive,
     is_allowed_parametric_function,
     validate_function_args,
 )
@@ -52,7 +51,7 @@ from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
-from posthog.hogql.visitor import CloningVisitor, Visitor, clone_expr
+from posthog.hogql.visitor import Visitor, clone_expr
 
 from posthog.clickhouse.materialized_columns import (
     MaterializedColumn,
@@ -269,14 +268,6 @@ def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
     while isinstance(expr_type, ast.FieldAliasType):
         expr_type = expr_type.type
     return expr_type
-
-
-class LooseSyntax(CloningVisitor):
-    def visit_call(self, node: ast.Call):
-        corrected_name = find_function_name_case_insensitive(node.name)
-        if corrected_name != node.name:
-            node.name = corrected_name
-        return super().visit_call(node)
 
 
 class _Printer(Visitor[str]):
@@ -628,7 +619,7 @@ class _Printer(Visitor[str]):
         return self.visit(node.expr)
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
-        if self.context.beautify:
+        if self.context.pretty_print:
             return f"{self.visit(node.left)} {node.op} {self.visit(node.right)}"
         if node.op == ast.ArithmeticOperationOp.Add:
             return f"plus({self.visit(node.left)}, {self.visit(node.right)})"
@@ -646,14 +637,14 @@ class _Printer(Visitor[str]):
     def visit_and(self, node: ast.And):
         if len(node.exprs) == 1:
             return self.visit(node.exprs[0])
-        if self.context.beautify:
+        if self.context.pretty_print:
             return f" AND ".join([f"{self.visit(expr)}" for expr in node.exprs])
         return f"and({', '.join([self.visit(expr) for expr in node.exprs])})"
 
     def visit_or(self, node: ast.Or):
         if len(node.exprs) == 1:
             return self.visit(node.exprs[0])
-        if self.context.beautify:
+        if self.context.pretty_print:
             return f" OR ".join([f"{self.visit(expr)}" for expr in node.exprs])
         return f"or({', '.join([self.visit(expr) for expr in node.exprs])})"
 
@@ -874,7 +865,7 @@ class _Printer(Visitor[str]):
         }
 
         try:
-            op = beautified_ops[node.op] if self.context.beautify else clickhouse_ops[node.op]
+            op = beautified_ops[node.op] if self.context.pretty_print else clickhouse_ops[node.op]
         except KeyError:
             raise ImpossibleASTError(f"Unknown CompareOperationOp: {node.op.name}")
 
@@ -909,7 +900,7 @@ class _Printer(Visitor[str]):
         value_if_one_side_is_null = False
         value_if_both_sides_are_null = False
 
-        op = self.__get_ops_format(node, left, right)  # different format for beautify
+        op = self.__get_ops_format(node, left, right)  # different format for pretty_print
         if node.op == ast.CompareOperationOp.Eq:
             constant_lambda = lambda left_op, right_op: left_op == right_op
             value_if_both_sides_are_null = True
@@ -1440,7 +1431,7 @@ class _Printer(Visitor[str]):
             raise QueryError(f"Unsupported function call '{node.name}(...)'")
 
     def visit_placeholder(self, node: ast.Placeholder):
-        if self.context.preserve_placeholders and node.chain:
+        if self.context.keep_placeholders and node.chain:
             field = ".".join([self._print_hogql_identifier_or_index(identifier) for identifier in node.chain])
             return f"{{{field}}}"
 

@@ -21,7 +21,7 @@ def test_get_schema_description(snapshot):
         enable_select_queries=True,
         database=database,
         limit_top_select=False,
-        beautify=True,
+        pretty_print=True,
     )
 
     res = _get_schema_description({"hogql_query": query}, hogql_context, database)
@@ -54,7 +54,7 @@ def test_get_user_prompt(snapshot):
         enable_select_queries=True,
         database=database,
         limit_top_select=False,
-        beautify=True,
+        pretty_print=True,
     )
 
     schema_description = _get_schema_description({"hogql_query": query}, hogql_context, database)

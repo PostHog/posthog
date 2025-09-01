@@ -63,11 +63,11 @@ class HogQLContext:
 
     property_swapper: Optional["PropertySwapper"] = None
 
-    # Whether to preserve placeholders
-    preserve_placeholders: bool = False
+    # Whether to keep placeholders in place
+    keep_placeholders: bool = False
 
-    # Whether or not to beautify the query
-    beautify: bool = False
+    # Whether or not to output a human-readable version of the query
+    pretty_print: bool = False
 
     def __post_init__(self):
         if self.team:

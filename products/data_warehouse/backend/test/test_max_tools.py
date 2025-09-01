@@ -53,7 +53,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
             result = await tool.ainvoke(tool_call.model_dump(), config=cast(RunnableConfig, config))
             self.assertEqual(result.content, "```sql\nSELECT avg(properties.$session_length) FROM events\n```")
 
-    async def test_hogql_tool_generates_queries_with_beautify(self):
+    async def test_hogql_tool_generates_queries_with_pretty_print(self):
         config = {
             "configurable": {
                 "team": self.team,
