@@ -81,13 +81,16 @@ class MemoryInitializerContextMixin(AssistantContextMixin):
             response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
         if not isinstance(response, CachedEventTaxonomyQueryResponse):
             raise ValueError("Failed to query the event taxonomy.")
-        item = response.results[0] if response.results and response.results[0].sample_count else None
-        if item:
-            item.sample_values = [
-                v
-                for v in item.sample_values  # Exclude localhost
-                if v != "localhost" and not v.startswith("localhost:") and not v.startswith("127.0.0.1")
-            ]
+        if not response.results:
+            return None
+        item = response.results[0]
+        item.sample_values = [
+            v  # Exclude localhost from sample values. We could maybe do it at the query level, but this is just simpler
+            for v in item.sample_values
+            if v != "localhost" and not v.startswith("localhost:") and not v.startswith("127.0.0.1")
+        ]
+        if not item.sample_values:
+            return None
         return item
 
 
