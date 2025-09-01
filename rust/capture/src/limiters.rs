@@ -15,64 +15,35 @@ use crate::{
     v0_request::ProcessingContext,
 };
 
-#[async_trait::async_trait]
-trait ScopedLimiterTrait: Send + Sync {
-    async fn is_limited(&self, token: &str) -> bool;
-    async fn partition_event_indices(
-        &self,
-        indices_to_events: &HashMap<usize, RawEvent>,
-        indices: &[usize],
-    ) -> (Vec<usize>, Vec<usize>);
-    fn resource(&self) -> &QuotaResource;
+//
+// Add a new predicate function for each new quota limiter you
+// add to the CaptureQuotaLimiter. Each should match RawEvents
+// associated with the QuotaResource type you will bind to the
+// CaptureQuotaLimiter
+//
+
+// for QuotaResource::Exceptions
+pub fn is_exception_event(event: &RawEvent) -> bool {
+    event.event.as_str() == "$exception"
 }
 
-#[derive(Clone)]
-struct ScopedLimiter<F> {
-    resource: QuotaResource,
-    limiter: RedisLimiter,
-    // predicate supplied here should match RawEvents TO BE DROPPED
-    // if the limit for this team/token has been exceeded
-    event_matcher: F,
+// for QuotaResource::Surveys
+pub fn is_survey_event(event: &RawEvent) -> bool {
+    matches!(
+        event.event.as_str(),
+        "survey sent" | "survey shown" | "survey dismissed"
+    )
 }
 
-impl<F> ScopedLimiter<F>
-where
-    F: Fn(&RawEvent) -> bool + Send + Sync + Clone,
-{
-    fn new(resource: QuotaResource, limiter: RedisLimiter, event_matcher: F) -> Self {
-        Self {
-            resource,
-            limiter,
-            event_matcher,
-        }
-    }
+// for QuotaResource::LLMEvents
+pub fn is_llm_event(event: &RawEvent) -> bool {
+    event.event.starts_with("$ai_")
 }
 
-#[async_trait::async_trait]
-impl<F> ScopedLimiterTrait for ScopedLimiter<F>
-where
-    F: Fn(&RawEvent) -> bool + Send + Sync + Clone,
-{
-    async fn is_limited(&self, token: &str) -> bool {
-        self.limiter.is_limited(token).await
-    }
+// TODO: define more limiter predicates here!
 
-    async fn partition_event_indices(
-        &self,
-        indices_to_events: &HashMap<usize, RawEvent>,
-        indices: &[usize],
-    ) -> (Vec<usize>, Vec<usize>) {
-        indices.iter().partition(|&i| {
-            let e: &RawEvent = indices_to_events.get(i).unwrap();
-            (self.event_matcher)(e)
-        })
-    }
-
-    fn resource(&self) -> &QuotaResource {
-        &self.resource
-    }
-}
-
+/// See server.rs for an example of how to use CaptureQuotaLimiter
+/// and to add new scoped limiters to capture
 pub struct CaptureQuotaLimiter {
     capture_mode: CaptureMode,
 
@@ -236,18 +207,60 @@ impl CaptureQuotaLimiter {
     }
 }
 
-// Add these predicate functions at the module level
-pub fn is_exception_event(event: &RawEvent) -> bool {
-    event.event.as_str() == "$exception"
+#[async_trait::async_trait]
+trait ScopedLimiterTrait: Send + Sync {
+    async fn is_limited(&self, token: &str) -> bool;
+    async fn partition_event_indices(
+        &self,
+        indices_to_events: &HashMap<usize, RawEvent>,
+        indices: &[usize],
+    ) -> (Vec<usize>, Vec<usize>);
+    fn resource(&self) -> &QuotaResource;
 }
 
-pub fn is_survey_event(event: &RawEvent) -> bool {
-    matches!(
-        event.event.as_str(),
-        "survey sent" | "survey shown" | "survey dismissed"
-    )
+#[derive(Clone)]
+struct ScopedLimiter<F> {
+    resource: QuotaResource,
+    limiter: RedisLimiter,
+    // predicate supplied here should match RawEvents TO BE DROPPED
+    // if the limit for this team/token has been exceeded
+    event_matcher: F,
 }
 
-pub fn is_llm_event(event: &RawEvent) -> bool {
-    event.event.starts_with("$ai_")
+impl<F> ScopedLimiter<F>
+where
+    F: Fn(&RawEvent) -> bool + Send + Sync + Clone,
+{
+    fn new(resource: QuotaResource, limiter: RedisLimiter, event_matcher: F) -> Self {
+        Self {
+            resource,
+            limiter,
+            event_matcher,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl<F> ScopedLimiterTrait for ScopedLimiter<F>
+where
+    F: Fn(&RawEvent) -> bool + Send + Sync + Clone,
+{
+    async fn is_limited(&self, token: &str) -> bool {
+        self.limiter.is_limited(token).await
+    }
+
+    async fn partition_event_indices(
+        &self,
+        indices_to_events: &HashMap<usize, RawEvent>,
+        indices: &[usize],
+    ) -> (Vec<usize>, Vec<usize>) {
+        indices.iter().partition(|&i| {
+            let e: &RawEvent = indices_to_events.get(i).unwrap();
+            (self.event_matcher)(e)
+        })
+    }
+
+    fn resource(&self) -> &QuotaResource {
+        &self.resource
+    }
 }
