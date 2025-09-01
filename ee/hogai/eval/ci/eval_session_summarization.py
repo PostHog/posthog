@@ -170,12 +170,12 @@ async def eval_session_summarization_no_context(patch_feature_enabled, call_root
     """Test session summarization without search_session_recordings context - use_current_filters should always be false."""
 
     # Create a wrapper that excludes context
-    async def task_with_context(input: str) -> AssistantMessage:
+    async def task_without_context(input: str) -> AssistantMessage:
         return await call_root_for_replay_sessions(input, include_search_session_recordings_context=False)
 
     await MaxPublicEval(
         experiment_name="session_summarization_no_context",
-        task=task_with_context,  # Using default include_search_session_recordings_context=False
+        task=task_without_context,  # Using default include_search_session_recordings_context=False
         scores=[ToolRelevance(semantic_similarity_args={"session_summarization_query"})],
         data=[
             # All cases should have use_current_filters=false when no context
