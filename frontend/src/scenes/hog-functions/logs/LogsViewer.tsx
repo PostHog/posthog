@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCalendar, IconList, IconSearch, IconTableOfContents } from '@posthog/icons'
+import { IconCalendar, IconEye, IconList, IconSearch, IconTableOfContents } from '@posthog/icons'
 import {
     LemonButton,
     LemonInput,
@@ -15,7 +15,7 @@ import {
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconRefresh, IconWithCount } from 'lib/lemon-ui/icons'
+import { IconEyeHidden, IconWithCount } from 'lib/lemon-ui/icons'
 import { pluralize } from 'lib/utils'
 
 import { LogEntryLevel } from '~/types'
@@ -204,22 +204,6 @@ export function LogsViewer({
                             </>
                         }
                     />
-                    <LemonButton
-                        onClick={revealHiddenLogs}
-                        loading={hiddenLogsLoading}
-                        type="secondary"
-                        icon={
-                            <IconWithCount count={hiddenLogs.length}>
-                                <IconRefresh />
-                            </IconWithCount>
-                        }
-                        disabledReason={!hiddenLogs.length ? "There's nothing to load" : undefined}
-                        tooltip={
-                            hiddenLogs.length
-                                ? `Show ${pluralize(hiddenLogs.length, 'newer entry', 'newer entries')}`
-                                : 'No new entries'
-                        }
-                    />
                 </div>
                 <div className="flex items-center gap-2">
                     <LogLevelsPicker value={filters.levels} onChange={(levels) => setFilters({ levels })} />
@@ -263,6 +247,21 @@ export function LogsViewer({
                             ]}
                         />
                     )}
+                    <LemonButton
+                        size="small"
+                        onClick={revealHiddenLogs}
+                        loading={hiddenLogsLoading}
+                        type="secondary"
+                        icon={
+                            <IconWithCount count={hiddenLogs.length}>
+                                {hiddenLogs.length ? <IconEye /> : <IconEyeHidden />}
+                            </IconWithCount>
+                        }
+                        disabledReason={
+                            !hiddenLogs.length ? 'No newer entries. Will check every 5 seconds.' : undefined
+                        }
+                        tooltip={`Show ${pluralize(hiddenLogs.length, 'newer entry', 'newer entries')}`}
+                    />
                 </div>
             </div>
 
