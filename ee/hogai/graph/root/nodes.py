@@ -219,9 +219,8 @@ class RootNodeUIContextMixin(AssistantNode):
                         query_dict, insight.filtersOverride.model_dump(mode="json"), self._team
                     )
                 if insight.variablesOverride:
-                    query_dict = apply_dashboard_variables_to_dict(
-                        query_dict, {k: v.model_dump(mode="json") for k, v in insight.variablesOverride}, self._team
-                    )
+                    variables_overrides = {k: v.model_dump(mode="json") for k, v in insight.variablesOverride.items()}
+                    query_dict = apply_dashboard_variables_to_dict(query_dict, variables_overrides, self._team)
 
                 QueryModel = MAX_SUPPORTED_QUERY_KIND_TO_MODEL[query_kind]
                 query_obj = QueryModel.model_validate(query_dict)
