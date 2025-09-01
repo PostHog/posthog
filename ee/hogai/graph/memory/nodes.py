@@ -63,7 +63,6 @@ from .prompts import (
 
 class MemoryInitializerContextMixin(AssistantContextMixin):
     def _retrieve_context(self, *, config: RunnableConfig | None = None) -> EventTaxonomyItem | None:
-        return EventTaxonomyItem(property="$host", sample_values=["app.societies.io"], sample_count=1)
         if config and "_mock_memory_onboarding_context" in config.get("configurable", {}):
             # Only for evals/tests (as patch() doesn't work because of evals running concurrently async)
             return config["configurable"]["_mock_memory_onboarding_context"]
