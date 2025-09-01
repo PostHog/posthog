@@ -1,6 +1,8 @@
 import pytest
 from unittest.mock import Mock, patch
 
+from langchain_core.runnables import RunnableConfig
+
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 
@@ -80,7 +82,7 @@ def test_hogql_query_fixer_tool_removes_semicolons():
     team = Team.objects.create(organization=org)
     user = User.objects.create(email="test@example.com")
 
-    config = {
+    config: RunnableConfig = {
         "configurable": {
             "team": team,
             "user": user,
@@ -121,7 +123,7 @@ def test_hogql_query_fixer_tool_fixes_function_names():
     team = Team.objects.create(organization=org)
     user = User.objects.create(email="test@example.com")
 
-    config = {
+    config: RunnableConfig = {
         "configurable": {
             "team": team,
             "user": user,
