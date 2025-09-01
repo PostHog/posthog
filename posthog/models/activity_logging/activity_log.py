@@ -1,6 +1,5 @@
 import json
 import dataclasses
-from datetime import datetime, time, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 from uuid import UUID
@@ -16,7 +15,7 @@ from django.utils import timezone
 import structlog
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.utils import UUIDT, UUIDTModel
+from posthog.models.utils import UUIDT, UUIDTModel, ActivityDetailEncoder
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -108,65 +107,6 @@ class Detail:
     changes: Optional[list[Change]] = None
     trigger: Optional[Trigger] = None
     context: Optional[ActivityContextBase] = None
-
-
-class ActivityDetailEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, Detail | Change | Trigger | ActivityContextBase):
-            return obj.__dict__
-        if isinstance(obj, datetime):
-            return obj.isoformat()
-        if isinstance(obj, time):
-            return obj.isoformat()
-        if isinstance(obj, timedelta):
-            return str(obj)
-        if isinstance(obj, UUIDT):
-            return str(obj)
-        if isinstance(obj, UUID):
-            return str(obj)
-        if hasattr(obj, "__class__") and obj.__class__.__name__ == "User":
-            return {"first_name": obj.first_name, "email": obj.email}
-        if hasattr(obj, "__class__") and obj.__class__.__name__ == "DataWarehouseTable":
-            return obj.name
-        if isinstance(obj, float):
-            # more precision than we'll need but avoids rounding too unnecessarily
-            return format(obj, ".6f").rstrip("0").rstrip(".")
-        if isinstance(obj, Decimal):
-            # more precision than we'll need but avoids rounding too unnecessarily
-            return format(obj, ".6f").rstrip("0").rstrip(".")
-        if hasattr(obj, "__class__") and obj.__class__.__name__ == "FeatureFlag":
-            return {
-                "id": obj.id,
-                "key": obj.key,
-                "name": obj.name,
-                "filters": obj.filters,
-                "team_id": obj.team_id,
-                "deleted": obj.deleted,
-                "active": obj.active,
-            }
-        if hasattr(obj, "__class__") and obj.__class__.__name__ == "Insight":
-            return {
-                "id": obj.id,
-                "short_id": obj.short_id,
-            }
-        if hasattr(obj, "__class__") and obj.__class__.__name__ == "Tag":
-            return {
-                "id": obj.id,
-                "name": obj.name,
-                "team_id": obj.team_id,
-            }
-        if hasattr(obj, "__class__") and obj.__class__.__name__ == "UploadedMedia":
-            return {
-                "id": obj.id,
-                "media_location": obj.media_location,
-            }
-        if hasattr(obj, "__class__") and obj.__class__.__name__ == "Role":
-            return {
-                "id": obj.id,
-                "name": obj.name,
-            }
-
-        return json.JSONEncoder.default(self, obj)
 
 
 class ActivityLog(UUIDTModel):

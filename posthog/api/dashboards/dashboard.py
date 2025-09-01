@@ -5,6 +5,8 @@ from typing import Any, Optional, cast
 
 from django.conf import settings
 from django.db.models import Prefetch
+from django.db.models.signals import pre_delete
+from django.dispatch import receiver
 from django.http import StreamingHttpResponse
 from django.utils.timezone import now
 
@@ -34,10 +36,13 @@ from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template
 from posthog.models import Dashboard, DashboardTile, Insight, Text
+from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.models.activity_logging.utils import activity_storage
 from posthog.models.alert import AlertConfiguration
 from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.insight_variable import InsightVariable
+from posthog.models.signals import model_activity_signal
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
@@ -873,3 +878,37 @@ class LegacyDashboardsViewSet(DashboardsViewSet):
 
 class LegacyInsightViewSet(InsightViewSet):
     param_derived_from_user_current_team = "project_id"
+
+
+@receiver(model_activity_signal, sender=Dashboard)
+def handle_dashboard_change(
+    sender, scope, before_update, after_update, activity, user=None, was_impersonated=False, **kwargs
+):
+    log_activity(
+        organization_id=after_update.team.organization_id,
+        team_id=after_update.team_id,
+        user=user or after_update.created_by,
+        was_impersonated=was_impersonated,
+        item_id=after_update.id,
+        scope="Dashboard",
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update),
+            name=after_update.name,
+            type="dashboard",
+        ),
+    )
+
+
+@receiver(pre_delete, sender=Dashboard)
+def handle_dashboard_delete(sender, instance, **kwargs):
+    log_activity(
+        organization_id=instance.team.organization_id,
+        team_id=instance.team_id,
+        user=activity_storage.get_user() or getattr(instance, "last_modified_by", instance.created_by),
+        was_impersonated=activity_storage.get_was_impersonated(),
+        item_id=instance.id,
+        scope="Dashboard",
+        activity="deleted",
+        detail=Detail(name=instance.name, type="dashboard"),
+    )
