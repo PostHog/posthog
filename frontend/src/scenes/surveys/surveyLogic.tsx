@@ -857,7 +857,6 @@ export const surveyLogic = kea<surveyLogicType>([
                             WHERE event = '${SurveyEventName.SENT}'
                             AND events.properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
                             ${values.timestampFilter}
-                            LIMIT ${limit}
                         )
                     WHERE event = '${SurveyEventName.SENT}'
                         AND events.properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
