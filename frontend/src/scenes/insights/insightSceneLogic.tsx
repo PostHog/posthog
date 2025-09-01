@@ -253,7 +253,13 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 if (!insight || !insight.short_id || !insight.query) {
                     return []
                 }
-                return [createMaxContextHelpers.insight(insight, filtersOverride ?? undefined, variablesOverride)]
+                return [
+                    createMaxContextHelpers.insight(
+                        insight,
+                        filtersOverride ?? undefined,
+                        variablesOverride ?? undefined
+                    ),
+                ]
             },
         ],
         hasOverrides: [

@@ -215,9 +215,13 @@ class RootNodeUIContextMixin(AssistantNode):
                 if dashboard_filters:
                     query_dict = apply_dashboard_filters_to_dict(query_dict, dashboard_filters, self._team)
                 if insight.filtersOverride:
-                    query_dict = apply_dashboard_filters_to_dict(query_dict, insight.filtersOverride, self._team)
+                    query_dict = apply_dashboard_filters_to_dict(
+                        query_dict, insight.filtersOverride.model_dump(mode="json"), self._team
+                    )
                 if insight.variablesOverride:
-                    query_dict = apply_dashboard_variables_to_dict(query_dict, insight.variablesOverride, self._team)
+                    query_dict = apply_dashboard_variables_to_dict(
+                        query_dict, insight.variablesOverride.model_dump(mode="json"), self._team
+                    )
 
                 QueryModel = MAX_SUPPORTED_QUERY_KIND_TO_MODEL[query_kind]
                 query_obj = QueryModel.model_validate(query_dict)
