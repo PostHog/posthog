@@ -420,6 +420,24 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(165, 2)
         })
 
+        it('handles undefined reasoning tokens for gemini-2.5-*', () => {
+            event.properties!.$ai_provider = 'google'
+            event.properties!.$ai_model = 'gemini-2.5-flash'
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            // $ai_reasoning_tokens is intentionally undefined
+
+            const result = processAiEvent(event)
+
+            // For gemini-2.5-flash: prompt_token = 0.15, completion_token = 0.6
+            // Input cost: 100 * 0.15 = 15
+            // Output cost: (50 + 0) * 0.6 = 50 * 0.6 = 30 (undefined reasoning tokens treated as 0)
+            // Total cost: 15 + 30 = 45
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(15, 2)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(30, 2)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(45, 2)
+        })
+
         it('does not include reasoning tokens for gemini-2.0-*', () => {
             event.properties!.$ai_provider = 'google'
             event.properties!.$ai_model = 'gemini-2.0-flash'
