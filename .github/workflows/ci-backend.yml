@@ -133,11 +133,7 @@ jobs:
                   version: 0.7.8
 
             - name: Install Rust
-<<<<<<< HEAD
               uses: dtolnay/rust-toolchain@6691ebadcb18182cc1391d07c9f295f657c593cd # 1.88
-=======
-              uses: actions-rust-lang/setup-rust-toolchain@v1
->>>>>>> 2b92ca7bdb (feat(persons): use sqlx for persons migrations)
               with:
                   toolchain: stable
                   components: cargo
@@ -163,30 +159,11 @@ jobs:
 
             - name: Run migrations up to master
               run: |
-<<<<<<< HEAD
-<<<<<<< HEAD
                   # Run Django migrations first (excluding managed=False models)
-=======
-                  # Run persons migrations using sqlx
-                  PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
-                    sqlx database create 2>/dev/null || true
-                  PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
-                    sqlx migrate run --source rust/persons-migrator/persons_migrations/
-                  # Run Django migrations (excluding managed=False models)
->>>>>>> 2b92ca7bdb (feat(persons): use sqlx for persons migrations)
                   python manage.py migrate
                   # Then run persons migrations using sqlx; comment out until we've merged
                   # sqlx database create
                   # sqlx migrate run --source rust/persons_migrations/
-=======
-                  # Run Django migrations first (excluding managed=False models)
-                  python manage.py migrate
-                  # Then run persons migrations using sqlx
-                  PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
-                    sqlx database create 2>/dev/null || true
-                  PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
-                    sqlx migrate run --source rust/persons_migrations/
->>>>>>> 5301621d67 (test in CI)
 
             # Now we can consider this PR's migrations
             - name: Checkout this PR
@@ -303,36 +280,14 @@ jobs:
 
             - name: Run migrations for this PR
               run: |
-<<<<<<< HEAD
-<<<<<<< HEAD
                   # Run Django migrations first (excluding managed=False models)
-=======
-                  # Run persons migrations using sqlx
-                  PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
-                    sqlx migrate run --source rust/persons-migrator/persons_migrations/
-                  # Run Django migrations (excluding managed=False models)
->>>>>>> 2b92ca7bdb (feat(persons): use sqlx for persons migrations)
                   python manage.py migrate
                   # Then run persons migrations using sqlx
                   sqlx migrate run --source rust/persons_migrations/
-=======
-                  # Run Django migrations first (excluding managed=False models)
-                  python manage.py migrate
-                  # Then run persons migrations using sqlx
-                  PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
-                    sqlx migrate run --source rust/persons_migrations/
->>>>>>> 5301621d67 (test in CI)
 
             - name: Check migrations
               run: |
-<<<<<<< HEAD
                   sqlx migrate info --source rust/persons_migrations/
-=======
-                  # Check sqlx persons migrations
-                  PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
-                    sqlx migrate info --source rust/persons_migrations/
-                  # Check Django migrations (will not create migrations for managed=False models)
->>>>>>> 2b92ca7bdb (feat(persons): use sqlx for persons migrations)
                   python manage.py makemigrations --check --dry-run
                   git fetch origin master
                   # Check migration safety using old SQL-based checker (still uses stdin from git diff)
@@ -343,11 +298,7 @@ jobs:
                   # added (A) in posthog/migrations/. We also want to ignore
                   # initial migrations (0001_*) as these are guaranteed to be
                   # run on initial setup where there is no data.
-<<<<<<< HEAD
                   echo "${{ needs.changes.outputs.migrations_files }}" | grep -v migrations/0001_ | grep -v 'rust/persons_migrations' | python manage.py test_migrations_are_safe
-=======
-                  echo "${{ needs.changes.outputs.migrations_files }}" | grep -v migrations/0001_ | grep -v persons_migrations | python manage.py test_migrations_are_safe
->>>>>>> 2b92ca7bdb (feat(persons): use sqlx for persons migrations)
 
             - name: Check CH migrations
               run: |
