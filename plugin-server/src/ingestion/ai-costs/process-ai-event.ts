@@ -66,8 +66,8 @@ const calculateOutputCost = (event: PluginEvent, cost: ModelRow) => {
         return '0'
     }
     let outputTokens = event.properties['$ai_output_tokens'] || 0
-    if (mustAddReasoningCost(event.properties['$ai_model'])) {
-        outputTokens += event.properties['$ai_reasoning_tokens'] || 0
+    if (event.properties['$ai_reasoning_tokens'] && mustAddReasoningCost(event.properties['$ai_model'])) {
+        outputTokens = bigDecimal.add(outputTokens, event.properties['$ai_reasoning_tokens'])
     }
     return bigDecimal.multiply(cost.cost.completion_token, outputTokens)
 }
