@@ -123,6 +123,7 @@ class TestQuotaLimiting(BaseTest):
         assert quota_limited_orgs["feature_flag_requests"] == {}
         assert quota_limited_orgs["api_queries_read_bytes"] == {}
         assert quota_limited_orgs["surveys"] == {}
+        assert quota_limited_orgs["rows_exported"] == {}
         assert quota_limiting_suspended_orgs["events"] == {}
         assert quota_limiting_suspended_orgs["exceptions"] == {}
         assert quota_limiting_suspended_orgs["recordings"] == {}
@@ -130,6 +131,7 @@ class TestQuotaLimiting(BaseTest):
         assert quota_limiting_suspended_orgs["feature_flag_requests"] == {}
         assert quota_limiting_suspended_orgs["api_queries_read_bytes"] == {}
         assert quota_limiting_suspended_orgs["surveys"] == {}
+        assert quota_limiting_suspended_orgs["rows_exported"] == {}
         assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == []
         assert self.redis_client.zrange(f"@posthog/quota-limits/exceptions", 0, -1) == []
         assert self.redis_client.zrange(f"@posthog/quota-limits/recordings", 0, -1) == []
@@ -137,6 +139,7 @@ class TestQuotaLimiting(BaseTest):
         assert self.redis_client.zrange(f"@posthog/quota-limits/feature_flag_requests", 0, -1) == []
         assert self.redis_client.zrange(f"@posthog/quota-limits/api_queries_read_bytes", 0, -1) == []
         assert self.redis_client.zrange(f"@posthog/quota-limits/surveys", 0, -1) == []
+        assert self.redis_client.zrange(f"@posthog/quota-limits/rows_exported", 0, -1) == []
 
         patch_capture.reset_mock()
         # Add this org to the redis cache.
@@ -181,6 +184,7 @@ class TestQuotaLimiting(BaseTest):
         assert quota_limited_orgs["feature_flag_requests"] == {}
         assert quota_limited_orgs["api_queries_read_bytes"] == {}
         assert quota_limited_orgs["surveys"] == {}
+        assert quota_limited_orgs["rows_exported"] == {}
         assert quota_limiting_suspended_orgs["events"] == {}
         assert quota_limiting_suspended_orgs["exceptions"] == {}
         assert quota_limiting_suspended_orgs["recordings"] == {}
@@ -188,6 +192,7 @@ class TestQuotaLimiting(BaseTest):
         assert quota_limiting_suspended_orgs["feature_flag_requests"] == {}
         assert quota_limiting_suspended_orgs["api_queries_read_bytes"] == {}
         assert quota_limiting_suspended_orgs["surveys"] == {}
+        assert quota_limiting_suspended_orgs["rows_exported"] == {}
         assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == [self.team.api_token.encode("UTF-8")]
         assert self.redis_client.zrange(f"@posthog/quota-limits/exceptions", 0, -1) == []
         assert self.redis_client.zrange(f"@posthog/quota-limits/recordings", 0, -1) == []
@@ -195,6 +200,7 @@ class TestQuotaLimiting(BaseTest):
         assert self.redis_client.zrange(f"@posthog/quota-limits/feature_flag_requests", 0, -1) == []
         assert self.redis_client.zrange(f"@posthog/quota-limits/api_queries_read_bytes", 0, -1) == []
         assert self.redis_client.zrange(f"@posthog/quota-limits/surveys", 0, -1) == []
+        assert self.redis_client.zrange(f"@posthog/quota-limits/rows_exported", 0, -1) == []
 
     @patch("posthoganalytics.capture")
     @patch("posthoganalytics.feature_enabled", return_value=True)
@@ -226,6 +232,7 @@ class TestQuotaLimiting(BaseTest):
         assert quota_limited_orgs["feature_flag_requests"] == {}
         assert quota_limited_orgs["api_queries_read_bytes"] == {}
         assert quota_limited_orgs["surveys"] == {}
+        assert quota_limited_orgs["rows_exported"] == {}
         assert quota_limiting_suspended_orgs["events"] == {}
         assert quota_limiting_suspended_orgs["exceptions"] == {}
         assert quota_limiting_suspended_orgs["recordings"] == {}
@@ -233,6 +240,7 @@ class TestQuotaLimiting(BaseTest):
         assert quota_limiting_suspended_orgs["feature_flag_requests"] == {}
         assert quota_limiting_suspended_orgs["api_queries_read_bytes"] == {}
         assert quota_limiting_suspended_orgs["surveys"] == {}
+        assert quota_limiting_suspended_orgs["rows_exported"] == {}
 
         assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == []
         assert self.redis_client.zrange(f"@posthog/quota-limits/exceptions", 0, -1) == []
@@ -241,6 +249,7 @@ class TestQuotaLimiting(BaseTest):
         assert self.redis_client.zrange(f"@posthog/quota-limits/feature_flag_requests", 0, -1) == []
         assert self.redis_client.zrange(f"@posthog/quota-limits/api_queries_read_bytes", 0, -1) == []
         assert self.redis_client.zrange(f"@posthog/quota-limits/surveys", 0, -1) == []
+        assert self.redis_client.zrange(f"@posthog/quota-limits/rows_exported", 0, -1) == []
 
     def test_billing_rate_limit_not_set_if_missing_org_usage(self) -> None:
         with self.settings(USE_TZ=False):
@@ -281,6 +290,7 @@ class TestQuotaLimiting(BaseTest):
         assert self.redis_client.zrange(f"@posthog/quota-limits/feature_flag_requests", 0, -1) == []
         assert self.redis_client.zrange(f"@posthog/quota-limits/api_queries_read_bytes", 0, -1) == []
         assert self.redis_client.zrange(f"@posthog/quota-limits/surveys", 0, -1) == []
+        assert self.redis_client.zrange(f"@posthog/quota-limits/rows_exported", 0, -1) == []
 
     @patch("posthoganalytics.capture")
     def test_billing_rate_limit(self, patch_capture) -> None:
