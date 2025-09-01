@@ -20,6 +20,7 @@ import { FunnelsQuery, HogQLQuery, RetentionQuery, TrendsQuery } from '~/queries
 import { isFunnelsQuery, isHogQLQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
 import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel, SidePanelTab } from '~/types'
 
+import { SuggestionGroup } from './maxLogic'
 import { maxLogicType } from './maxLogicType'
 import { MaxActionContext, MaxContextType, MaxDashboardContext, MaxEventContext, MaxInsightContext } from './maxTypes'
 
@@ -209,11 +210,7 @@ export const actionToMaxContextPayload = (action: ActionType): MaxActionContext 
     }
 }
 
-export const createSuggestionGroup = (
-    label: string,
-    icon: JSX.Element,
-    suggestions: string[]
-): import('./maxLogic').SuggestionGroup => {
+export const createSuggestionGroup = (label: string, icon: JSX.Element, suggestions: string[]): SuggestionGroup => {
     return {
         label,
         icon,

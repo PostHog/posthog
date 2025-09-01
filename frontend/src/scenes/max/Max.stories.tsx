@@ -457,7 +457,9 @@ export const ThreadWithOpenedSuggestionsMobile: StoryFn = () => {
 
     useEffect(() => {
         // The largest group is the set up group
-        setActiveGroup(QUESTION_SUGGESTIONS_DATA[3])
+        if (QUESTION_SUGGESTIONS_DATA[3]) {
+            setActiveGroup(QUESTION_SUGGESTIONS_DATA[3])
+        }
     }, [setActiveGroup])
 
     return <Template sidePanel />

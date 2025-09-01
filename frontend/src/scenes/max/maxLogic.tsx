@@ -288,23 +288,6 @@ export const maxLogic = kea<maxLogicType>([
                 return frontendConversationId
             },
         ],
-        // allSuggestions: [
-        //     (s) => [s.toolSuggestions],
-        //     (toolSuggestions: string[]): readonly SuggestionGroup[] => {
-        //         // If we have MaxTool suggestions, show only those
-        //         if (toolSuggestions && toolSuggestions.length > 0) {
-        //             return [
-        //                 {
-        //                     label: 'Suggestions',
-        //                     icon: <IconGraph />,
-        //                     suggestions: toolSuggestions.map((content: string) => ({ content })),
-        //                 },
-        //             ]
-        //         }
-
-        //         return QUESTION_SUGGESTIONS_DATA
-        //     },
-        // ],
     }),
 
     listeners(({ actions, values }) => ({
