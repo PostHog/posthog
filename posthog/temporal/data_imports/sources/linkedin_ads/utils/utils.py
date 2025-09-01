@@ -282,7 +282,21 @@ def determine_primary_keys(resource_name: str, flattened_data: list[dict[str, An
         if flattened_data and "pivotValues" in flattened_data[0] and "date_range_start" in flattened_data[0]:
             return ["pivotValues", "date_range_start"]
         elif flattened_data and "date_range_start" in flattened_data[0]:
-            return ["date_range_start"]
+            # Check for flattened pivot fields like campaign_id, campaign_group_id, etc.
+            pivot_fields = []
+            if "campaign_id" in flattened_data[0]:
+                pivot_fields.append("campaign_id")
+            if "campaign_group_id" in flattened_data[0]:
+                pivot_fields.append("campaign_group_id")
+            if "creative_id" in flattened_data[0]:
+                pivot_fields.append("creative_id")
+            if "account_id" in flattened_data[0]:
+                pivot_fields.append("account_id")
+
+            if pivot_fields:
+                return [*pivot_fields, "date_range_start"]
+            else:
+                return ["date_range_start"]
         else:
             logger.warning("No suitable primary keys found for analytics data", resource_name=resource_name)
             return None

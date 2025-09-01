@@ -67,22 +67,25 @@ class TestLinkedInAdsIntegration:
         field_name, field_type = campaign_stats_fields[0]
         assert field_name == "dateRange.start"
 
-    @patch("posthog.temporal.data_imports.sources.linkedin_ads.client.LinkedinAdsClient")
-    def test_linkedin_ads_source_accounts(self, mock_client_class):
+    @patch("requests.Session.get")
+    def test_linkedin_ads_source_accounts(self, mock_get):
         """Test LinkedIn Ads source for accounts resource."""
-        # Mock the client
-        mock_client = Mock()
-        mock_client.get_accounts.return_value = [
-            {
-                "id": "123456789",
-                "name": "Test Account",
-                "status": "ACTIVE",
-                "type": "BUSINESS",
-                "currency": "USD",
-                "version": {"versionTag": "1.0"},
-            }
-        ]
-        mock_client_class.return_value = mock_client
+        # Mock the HTTP response
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "elements": [
+                {
+                    "id": "123456789",
+                    "name": "Test Account",
+                    "status": "ACTIVE",
+                    "type": "BUSINESS",
+                    "currency": "USD",
+                    "version": {"versionTag": "1.0"},
+                }
+            ]
+        }
+        mock_get.return_value = mock_response
 
         config = LinkedinAdsSourceConfig(account_id="123456789", linkedin_ads_integration_id=self.integration.id)
 
@@ -97,21 +100,24 @@ class TestLinkedInAdsIntegration:
         assert items[0]["id"] == "123456789"
         assert items[0]["name"] == "Test Account"
 
-    @patch("posthog.temporal.data_imports.sources.linkedin_ads.client.LinkedinAdsClient")
-    def test_linkedin_ads_source_campaigns(self, mock_client_class):
+    @patch("requests.Session.get")
+    def test_linkedin_ads_source_campaigns(self, mock_get):
         """Test LinkedIn Ads source for campaigns resource."""
-        # Mock the client
-        mock_client = Mock()
-        mock_client.get_campaigns.return_value = [
-            {
-                "id": "987654321",
-                "name": "Test Campaign",
-                "account": "urn:li:sponsoredAccount:123456789",
-                "status": "ACTIVE",
-                "changeAuditStamps": {"created": {"time": 1609459200000}, "lastModified": {"time": 1609459200000}},
-            }
-        ]
-        mock_client_class.return_value = mock_client
+        # Mock the HTTP response
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "elements": [
+                {
+                    "id": "987654321",
+                    "name": "Test Campaign",
+                    "account": "urn:li:sponsoredAccount:123456789",
+                    "status": "ACTIVE",
+                    "changeAuditStamps": {"created": {"time": 1609459200000}, "lastModified": {"time": 1609459200000}},
+                }
+            ]
+        }
+        mock_get.return_value = mock_response
 
         config = LinkedinAdsSourceConfig(account_id="123456789", linkedin_ads_integration_id=self.integration.id)
 
@@ -126,24 +132,27 @@ class TestLinkedInAdsIntegration:
         assert items[0]["id"] == "987654321"
         assert items[0]["name"] == "Test Campaign"
 
-    @patch("posthog.temporal.data_imports.sources.linkedin_ads.client.LinkedinAdsClient")
-    def test_linkedin_ads_source_analytics(self, mock_client_class):
+    @patch("requests.Session.get")
+    def test_linkedin_ads_source_analytics(self, mock_get):
         """Test LinkedIn Ads source for analytics data."""
-        # Mock the client
-        mock_client = Mock()
-        mock_client.get_analytics.return_value = [
-            {
-                "pivotValues": ["urn:li:sponsoredCampaign:987654321"],
-                "dateRange": {
-                    "start": {"year": 2025, "month": 8, "day": 1},
-                    "end": {"year": 2025, "month": 8, "day": 1},
-                },
-                "impressions": 1000,
-                "clicks": 50,
-                "costInUsd": "25.50",
-            }
-        ]
-        mock_client_class.return_value = mock_client
+        # Mock the HTTP response
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "elements": [
+                {
+                    "pivotValues": ["urn:li:sponsoredCampaign:987654321"],
+                    "dateRange": {
+                        "start": {"year": 2025, "month": 8, "day": 1},
+                        "end": {"year": 2025, "month": 8, "day": 1},
+                    },
+                    "impressions": 1000,
+                    "clicks": 50,
+                    "costInUsd": "25.50",
+                }
+            ]
+        }
+        mock_get.return_value = mock_response
 
         config = LinkedinAdsSourceConfig(account_id="123456789", linkedin_ads_integration_id=self.integration.id)
 
@@ -161,7 +170,7 @@ class TestLinkedInAdsIntegration:
         assert item["impressions"] == 1000
         assert item["clicks"] == 50
         assert item["cost_in_usd"] == 25.5
-        assert item["campaign_id"] == "987654321"
+        assert item["campaign_id"] == 987654321
 
     def test_linkedin_ads_source_circuit_breaker(self):
         """Test circuit breaker functionality."""
@@ -179,12 +188,14 @@ class TestLinkedInAdsIntegration:
             with pytest.raises(ValueError, match="Circuit breaker open"):
                 linkedin_ads_source(config=config, resource_name="accounts", team_id=self.team.id)
 
-    @patch("posthog.temporal.data_imports.sources.linkedin_ads.client.LinkedinAdsClient")
-    def test_validate_credentials_success(self, mock_client_class):
+    @patch("requests.Session.get")
+    def test_validate_credentials_success(self, mock_get):
         """Test successful credential validation."""
-        mock_client = Mock()
-        mock_client.get_accounts.return_value = [{"id": "123456789", "name": "Test Account"}]
-        mock_client_class.return_value = mock_client
+        # Mock the HTTP response
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"elements": [{"id": "123456789", "name": "Test Account"}]}
+        mock_get.return_value = mock_response
 
         source = LinkedInAdsSource()
         config = LinkedinAdsSourceConfig(account_id="123456789", linkedin_ads_integration_id=self.integration.id)

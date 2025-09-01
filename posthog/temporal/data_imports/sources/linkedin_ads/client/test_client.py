@@ -124,6 +124,7 @@ class TestLinkedInAdsClient:
         mock_response = Mock()
         mock_response.status_code = 429
         mock_response.text = "Too Many Requests"
+        mock_response.headers = {"Retry-After": "60"}
         mock_get.return_value = mock_response
 
         client = LinkedinAdsClient("test_token")
@@ -158,7 +159,7 @@ class TestLinkedInAdsClient:
         client = LinkedinAdsClient("test_token")
 
         assert client.access_token == "test_token"
-        assert client.base_url == "https://api.linkedin.com/v2"
+        assert client.base_url == "https://api.linkedin.com/rest"
         assert client.request_handler is not None
         assert client.date_handler is not None
 

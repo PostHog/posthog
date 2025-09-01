@@ -106,7 +106,7 @@ class TestDataFlattening:
         assert result["cost_in_usd"] == 25.5  # Converted to float
         assert result["date_range_start"] == date(2023, 1, 15)
         assert result["date_range_end"] == date(2023, 1, 15)
-        assert result["campaign_id"] == "123456789"
+        assert result["campaign_id"] == 123456789
 
     def test_flatten_campaign_data(self):
         """Test flattening campaign data."""

@@ -14,6 +14,7 @@ from ..utils.date_handler import LinkedinAdsDateHandler
 from .service import LinkedinAdsService
 
 
+@pytest.mark.django_db
 class TestLinkedinAdsService:
     """Test LinkedIn Ads service coordination functionality."""
 
@@ -36,7 +37,7 @@ class TestLinkedinAdsService:
         assert service.config == self.config
         assert service.team_id == self.team.id
         assert service.account_id == "123456789"
-        assert service.integration_id == str(self.integration.id)
+        assert service.integration_id == self.integration.id
 
     def test_service_validates_configuration(self):
         """Test service validates configuration on initialization."""
@@ -56,17 +57,19 @@ class TestLinkedinAdsService:
     @patch("posthog.models.integration.Integration.objects.get")
     def test_get_authenticated_client_success(self, mock_get):
         """Test successful client authentication."""
+        # Mock integration with access_token property
         mock_integration = Mock()
         mock_integration.access_token = "test_token"
         mock_get.return_value = mock_integration
 
         service = LinkedinAdsService(self.config, self.team.id)
 
-        with patch(
-            "posthog.temporal.data_imports.sources.linkedin_ads.service.service.LinkedinAdsClient"
-        ) as mock_client:
-            service._get_authenticated_client()
-            mock_client.assert_called_once_with("test_token")
+        # This will create a real LinkedinAdsClient but that's fine for this test
+        client = service._get_authenticated_client()
+
+        # Verify the client has the correct token
+        assert client.access_token == "test_token"
+        mock_get.assert_called_once_with(id=self.integration.id, team_id=self.team.id)
 
     @patch("posthog.models.integration.Integration.objects.get")
     def test_get_authenticated_client_missing_integration(self, mock_get):
