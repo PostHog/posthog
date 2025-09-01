@@ -190,7 +190,7 @@ class TestSQLMixins(NonAtomicBaseTest):
 
         # Should not raise any exception for valid complex SQL
         res = await mixin._quality_check_output(complex_output)
-        self.assertEqual(res, "SELECT * FROM events LIMIT 10")
+        self.assertEqual(res, "SELECT\n    *\nFROM\n    events\nLIMIT 10")
 
     async def test_quality_check_handles_variables(self):
         """Test quality check success with complex query including joins."""
@@ -202,4 +202,4 @@ class TestSQLMixins(NonAtomicBaseTest):
 
         # Should not raise any exception for valid complex SQL
         res = await mixin._quality_check_output(complex_output)
-        self.assertEqual(res, "SELECT event FROM events WHERE {variables.f}")
+        self.assertEqual(res, "SELECT\n    event\nFROM\n    events\nWHERE\n    {variables.f}")
