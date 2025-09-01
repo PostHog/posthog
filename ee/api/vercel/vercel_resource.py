@@ -192,5 +192,6 @@ class VercelResourceViewSet(VercelErrorResponseMixin, viewsets.GenericViewSet):
         https://vercel.com/docs/integrations/create-integration/marketplace-api#delete-resource
         """
         resource_id = validate_resource_id(self.kwargs.get("resource_id"))
-        VercelIntegration.delete_resource(resource_id)
+        installation_id = validate_installation_id(self.kwargs.get("parent_lookup_installation_id"))
+        VercelIntegration.delete_resource(resource_id, installation_id)
         return Response(status=204)

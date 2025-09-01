@@ -5,6 +5,7 @@ from unittest.mock import patch
 from django.db import IntegrityError
 from django.test import TestCase
 
+from rest_framework import exceptions
 from rest_framework.exceptions import NotFound, ValidationError
 
 from posthog.models.integration import Integration
@@ -227,6 +228,8 @@ class TestVercelIntegration(TestCase):
 
         resource = Integration.objects.get(pk=result["id"])
         assert resource.config == resource_data
+        assert resource.team.organization == self.organization
+        assert resource.created_by == self.installation.created_by
 
     def test_get_resource_with_installation(self):
         team = Team.objects.create(organization=self.organization, name="Test Team")
@@ -277,12 +280,48 @@ class TestVercelIntegration(TestCase):
             created_by=self.user,
         )
         resource_id = str(resource.pk)
-        VercelIntegration.delete_resource(resource_id)
+        VercelIntegration.delete_resource(resource_id, self.installation_id)
         assert not Integration.objects.filter(pk=resource_id).exists()
 
     def test_delete_resource_not_found(self):
         with self.assertRaises(NotFound):
             VercelIntegration.delete_resource("999999")
+
+    def test_create_resource_missing_name(self):
+        resource_data = {
+            "productId": "posthog",
+            "metadata": {"key": "value"},
+            "billingPlanId": "free",
+        }
+
+        with self.assertRaises(exceptions.ValidationError) as context:
+            VercelIntegration.create_resource(self.installation_id, resource_data)
+
+        assert "name" in str(context.exception.detail)
+
+    def test_delete_resource_wrong_installation(self):
+        different_org = Organization.objects.create(name="Different Org")
+        different_installation = OrganizationIntegration.objects.create(
+            organization=different_org,
+            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+            integration_id="inst_different",
+            config={"billing_plan_id": "free"},
+            created_by=self.user,
+        )
+
+        team = Team.objects.create(organization=self.organization, name="Test Team")
+        resource = Integration.objects.create(
+            team=team,
+            kind=Integration.IntegrationKind.VERCEL,
+            integration_id=str(team.pk),
+            config={"productId": "posthog", "name": "Test Resource"},
+            created_by=self.user,
+        )
+
+        with self.assertRaises(exceptions.ValidationError) as context:
+            VercelIntegration.delete_resource(str(resource.pk), different_installation.integration_id)
+
+        assert "Resource does not belong to this installation" in str(context.exception.detail)
 
     def test_build_secrets(self):
         team = Team.objects.create(organization=self.organization, name="Test Team", api_token="test_api_token")
@@ -292,6 +331,4 @@ class TestVercelIntegration(TestCase):
         assert secrets[0]["name"] == "POSTHOG_PROJECT_API_KEY"
         assert secrets[0]["value"] == "test_api_token"
         assert secrets[1]["name"] == "POSTHOG_HOST"
-        assert (
-            secrets[1]["value"] == "https://us.posthog.com"
-        )  # TODO: Make region dependent when we have region support
+        assert secrets[1]["value"] == "https://us.posthog.com"

@@ -215,6 +215,10 @@ class VercelIntegration:
             installation_id=installation_id,
             resource_name=resource_data.get("name"),
         )
+
+        if not resource_data.get("name"):
+            raise exceptions.ValidationError({"name": "Resource name is required."})
+
         installation = VercelIntegration._get_installation(installation_id)
         organization: Organization = installation.organization
 
@@ -277,9 +281,15 @@ class VercelIntegration:
         return VercelIntegration._build_resource_response(resource, installation)
 
     @staticmethod
-    def delete_resource(resource_id: str) -> None:
-        logger.info("Starting Vercel resource deletion", resource_id=resource_id)
+    def delete_resource(resource_id: str, installation_id: str | None = None) -> None:
+        logger.info("Starting Vercel resource deletion", resource_id=resource_id, installation_id=installation_id)
         resource = VercelIntegration._get_resource(resource_id)
+
+        if installation_id:
+            installation = VercelIntegration._get_installation(installation_id)
+            if resource.team.organization != installation.organization:
+                raise exceptions.ValidationError({"resource": "Resource does not belong to this installation."})
+
         resource.delete()
         logger.info("Successfully deleted Vercel resource", resource_id=resource_id)
 

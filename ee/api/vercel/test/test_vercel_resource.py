@@ -124,7 +124,7 @@ class TestVercelResourceAPI(VercelTestBase):
         response = self._request("delete")
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
-        mock_delete.assert_called_once_with(self.resource_id)
+        mock_delete.assert_called_once_with(self.resource_id, self.installation_id)
 
     @parameterized.expand(
         [
