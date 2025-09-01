@@ -1,15 +1,18 @@
-from typing import cast, Union
+from typing import Union, cast
+
+from posthog.schema import (
+    CachedRevenueExampleDataWarehouseTablesQueryResponse,
+    RevenueExampleDataWarehouseTablesQuery,
+    RevenueExampleDataWarehouseTablesQueryResponse,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
-from posthog.hogql_queries.query_runner import QueryRunnerWithHogQLContext
+
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.schema import (
-    RevenueExampleDataWarehouseTablesQuery,
-    RevenueExampleDataWarehouseTablesQueryResponse,
-    CachedRevenueExampleDataWarehouseTablesQueryResponse,
-)
-from ..views.revenue_analytics_charge_view import RevenueAnalyticsChargeView
+from posthog.hogql_queries.query_runner import QueryRunnerWithHogQLContext
+
+from ..views import RevenueAnalyticsChargeView
 
 
 class RevenueExampleDataWarehouseTablesQueryRunner(QueryRunnerWithHogQLContext):

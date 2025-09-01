@@ -4,13 +4,10 @@ from enum import StrEnum
 from typing import Annotated, Any, Literal, Optional, Self, TypeVar, Union
 
 from langchain_core.agents import AgentAction
-from langchain_core.messages import (
-    BaseMessage as LangchainBaseMessage,
-)
+from langchain_core.messages import BaseMessage as LangchainBaseMessage
 from langgraph.graph import END, START
 from pydantic import BaseModel, Field
 
-from ee.models import Conversation
 from posthog.schema import (
     AssistantEventType,
     AssistantFunnelsQuery,
@@ -21,14 +18,20 @@ from posthog.schema import (
     AssistantToolCallMessage,
     AssistantTrendsQuery,
     FailureMessage,
+    FunnelsQuery,
+    HogQLQuery,
     HumanMessage,
     MultiVisualizationMessage,
+    NotebookUpdateMessage,
     PlanningMessage,
     ReasoningMessage,
-    VisualizationMessage,
-    NotebookUpdateMessage,
+    RetentionQuery,
     TaskExecutionMessage,
+    TrendsQuery,
+    VisualizationMessage,
 )
+
+from ee.models import Conversation
 
 AIMessageUnion = Union[
     AssistantMessage,
@@ -48,6 +51,10 @@ AssistantOutput = (
     | tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageOrStatusUnion]
 )
 
+AnyAssistantGeneratedQuery = (
+    AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
+)
+AnyAssistantSupportedQuery = TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery
 # We define this since AssistantMessageUnion is a type and wouldn't work with isinstance()
 ASSISTANT_MESSAGE_TYPES = (
     HumanMessage,

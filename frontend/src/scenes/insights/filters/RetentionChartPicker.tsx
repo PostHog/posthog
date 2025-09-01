@@ -1,6 +1,8 @@
+import { useActions, useValues } from 'kea'
+
 import { IconGraph, IconTrends } from '@posthog/icons'
 import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -46,7 +48,7 @@ const OPTIONS: LemonSelectOptions<ChartDisplayType> = [
 ]
 
 export function RetentionChartPicker(): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, editingDisabledReason } = useValues(insightLogic)
     const { retentionFilter } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
@@ -63,6 +65,7 @@ export function RetentionChartPicker(): JSX.Element {
             data-attr="chart-filter"
             options={OPTIONS}
             size="small"
+            disabledReason={editingDisabledReason}
         />
     )
 }

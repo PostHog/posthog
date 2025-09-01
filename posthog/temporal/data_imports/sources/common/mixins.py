@@ -1,11 +1,11 @@
+from collections.abc import Callable, Generator
 from contextlib import _GeneratorContextManager, contextmanager
 from typing import Any
-from collections.abc import Callable
-from collections.abc import Generator
+
 from posthog.cloud_utils import is_cloud
+from posthog.models.integration import Integration
 from posthog.utils import get_instance_region
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
-from posthog.models.integration import Integration
 
 
 class SSHTunnelMixin:

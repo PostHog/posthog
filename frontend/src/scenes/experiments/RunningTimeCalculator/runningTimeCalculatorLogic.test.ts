@@ -1,4 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
+
+import { uuid } from 'lib/utils'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 
 import { ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
@@ -25,6 +27,7 @@ describe('runningTimeCalculatorLogic', () => {
                 experimentLogic.actions.setExperiment({
                     metrics: [
                         {
+                            uuid: uuid(),
                             kind: NodeKind.ExperimentMetric,
                             metric_type: ExperimentMetricType.MEAN,
                             source: {
@@ -78,6 +81,7 @@ describe('runningTimeCalculatorLogic', () => {
                 experimentLogic.actions.setExperiment({
                     metrics: [
                         {
+                            uuid: uuid(),
                             kind: NodeKind.ExperimentMetric,
                             metric_type: ExperimentMetricType.MEAN,
                             source: {
@@ -134,6 +138,7 @@ describe('runningTimeCalculatorLogic', () => {
                 experimentLogic.actions.setExperiment({
                     metrics: [
                         {
+                            uuid: uuid(),
                             kind: NodeKind.ExperimentMetric,
                             metric_type: ExperimentMetricType.MEAN,
                             source: {
@@ -187,6 +192,7 @@ describe('runningTimeCalculatorLogic', () => {
                 experimentLogic.actions.setExperiment({
                     metrics: [
                         {
+                            uuid: uuid(),
                             kind: NodeKind.ExperimentMetric,
                             metric_type: ExperimentMetricType.MEAN,
                             source: {
@@ -244,6 +250,7 @@ describe('runningTimeCalculatorLogic', () => {
                 experimentLogic.actions.setExperiment({
                     metrics: [
                         {
+                            uuid: uuid(),
                             metric_type: ExperimentMetricType.FUNNEL,
                             series: [
                                 {
@@ -306,6 +313,7 @@ describe('runningTimeCalculatorLogic', () => {
                 experimentLogic.actions.setExperiment({
                     metrics: [
                         {
+                            uuid: uuid(),
                             metric_type: ExperimentMetricType.FUNNEL,
                             series: [
                                 {

@@ -3,16 +3,17 @@ from typing import Any, Generic, Literal, Union
 from uuid import UUID
 
 from langchain_core.runnables import RunnableConfig
+
+from posthog.schema import AssistantMessage, AssistantToolCall, MaxBillingContext, MaxUIContext
+
+from posthog.models import Team
+from posthog.models.user import User
+from posthog.sync import database_sync_to_async
+
 from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import find_last_ui_context
-from ee.hogai.utils.types.composed import MaxNodeName
-from ee.models import Conversation
-from posthog.models import Team
-from posthog.models.user import User
-from posthog.schema import AssistantMessage, AssistantToolCall, MaxUIContext, MaxBillingContext
-from posthog.sync import database_sync_to_async
-
+from ee.hogai.utils.state import LangGraphState
 from ee.hogai.utils.types import (
     AssistantMessageUnion,
     AssistantState,
@@ -20,7 +21,8 @@ from ee.hogai.utils.types import (
     PartialStateType,
     StateType,
 )
-from ee.hogai.utils.state import LangGraphState
+from ee.hogai.utils.types.composed import MaxNodeName
+from ee.models import Conversation
 
 
 class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMixin):

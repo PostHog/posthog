@@ -1,17 +1,17 @@
+import json
+import hashlib
+from typing import Optional
+
 from django.db import models
 
-from typing import Optional
-import hashlib
 import structlog
 
-from posthog.models.utils import UUIDModel
-
-import json
+from posthog.models.utils import UUIDTModel
 
 logger = structlog.get_logger(__name__)
 
 
-class HogFunctionTemplate(UUIDModel):
+class HogFunctionTemplate(UUIDTModel):
     """
     Django model for storing HogFunction templates in the database.
     This model replaces the in-memory storage of templates and enables sha versioning,

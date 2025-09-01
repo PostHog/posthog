@@ -1,5 +1,7 @@
 import { BuiltLogic, LogicWrapper, useValues } from 'kea'
+
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -7,7 +9,6 @@ import { Query } from '~/queries/Query/Query'
 import { SavedInsightNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
-import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 
 interface InsightProps {
     query: SavedInsightNode

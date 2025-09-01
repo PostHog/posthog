@@ -136,6 +136,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
                 revenueProperty: 'value',
                 revenueCurrencyProperty: { static: CurrencyCode.ZAR },
                 subscriptionDropoffDays: 45,
+                subscriptionDropoffMode: 'last_event',
                 currencyAwareDecimal: false,
             },
             {
@@ -143,6 +144,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
                 revenueProperty: 'subscription_value',
                 revenueCurrencyProperty: { property: 'currency' },
                 subscriptionDropoffDays: 45,
+                subscriptionDropoffMode: 'after_dropoff_period',
                 currencyAwareDecimal: true,
             },
         ],

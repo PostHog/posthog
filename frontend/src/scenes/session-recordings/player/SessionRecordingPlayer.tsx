@@ -1,38 +1,41 @@
 import './SessionRecordingPlayer.scss'
 
-import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
+import { useEffect, useMemo, useRef } from 'react'
+
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { BuilderHog2, SleepingHog } from 'lib/components/hedgehogs'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import posthog from 'posthog-js'
-import { useEffect, useMemo, useRef } from 'react'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
-import { PlayerFrameCommentOverlay } from 'scenes/session-recordings/player/commenting/PlayerFrameCommentOverlay'
 import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNotFound'
+import { PlayerFrameCommentOverlay } from 'scenes/session-recordings/player/commenting/PlayerFrameCommentOverlay'
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { urls } from 'scenes/urls'
 
-import { PlayerController } from './controller/PlayerController'
-import { PlayerMeta } from './player-meta/PlayerMeta'
 import { PlayerFrame } from './PlayerFrame'
 import { PlayerFrameOverlay } from './PlayerFrameOverlay'
-import { playerSettingsLogic } from './playerSettingsLogic'
 import { PlayerSidebar } from './PlayerSidebar'
-import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
 import { SessionRecordingNextConfirmation } from './SessionRecordingNextConfirmation'
+import { PlayerController } from './controller/PlayerController'
+import { PlayerMeta } from './player-meta/PlayerMeta'
+import { playerSettingsLogic } from './playerSettingsLogic'
+import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
 import {
     ONE_FRAME_MS,
     PLAYBACK_SPEEDS,
-    sessionRecordingPlayerLogic,
     SessionRecordingPlayerLogicProps,
     SessionRecordingPlayerMode,
+    sessionRecordingPlayerLogic,
 } from './sessionRecordingPlayerLogic'
 import { SessionRecordingPlayerExplorer } from './view-explorer/SessionRecordingPlayerExplorer'
+
+const MAX_PLAYBACK_SPEED = 4
 
 export interface SessionRecordingPlayerProps extends SessionRecordingPlayerLogicProps {
     noMeta?: boolean
@@ -91,6 +94,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         seekBackward,
         seekForward,
         setSpeed,
+        setSkipInactivitySetting,
         closeExplorer,
     } = useActions(sessionRecordingPlayerLogic(logicProps))
     const { isNotFound, isRecentAndInvalid, isLikelyPastTTL } = useValues(sessionRecordingDataLogic(logicProps))
@@ -100,7 +104,9 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
     const speedHotkeys = useMemo(() => createPlaybackSpeedKey(setSpeed), [setSpeed])
     const { isVerticallyStacked, sidebarOpen } = useValues(playerSettingsLogic)
 
-    const isScreenshotMode = mode === SessionRecordingPlayerMode.Screenshot
+    // For export modes, we don't want to show the player elements
+    const hidePlayerElements =
+        mode === SessionRecordingPlayerMode.Screenshot || mode === SessionRecordingPlayerMode.Video
 
     useEffect(
         () => {
@@ -114,6 +120,21 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [isLikelyPastTTL]
     )
+
+    /**
+     * If it's screenshot or video mode, we want to disable inactivity skipping.
+     * For video, we also want to speed up the playback.
+     */
+    useEffect(() => {
+        if (hidePlayerElements) {
+            setSkipInactivitySetting(false)
+        }
+
+        if (mode === SessionRecordingPlayerMode.Video) {
+            // Not the maximum, but 4 for a balance between speed and quality
+            setSpeed(MAX_PLAYBACK_SPEED)
+        }
+    }, [mode, setSkipInactivitySetting, setSpeed, hidePlayerElements])
 
     useEffect(
         () => {
@@ -256,21 +277,21 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                 ) : (
                                     <div className="flex w-full h-full">
                                         <div className="flex flex-col flex-1 w-full">
-                                            {isScreenshotMode || (noMeta && !isFullScreen) ? null : <PlayerMeta />}
+                                            {hidePlayerElements || (noMeta && !isFullScreen) ? null : <PlayerMeta />}
                                             <div
                                                 className="SessionRecordingPlayer__body"
                                                 draggable={draggable}
                                                 {...elementProps}
                                             >
                                                 <PlayerFrame />
-                                                {!isScreenshotMode ? (
+                                                {!hidePlayerElements ? (
                                                     <>
                                                         <PlayerFrameOverlay />
                                                         <PlayerFrameCommentOverlay />
                                                     </>
                                                 ) : null}
                                             </div>
-                                            {!isScreenshotMode ? <PlayerController /> : null}
+                                            {!hidePlayerElements ? <PlayerController /> : null}
                                         </div>
                                     </div>
                                 )}

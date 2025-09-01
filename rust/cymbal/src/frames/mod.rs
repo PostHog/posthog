@@ -7,7 +7,10 @@ use serde_json::Value;
 use crate::{
     error::UnhandledError,
     fingerprinting::{FingerprintBuilder, FingerprintComponent, FingerprintRecordPart},
-    langs::{custom::CustomFrame, js::RawJSFrame, node::RawNodeFrame, python::RawPythonFrame},
+    langs::{
+        custom::CustomFrame, go::RawGoFrame, js::RawJSFrame, node::RawNodeFrame,
+        python::RawPythonFrame,
+    },
     metric_consts::PER_FRAME_TIME,
     sanitize_string,
     symbol_store::Catalog,
@@ -28,6 +31,8 @@ pub enum RawFrame {
     JavaScriptWeb(RawJSFrame),
     #[serde(rename = "node:javascript")]
     JavaScriptNode(RawNodeFrame),
+    #[serde(rename = "go")]
+    Go(RawGoFrame),
     // TODO - remove once we're happy no clients are using this anymore
     #[serde(rename = "javascript")]
     LegacyJS(RawJSFrame),
@@ -47,6 +52,7 @@ impl RawFrame {
             }
             RawFrame::Python(frame) => (Ok(frame.into()), "python"),
             RawFrame::Custom(frame) => (Ok(frame.into()), "custom"),
+            RawFrame::Go(frame) => (Ok(frame.into()), "go"),
         };
 
         // The raw id of the frame is set after it's resolved
@@ -70,10 +76,10 @@ impl RawFrame {
         match self {
             RawFrame::JavaScriptWeb(frame) | RawFrame::LegacyJS(frame) => frame.symbol_set_ref(),
             RawFrame::JavaScriptNode(_) => None, // Node.js frames don't have symbol sets
-            // TODO - python frames don't use symbol sets for frame resolution, but could still use "marker" symbol set
+            // TODO - Python and Go frames don't use symbol sets for frame resolution, but could still use "marker" symbol set
             // to associate a given frame with a given release (basically, a symbol set with no data, just some id,
             // which we'd then use to do a join on the releases table to get release information)
-            RawFrame::Python(_) => None,
+            RawFrame::Python(_) | RawFrame::Go(_) => None,
             RawFrame::Custom(_) => None,
         }
     }
@@ -83,6 +89,7 @@ impl RawFrame {
             RawFrame::JavaScriptWeb(raw) | RawFrame::LegacyJS(raw) => raw.frame_id(),
             RawFrame::JavaScriptNode(raw) => raw.frame_id(),
             RawFrame::Python(raw) => raw.frame_id(),
+            RawFrame::Go(raw) => raw.frame_id(),
             RawFrame::Custom(raw) => raw.frame_id(),
         }
     }

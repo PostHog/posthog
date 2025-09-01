@@ -1,9 +1,10 @@
 import './ButtonPrimitives.scss'
 
-import { cva, type VariantProps } from 'cva'
+import { type VariantProps, cva } from 'cva'
+import React, { ReactNode, createContext, forwardRef, useContext } from 'react'
+
 import { Tooltip, TooltipProps } from 'lib/lemon-ui/Tooltip/Tooltip'
 import { cn } from 'lib/utils/css-classes'
-import React, { createContext, forwardRef, ReactNode, useContext } from 'react'
 
 /* -------------------------------------------------------------------------- */
 /*                           Props & Contexts & Hooks                         */
@@ -145,7 +146,7 @@ export const buttonPrimitiveVariants = cva({
             fit: 'px-0',
         },
         autoHeight: {
-            true: 'button-primitive--height-auto',
+            true: 'button-primitive--height-auto h-auto',
             false: '',
         },
         iconOnly: {

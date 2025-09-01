@@ -1,11 +1,12 @@
+import { useValues } from 'kea'
+
 import { IconInfo } from '@posthog/icons'
 import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 
-import { EXPERIMENT_MAX_PRIMARY_METRICS, EXPERIMENT_MAX_SECONDARY_METRICS } from '../../constants'
-import { credibleIntervalForVariant } from '../../legacyExperimentCalculations'
 import { experimentLogic } from '../../experimentLogic'
+import { credibleIntervalForVariant } from '../../legacyExperimentCalculations'
 import { AddPrimaryMetric, AddSecondaryMetric } from '../shared/AddMetric'
 import { getNiceTickValues } from '../shared/utils'
 import { DeltaChart } from './DeltaChart'
@@ -46,8 +47,8 @@ export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): J
 
     // Calculate the maximum absolute value across ALL metrics
     const maxAbsValue = Math.max(
-        ...metrics.flatMap((metric, metricIndex) => {
-            const result = results?.[metricIndex]
+        ...metrics.flatMap((metric, index) => {
+            const result = results?.[index]
             if (!result) {
                 return []
             }
@@ -145,19 +146,19 @@ export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): J
             {metrics.length > 0 ? (
                 <div className="w-full overflow-x-auto">
                     <div className="min-w-[1000px]">
-                        {metrics.map((metric, metricIndex) => {
-                            const result = results?.[metricIndex]
-                            const isFirstMetric = metricIndex === 0
+                        {metrics.map((metric, index) => {
+                            const result = results?.[index]
+                            const isFirstMetric = index === 0
 
                             return (
                                 <div
-                                    key={metricIndex}
+                                    key={metric.uuid || index}
                                     className={`w-full border border-primary bg-light ${
                                         metrics.length === 1
                                             ? 'rounded'
                                             : isFirstMetric
                                               ? 'rounded-t'
-                                              : metricIndex === metrics.length - 1
+                                              : index === metrics.length - 1
                                                 ? 'rounded-b'
                                                 : ''
                                     }`}
@@ -165,12 +166,12 @@ export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): J
                                     <DeltaChart
                                         isSecondary={!!isSecondary}
                                         result={result}
-                                        error={errors?.[metricIndex]}
+                                        error={errors?.[index]}
                                         variants={variants}
                                         metricType={getInsightType(metric)}
-                                        metricIndex={metricIndex}
-                                        isFirstMetric={isFirstMetric}
+                                        displayOrder={index}
                                         metric={metric}
+                                        isFirstMetric={isFirstMetric}
                                         tickValues={commonTickValues}
                                         chartBound={chartBound}
                                     />
@@ -184,11 +185,6 @@ export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): J
                     <div className="flex flex-col items-center mx-auto deprecated-space-y-3">
                         <IconAreaChart fontSize="30" />
                         <div className="text-sm text-center text-balance max-w-sm">
-                            <p>
-                                {`Add up to ${
-                                    isSecondary ? EXPERIMENT_MAX_SECONDARY_METRICS : EXPERIMENT_MAX_PRIMARY_METRICS
-                                } ${isSecondary ? 'secondary' : 'primary'} metrics.`}
-                            </p>
                             <p>
                                 {isSecondary
                                     ? 'Secondary metrics provide additional context and help detect unintended side effects.'

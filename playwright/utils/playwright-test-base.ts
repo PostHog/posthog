@@ -1,4 +1,5 @@
 import { Page, test as base } from '@playwright/test'
+
 import { urls } from 'scenes/urls'
 
 import { AppContext } from '~/types'
@@ -45,6 +46,12 @@ export const test = base.extend<{ loginBeforeTests: void; page: Page }>({
         page.goToMenuItem = async function (name: Identifier): Promise<void> {
             await new Navigation(page).openMenuItem(name)
         }
+
+        await page.route('/api/instance_status', async (route) => {
+            const json = require('./fixtures/_instance_status.json')
+            await route.fulfill({ json })
+        })
+
         // page.resetCapturedEvents = async function () {
         //     await this.evaluate(() => {
         //         ;(window as WindowWithPostHog).capturedEvents = []

@@ -1,20 +1,18 @@
-import asyncio
-import base64
-import dataclasses
-import datetime
-import datetime as dt
-import gzip
-import hashlib
-import json
-from django.urls import URLPattern, re_path
-import orjson
 import os
 import re
-import secrets
-import string
+import gzip
+import json
 import time
 import uuid
 import zlib
+import base64
+import string
+import asyncio
+import hashlib
+import secrets
+import datetime
+import datetime as dt
+import dataclasses
 from collections.abc import Callable, Generator, Mapping
 from contextlib import contextmanager
 from enum import Enum
@@ -24,15 +22,6 @@ from typing import TYPE_CHECKING, Any, Optional, Union, cast
 from urllib.parse import unquote, urljoin, urlparse
 from zoneinfo import ZoneInfo
 
-import lzstring
-import posthoganalytics
-import pytz
-import structlog
-from asgiref.sync import async_to_sync
-from celery.result import AsyncResult
-from celery.schedules import crontab
-from dateutil import parser
-from dateutil.relativedelta import relativedelta
 from django.apps import apps
 from django.conf import settings
 from django.core.cache import cache
@@ -40,18 +29,28 @@ from django.db import ProgrammingError
 from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
+from django.urls import URLPattern, re_path
 from django.utils import timezone
 from django.utils.cache import patch_cache_control
+
+import pytz
+import orjson
+import lzstring
+import structlog
+import posthoganalytics
+from asgiref.sync import async_to_sync
+from celery.result import AsyncResult
+from celery.schedules import crontab
+from dateutil import parser
+from dateutil.relativedelta import relativedelta
 from rest_framework import serializers
 from rest_framework.request import Request
 from rest_framework.utils.encoders import JSONEncoder
+from user_agents import parse
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
-from posthog.exceptions import (
-    RequestParsingError,
-    UnspecifiedCompressionFallbackParsingError,
-)
+from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
 from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.metrics import KLUDGES_COUNTER
@@ -60,7 +59,7 @@ from posthog.redis import get_client
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 
-    from posthog.models import Team, User, Dashboard, InsightVariable
+    from posthog.models import Dashboard, InsightVariable, Team, User
 
 DATERANGE_MAP = {
     "second": datetime.timedelta(seconds=1),
@@ -319,29 +318,20 @@ def get_js_url(request: HttpRequest) -> str:
     return settings.JS_URL
 
 
-def render_template(
-    template_name: str,
+def get_context_for_template(
     request: HttpRequest,
     context: Optional[dict] = None,
-    *,
     team_for_public_context: Optional["Team"] = None,
-    status_code: Optional[int] = None,
-) -> HttpResponse:
-    """Render Django template.
-
-    If team_for_public_context is provided, this means this is a public page such as a shared dashboard.
-    """
-
+) -> dict:
     if context is None:
         context = {}
-    template = get_template(template_name)
 
     context["opt_out_capture"] = settings.OPT_OUT_CAPTURE
     context["self_capture"] = settings.SELF_CAPTURE
     context["region"] = get_instance_region()
 
-    if stripe_public_key := os.environ.get("STRIPE_PUBLIC_KEY"):
-        context["stripe_public_key"] = stripe_public_key
+    if settings.STRIPE_PUBLIC_KEY:
+        context["stripe_public_key"] = settings.STRIPE_PUBLIC_KEY
 
     context["git_rev"] = get_git_commit_short()  # Include commit in prod for the `console.info()` message
     if settings.DEBUG and not settings.TEST:
@@ -350,23 +340,23 @@ def render_template(
         # Add vite dev scripts for development only when explicitly using Vite
         if not settings.E2E_TESTING and os.environ.get("POSTHOG_USE_VITE"):
             context["vite_dev_scripts"] = """
-    <script type="module">
-        import RefreshRuntime from 'http://localhost:8234/@react-refresh'
-        RefreshRuntime.injectIntoGlobalHook(window)
-        window.$RefreshReg$ = () => {}
-        window.$RefreshSig$ = () => (type) => type
-        window.__vite_plugin_react_preamble_installed__ = true
-    </script>
-    <!-- Vite development server -->
-    <script type="module" src="http://localhost:8234/@vite/client"></script>
-    <script type="module" src="http://localhost:8234/src/index.tsx"></script>"""
+        <script type="module">
+            import RefreshRuntime from 'http://localhost:8234/@react-refresh'
+            RefreshRuntime.injectIntoGlobalHook(window)
+            window.$RefreshReg$ = () => {}
+            window.$RefreshSig$ = () => (type) => type
+            window.__vite_plugin_react_preamble_installed__ = true
+        </script>
+        <!-- Vite development server -->
+        <script type="module" src="http://localhost:8234/@vite/client"></script>
+        <script type="module" src="http://localhost:8234/src/index.tsx"></script>"""
 
     context["js_posthog_ui_host"] = ""
 
     if settings.E2E_TESTING:
         context["e2e_testing"] = True
         context["js_posthog_api_key"] = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"
-        context["js_posthog_host"] = "https://internal-t.posthog.com"
+        context["js_posthog_host"] = "https://internal-j.posthog.com"
         context["js_posthog_ui_host"] = "https://us.posthog.com"
 
     elif settings.SELF_CAPTURE:
@@ -375,7 +365,7 @@ def render_template(
             context["js_posthog_host"] = ""  # Becomes location.origin in the frontend
     else:
         context["js_posthog_api_key"] = "sTMFPsFhdP1Ssg"
-        context["js_posthog_host"] = "https://internal-t.posthog.com"
+        context["js_posthog_host"] = "https://internal-j.posthog.com"
         context["js_posthog_ui_host"] = "https://us.posthog.com"
 
     context["js_capture_time_to_see_data"] = settings.CAPTURE_TIME_TO_SEE_DATA
@@ -396,7 +386,7 @@ def render_template(
         from posthog.api.shared import TeamPublicSerializer
         from posthog.api.team import TeamSerializer
         from posthog.api.user import UserSerializer
-        from posthog.rbac.user_access_control import UserAccessControl, ACCESS_CONTROL_RESOURCES
+        from posthog.rbac.user_access_control import ACCESS_CONTROL_RESOURCES, UserAccessControl
         from posthog.user_permissions import UserPermissions
         from posthog.views import preflight_check
 
@@ -497,12 +487,32 @@ def render_template(
 
     context["posthog_js_uuid_version"] = settings.POSTHOG_JS_UUID_VERSION
 
+    return context
+
+
+def render_template(
+    template_name: str,
+    request: HttpRequest,
+    context: Optional[dict] = None,
+    *,
+    team_for_public_context: Optional["Team"] = None,
+    status_code: Optional[int] = None,
+) -> HttpResponse:
+    """Render Django template.
+
+    If team_for_public_context is provided, this means this is a public page such as a shared dashboard.
+    """
+
+    context = get_context_for_template(request, context, team_for_public_context)
+    template = get_template(template_name)
+
     html = template.render(context, request=request)
     response = HttpResponse(html)
     if status_code:
         response.status_code = status_code
     if not request.user.is_anonymous:
         patch_cache_control(response, no_store=True)
+
     return response
 
 
@@ -525,8 +535,8 @@ async def initialize_self_capture_api_token():
         if user and getattr(user, "current_team", None):
             team = user.current_team
         else:
-            team = await Team.objects.only("api_token").aget()
-        local_api_key = team.api_token
+            team = await Team.objects.only("api_token").afirst()
+        local_api_key = team.api_token if team else None
     except (User.DoesNotExist, Team.DoesNotExist, ProgrammingError):
         local_api_key = None
 
@@ -615,6 +625,21 @@ def get_ip_address(request: HttpRequest) -> str:
         ip = ip.split(":")[0]
 
     return ip
+
+
+def get_short_user_agent(request: HttpRequest) -> str:
+    """Returns browser and OS info from user agent, eg: 'Chrome 135.0.0 on macOS 10.15'"""
+    user_agent_str = request.META.get("HTTP_USER_AGENT")
+    if not user_agent_str:
+        return ""
+
+    user_agent = parse(user_agent_str)
+
+    # strip the last (patch/build) number from the version, it can change frequently
+    browser_version = ".".join(str(x) for x in user_agent.browser.version[:3])
+    os_version = ".".join(str(x) for x in user_agent.os.version[:2])
+
+    return f"{user_agent.browser.family} {browser_version} on {user_agent.os.family} {os_version}"
 
 
 def dict_from_cursor_fetchall(cursor):
@@ -1139,35 +1164,41 @@ def cache_requested_by_client(request: Request) -> bool | str:
     return _request_has_key_set("use_cache", request)
 
 
-def filters_override_requested_by_client(request: Request) -> Optional[dict]:
-    raw_filters = request.query_params.get("filters_override")
+def filters_override_requested_by_client(request: Request, dashboard: Optional["Dashboard"]) -> dict:
+    from posthog.auth import SharingAccessTokenAuthentication
 
-    if raw_filters is not None:
-        try:
-            return json.loads(raw_filters)
-        except Exception:
-            raise serializers.ValidationError({"filters_override": "Invalid JSON passed in filters_override parameter"})
+    dashboard_filters = dashboard.filters if dashboard else {}
+    raw_override = request.query_params.get("filters_override")
 
-    return None
+    # Security: Don't allow overrides when accessing via sharing tokens
+    if not raw_override or isinstance(request.successful_authenticator, SharingAccessTokenAuthentication):
+        return dashboard_filters
+
+    try:
+        request_filters = json.loads(raw_override)
+    except Exception:
+        raise serializers.ValidationError({"filters_override": "Invalid JSON passed in filters_override parameter"})
+
+    return {**dashboard_filters, **request_filters}
 
 
 def variables_override_requested_by_client(
     request: Optional[Request], dashboard: Optional["Dashboard"], variables: list["InsightVariable"]
 ) -> Optional[dict[str, dict]]:
     from posthog.api.insight_variable import map_stale_to_latest
+    from posthog.auth import SharingAccessTokenAuthentication
 
-    raw_variables_override_param = request.query_params.get("variables_override") if request else None
+    dashboard_variables = (dashboard and dashboard.variables) or {}
+    raw_override = request.query_params.get("variables_override") if request else None
 
-    request_variables = {}
-    dashboard_variables = dashboard.variables if dashboard else {}
+    # Security: Don't allow overrides when accessing via sharing tokens
+    if not raw_override or (request and isinstance(request.successful_authenticator, SharingAccessTokenAuthentication)):
+        return map_stale_to_latest(dashboard_variables, variables)
 
-    if raw_variables_override_param is not None:
-        try:
-            request_variables = json.loads(raw_variables_override_param)
-        except Exception:
-            raise serializers.ValidationError(
-                {"variables_override": "Invalid JSON passed in variables_override parameter"}
-            )
+    try:
+        request_variables = json.loads(raw_override)
+    except Exception:
+        raise serializers.ValidationError({"variables_override": "Invalid JSON passed in variables_override parameter"})
 
     return map_stale_to_latest({**dashboard_variables, **request_variables}, variables)
 

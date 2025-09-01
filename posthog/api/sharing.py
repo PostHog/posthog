@@ -8,12 +8,15 @@ from django.db.models import Q
 from django.shortcuts import render
 from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
+
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import SAFE_METHODS
 from rest_framework.request import Request
+
+from posthog.schema import SharingConfigurationSettings
 
 from posthog.api.dashboards.dashboard import DashboardSerializer
 from posthog.api.data_color_theme import DataColorTheme, DataColorThemeSerializer
@@ -23,23 +26,18 @@ from posthog.api.insight_variable import InsightVariable
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import AvailableFeature
-from posthog.models import SessionRecording, SharingConfiguration, Team, InsightViewed
-from posthog.schema import SharingConfigurationSettings
+from posthog.exceptions_capture import capture_exception
+from posthog.jwt import PosthogJwtAudience, encode_jwt
+from posthog.models import InsightViewed, SessionRecording, SharingConfiguration, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.dashboard import Dashboard
-from posthog.models.exported_asset import (
-    ExportedAsset,
-    asset_for_token,
-    get_content_response,
-)
+from posthog.models.exported_asset import ExportedAsset, asset_for_token, get_content_response
 from posthog.models.insight import Insight
 from posthog.models.user import User
+from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
 from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
 from posthog.user_permissions import UserPermissions
-from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
 from posthog.utils import render_template
-from posthog.jwt import encode_jwt, PosthogJwtAudience
-from posthog.exceptions_capture import capture_exception
 
 
 def shared_url_as_png(url: str = "") -> str:
@@ -385,6 +383,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             InsightViewed.objects.update_or_create(
                 insight=resource.insight, team=None, user=None, defaults={"last_viewed_at": now()}
             )
+
             # Add hideExtraDetails to context so that PII related information is not returned to the client
             insight_context = {**context, "hide_extra_details": state.get("hideExtraDetails", False)}
             insight_data = InsightSerializer(resource.insight, many=False, context=insight_context).data
@@ -395,6 +394,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             asset_description = resource.dashboard.description or ""
             resource.dashboard.last_accessed_at = now()
             resource.dashboard.save(update_fields=["last_accessed_at"])
+
             with task_chain_context():
                 dashboard_data = DashboardSerializer(resource.dashboard, context=context).data
                 # We don't want the dashboard to be accidentally loaded via the shared endpoint
@@ -411,6 +411,19 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
 
             if not session_recording_id:
                 raise NotFound("Invalid replay export - missing session_recording_id")
+
+            # Validate session_recording_id format (UUID-like)
+            if not isinstance(session_recording_id, str) or len(session_recording_id) > 200:
+                raise NotFound("Invalid session_recording_id format")
+
+            # Validate timestamp is a number if present
+            if timestamp is not None:
+                try:
+                    timestamp = float(timestamp)
+                    if timestamp < 0:  # Negative timestamps don't make sense
+                        timestamp = 0
+                except (ValueError, TypeError):
+                    timestamp = 0  # Default to start if invalid
 
             # Create a SessionRecording object for the replay
             try:
@@ -431,6 +444,10 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 asset_title = "Session Recording"
                 asset_description = f"Recording {session_recording_id}"
 
+                mode = resource.export_context.get("mode")
+                if mode not in ("screenshot", "video"):
+                    mode = "screenshot"
+
                 recording_data = SessionRecordingSerializer(recording, context=context).data
 
                 exported_data.update(
@@ -442,7 +459,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                         "exportToken": export_access_token,
                         "noBorder": True,
                         "autoplay": True,
-                        "mode": "screenshot",
+                        "mode": mode,
                     }
                 )
 

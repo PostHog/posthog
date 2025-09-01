@@ -1,10 +1,11 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { cn } from 'lib/utils/css-classes'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -16,29 +17,29 @@ import {
     InsightTimeoutState,
     InsightValidationError,
 } from 'scenes/insights/EmptyStates'
+import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { FunnelCorrelation } from 'scenes/insights/views/Funnels/FunnelCorrelation'
 import { FunnelStepsTable } from 'scenes/insights/views/Funnels/FunnelStepsTable'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
+import { PathsV2 } from 'scenes/paths-v2/PathsV2'
 import { Paths } from 'scenes/paths/Paths'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
-import { PathsV2 } from 'scenes/paths-v2/PathsV2'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { TrendInsight } from 'scenes/trends/Trends'
-import { InsightCalendarHeatMapContainer } from 'scenes/web-analytics/CalendarHeatMap/InsightCalendarHeatMapContainer'
 
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
+import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+import { shouldQueryBeAsync } from '~/queries/utils'
 import { ExporterFormat, FunnelVizType, InsightType, ItemMode } from '~/types'
 
 import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { InsightResultMetadata } from './InsightResultMetadata'
 import { ResultCustomizationsModal } from './ResultCustomizationsModal'
-import { shouldQueryBeAsync } from '~/queries/utils'
-import { InsightVizNode } from '~/queries/schema/schema-general'
 
 export function InsightVizDisplay({
     disableHeader,
@@ -65,7 +66,6 @@ export function InsightVizDisplay({
 }): JSX.Element | null {
     const { insightProps, canEditInsight, isUsingPathsV1, isUsingPathsV2 } = useValues(insightLogic)
 
-    const { featureFlags } = useValues(featureFlagLogic)
     const { activeView } = useValues(insightNavLogic(insightProps))
 
     const { hasFunnelResults } = useValues(funnelDataLogic(insightProps))
@@ -87,6 +87,7 @@ export function InsightVizDisplay({
     } = useValues(insightVizDataLogic(insightProps))
     const { loadData } = useActions(insightVizDataLogic(insightProps))
     const { exportContext, queryId } = useValues(insightDataLogic(insightProps))
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
@@ -163,11 +164,6 @@ export function InsightVizDisplay({
                         inSharedMode={inSharedMode}
                     />
                 )
-            case InsightType.CALENDAR_HEATMAP:
-                if (featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT]) {
-                    return <InsightCalendarHeatMapContainer context={context} />
-                }
-                return null
             case InsightType.FUNNELS:
                 return <Funnel inCardView={embedded} inSharedMode={inSharedMode} showPersonsModal={!inSharedMode} />
             case InsightType.RETENTION:
@@ -197,10 +193,14 @@ export function InsightVizDisplay({
             !disableTable
         ) {
             return (
-                <>
-                    <h2 className="font-semibold text-lg my-4 mx-0">Detailed results</h2>
+                <SceneSection
+                    title="Detailed results"
+                    hideTitleAndDescription={!newSceneLayout}
+                    className={cn(!newSceneLayout && 'gap-y-0')}
+                >
+                    {!newSceneLayout && <h2 className="font-semibold text-lg my-4 mx-0">Detailed results</h2>}
                     <FunnelStepsTable />
-                </>
+                </SceneSection>
             )
         }
 

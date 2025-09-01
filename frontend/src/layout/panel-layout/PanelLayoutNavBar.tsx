@@ -1,3 +1,8 @@
+import { cva } from 'cva'
+import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
+import { useRef } from 'react'
+
 import {
     IconApps,
     IconChevronRight,
@@ -13,35 +18,31 @@ import {
     IconToolbar,
 } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
-import { cva } from 'cva'
-import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
-import { useRef } from 'react'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { panelLayoutLogic, PanelLayoutNavIdentifier } from '~/layout/panel-layout/panelLayoutLogic'
 import { PinnedFolder } from '~/layout/panel-layout/PinnedFolder/PinnedFolder'
+import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { SidePanelTab } from '~/types'
 
-import { navigationLogic } from '../navigation/navigationLogic'
-import { AccountPopoverOverlay } from '../navigation/TopBar/AccountPopover'
 import { KeyboardShortcut } from '../navigation-3000/components/KeyboardShortcut'
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { SidePanelActivationIcon } from '../navigation-3000/sidepanel/panels/activation/SidePanelActivation'
 import { sidePanelLogic } from '../navigation-3000/sidepanel/sidePanelLogic'
 import { sidePanelStateLogic } from '../navigation-3000/sidepanel/sidePanelStateLogic'
+import { AccountPopoverOverlay } from '../navigation/TopBar/AccountPopover'
+import { navigationLogic } from '../navigation/navigationLogic'
 import { OrganizationDropdownMenu } from './OrganizationDropdownMenu'
 
 const navBarStyles = cva({
@@ -112,31 +113,40 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         }
     }
 
-    const isStaticNavItemActive = (itemId: string): boolean => {
+    const isStaticNavItemActive = (itemIdentifier: string): boolean => {
         const currentPath = removeProjectIdIfPresent(location.pathname)
 
-        if (itemId === 'Home' && currentPath === '/') {
+        if (itemIdentifier === 'Home' && currentPath === '/') {
             return true
         }
-        if (itemId === 'Activity' && currentPath.startsWith('/activity/')) {
+        if (itemIdentifier === 'Activity' && currentPath.startsWith('/activity/')) {
             return true
         }
-        if (itemId === 'Settings' && currentPath.startsWith('/settings/')) {
+        if (itemIdentifier === 'Settings' && currentPath.startsWith('/settings/')) {
             return true
         }
-        if (itemId === 'Toolbar' && currentPath === '/toolbar') {
+        if (itemIdentifier === 'Toolbar' && currentPath === '/toolbar') {
             return true
         }
 
         return false
     }
 
-    const navItems = [
+    const navItems: {
+        identifier: string
+        label: string
+        icon: React.ReactNode
+        showChevron?: boolean
+        to?: string
+        onClick?: (e?: React.KeyboardEvent) => void
+        tooltip?: React.ReactNode
+        tooltipDocLink?: string
+    }[] = [
         ...(isLayoutNavCollapsed
             ? [
                   {
                       identifier: 'Search',
-                      id: 'Search',
+                      label: 'Search',
                       icon: <IconSearch />,
                       onClick: () => {
                           toggleSearchBar()
@@ -156,7 +166,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             : []),
         {
             identifier: 'ProjectHomepage',
-            id: 'Home',
+            label: 'Home',
             icon: <IconHome />,
             to: urls.projectHomepage(),
             onClick: () => {
@@ -166,9 +176,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         },
         {
             identifier: 'Products',
-            id: 'Products',
+            label: 'Apps',
             icon: <IconApps />,
-            onClick: (e?: React.KeyboardEvent) => {
+            onClick: (e) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
                     handlePanelTriggerClick('Products')
                 }
@@ -179,9 +189,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         },
         {
             identifier: 'Project',
-            id: 'Project',
+            label: 'Project',
             icon: <IconFolderOpen className="stroke-[1.2]" />,
-            onClick: (e?: React.KeyboardEvent) => {
+            onClick: (e) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
                     handlePanelTriggerClick('Project')
                 }
@@ -195,9 +205,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         },
         {
             identifier: 'Database',
-            id: 'Database',
+            label: 'Database',
             icon: <IconDatabaseBolt />,
-            onClick: (e?: React.KeyboardEvent) => {
+            onClick: (e) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
                     handlePanelTriggerClick('Database')
                 }
@@ -208,9 +218,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         },
         {
             identifier: 'DataManagement',
-            id: 'Data management',
+            label: 'Data management',
             icon: <IconDatabase />,
-            onClick: (e?: React.KeyboardEvent) => {
+            onClick: (e) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
                     handlePanelTriggerClick('DataManagement')
                 }
@@ -224,9 +234,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         },
         {
             identifier: 'People',
-            id: 'People',
+            label: 'People',
             icon: <IconPeople />,
-            onClick: (e?: React.KeyboardEvent) => {
+            onClick: (e) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
                     handlePanelTriggerClick('People')
                 }
@@ -237,9 +247,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         },
         {
             identifier: 'Shortcuts',
-            id: 'Shortcuts',
+            label: 'Shortcuts',
             icon: <IconShortcut />,
-            onClick: (e?: React.KeyboardEvent) => {
+            onClick: (e) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
                     handlePanelTriggerClick('Shortcuts')
                 }
@@ -251,7 +261,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         },
         {
             identifier: 'Activity',
-            id: 'Activity',
+            label: 'Activity',
             icon: <IconClock />,
             to: urls.activity(),
             onClick: () => {
@@ -319,7 +329,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 >
                                     {navItems.map((item) => (
                                         <ListBox.Item
-                                            key={item.id}
+                                            key={item.identifier}
                                             asChild
                                             onClick={() => item.onClick?.()}
                                             onKeyDown={(e) => {
@@ -331,7 +341,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                             {item.showChevron ? (
                                                 <ButtonPrimitive
                                                     active={
-                                                        activePanelIdentifier === item.id ||
+                                                        activePanelIdentifier === item.identifier ||
                                                         activePanelIdentifierFromUrl === item.identifier
                                                     }
                                                     className="group"
@@ -352,7 +362,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                                                     {!isLayoutNavCollapsed && (
                                                         <>
-                                                            <span className="truncate">{item.id}</span>
+                                                            <span className="truncate">{item.label}</span>
                                                             <span className="ml-auto pr-1">
                                                                 <IconChevronRight className="size-3 text-tertiary" />
                                                             </span>
@@ -372,7 +382,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                             menuItem: !isLayoutNavCollapsed,
                                                             className: 'group',
                                                             iconOnly: isLayoutNavCollapsed,
-                                                            active: isStaticNavItemActive(item.id),
+                                                            active: isStaticNavItemActive(item.identifier),
                                                         }}
                                                         to={item.to}
                                                         tooltip={isLayoutNavCollapsed ? item.tooltip : undefined}
@@ -388,7 +398,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                         </span>
 
                                                         {!isLayoutNavCollapsed && (
-                                                            <span className="truncate">{item.id}</span>
+                                                            <span className="truncate">{item.label}</span>
                                                         )}
                                                     </Link>
                                                 </ButtonGroupPrimitive>

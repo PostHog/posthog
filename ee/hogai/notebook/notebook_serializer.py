@@ -1,23 +1,24 @@
 import re
 import logging
-from urllib.parse import urlparse, unquote
 from typing import Optional
+from urllib.parse import unquote, urlparse
 
 from pydantic import BaseModel
 
-from ee.hogai.utils.types import InsightArtifact
 from posthog.schema import (
-    ProsemirrorJSONContent,
-    Mark,
-    AssistantTrendsQuery,
     AssistantFunnelsQuery,
-    AssistantRetentionQuery,
     AssistantHogQLQuery,
-    TrendsQuery,
+    AssistantRetentionQuery,
+    AssistantTrendsQuery,
     FunnelsQuery,
-    RetentionQuery,
     HogQLQuery,
+    Mark,
+    ProsemirrorJSONContent,
+    RetentionQuery,
+    TrendsQuery,
 )
+
+from ee.hogai.utils.types import InsightArtifact
 
 logger = logging.getLogger(__name__)
 

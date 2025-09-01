@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+
 import { userLogic } from 'scenes/userLogic'
 
 import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched_with_funnel_and_trends.json'
@@ -20,6 +21,8 @@ describe('experimentLogic', () => {
         ...experimentJson,
         created_by: { ...experimentJson.created_by, hedgehog_config: undefined },
         holdout: undefined,
+        primary_metrics_ordered_uuids: null,
+        secondary_metrics_ordered_uuids: null,
     } as Experiment
 
     beforeEach(async () => {

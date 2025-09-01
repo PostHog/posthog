@@ -1,16 +1,21 @@
-import { IconInfo, IconX } from '@posthog/icons'
-import { LemonDivider } from '@posthog/lemon-ui'
+import './SceneLayout.css'
+
 import { useActions, useValues } from 'kea'
+import React, { PropsWithChildren, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
+
+import { IconListCheck, IconX } from '@posthog/icons'
+import { LemonDivider } from '@posthog/lemon-ui'
+
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label, LabelProps } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
-import React, { PropsWithChildren, useEffect, useRef } from 'react'
-import { createPortal } from 'react-dom'
 import { SceneConfig } from 'scenes/sceneTypes'
+
 import { SceneTabs } from '~/layout/scenes/SceneTabs'
+
 import { SceneHeader } from './SceneHeader'
-import './SceneLayout.css'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
 
 type SceneLayoutProps = {
@@ -48,9 +53,11 @@ export const ScenePanelCommonActions = ({ children }: { children: React.ReactNod
     return (
         <>
             <div
-                className={cn(
-                    'flex flex-col gap-2 min-h-[var(--scene-layout-header-height)] py-2 border-b border-primary -mx-2 px-2 mb-2'
-                )}
+                // This is a hack to make the meta info panel have a margin top of 0 when it's the first child of the panel
+                className={`
+                    [&+.scene-panel-meta-info]:mt-0 
+                    flex flex-col gap-2 min-h-[var(--scene-layout-header-height)] py-2 border-b border-primary -mx-2 px-2 mb-2
+                `}
             >
                 {children}
             </div>
@@ -60,7 +67,7 @@ export const ScenePanelCommonActions = ({ children }: { children: React.ReactNod
 
 // Should be second!
 export function ScenePanelMetaInfo({ children }: { children: React.ReactNode }): JSX.Element {
-    return <div className="pl-1 pb-1 flex flex-col gap-2">{children}</div>
+    return <div className="scene-panel-meta-info pl-1 pb-1 flex flex-col gap-2 mt-2">{children}</div>
 }
 
 // Should be third!
@@ -153,8 +160,8 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                         >
                             <div className="h-[var(--scene-layout-header-height)] flex items-center justify-between gap-2 -mx-2 px-4 py-1 border-b border-primary shrink-0">
                                 <div className="flex items-center gap-2">
-                                    <IconInfo className="size-5 text-tertiary" />
-                                    <h4 className="text-base font-medium text-primary m-0">Info</h4>
+                                    <IconListCheck className="size-5 text-tertiary" />
+                                    <h4 className="text-base font-medium text-primary m-0">Info & actions</h4>
                                 </div>
 
                                 {scenePanelOpen && (
@@ -167,17 +174,17 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                                         }
                                         tooltip={
                                             !scenePanelOpen
-                                                ? 'Open info panel'
+                                                ? 'Open Info & actions panel'
                                                 : scenePanelIsRelative
-                                                  ? 'Force close info panel'
-                                                  : 'Close info panel'
+                                                  ? 'Force close Info & actions panel'
+                                                  : 'Close Info & actions panel'
                                         }
                                         aria-label={
                                             !scenePanelOpen
-                                                ? 'Open info panel'
+                                                ? 'Open Info & actions panel'
                                                 : scenePanelIsRelative
-                                                  ? 'Force close info panel'
-                                                  : 'Close info panel'
+                                                  ? 'Force close Info & actions panel'
+                                                  : 'Close Info & actions panel'
                                         }
                                     >
                                         <IconX className="size-4" />

@@ -1,6 +1,7 @@
+import { useState } from 'react'
+
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { useState } from 'react'
 
 import { GroupsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { GroupPropertyFilter } from '~/types'

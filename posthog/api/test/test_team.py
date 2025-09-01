@@ -1,12 +1,15 @@
 import json
 from datetime import UTC, datetime
 from typing import Any, Optional
+
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest
 from unittest import mock
 from unittest.mock import ANY, MagicMock, call, patch
 
 from django.core.cache import cache
 from django.http import HttpResponse
-from freezegun import freeze_time
+
 from parameterized import parameterized
 from rest_framework import status, test
 from temporalio.service import RPCError
@@ -16,7 +19,6 @@ from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog, EarlyAccessFeature
 from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.dashboard import Dashboard
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
@@ -26,7 +28,7 @@ from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule
-from posthog.test.base import APIBaseTest
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_instance_realm
 
 from ee.models.rbac.access_control import AccessControl
@@ -100,13 +102,13 @@ def team_api_test_factory():
             self.assertEqual(response_data["has_group_types"], False)
             self.assertEqual(response_data["group_types"], [])
 
-            GroupTypeMapping.objects.create(
+            create_group_type_mapping_without_created_at(
                 project=self.project, team=other_team, group_type="person", group_type_index=0
             )
-            GroupTypeMapping.objects.create(
+            create_group_type_mapping_without_created_at(
                 project=self.project, team=other_team, group_type="thing", group_type_index=2
             )
-            GroupTypeMapping.objects.create(
+            create_group_type_mapping_without_created_at(
                 project=self.project, team=other_team, group_type="place", group_type_index=1
             )
 
@@ -125,6 +127,7 @@ def team_api_test_factory():
                         "name_plural": None,
                         "default_columns": None,
                         "detail_dashboard": None,
+                        "created_at": None,
                     },
                     {
                         "group_type": "place",
@@ -133,6 +136,7 @@ def team_api_test_factory():
                         "name_plural": None,
                         "default_columns": None,
                         "detail_dashboard": None,
+                        "created_at": None,
                     },
                     {
                         "group_type": "thing",
@@ -141,6 +145,7 @@ def team_api_test_factory():
                         "name_plural": None,
                         "default_columns": None,
                         "detail_dashboard": None,
+                        "created_at": None,
                     },
                 ],
             )
@@ -207,9 +212,11 @@ def team_api_test_factory():
             response_data = response.json()
             self.assertEqual(
                 response_data.get("detail"),
-                "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
-                if self.client_class is not EnvironmentToProjectRewriteClient
-                else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects.",
+                (
+                    "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
+                    if self.client_class is not EnvironmentToProjectRewriteClient
+                    else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
+                ),
             )
             self.assertEqual(response_data.get("type"), "authentication_error")
             self.assertEqual(response_data.get("code"), "permission_denied")
@@ -221,9 +228,11 @@ def team_api_test_factory():
             response_data = response.json()
             self.assertEqual(
                 response_data.get("detail"),
-                "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
-                if self.client_class is not EnvironmentToProjectRewriteClient
-                else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects.",
+                (
+                    "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
+                    if self.client_class is not EnvironmentToProjectRewriteClient
+                    else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
+                ),
             )
             self.assertEqual(response_data.get("type"), "authentication_error")
             self.assertEqual(response_data.get("code"), "permission_denied")
@@ -459,10 +468,7 @@ def team_api_test_factory():
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
 
             from posthog.models.cohort import Cohort, CohortPeople
-            from posthog.models.feature_flag.feature_flag import (
-                FeatureFlag,
-                FeatureFlagHashKeyOverride,
-            )
+            from posthog.models.feature_flag.feature_flag import FeatureFlag, FeatureFlagHashKeyOverride
 
             # from posthog.models.insight_caching_state import InsightCachingState
             from posthog.models.person import Person
@@ -1601,6 +1607,158 @@ def team_api_test_factory():
             assert response.status_code == expected_status, response.json()
             return response
 
+        @patch("posthoganalytics.capture_exception")
+        def test_access_control_field_deprecated_on_create(self, mock_capture_exception):
+            """Test that access_control field is deprecated and cannot be used when creating a team."""
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "limit": 100},
+                {"key": AvailableFeature.ENVIRONMENTS, "limit": 100},
+            ]
+            self.organization.save()
+
+            response = self.client.post(
+                "/api/projects/@current/environments/",
+                {"name": "Test Environment", "access_control": True},
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            error_data = response.json()
+            self.assertIn("deprecated", error_data["detail"])
+            self.assertIn("https://posthog.com/docs/settings/access-control", error_data["detail"])
+
+            # Verify that the exception was captured
+            mock_capture_exception.assert_called_once()
+            call_args = mock_capture_exception.call_args
+            self.assertEqual(call_args[0][0].args[0], "Deprecated access control field used")
+            self.assertEqual(call_args[1]["properties"]["field"], "access_control")
+            self.assertEqual(call_args[1]["properties"]["value"], "True")
+            self.assertEqual(call_args[1]["properties"]["user_id"], self.user.id)
+
+        @patch("posthoganalytics.capture_exception")
+        def test_access_control_field_deprecated_on_update(self, mock_capture_exception):
+            """Test that access_control field is deprecated and cannot be used when updating a team."""
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"name": "Updated Name", "access_control": False},
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            error_data = response.json()
+            self.assertIn("deprecated", error_data["detail"])
+            self.assertIn("https://posthog.com/docs/settings/access-control", error_data["detail"])
+
+            # Verify that the exception was captured
+            mock_capture_exception.assert_called_once()
+            call_args = mock_capture_exception.call_args
+            self.assertEqual(call_args[0][0].args[0], "Deprecated access control field used")
+            self.assertEqual(call_args[1]["properties"]["field"], "access_control")
+            self.assertEqual(call_args[1]["properties"]["value"], "False")
+            self.assertEqual(call_args[1]["properties"]["user_id"], self.user.id)
+
+        @patch("posthoganalytics.capture_exception")
+        def test_access_control_field_deprecated_on_partial_update(self, mock_capture_exception):
+            """Test that access_control field is deprecated and cannot be used when partially updating a team."""
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"access_control": True},
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            error_data = response.json()
+            self.assertIn("deprecated", error_data["detail"])
+            self.assertIn("https://posthog.com/docs/settings/access-control", error_data["detail"])
+
+            # Verify that the exception was captured
+            mock_capture_exception.assert_called_once()
+            call_args = mock_capture_exception.call_args
+            self.assertEqual(call_args[0][0].args[0], "Deprecated access control field used")
+            self.assertEqual(call_args[1]["properties"]["field"], "access_control")
+            self.assertEqual(call_args[1]["properties"]["value"], "True")
+            self.assertEqual(call_args[1]["properties"]["user_id"], self.user.id)
+
+        @patch("posthoganalytics.capture_exception")
+        def test_access_control_field_deprecated_with_other_valid_fields(self, mock_capture_exception):
+            """Test that access_control field is deprecated even when other valid fields are provided."""
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"timezone": "Europe/London", "access_control": True},
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            error_data = response.json()
+            self.assertIn("deprecated", error_data["detail"])
+            self.assertIn("https://posthog.com/docs/settings/access-control", error_data["detail"])
+
+            # Verify that the exception was captured
+            mock_capture_exception.assert_called_once()
+            call_args = mock_capture_exception.call_args
+            self.assertEqual(call_args[0][0].args[0], "Deprecated access control field used")
+            self.assertEqual(call_args[1]["properties"]["field"], "access_control")
+            self.assertEqual(call_args[1]["properties"]["value"], "True")
+            self.assertEqual(call_args[1]["properties"]["user_id"], self.user.id)
+
+            # Verify that no changes were made to the team
+            self.team.refresh_from_db()
+            self.assertEqual(self.team.timezone, "UTC")  # Should remain unchanged
+
+        @parameterized.expand(
+            [
+                (
+                    "app_urls_mixed_nulls",
+                    "app_urls",
+                    ["https://example.com", None, "https://test.com", None],
+                    ["https://example.com", "https://test.com"],
+                    None,
+                ),
+                ("app_urls_all_nulls", "app_urls", [None, None, None], [], None),
+                (
+                    "app_urls_mixed_valid_and_null",
+                    "app_urls",
+                    ["https://new.com", None, "https://another.com"],
+                    ["https://new.com", "https://another.com"],
+                    ["https://existing.com"],
+                ),
+                (
+                    "recording_domains_mixed_nulls",
+                    "recording_domains",
+                    [None, "https://example.com", None, "https://test.com"],
+                    ["https://example.com", "https://test.com"],
+                    None,
+                ),
+                ("recording_domains_none_field", "recording_domains", None, None, None),
+            ]
+        )
+        def test_filters_null_values(self, name, field_name, input_data, expected_output, setup_data):
+            if setup_data is not None:
+                setattr(self.team, field_name, setup_data)
+                self.team.save()
+
+            response = self.client.patch("/api/environments/@current/", {field_name: input_data})
+
+            assert response.status_code == status.HTTP_200_OK
+            response_data = response.json()
+
+            if expected_output is None:
+                assert response_data[field_name] is None
+            else:
+                assert response_data[field_name] == expected_output
+
+            self.team.refresh_from_db()
+            actual_value = getattr(self.team, field_name)
+
+            if expected_output is None:
+                assert actual_value is None
+            else:
+                assert actual_value == expected_output
+
     return TestTeamAPI
 
 
@@ -1724,9 +1882,11 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         response_data = response.json()
         self.assertEqual(
             response_data.get("detail"),
-            "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
-            if self.client_class is not EnvironmentToProjectRewriteClient
-            else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects.",
+            (
+                "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
+                if self.client_class is not EnvironmentToProjectRewriteClient
+                else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
+            ),
         )
         self.assertEqual(response_data.get("type"), "authentication_error")
         self.assertEqual(response_data.get("code"), "permission_denied")

@@ -6,13 +6,6 @@ from uuid import UUID
 import orjson
 import structlog
 
-from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.parser import parse_select
-from posthog.hogql.property import property_to_expr
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.schema import (
     CachedTracesQueryResponse,
     IntervalType,
@@ -23,6 +16,15 @@ from posthog.schema import (
     TracesQuery,
     TracesQueryResponse,
 )
+
+from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.parser import parse_select
+from posthog.hogql.property import property_to_expr
+
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 logger = structlog.get_logger(__name__)
 
@@ -48,9 +50,8 @@ class TracesQueryDateRange(QueryDateRange):
         return super().date_to() + timedelta(minutes=self.CAPTURE_RANGE_MINUTES)
 
 
-class TracesQueryRunner(AnalyticsQueryRunner):
+class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
     query: TracesQuery
-    response: TracesQueryResponse
     cached_response: CachedTracesQueryResponse
     paginator: HogQLHasMorePaginator
 
@@ -154,13 +155,10 @@ class TracesQueryRunner(AnalyticsQueryRunner):
                                 event != '$ai_trace'
                             )
                         ),
-                        arrayFilter(
-                            x -> x.2 IN ('$ai_metric','$ai_feedback'),
-                            arraySort(x -> x.3,
-                                groupArrayIf(
-                                    tuple(uuid, event, timestamp, properties),
-                                    event != '$ai_trace'
-                                )
+                        arraySort(x -> x.3,
+                            groupArrayIf(
+                                tuple(uuid, event, timestamp, properties),
+                                event IN ('$ai_metric', '$ai_feedback') OR properties.$ai_parent_id = properties.$ai_trace_id
                             )
                         )
                     )
@@ -171,10 +169,16 @@ class TracesQueryRunner(AnalyticsQueryRunner):
                 argMinIf(properties.$ai_output_state,
                          timestamp, event = '$ai_trace'
                 ) AS output_state,
-                argMinIf(
-                    ifNull(properties.$ai_span_name, properties.$ai_trace_name),
-                    timestamp,
-                    event = '$ai_trace'
+                ifNull(
+                    argMinIf(
+                        ifNull(properties.$ai_span_name, properties.$ai_trace_name),
+                        timestamp,
+                        event = '$ai_trace'
+                    ),
+                    argMin(
+                        ifNull(properties.$ai_span_name, properties.$ai_trace_name),
+                        timestamp,
+                    )
                 ) AS trace_name
             FROM events
             WHERE event IN (

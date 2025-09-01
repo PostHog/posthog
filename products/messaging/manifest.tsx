@@ -1,4 +1,5 @@
 import { IconCursor } from '@posthog/icons'
+
 import { FEATURE_FLAGS, PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 

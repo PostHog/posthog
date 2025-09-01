@@ -13,12 +13,13 @@ from ee.hogai.llm import MaxChatOpenAI
 llm = MaxChatOpenAI(user=user, team=team, model="gpt-4.1")
 
 # ❌ Wrong - missing PostHog context
-llm = ChatOpenAI(model="gpt-4.1") 
+llm = ChatOpenAI(model="gpt-4.1")
 ```
 
 `MaxChatOpenAI` automatically injects context into every prompt:
+
 - Project name and timezone
-- Organization name  
+- Organization name
 - User name and email
 - Current project datetime
 
@@ -64,7 +65,7 @@ PostHog uses Mustache templating for dynamic content:
 # Conditional sections
 "{{#show_advanced}}Advanced options: {{{options}}}{{/show_advanced}}"
 
-# Lists/iterations  
+# Lists/iterations
 "{{#events}}Event: {{{name}}}{{/events}}"
 ```
 
@@ -76,7 +77,7 @@ PostHog uses Mustache templating for dynamic content:
 # ✅ Good - specific and actionable
 """Generate a trends query that shows daily active users for the last 30 days, filtered to exclude internal users, displayed as a line chart."""
 
-# ❌ Bad - vague and ambiguous  
+# ❌ Bad - vague and ambiguous
 """Create a user trend analysis."""
 ```
 
@@ -107,7 +108,7 @@ Question: What's the signup to purchase conversion rate?
 Output:
 {"kind":"FunnelsQuery","series":[{"event":"user signed up"},{"event":"purchase"}]}
 
-### Example 2: With filters and breakdown  
+### Example 2: With filters and breakdown
 Question: Conversion rate by country for mobile users?
 Output:
 {"kind":"FunnelsQuery","series":[{"event":"user signed up","properties":[{"key":"$device_type","value":"Mobile"}]},{"event":"purchase"}],"breakdownFilter":{"breakdown":"$geoip_country_name"}}
@@ -181,7 +182,7 @@ When you let an LLM call tools and use their results, you get an agent:
 TOOL_AGENT_PROMPT = """
 You have access to these tools:
 1. `search_events` - Find events matching patterns
-2. `get_property_values` - Get possible values for properties  
+2. `get_property_values` - Get possible values for properties
 3. `final_answer` - Provide the final query plan
 
 Before generating a query:

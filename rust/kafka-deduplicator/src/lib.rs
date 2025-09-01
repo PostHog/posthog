@@ -1,4 +1,11 @@
 pub mod checkpoint;
+pub mod checkpoint_manager;
+pub mod config;
+pub mod deduplication_processor;
+pub mod duplicate_metrics;
 pub mod event;
+pub mod kafka;
 pub mod metrics;
+pub mod processor_rebalance_handler;
 pub mod rocksdb;
+pub mod service;

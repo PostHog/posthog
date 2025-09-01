@@ -1,25 +1,25 @@
 from posthog.hogql.database.models import (
-    VirtualTable,
-    StringDatabaseField,
     DateTimeDatabaseField,
-    StringJSONDatabaseField,
-    StringArrayDatabaseField,
-    IntegerDatabaseField,
-    Table,
-    LazyJoin,
-    FieldTraverser,
     FieldOrTable,
+    FieldTraverser,
+    IntegerDatabaseField,
+    LazyJoin,
+    StringArrayDatabaseField,
+    StringDatabaseField,
+    StringJSONDatabaseField,
+    Table,
+    VirtualTable,
 )
 from posthog.hogql.database.schema.groups import GroupsTable, join_with_group_n_table
 from posthog.hogql.database.schema.person_distinct_ids import (
     PersonDistinctIdsTable,
     join_with_person_distinct_ids_table,
 )
-from posthog.hogql.database.schema.sessions_v1 import join_events_table_to_sessions_table, SessionsTableV1
-from posthog.hogql.database.schema.revenue_analytics import (
-    RawPersonsRevenueAnalyticsTable,
+from posthog.hogql.database.schema.persons_revenue_analytics import (
+    PersonsRevenueAnalyticsTable,
     join_with_persons_revenue_analytics_table,
 )
+from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1, join_events_table_to_sessions_table
 
 
 class EventsPersonSubTable(VirtualTable):
@@ -29,7 +29,7 @@ class EventsPersonSubTable(VirtualTable):
         "properties": StringJSONDatabaseField(name="person_properties", nullable=False),
         "revenue_analytics": LazyJoin(
             from_field=["person_id"],
-            join_table=RawPersonsRevenueAnalyticsTable(),
+            join_table=PersonsRevenueAnalyticsTable(),
             join_function=join_with_persons_revenue_analytics_table,
         ),
     }

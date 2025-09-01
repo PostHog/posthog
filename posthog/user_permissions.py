@@ -3,15 +3,7 @@ from typing import Any, Optional, cast
 from uuid import UUID
 
 from posthog.constants import AvailableFeature
-from posthog.models import (
-    Dashboard,
-    DashboardTile,
-    Insight,
-    Organization,
-    OrganizationMembership,
-    Team,
-    User,
-)
+from posthog.models import Dashboard, DashboardTile, Insight, Organization, OrganizationMembership, Team, User
 
 
 class UserPermissions:

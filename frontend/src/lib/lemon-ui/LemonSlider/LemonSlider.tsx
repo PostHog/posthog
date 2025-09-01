@@ -1,6 +1,7 @@
 import clsx from 'clsx'
-import { useEventListener } from 'lib/hooks/useEventListener'
 import { useRef, useState } from 'react'
+
+import { useEventListener } from 'lib/hooks/useEventListener'
 
 export interface LemonSliderProps {
     value?: number

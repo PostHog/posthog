@@ -1,15 +1,20 @@
+import { useActions, useValues } from 'kea'
+
 import { IconDownload } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { PhonePairHogs } from 'lib/components/hedgehogs'
+
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { PhonePairHogs } from 'lib/components/hedgehogs'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { MaxTool } from 'scenes/max/MaxTool'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey, UserInterviewType } from '~/types'
 
 import { userInterviewsLogic } from './userInterviewsLogic'
@@ -24,7 +29,16 @@ export function UserInterviews(): JSX.Element {
 
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
     return (
-        <>
+        <SceneContent forceNewSpacing>
+            <SceneTitleSection
+                name="User interviews"
+                description="Make full use of user interviews by recording them with PostHog."
+                resourceType={{
+                    type: 'user_interview',
+                    typePlural: 'User interviews',
+                }}
+            />
+            <SceneDivider />
             <ProductIntroduction
                 productName="User interviews"
                 productKey={ProductKey.USER_INTERVIEWS}
@@ -43,6 +57,7 @@ export function UserInterviews(): JSX.Element {
                         Install PostHog Recorder
                     </LemonButton>
                 }
+                className="my-0"
             />
             <MaxTool identifier="analyze_user_interviews" context={{}}>
                 <LemonTable
@@ -65,6 +80,6 @@ export function UserInterviews(): JSX.Element {
                     loadingSkeletonRows={5}
                 />
             </MaxTool>
-        </>
+        </SceneContent>
     )
 }

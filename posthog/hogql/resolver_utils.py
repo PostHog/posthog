@@ -1,11 +1,12 @@
-from typing import Optional
 from collections.abc import Generator
+from typing import Optional
 
-from posthog import schema
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ResolutionError, SyntaxError
 from posthog.hogql.visitor import clone_expr
+
+from posthog import schema
 
 
 def lookup_field_by_name(
@@ -39,6 +40,13 @@ def lookup_field_by_name(
             return lookup_field_by_name(scope.parent, name, context)
 
         return None
+
+
+def lookup_table_by_name(scope: ast.SelectQueryType, node: ast.Field) -> Optional[ast.TableOrSelectType]:
+    if len(node.chain) > 1 and str(node.chain[0]) in scope.tables:
+        return scope.tables[str(node.chain[0])]
+
+    return None
 
 
 def lookup_cte_by_name(scopes: list[ast.SelectQueryType], name: str) -> Optional[ast.CTE]:

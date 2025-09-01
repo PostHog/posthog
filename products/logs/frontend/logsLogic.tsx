@@ -1,8 +1,10 @@
-import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tracking/frontend/utils'
 import equal from 'fast-deep-equal'
 import { actions, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+
+import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tracking/frontend/utils'
+
 import api from 'lib/api'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { Params } from 'scenes/sceneTypes'

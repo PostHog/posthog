@@ -1,20 +1,15 @@
+import { useValues } from 'kea'
+import { useState } from 'react'
+
 import { LemonTabs } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
 import type { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
-import { AISummary } from '../components/AISummary'
-import {
-    ExploreAsInsightButton,
-    ResultsBreakdown,
-    ResultsBreakdownSkeleton,
-    ResultsInsightInfoBanner,
-    ResultsQuery,
-} from '../components/ResultsBreakdown'
+
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
-import { experimentLogic } from '../experimentLogic'
 import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
 import { LegacyMetricModal } from '../Metrics/LegacyMetricModal'
 import { MetricSourceModal } from '../Metrics/MetricSourceModal'
@@ -23,15 +18,15 @@ import { MetricsViewLegacy } from '../MetricsView/legacy/MetricsViewLegacy'
 import { VariantDeltaTimeseries } from '../MetricsView/legacy/VariantDeltaTimeseries'
 import { Metrics } from '../MetricsView/new/Metrics'
 import { RunningTimeCalculatorModal } from '../RunningTimeCalculator/RunningTimeCalculatorModal'
-import { isLegacyExperiment, isLegacyExperimentQuery } from '../utils'
 import {
-    EditConclusionModal,
-    LegacyExploreButton,
-    LegacyResultsQuery,
-    LoadingState,
-    PageHeaderCustom,
-    StopExperimentModal,
-} from './components'
+    ExploreAsInsightButton,
+    ResultsBreakdown,
+    ResultsBreakdownSkeleton,
+    ResultsInsightInfoBanner,
+    ResultsQuery,
+} from '../components/ResultsBreakdown'
+import { experimentLogic } from '../experimentLogic'
+import { isLegacyExperiment, isLegacyExperimentQuery } from '../utils'
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentHeader } from './ExperimentHeader'
 import { ExposureCriteriaModal } from './ExposureCriteria'
@@ -40,14 +35,21 @@ import { LegacyExperimentHeader } from './LegacyExperimentHeader'
 import { Overview } from './Overview'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
 import { SummaryTable } from './SummaryTable'
+import {
+    EditConclusionModal,
+    LegacyExploreButton,
+    LegacyResultsQuery,
+    LoadingState,
+    PageHeaderCustom,
+    StopExperimentModal,
+} from './components'
 
-const ResultsTab = (): JSX.Element => {
+const MetricsTab = (): JSX.Element => {
     const {
         experiment,
         legacyPrimaryMetricsResults,
         firstPrimaryMetric,
         primaryMetricsLengthWithSharedMetrics,
-        primaryMetricsResultsLoading,
         hasMinimumExposureForResults,
     } = useValues(experimentLogic)
     /**
@@ -80,19 +82,10 @@ const ResultsTab = (): JSX.Element => {
 
     return (
         <>
-            {!experiment.start_date && !primaryMetricsResultsLoading && (
-                <>
-                    {experiment.type === 'web' ? (
-                        <WebExperimentImplementationDetails experiment={experiment} />
-                    ) : (
-                        <ExperimentImplementationDetails experiment={experiment} />
-                    )}
-                </>
-            )}
             {/* Show overview if there's only a single primary metric */}
             {hasSinglePrimaryMetric && hasMinimumExposureForResults && (
                 <div className="mb-4 mt-2">
-                    <Overview />
+                    <Overview metricUuid={firstPrimaryMetric?.uuid || ''} />
                 </div>
             )}
             {/**
@@ -104,7 +97,7 @@ const ResultsTab = (): JSX.Element => {
                     {showResultDetails && (
                         <div>
                             <div className="pb-4">
-                                <SummaryTable metric={firstPrimaryMetric} metricIndex={0} isSecondary={false} />
+                                <SummaryTable metric={firstPrimaryMetric} displayOrder={0} isSecondary={false} />
                             </div>
                             {isLegacyExperimentQuery(firstPrimaryMetricResult) ? (
                                 <>
@@ -126,7 +119,7 @@ const ResultsTab = (): JSX.Element => {
                                 <ResultsBreakdown
                                     result={firstPrimaryMetricResult as CachedExperimentQueryResponse}
                                     experiment={experiment}
-                                    metricIndex={0}
+                                    metricUuid={firstPrimaryMetric?.uuid || ''}
                                     isPrimary={true}
                                 >
                                     {({
@@ -170,6 +163,19 @@ const ResultsTab = (): JSX.Element => {
         </>
     )
 }
+const CodeTab = (): JSX.Element => {
+    const { experiment } = useValues(experimentLogic)
+
+    return (
+        <>
+            {experiment.type === 'web' ? (
+                <WebExperimentImplementationDetails experiment={experiment} />
+            ) : (
+                <ExperimentImplementationDetails experiment={experiment} />
+            )}
+        </>
+    )
+}
 
 const VariantsTab = (): JSX.Element => {
     return (
@@ -181,9 +187,9 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView(): JSX.Element {
-    const { experimentLoading, experimentId, tabKey, usesNewQueryRunner } = useValues(experimentLogic)
+    const { experimentLoading, experimentId, usesNewQueryRunner } = useValues(experimentLogic)
 
-    const { setTabKey } = useActions(experimentLogic)
+    const [activeTabKey, setActiveTabKey] = useState<string>('metrics')
 
     return (
         <>
@@ -194,16 +200,20 @@ export function ExperimentView(): JSX.Element {
                 ) : (
                     <>
                         <Info />
-                        <AISummary experimentId={experimentId} />
                         {usesNewQueryRunner ? <ExperimentHeader /> : <LegacyExperimentHeader />}
                         <LemonTabs
-                            activeKey={tabKey}
-                            onChange={(key) => setTabKey(key)}
+                            activeKey={activeTabKey}
+                            onChange={(key) => setActiveTabKey(key)}
                             tabs={[
                                 {
-                                    key: 'results',
-                                    label: 'Results',
-                                    content: <ResultsTab />,
+                                    key: 'metrics',
+                                    label: 'Metrics',
+                                    content: <MetricsTab />,
+                                },
+                                {
+                                    key: 'code',
+                                    label: 'Code',
+                                    content: <CodeTab />,
                                 },
                                 {
                                     key: 'variants',

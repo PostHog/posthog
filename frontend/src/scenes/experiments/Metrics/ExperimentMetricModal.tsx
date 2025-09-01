@@ -1,13 +1,15 @@
-import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useCallback } from 'react'
+
+import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonModal } from '@posthog/lemon-ui'
 
 import { ExperimentMetric } from '~/queries/schema/schema-general'
 import { Experiment } from '~/types'
 
-import { experimentLogic } from '../experimentLogic'
 import { ExperimentMetricForm } from '../ExperimentMetricForm'
+import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
+import { appendMetricToOrderingArray, removeMetricFromOrderingArray } from '../utils'
 
 export function ExperimentMetricModal({
     experimentId,
@@ -16,7 +18,7 @@ export function ExperimentMetricModal({
     experimentId: Experiment['id']
     isSecondary?: boolean
 }): JSX.Element {
-    const { experiment, experimentLoading, editingPrimaryMetricIndex, editingSecondaryMetricIndex } = useValues(
+    const { experiment, experimentLoading, editingPrimaryMetricUuid, editingSecondaryMetricUuid } = useValues(
         experimentLogic({ experimentId })
     )
     const { setMetric, updateExperimentMetrics, setExperiment, restoreUnmodifiedExperiment } = useActions(
@@ -25,25 +27,29 @@ export function ExperimentMetricModal({
     const { closePrimaryMetricModal, closeSecondaryMetricModal } = useActions(modalsLogic)
     const { isPrimaryMetricModalOpen, isSecondaryMetricModalOpen } = useValues(modalsLogic)
 
-    const metricIdx = isSecondary ? editingSecondaryMetricIndex : editingPrimaryMetricIndex
+    const metricUuid = isSecondary ? editingSecondaryMetricUuid : editingPrimaryMetricUuid
     const metricsField = isSecondary ? 'metrics_secondary' : 'metrics'
 
     const handleSetMetric = useCallback(
         (newMetric: ExperimentMetric): void => {
-            if (metricIdx == null) {
+            if (!metricUuid) {
                 return
             }
-            setMetric({ metricIdx, metric: newMetric, isSecondary })
+            setMetric({ uuid: metricUuid, metric: newMetric, isSecondary })
         },
-        [metricIdx, isSecondary, setMetric]
+        [metricUuid, isSecondary, setMetric]
     )
 
-    if (metricIdx == null) {
+    if (!metricUuid) {
         return <></>
     }
 
     const metrics = experiment[metricsField]
-    const metric = metrics[metricIdx] as ExperimentMetric
+    const metric = metrics.find((m) => m.uuid === metricUuid) as ExperimentMetric
+
+    if (!metric) {
+        return <></>
+    }
 
     const onClose = (): void => {
         restoreUnmodifiedExperiment()
@@ -69,9 +75,17 @@ export function ExperimentMetricModal({
                                     children: 'Delete',
                                     type: 'primary',
                                     onClick: () => {
-                                        const newMetrics = metrics.filter((_, idx) => idx !== metricIdx)
+                                        const newOrderingArray = removeMetricFromOrderingArray(
+                                            experiment,
+                                            metricUuid,
+                                            !!isSecondary
+                                        )
+                                        const newMetrics = metrics.filter((m) => m.uuid !== metricUuid)
                                         setExperiment({
                                             [metricsField]: newMetrics,
+                                            [isSecondary
+                                                ? 'secondary_metrics_ordered_uuids'
+                                                : 'primary_metrics_ordered_uuids']: newOrderingArray,
                                         })
                                         updateExperimentMetrics()
                                         isSecondary ? closeSecondaryMetricModal() : closePrimaryMetricModal()
@@ -95,6 +109,15 @@ export function ExperimentMetricModal({
                         <LemonButton
                             form="edit-experiment-metric-form"
                             onClick={() => {
+                                const newOrderingArray = appendMetricToOrderingArray(
+                                    experiment,
+                                    metricUuid,
+                                    !!isSecondary
+                                )
+                                setExperiment({
+                                    [isSecondary ? 'secondary_metrics_ordered_uuids' : 'primary_metrics_ordered_uuids']:
+                                        newOrderingArray,
+                                })
                                 updateExperimentMetrics()
                                 isSecondary ? closeSecondaryMetricModal() : closePrimaryMetricModal()
                             }}
@@ -113,8 +136,11 @@ export function ExperimentMetricModal({
                 <LemonInput
                     value={metric.name}
                     onChange={(newName) => {
+                        if (!metric.uuid) {
+                            return
+                        }
                         setMetric({
-                            metricIdx,
+                            uuid: metric.uuid,
                             metric: {
                                 ...metric,
                                 name: newName,

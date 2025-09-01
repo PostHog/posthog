@@ -15,9 +15,21 @@ pub fn report_overflow_partition(quantity: u64) {
     counter!("capture_partition_key_capacity_exceeded_total").increment(quantity);
 }
 
-pub fn report_internal_error_metrics(err_type: &'static str, stage_tag: &'static str) {
-    let tags = [("error", err_type), ("stage", stage_tag)];
-    counter!("capture_internal_error_by_stage_and_type", &tags).increment(1);
+pub fn report_quota_limit_exceeded(limiter: &'static str, quantity: u64) {
+    counter!("capture_billing_limit_exceeded_total", "limiter" => limiter).increment(quantity);
+}
+
+pub fn report_internal_error_metrics(
+    err_type: &'static str,
+    stage_tag: &'static str,
+    capture_mode: &'static str,
+) {
+    let tags = [
+        ("error", err_type),
+        ("stage", stage_tag),
+        ("mode", capture_mode),
+    ];
+    counter!("capture_error_by_stage_and_type", &tags).increment(1);
 }
 
 pub fn setup_metrics_recorder() -> PrometheusHandle {
