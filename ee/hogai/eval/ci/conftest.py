@@ -24,7 +24,7 @@ from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from ee.models.assistant import Conversation, CoreMemory
 
 handler = BraintrustCallbackHandler()
-if os.environ.get("EVAL_MODE") == "ci" and os.environ.get("BRAINTRUST_API_KEY"):
+if os.environ.get("BRAINTRUST_API_KEY") and os.environ.get("EVAL_MODE") != "offline":
     set_global_handler(handler)
 
 

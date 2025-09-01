@@ -62,7 +62,10 @@ from .prompts import (
 
 
 class MemoryInitializerContextMixin(AssistantContextMixin):
-    def _retrieve_context(self) -> EventTaxonomyItem | None:
+    def _retrieve_context(self, config: RunnableConfig) -> EventTaxonomyItem | None:
+        if "_mock_memory_onboarding_context" in config.get("configurable", {}):
+            # Only for evals/tests (as patch() doesn't work because of evals running concurrently async)
+            return config["configurable"]["_mock_memory_onboarding_context"]
         # Retrieve the origin domain.
         runner = EventTaxonomyQueryRunner(
             team=self._team, query=EventTaxonomyQuery(event="$pageview", properties=["$host"])
@@ -132,7 +135,7 @@ class MemoryOnboardingNode(MemoryInitializerContextMixin, MemoryOnboardingShould
                 ]
             )
 
-        retrieved_prop = self._retrieve_context()
+        retrieved_prop = self._retrieve_context(config)
 
         # No host or app bundle ID found
         if not retrieved_prop:
@@ -170,7 +173,7 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
-        retrieved_prop = self._retrieve_context()
+        retrieved_prop = self._retrieve_context(config)
         # No host or app bundle ID found, continue.
         if not retrieved_prop:
             return None
@@ -181,11 +184,11 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
         if retrieved_prop.property == "$host":
             prompt += ChatPromptTemplate.from_messages(
                 [("human", INITIALIZE_CORE_MEMORY_WITH_DOMAINS_USER_PROMPT)], template_format="mustache"
-            ).partial(domains=retrieved_prop.sample_values)
+            ).partial(domains=",".join(retrieved_prop.sample_values))
         else:
             prompt += ChatPromptTemplate.from_messages(
                 [("human", INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_USER_PROMPT)], template_format="mustache"
-            ).partial(bundle_ids=retrieved_prop.sample_values)
+            ).partial(bundle_ids=",".join(retrieved_prop.sample_values))
 
         chain = prompt | self._model() | StrOutputParser()
         answer = chain.invoke({}, config=config)
@@ -338,11 +341,6 @@ class MemoryOnboardingFinalizeNode(AssistantNode):
             user=self._user,
             team=self._team,
         )
-
-    def router(self, state: AssistantState) -> Literal["continue", "insights"]:
-        if state.root_tool_insight_plan:
-            return "insights"
-        return "continue"
 
 
 # Lower casing matters here. Do not change it.

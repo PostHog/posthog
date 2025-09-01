@@ -19,12 +19,13 @@ After a brief high-level description (heading-less), write out the following sec
 - Product features (including their specific names, how they relate to other features, and subfeatures based on available documentation)
 - User/Customer segments
 - Business model (including pricing and monetization details)
-- Technical details
-- Brief history
+- Technical details (include key site and product URL paths)
+- Brief history (include dates, include founders only if it's a startup, don't specify investors)
 
 Each section should be concise and use bullet points for clarity. Do not repeat any information more than once.
+Spend the most time on product details.
 
-IMPORTANT: Omit citations, as your output will subsequently be provided to an AI that can't browse the web.
+IMPORTANT: DO NOT INCLUDE CITATION TOKENS. CITATION LINKS ARE PROHIBITED.
 Do no offer any follow-up suggestions at any point.
 
 If the given domain doesn't exist OR no relevant data was found, then answer a single sentence:

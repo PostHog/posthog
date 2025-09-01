@@ -979,11 +979,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         onboarding_enquiry_model_mock.return_value = RunnableLambda(mock_response)
 
         # Create a graph with memory initialization flow
-        graph = (
-            AssistantGraph(self.team, self.user)
-            .add_memory_onboarding(AssistantNodeName.END, AssistantNodeName.END)
-            .compile()
-        )
+        graph = AssistantGraph(self.team, self.user).add_memory_onboarding(AssistantNodeName.END).compile()
 
         # First run - get the product description
         output, _ = await self._run_assistant_graph(graph, is_new_conversation=True, message=SLASH_COMMAND_INIT)
@@ -1041,11 +1037,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         onboarding_enquiry_model_mock.return_value = RunnableLambda(lambda _: "===What is your target market?")
 
         # Create a graph with memory initialization flow
-        graph = (
-            AssistantGraph(self.team, self.user)
-            .add_memory_onboarding(AssistantNodeName.END, AssistantNodeName.END)
-            .compile()
-        )
+        graph = AssistantGraph(self.team, self.user).add_memory_onboarding(AssistantNodeName.END).compile()
 
         # First run - get the product description
         output, _ = await self._run_assistant_graph(graph, is_new_conversation=True, message=SLASH_COMMAND_INIT)

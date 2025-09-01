@@ -59,10 +59,10 @@ class BaseAssistantGraph(Generic[StateType]):
         self._graph.add_node(node, action)
         return self
 
-    def compile(self, checkpointer: DjangoCheckpointer | None = None):
+    def compile(self, checkpointer: DjangoCheckpointer | None | Literal[False] = None):
         if not self._has_start_node:
             raise ValueError("Start node not added to the graph")
-        return self._graph.compile(checkpointer=checkpointer or global_checkpointer)
+        return self._graph.compile(checkpointer=checkpointer if checkpointer is not None else global_checkpointer)
 
 
 class InsightsAssistantGraph(BaseAssistantGraph[AssistantState]):
@@ -253,7 +253,6 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
     def add_memory_onboarding(
         self,
         next_node: AssistantNodeName = AssistantNodeName.ROOT,
-        insights_next_node: AssistantNodeName = AssistantNodeName.INSIGHTS_SUBGRAPH,
     ):
         builder = self._graph
         self._has_start_node = True
@@ -309,11 +308,7 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         builder.add_edge(
             AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY_INTERRUPT, AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY
         )
-        builder.add_conditional_edges(
-            AssistantNodeName.MEMORY_ONBOARDING_FINALIZE,
-            memory_onboarding_finalize.router,
-            path_map={"continue": next_node, "insights": insights_next_node},
-        )
+        builder.add_edge(AssistantNodeName.MEMORY_ONBOARDING_FINALIZE, next_node)
         return self
 
     def add_memory_collector(
