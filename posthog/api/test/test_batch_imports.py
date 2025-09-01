@@ -181,7 +181,12 @@ class TestBatchImportAPI(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 400)
-        self.assertIn("At least one of", response.json()[0])
+        response_data = response.json()
+        self.assertIn(
+            "At least one of 'Import events' or 'Generate identify events' must be enabled for Amplitude migrations",
+            str(response_data),
+            f"Expected validation error message not found in response: {response_data}",
+        )
 
     def test_mixpanel_migration_does_not_include_amplitude_specific_fields(self):
         """Test that Mixpanel migrations don't include import_events or generate_identify_events in config"""
