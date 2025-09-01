@@ -1504,11 +1504,12 @@ class TestFieldLevelAccessControl(BaseUserAccessControlTest):
         with pytest.raises(ValidationError) as exc_info:
             serializer.validate(attrs)
 
-        assert "session_recording_opt_in" in exc_info.value.detail
+        detail = exc_info.value.detail
+        assert isinstance(detail, dict), f"Expected dict but got {type(detail)}"
+        assert "session_recording_opt_in" in detail
         # The error is a list, get the actual message
-        error_msg = exc_info.value.detail["session_recording_opt_in"]
-        if isinstance(error_msg, list):
-            error_msg = str(error_msg[0])
+        error_detail = detail["session_recording_opt_in"]
+        error_msg = str(error_detail[0]) if isinstance(error_detail, list) else str(error_detail)
         assert "editor access to session recordings" in error_msg, f"Got error message: {error_msg!r}"
 
     def test_field_validation_allows_with_proper_access(self):

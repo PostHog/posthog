@@ -75,7 +75,7 @@ class TestFieldAccessControlDecorator(BaseTest):
                 return False
             return True
 
-        user_access_control.check_access_level_for_resource = mock_check_access
+        user_access_control.check_access_level_for_resource = mock_check_access  # type: ignore
 
         # Try to update a protected field
         serializer = TeamSerializer(
@@ -85,16 +85,18 @@ class TestFieldAccessControlDecorator(BaseTest):
         with pytest.raises(ValidationError) as exc_info:
             serializer.is_valid(raise_exception=True)
 
-        assert "session_recording_opt_in" in exc_info.value.detail
-        assert "You need editor access to session recordings" in str(
-            exc_info.value.detail["session_recording_opt_in"][0]
-        )
+        detail = exc_info.value.detail
+        assert isinstance(detail, dict), f"Expected dict but got {type(detail)}"
+        assert "session_recording_opt_in" in detail
+        error_detail = detail["session_recording_opt_in"]
+        error_msg = error_detail[0] if isinstance(error_detail, list) else str(error_detail)
+        assert "You need editor access to session recordings" in str(error_msg)
 
     def test_field_access_control_helper(self):
         """Test the field_access_control helper function"""
 
         class TestModel(models.Model):
-            test_field = field_access_control(models.CharField(max_length=100), "test_resource", "viewer")
+            test_field = field_access_control(models.CharField(max_length=100), "notebook", "viewer")
 
             class Meta:
                 app_label = "test"
@@ -103,9 +105,11 @@ class TestFieldAccessControlDecorator(BaseTest):
         field_map = get_field_access_control_map(TestModel)
 
         assert "test_field" in field_map
-        assert field_map["test_field"] == ("test_resource", "viewer")
+        assert field_map["test_field"] == ("notebook", "viewer")
 
         # Also check that the field has the metadata directly
         field = TestModel._meta.get_field("test_field")
-        assert field._access_control_resource == "test_resource"
+        assert hasattr(field, "_access_control_resource")
+        assert hasattr(field, "_access_control_level")
+        assert field._access_control_resource == "notebook"
         assert field._access_control_level == "viewer"
