@@ -84,5 +84,5 @@ def linkedin_ads_source(
         last_modified_since=last_modified_since,
         date_start=date_start,
         date_end=date_end,
-        sync_frequency_interval=sync_frequency_interval
+        sync_frequency_interval=sync_frequency_interval,
     )

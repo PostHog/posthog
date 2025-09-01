@@ -9,6 +9,7 @@ from typing import Any, Optional, TypedDict, Union
 # Basic LinkedIn API response types
 class LinkedinDateType(TypedDict):
     """LinkedIn date structure in API responses."""
+
     year: int
     month: int
     day: int
@@ -16,17 +17,20 @@ class LinkedinDateType(TypedDict):
 
 class LinkedinDateRangeType(TypedDict):
     """LinkedIn date range structure in API responses."""
+
     start: LinkedinDateType
     end: LinkedinDateType
 
 
 class LinkedinVersionType(TypedDict):
     """LinkedIn version structure."""
+
     versionTag: str
 
 
 class LinkedinAuditStampsType(TypedDict):
     """LinkedIn audit stamps for creation/modification tracking."""
+
     created: dict[str, int]  # {"time": timestamp}
     lastModified: dict[str, int]  # {"time": timestamp}
 
@@ -34,6 +38,7 @@ class LinkedinAuditStampsType(TypedDict):
 # Account-related types
 class LinkedinAccountType(TypedDict):
     """LinkedIn Ad Account response structure."""
+
     id: str
     name: str
     status: str  # ACTIVE, INACTIVE, etc.
@@ -45,6 +50,7 @@ class LinkedinAccountType(TypedDict):
 # Campaign-related types
 class LinkedinCampaignType(TypedDict):
     """LinkedIn Campaign response structure."""
+
     id: str
     name: str
     account: str  # URN format: urn:li:sponsoredAccount:123456789
@@ -64,6 +70,7 @@ class LinkedinCampaignType(TypedDict):
 # Campaign Group types
 class LinkedinCampaignGroupType(TypedDict):
     """LinkedIn Campaign Group response structure."""
+
     id: str
     name: str
     account: str  # URN format
@@ -76,6 +83,7 @@ class LinkedinCampaignGroupType(TypedDict):
 # Analytics types
 class LinkedinAnalyticsType(TypedDict):
     """LinkedIn Analytics response structure."""
+
     impressions: int
     clicks: int
     dateRange: LinkedinDateRangeType
@@ -93,6 +101,7 @@ class LinkedinAnalyticsType(TypedDict):
 # Flattened data types (after processing)
 class FlattenedLinkedinDataType(TypedDict, total=False):
     """Flattened LinkedIn data structure for warehouse storage."""
+
     # Common fields that may be present in any resource
     id: Optional[str]
     name: Optional[str]
@@ -140,12 +149,14 @@ class FlattenedLinkedinDataType(TypedDict, total=False):
 # API response wrapper types
 class LinkedinApiResponseType(TypedDict):
     """LinkedIn API response wrapper structure."""
+
     elements: list[Union[LinkedinAccountType, LinkedinCampaignType, LinkedinCampaignGroupType, LinkedinAnalyticsType]]
     metadata: Optional[dict[str, Any]]  # Contains pagination info
 
 
 class LinkedinApiMetadataType(TypedDict, total=False):
     """LinkedIn API response metadata structure."""
+
     nextPageToken: Optional[str]
     count: Optional[int]
     start: Optional[int]

@@ -48,7 +48,9 @@ class VitallyRegionConfig(config.Config):
 class BigQuerySourceConfig(config.Config):
     key_file: BigQueryKeyFileConfig
     dataset_id: str
-    temporary_dataset: BigQueryTemporaryDatasetConfig | None = config.value(alias="temporary-dataset", default_factory=lambda: None)
+    temporary_dataset: BigQueryTemporaryDatasetConfig | None = config.value(
+        alias="temporary-dataset", default_factory=lambda: None
+    )
     dataset_project: BigQueryDatasetProjectConfig | None = None
 
 

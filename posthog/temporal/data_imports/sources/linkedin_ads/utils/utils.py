@@ -58,7 +58,7 @@ def validate_date_format(date_str: str) -> bool:
         return False
 
     # Check exact format with regex first
-    if not re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
         return False
 
     try:
@@ -93,8 +93,8 @@ def extract_linkedin_id_from_urn(urn: str) -> str:
         return urn
 
     # Split by ':' and take the last part which is the ID
-    parts = urn.split(':')
-    if len(parts) >= 4 and parts[0] == 'urn' and parts[1] == 'li' and parts[2].startswith('sponsored'):
+    parts = urn.split(":")
+    if len(parts) >= 4 and parts[0] == "urn" and parts[1] == "li" and parts[2].startswith("sponsored"):
         return parts[3]
 
     # If not a recognized LinkedIn URN format, return as-is
@@ -152,10 +152,10 @@ def flatten_date_range(item: dict[str, Any], flattened_item: dict[str, Any]) -> 
 
     if "start" in item["dateRange"]:
         start = item["dateRange"]["start"]
-        flattened_item["date_range_start"] = dt.date(start['year'], start['month'], start['day'])
+        flattened_item["date_range_start"] = dt.date(start["year"], start["month"], start["day"])
     if "end" in item["dateRange"]:
         end = item["dateRange"]["end"]
-        flattened_item["date_range_end"] = dt.date(end['year'], end['month'], end['day'])
+        flattened_item["date_range_end"] = dt.date(end["year"], end["month"], end["day"])
 
 
 def flatten_pivot_values(item: dict[str, Any], flattened_item: dict[str, Any], resource_name: str) -> None:
@@ -183,10 +183,12 @@ def flatten_pivot_values(item: dict[str, Any], flattened_item: dict[str, Any], r
                 try:
                     pivot_id = int(pivot_id_str)
                 except ValueError:
-                    logger.warning("Failed to convert pivot ID to int",
-                                 pivot_id=pivot_id_str,
-                                 pivot_type=pivot_type,
-                                 resource_name=resource_name)
+                    logger.warning(
+                        "Failed to convert pivot ID to int",
+                        pivot_id=pivot_id_str,
+                        pivot_type=pivot_type,
+                        resource_name=resource_name,
+                    )
                     pivot_id = pivot_id_str  # Keep as string if conversion fails
 
                 # Convert pivot type to column name from valid pivot values
@@ -218,9 +220,9 @@ def flatten_cost_in_usd(item: dict[str, Any], flattened_item: dict[str, Any], re
     try:
         flattened_item["cost_in_usd"] = float(item["costInUsd"]) if item["costInUsd"] is not None else None
     except (ValueError, TypeError):
-        logger.warning("Failed to convert costInUsd to float",
-                     cost_in_usd=item["costInUsd"],
-                     resource_name=resource_name)
+        logger.warning(
+            "Failed to convert costInUsd to float", cost_in_usd=item["costInUsd"], resource_name=resource_name
+        )
         flattened_item["cost_in_usd"] = None
     # Remove the original camelCase field since we've converted it
     flattened_item.pop("costInUsd", None)

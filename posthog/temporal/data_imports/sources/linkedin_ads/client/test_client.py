@@ -10,7 +10,7 @@ from .exceptions import LinkedinAdsAuthError, LinkedinAdsRateLimitError
 class TestLinkedInAdsClient:
     """Test LinkedIn Ads client functionality."""
 
-    @patch('requests.Session.get')
+    @patch("requests.Session.get")
     def test_get_accounts_success(self, mock_get):
         """Test successful account fetching."""
         mock_response = Mock()
@@ -23,7 +23,7 @@ class TestLinkedInAdsClient:
                     "status": "ACTIVE",
                     "type": "BUSINESS",
                     "currency": "USD",
-                    "version": {"versionTag": "1"}
+                    "version": {"versionTag": "1"},
                 }
             ]
         }
@@ -36,7 +36,7 @@ class TestLinkedInAdsClient:
         assert result[0]["id"] == "123456789"
         assert result[0]["name"] == "Test Account"
 
-    @patch('requests.Session.get')
+    @patch("requests.Session.get")
     def test_get_campaigns_success(self, mock_get):
         """Test successful campaign fetching."""
         mock_response = Mock()
@@ -50,17 +50,14 @@ class TestLinkedInAdsClient:
                     "campaignGroup": "urn:li:sponsoredCampaignGroup:555",
                     "status": "ACTIVE",
                     "type": "SPONSORED_CONTENT",
-                    "changeAuditStamps": {
-                        "created": {"time": 1609459200000},
-                        "lastModified": {"time": 1609459200000}
-                    },
+                    "changeAuditStamps": {"created": {"time": 1609459200000}, "lastModified": {"time": 1609459200000}},
                     "runSchedule": {"start": 1609459200000},
                     "dailyBudget": {"amount": "100", "currencyCode": "USD"},
                     "unitCost": {"amount": "1.50", "currencyCode": "USD"},
                     "costType": "CPM",
                     "targetingCriteria": {},
                     "locale": {"country": "US", "language": "en"},
-                    "version": {"versionTag": "1"}
+                    "version": {"versionTag": "1"},
                 }
             ]
         }
@@ -73,7 +70,7 @@ class TestLinkedInAdsClient:
         assert result[0]["id"] == "987654321"
         assert result[0]["name"] == "Test Campaign"
 
-    @patch('requests.Session.get')
+    @patch("requests.Session.get")
     def test_get_analytics_success(self, mock_get):
         """Test successful analytics fetching."""
         mock_response = Mock()
@@ -84,7 +81,7 @@ class TestLinkedInAdsClient:
                     "pivotValues": ["urn:li:sponsoredCampaign:123"],
                     "dateRange": {
                         "start": {"year": 2023, "month": 1, "day": 1},
-                        "end": {"year": 2023, "month": 1, "day": 31}
+                        "end": {"year": 2023, "month": 1, "day": 31},
                     },
                     "impressions": 1000,
                     "clicks": 50,
@@ -95,7 +92,7 @@ class TestLinkedInAdsClient:
                     "videoViews": 20,
                     "videoCompletions": 10,
                     "oneClickLeads": 2,
-                    "follows": 3
+                    "follows": 3,
                 }
             ]
         }
@@ -108,7 +105,7 @@ class TestLinkedInAdsClient:
         assert result[0]["impressions"] == 1000
         assert result[0]["clicks"] == 50
 
-    @patch('requests.Session.get')
+    @patch("requests.Session.get")
     def test_auth_error_handling(self, mock_get):
         """Test authentication error handling."""
         mock_response = Mock()
@@ -121,7 +118,7 @@ class TestLinkedInAdsClient:
         with pytest.raises(LinkedinAdsAuthError, match="LinkedIn API authentication failed"):
             client.get_accounts()
 
-    @patch('requests.Session.get')
+    @patch("requests.Session.get")
     def test_rate_limit_error_handling(self, mock_get):
         """Test rate limit error handling."""
         mock_response = Mock()
@@ -131,11 +128,11 @@ class TestLinkedInAdsClient:
 
         client = LinkedinAdsClient("test_token")
 
-        with patch('time.sleep'):  # Skip actual sleep
+        with patch("time.sleep"):  # Skip actual sleep
             with pytest.raises(LinkedinAdsRateLimitError, match="LinkedIn API rate limit exceeded"):
                 client.get_accounts()
 
-    @patch('requests.Session.get')
+    @patch("requests.Session.get")
     def test_server_error_with_retry(self, mock_get):
         """Test server error handling with retry."""
         # First call returns 500, second succeeds
@@ -151,7 +148,7 @@ class TestLinkedInAdsClient:
 
         client = LinkedinAdsClient("test_token")
 
-        with patch('time.sleep'):  # Skip actual sleep
+        with patch("time.sleep"):  # Skip actual sleep
             result = client.get_accounts()
 
         assert result == [{"id": "123"}]

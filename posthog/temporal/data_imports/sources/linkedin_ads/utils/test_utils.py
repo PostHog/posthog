@@ -21,7 +21,7 @@ class TestValidationFunctions:
         valid_ids = [
             "123456",
             "123456789",
-            "123456789012345"  # 15 digits
+            "123456789012345",  # 15 digits
         ]
 
         for account_id in valid_ids:
@@ -59,7 +59,7 @@ class TestValidationFunctions:
             "2023-01-32",  # Invalid day
             "2023/01/01",  # Wrong format
             "01-01-2023",  # Wrong order
-            "2023-1-1",    # Missing leading zeros
+            "2023-1-1",  # Missing leading zeros
         ]
 
         for date_str in invalid_dates:
@@ -67,12 +67,7 @@ class TestValidationFunctions:
 
     def test_validate_pivot_value_valid(self):
         """Test pivot value validation with valid pivots."""
-        valid_pivots = [
-            "CAMPAIGN",
-            "CAMPAIGN_GROUP",
-            "CREATIVE",
-            "ACCOUNT"
-        ]
+        valid_pivots = ["CAMPAIGN", "CAMPAIGN_GROUP", "CREATIVE", "ACCOUNT"]
 
         for pivot in valid_pivots:
             assert validate_pivot_value(pivot) is True
@@ -99,11 +94,8 @@ class TestDataFlattening:
             "impressions": 1000,
             "clicks": 50,
             "costInUsd": "25.50",
-            "dateRange": {
-                "start": {"year": 2023, "month": 1, "day": 15},
-                "end": {"year": 2023, "month": 1, "day": 15}
-            },
-            "pivotValues": ["urn:li:sponsoredCampaign:123456789"]
+            "dateRange": {"start": {"year": 2023, "month": 1, "day": 15}, "end": {"year": 2023, "month": 1, "day": 15}},
+            "pivotValues": ["urn:li:sponsoredCampaign:123456789"],
         }
 
         result = flatten_data_item(analytics_item, "campaign_stats")
@@ -123,10 +115,7 @@ class TestDataFlattening:
             "name": "Test Campaign",
             "status": "ACTIVE",
             "account": "urn:li:sponsoredAccount:123456789",
-            "changeAuditStamps": {
-                "created": {"time": 1609459200000},
-                "lastModified": {"time": 1609459200000}
-            }
+            "changeAuditStamps": {"created": {"time": 1609459200000}, "lastModified": {"time": 1609459200000}},
         }
 
         result = flatten_data_item(campaign_item, "campaigns")
@@ -138,10 +127,7 @@ class TestDataFlattening:
 
     def test_determine_primary_keys_campaigns(self):
         """Test primary key determination for campaigns."""
-        flattened_data = [
-            {"id": "123", "name": "Campaign 1"},
-            {"id": "456", "name": "Campaign 2"}
-        ]
+        flattened_data = [{"id": "123", "name": "Campaign 1"}, {"id": "456", "name": "Campaign 2"}]
 
         primary_keys = determine_primary_keys("campaigns", flattened_data)
         assert primary_keys == ["id"]
@@ -149,16 +135,8 @@ class TestDataFlattening:
     def test_determine_primary_keys_analytics(self):
         """Test primary key determination for analytics data."""
         flattened_data = [
-            {
-                "campaign_id": "123",
-                "date_range_start": date(2023, 1, 15),
-                "impressions": 1000
-            },
-            {
-                "campaign_id": "456",
-                "date_range_start": date(2023, 1, 15),
-                "impressions": 2000
-            }
+            {"campaign_id": "123", "date_range_start": date(2023, 1, 15), "impressions": 1000},
+            {"campaign_id": "456", "date_range_start": date(2023, 1, 15), "impressions": 2000},
         ]
 
         primary_keys = determine_primary_keys("campaign_stats", flattened_data)

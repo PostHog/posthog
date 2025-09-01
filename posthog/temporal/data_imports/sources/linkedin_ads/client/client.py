@@ -54,9 +54,7 @@ class LinkedinAdsClient:
         self.request_handler = LinkedinAdsRequestHandler(self.session)
         self.date_handler = LinkedinAdsDateHandler()
 
-        logger.info("LinkedIn Ads Client initialized",
-                   base_url=self.base_url,
-                   api_version=self.api_version)
+        logger.info("LinkedIn Ads Client initialized", base_url=self.base_url, api_version=self.api_version)
 
     def get_accounts(self) -> list[LinkedinAccountType]:
         """Get ad accounts accessible to the authenticated user.
@@ -65,10 +63,7 @@ class LinkedinAdsClient:
             List of ad account objects
         """
         endpoint = LINKEDIN_ADS_ENDPOINTS[LinkedinAdsResource.Accounts]
-        params = {
-            "q": "search",
-            "fields": ",".join(LINKEDIN_ADS_FIELDS[LinkedinAdsResource.Accounts])
-        }
+        params = {"q": "search", "fields": ",".join(LINKEDIN_ADS_FIELDS[LinkedinAdsResource.Accounts])}
 
         url = f"{self.base_url}/{endpoint}"
         data = self.request_handler.make_request(url, params)
@@ -87,10 +82,7 @@ class LinkedinAdsClient:
         self._validate_account_id(account_id)
 
         endpoint = f"adAccounts/{account_id}/adCampaigns"
-        params = {
-            "q": "search",
-            "fields": ",".join(LINKEDIN_ADS_FIELDS[LinkedinAdsResource.Campaigns])
-        }
+        params = {"q": "search", "fields": ",".join(LINKEDIN_ADS_FIELDS[LinkedinAdsResource.Campaigns])}
 
         return self._get_paginated_data(endpoint, params)
 
@@ -107,19 +99,13 @@ class LinkedinAdsClient:
         self._validate_account_id(account_id)
 
         endpoint = f"adAccounts/{account_id}/adCampaignGroups"
-        params = {
-            "q": "search",
-            "fields": ",".join(LINKEDIN_ADS_FIELDS[LinkedinAdsResource.CampaignGroups])
-        }
+        params = {"q": "search", "fields": ",".join(LINKEDIN_ADS_FIELDS[LinkedinAdsResource.CampaignGroups])}
 
         return self._get_paginated_data(endpoint, params)
 
-    def get_analytics(self,
-                     account_id: str,
-                     pivot: str,
-                     date_start: Optional[str] = None,
-                     date_end: Optional[str] = None,
-                     **kwargs) -> list[LinkedinAnalyticsType]:
+    def get_analytics(
+        self, account_id: str, pivot: str, date_start: Optional[str] = None, date_end: Optional[str] = None, **kwargs
+    ) -> list[LinkedinAnalyticsType]:
         """Get analytics data using the /rest/adAnalytics endpoint.
 
         Args:
@@ -145,7 +131,7 @@ class LinkedinAdsClient:
             "timeGranularity": "DAILY",
             "dateRange": date_range_param,
             "accounts": f"List(urn%3Ali%3AsponsoredAccount%3A{account_id})",
-            "fields": ",".join(LINKEDIN_ADS_FIELDS[LinkedinAdsResource.CampaignStats])
+            "fields": ",".join(LINKEDIN_ADS_FIELDS[LinkedinAdsResource.CampaignStats]),
         }
 
         endpoint = LINKEDIN_ADS_ENDPOINTS[LinkedinAdsResource.CampaignStats]
@@ -160,12 +146,14 @@ class LinkedinAdsClient:
             Configured requests session
         """
         session = requests.Session()
-        session.headers.update({
-            "Authorization": f"Bearer {self.access_token}",
-            "Content-Type": "application/json",
-            "LinkedIn-Version": self.api_version,
-            "X-Restli-Protocol-Version": "2.0.0"
-        })
+        session.headers.update(
+            {
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json",
+                "LinkedIn-Version": self.api_version,
+                "X-Restli-Protocol-Version": "2.0.0",
+            }
+        )
         return session
 
     def _get_paginated_data(self, endpoint: str, params: RequestParams) -> list[dict[str, Any]]:
@@ -194,9 +182,11 @@ class LinkedinAdsClient:
 
             # Validate response structure
             if not data or "elements" not in data:
-                logger.error("Invalid API response structure",
-                           endpoint=endpoint,
-                           response_keys=list(data.keys()) if data else None)
+                logger.error(
+                    "Invalid API response structure",
+                    endpoint=endpoint,
+                    response_keys=list(data.keys()) if data else None,
+                )
                 raise LinkedinAdsError(f"Invalid response structure from {endpoint}: missing 'elements' field")
 
             elements = data.get("elements", [])
@@ -213,16 +203,15 @@ class LinkedinAdsClient:
 
             # Safety check to prevent infinite loops
             if page_number > MAX_PAGES_SAFETY_LIMIT:
-                logger.error("Pagination safety limit reached",
-                           endpoint=endpoint,
-                           page_number=page_number,
-                           total_elements=len(all_elements))
+                logger.error(
+                    "Pagination safety limit reached",
+                    endpoint=endpoint,
+                    page_number=page_number,
+                    total_elements=len(all_elements),
+                )
                 break
 
-        logger.info("Pagination complete",
-                   endpoint=endpoint,
-                   total_pages=page_number,
-                   total_elements=len(all_elements))
+        logger.info("Pagination complete", endpoint=endpoint, total_pages=page_number, total_elements=len(all_elements))
         return all_elements
 
     def _validate_account_id(self, account_id: str) -> None:
@@ -252,5 +241,3 @@ class LinkedinAdsClient:
         valid_pivots = ["CAMPAIGN", "CAMPAIGN_GROUP", "CREATIVE", "ACCOUNT"]
         if pivot not in valid_pivots:
             raise ValueError(f"Invalid pivot '{pivot}'. Must be one of: {valid_pivots}")
-
-

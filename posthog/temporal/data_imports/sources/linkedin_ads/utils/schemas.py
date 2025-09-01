@@ -5,6 +5,7 @@ from posthog.warehouse.types import IncrementalField, IncrementalFieldType
 
 class LinkedinAdsResource(StrEnum):
     """LinkedIn Ads API resources we can import"""
+
     Accounts = "accounts"
     Campaigns = "campaigns"
     CampaignGroups = "campaign_groups"
@@ -88,7 +89,6 @@ LINKEDIN_ADS_FIELDS = {
         "totalBudget",
         "changeAuditStamps",
     ],
-
     LinkedinAdsResource.CampaignStats: [
         "impressions",
         "clicks",
@@ -101,7 +101,7 @@ LINKEDIN_ADS_FIELDS = {
         "videoViews",
         "videoCompletions",
         "oneClickLeads",
-        "follows"
+        "follows",
     ],
     LinkedinAdsResource.CampaignGroupStats: [
         "impressions",
@@ -115,6 +115,6 @@ LINKEDIN_ADS_FIELDS = {
         "videoViews",
         "videoCompletions",
         "oneClickLeads",
-        "follows"
+        "follows",
     ],
 }
