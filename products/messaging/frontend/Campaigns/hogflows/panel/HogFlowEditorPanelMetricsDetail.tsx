@@ -1,10 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonButton, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
+import { IconOpenInApp } from 'lib/lemon-ui/icons'
+import { urls } from 'scenes/urls'
 
 import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
 import { ChartDisplayType } from '~/types'
@@ -37,52 +39,63 @@ export function HogFlowEditorPanelMetricsDetail(): JSX.Element | null {
     }, [loadAppMetricsTrends])
 
     return (
-        <div className="p-2 flex flex-col gap-2 overflow-hidden">
-            <div className="flex flex-row gap-2 flex-wrap justify-end">
-                <AppMetricsFilters logicKey={logicKey} />
+        <>
+            <div className="border-b">
+                <LemonButton
+                    to={urls.messagingCampaign(campaign.id, 'metrics')}
+                    size="xsmall"
+                    sideIcon={<IconOpenInApp />}
+                >
+                    Click here to open in full metrics viewer
+                </LemonButton>
             </div>
+            <div className="p-2 flex flex-col gap-2 overflow-y-auto">
+                <div className="flex flex-row gap-2 flex-wrap justify-end">
+                    <AppMetricsFilters logicKey={logicKey} />
+                </div>
 
-            <div className="relative border rounded min-h-[20rem] bg-white flex flex-1 flex-col">
-                {appMetricsTrendsLoading ? (
-                    <div className="flex-1 flex items-center justify-center p-8">
-                        <SpinnerOverlay />
-                    </div>
-                ) : !appMetricsTrends ? (
-                    <div className="flex-1 flex items-center justify-center">
-                        <div className="text-muted">No data</div>
-                    </div>
-                ) : (
-                    <LineGraph
-                        className="p-2"
-                        xData={{
-                            column: {
-                                name: 'date',
-                                type: {
-                                    name: 'DATE',
-                                    isNumerical: false,
+                <div className="relative border rounded min-h-[20rem] bg-white flex flex-1 flex-col">
+                    {appMetricsTrendsLoading ? (
+                        <div className="flex-1 flex items-center justify-center p-8">
+                            <SpinnerOverlay />
+                        </div>
+                    ) : !appMetricsTrends ? (
+                        <div className="flex-1 flex items-center justify-center">
+                            <div className="text-muted">No data</div>
+                        </div>
+                    ) : (
+                        <LineGraph
+                            className="p-2"
+                            xData={{
+                                column: {
+                                    name: 'date',
+                                    type: {
+                                        name: 'DATE',
+                                        isNumerical: false,
+                                    },
+                                    label: 'Date',
+                                    dataIndex: 0,
                                 },
-                                label: 'Date',
-                                dataIndex: 0,
-                            },
-                            data: appMetricsTrends.labels,
-                        }}
-                        yData={appMetricsTrends.series.map((x) => ({
-                            column: {
-                                name: x.name,
-                                type: { name: 'INTEGER', isNumerical: true },
-                                label: x.name,
-                                dataIndex: 0,
-                            },
-                            data: x.values,
-                        }))}
-                        visualizationType={ChartDisplayType.ActionsLineGraph}
-                        chartSettings={{
-                            showLegend: true,
-                            showTotalRow: true,
-                        }}
-                    />
-                )}
+                                data: appMetricsTrends.labels,
+                            }}
+                            yData={appMetricsTrends.series.map((x) => ({
+                                column: {
+                                    name: x.name,
+                                    type: { name: 'INTEGER', isNumerical: true },
+                                    label: x.name,
+                                    dataIndex: 0,
+                                },
+                                data: x.values,
+                            }))}
+                            visualizationType={ChartDisplayType.ActionsLineGraph}
+                            chartSettings={{
+                                showLegend: true,
+                                showTotalRow: true,
+                            }}
+                        />
+                    )}
+                </div>
             </div>
-        </div>
+        </>
     )
 }

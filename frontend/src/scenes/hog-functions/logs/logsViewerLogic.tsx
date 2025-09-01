@@ -1,4 +1,4 @@
-import { actions, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, events, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -15,6 +15,7 @@ export const DEFAULT_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WAR
 export type LogsViewerLogicProps = {
     sourceType: 'hog_function' | 'hog_flow'
     sourceId: string
+    groupByInstanceId?: boolean
     // Add forced search params
 }
 
@@ -27,19 +28,22 @@ export type LogsViewerFilters = {
 
 export const LOG_VIEWER_LIMIT = 500
 
+export type LogEntry = {
+    message: string
+    instanceId?: string
+    level: LogEntryLevel
+    timestamp: Dayjs
+}
+
 export type GroupedLogEntry = {
     instanceId: string
     maxTimestamp: Dayjs
     minTimestamp: Dayjs
     logLevel: LogEntryLevel
-    entries: {
-        message: string
-        level: LogEntryLevel
-        timestamp: Dayjs
-    }[]
+    entries: LogEntry[]
 }
 
-type GroupedLogEntryRequest = {
+type LogEntryParams = {
     sourceType: 'hog_function' | 'hog_flow'
     sourceId: string
     levels: LogEntryLevel[]
@@ -47,9 +51,58 @@ type GroupedLogEntryRequest = {
     date_from?: string
     date_to?: string
     order: 'ASC' | 'DESC'
+    groupByInstanceId: boolean
 }
 
-const loadGroupedLogs = async (request: GroupedLogEntryRequest): Promise<GroupedLogEntry[]> => {
+const loadLogs = async (request: LogEntryParams): Promise<LogEntry[]> => {
+    const query = hogql`
+        SELECT
+            instance_id,
+            timestamp,
+            level,
+            message,
+        FROM log_entries
+        WHERE log_source = ${request.sourceType}
+        AND log_source_id = ${request.sourceId}
+        AND timestamp > {filters.dateRange.from}
+        AND timestamp < {filters.dateRange.to}
+        AND lower(level) IN (${hogql.raw(request.levels.map((level) => `'${level.toLowerCase()}'`).join(','))})
+        AND message ILIKE '%${hogql.raw(request.search)}%'
+        ORDER BY timestamp ${hogql.raw(request.order)}
+        LIMIT ${LOG_VIEWER_LIMIT}`
+
+    const response = await api.queryHogQL(query, {
+        refresh: 'force_blocking',
+        filtersOverride: {
+            date_from: request.date_from ?? '-7d',
+            date_to: request.date_to,
+        },
+    })
+
+    return response.results.map((result) => ({
+        instanceId: result[0],
+        timestamp: dayjs(result[1]),
+        level: result[2].toUpperCase(),
+        message: result[3],
+    })) as LogEntry[]
+}
+
+const loadGroupedLogs = async (request: LogEntryParams): Promise<GroupedLogEntry[]> => {
+    if (!request.groupByInstanceId) {
+        // NOTE: This looks odd but it allows us to simplify all of our loading logic to support
+        // both grouped and non-grouped logs
+        const nonGroupedLogs = await loadLogs(request)
+        return [
+            {
+                instanceId: 'all',
+                maxTimestamp: dayjs(nonGroupedLogs[0].timestamp),
+                minTimestamp: dayjs(nonGroupedLogs[nonGroupedLogs.length - 1].timestamp),
+                logLevel: nonGroupedLogs[nonGroupedLogs.length - 1].level,
+                entries: nonGroupedLogs,
+            },
+        ]
+    }
+
     const query = hogql`
         SELECT
             instance_id,
@@ -143,6 +196,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         scheduleLoadNewerLogs: true,
         loadLogs: true,
         loadNewerLogs: true,
+        setIsGrouped: (isGrouped: boolean) => ({ isGrouped }),
     }),
     loaders(({ props, values, actions }) => ({
         logs: [
@@ -153,7 +207,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
 
                     actions.clearHiddenLogs()
 
-                    const logParams: GroupedLogEntryRequest = {
+                    const logParams: LogEntryParams = {
                         levels: values.filters.levels,
                         search: values.filters.search,
                         sourceType: props.sourceType,
@@ -161,6 +215,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                         date_from: values.filters.date_from,
                         date_to: values.filters.date_to,
                         order: 'DESC',
+                        groupByInstanceId: values.isGrouped,
                     }
                     const results = await loadGroupedLogs(logParams)
 
@@ -172,7 +227,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     if (!values.oldestLogTimestamp) {
                         return values.logs
                     }
-                    const logParams: GroupedLogEntryRequest = {
+                    const logParams: LogEntryParams = {
                         levels: values.filters.levels,
                         search: values.filters.search,
                         sourceType: props.sourceType,
@@ -180,6 +235,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                         date_to: values.oldestLogTimestamp.toISOString(),
                         date_from: values.filters.date_from,
                         order: 'DESC',
+                        groupByInstanceId: values.isGrouped,
                     }
 
                     const results = await loadGroupedLogs(logParams)
@@ -214,7 +270,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     if (!values.newestLogTimestamp) {
                         return values.hiddenLogs
                     }
-                    const logParams: GroupedLogEntryRequest = {
+                    const logParams: LogEntryParams = {
                         levels: values.filters.levels,
                         search: values.filters.search,
                         sourceType: props.sourceType,
@@ -222,6 +278,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                         date_from: values.newestLogTimestamp.toISOString(),
                         date_to: values.filters.date_to,
                         order: 'ASC',
+                        groupByInstanceId: values.isGrouped,
                     }
 
                     const results = await loadGroupedLogs(logParams)
@@ -261,7 +318,13 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             },
         ],
     })),
-    reducers({
+    reducers(({ props }) => ({
+        isGrouped: [
+            props.groupByInstanceId ?? true,
+            {
+                setIsGrouped: (_, { isGrouped }) => isGrouped,
+            },
+        ],
         filters: [
             {
                 search: '',
@@ -292,11 +355,11 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                 }),
             },
         ],
-    }),
+    })),
     selectors(() => ({
         newestLogTimestamp: [
             (s) => [s.logs, s.hiddenLogs],
-            (logs: GroupedLogEntry[], hiddenLogs: GroupedLogEntry[]): Dayjs | null => {
+            (logs, hiddenLogs): Dayjs | null => {
                 return logs.concat(hiddenLogs).reduce(
                     (max, log) => {
                         if (!max) {
@@ -311,7 +374,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
 
         oldestLogTimestamp: [
             (s) => [s.logs, s.hiddenLogs],
-            (logs: GroupedLogEntry[], hiddenLogs: GroupedLogEntry[]): Dayjs | null => {
+            (logs, hiddenLogs): Dayjs | null => {
                 return logs.concat(hiddenLogs).reduce(
                     (min, log) => {
                         if (!min) {
@@ -324,8 +387,17 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             },
         ],
     })),
+    propsChanged(({ props, actions }, oldProps) => {
+        if (props.groupByInstanceId !== oldProps.groupByInstanceId) {
+            actions.setIsGrouped(props.groupByInstanceId ?? true)
+        }
+    }),
     listeners(({ actions, cache }) => ({
         setFilters: async (_, breakpoint) => {
+            await breakpoint(500)
+            actions.loadLogs()
+        },
+        setIsGrouped: async (_, breakpoint) => {
             await breakpoint(500)
             actions.loadLogs()
         },
