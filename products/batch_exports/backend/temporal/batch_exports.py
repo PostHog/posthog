@@ -540,7 +540,7 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
     await try_produce_run_status_app_metrics(batch_export_run.status, inputs.team_id, inputs.batch_export_id)
 
 
-async def try_produce_run_status_app_metrics(status: BatchExportRun.Status, team_id: int, batch_export_id: str):
+async def try_produce_run_status_app_metrics(status: BatchExportRun.Status | str, team_id: int, batch_export_id: str):
     """Attempt to produce batch export run status to app_metrics2.
 
     The metric name and kind will depend on the reported status.
@@ -582,7 +582,9 @@ async def try_produce_run_status_app_metrics(status: BatchExportRun.Status, team
         try:
             await fut
         except Exception:
-            LOGGER.exception("Metrics production failed")
+            LOGGER.exception(
+                "Metrics production failed", team_id=team_id, batch_export_id=batch_export_id, metric_kind=metric_kind
+            )
 
 
 def configure_default_ssl_context():
