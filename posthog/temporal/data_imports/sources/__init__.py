@@ -13,8 +13,10 @@ from .meta_ads.source import MetaAdsSource
 from .mongodb.source import MongoDBSource
 from .mssql.source import MSSQLSource
 from .mysql.source import MySQLSource
+from .polar.source import PolarSource
 from .postgres.source import PostgresSource
 from .redshift.source import RedshiftSource
+from .revenuecat.source import RevenueCatSource
 from .salesforce.source import SalesforceSource
 from .snowflake.source import SnowflakeSource
 from .stripe.source import StripeSource
@@ -38,8 +40,10 @@ __all__ = [
     "MongoDBSource",
     "MSSQLSource",
     "MySQLSource",
-    "RedshiftSource",
+    "PolarSource",
     "PostgresSource",
+    "RedshiftSource",
+    "RevenueCatSource",
     "SalesforceSource",
     "SnowflakeSource",
     "StripeSource",

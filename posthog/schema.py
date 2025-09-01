@@ -1213,6 +1213,8 @@ class ExternalDataSourceType(StrEnum):
     VITALLY = "Vitally"
     BIG_QUERY = "BigQuery"
     CHARGEBEE = "Chargebee"
+    REVENUE_CAT = "RevenueCat"
+    POLAR = "Polar"
     GOOGLE_ADS = "GoogleAds"
     META_ADS = "MetaAds"
     KLAVIYO = "Klaviyo"
