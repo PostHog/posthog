@@ -19,13 +19,10 @@ interface SurveySQLHelperProps {
 }
 
 // Helper to sanitize the SQL alias for safety
-function sanitizeAlias(text: string, maxLen = 50): string {
-    return (
-        text
-            .replace(/["'`]/g, '')         // Remove quotes and backticks
-            .replace(/[^\w\s]/g, '')       // Remove non-word characters (optional)
-            .slice(0, maxLen)              // Truncate to maxLen chars
-    )
+function sanitizeAlias(text: string): string {
+    return text
+        .replace(/["'`]/g, '') // Remove quotes and backticks
+        .replace(/[^\w\s]/g, '') // Remove non-word characters (optional)
 }
 
 export function SurveySQLHelper({ isOpen, onClose }: SurveySQLHelperProps): JSX.Element {
