@@ -675,7 +675,7 @@ class RootNodeTools(AssistantNode):
             return PartialAssistantState(
                 root_tool_call_id=tool_call.id,
                 session_summarization_query=tool_call.args["session_summarization_query"],
-                use_current_filters=tool_call.args["use_current_filters"],
+                should_use_current_filters=tool_call.args["should_use_current_filters"],
                 root_tool_calls_count=tool_call_count + 1,
             )
         elif ToolClass := get_contextual_tool_class(tool_call.name):

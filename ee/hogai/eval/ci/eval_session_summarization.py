@@ -110,7 +110,7 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
                     name="session_summarization",
                     args={
                         "session_summarization_query": "summarize sessions from yesterday",
-                        "use_current_filters": False,  # Specific time frame differs from current filters
+                        "should_use_current_filters": False,  # Specific time frame differs from current filters
                     },
                 ),
             ),
@@ -121,7 +121,7 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
                     name="session_summarization",
                     args={
                         "session_summarization_query": "watch sessions of the user 09081 in the last 30 days",
-                        "use_current_filters": False,  # Specific user and timeframe
+                        "should_use_current_filters": False,  # Specific user and timeframe
                     },
                 ),
             ),
@@ -132,11 +132,11 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
                     name="session_summarization",
                     args={
                         "session_summarization_query": "analyze mobile user sessions from last week",
-                        "use_current_filters": False,  # Specific device type and timeframe
+                        "should_use_current_filters": False,  # Specific device type and timeframe
                     },
                 ),
             ),
-            # Cases where use_current_filters should be true (referring to current/selected filters)
+            # Cases where should_use_current_filters should be true (referring to current/selected filters)
             EvalCase(
                 input="summarize these sessions",
                 expected=AssistantToolCall(
@@ -144,7 +144,7 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
                     name="session_summarization",
                     args={
                         "session_summarization_query": "summarize these sessions",
-                        "use_current_filters": True,  # "these" refers to current filters
+                        "should_use_current_filters": True,  # "these" refers to current filters
                     },
                 ),
             ),
@@ -155,7 +155,7 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
                     name="session_summarization",
                     args={
                         "session_summarization_query": "summarize all sessions",
-                        "use_current_filters": True,  # "all" in context of filtered view
+                        "should_use_current_filters": True,  # "all" in context of filtered view
                     },
                 ),
             ),
@@ -167,7 +167,7 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
 @pytest.mark.django_db
 @patch("posthoganalytics.feature_enabled", return_value=True)
 async def eval_session_summarization_no_context(patch_feature_enabled, call_root_for_replay_sessions, pytestconfig):
-    """Test session summarization without search_session_recordings context - use_current_filters should always be false."""
+    """Test session summarization without search_session_recordings context - should_use_current_filters should always be false."""
 
     # Create a wrapper that excludes context
     async def task_without_context(input: str) -> AssistantMessage:
@@ -178,7 +178,7 @@ async def eval_session_summarization_no_context(patch_feature_enabled, call_root
         task=task_without_context,  # Using default include_search_session_recordings_context=False
         scores=[ToolRelevance(semantic_similarity_args={"session_summarization_query"})],
         data=[
-            # All cases should have use_current_filters=false when no context
+            # All cases should have should_use_current_filters=false when no context
             EvalCase(
                 input="summarize sessions from yesterday",
                 expected=AssistantToolCall(
@@ -186,7 +186,7 @@ async def eval_session_summarization_no_context(patch_feature_enabled, call_root
                     name="session_summarization",
                     args={
                         "session_summarization_query": "summarize sessions from yesterday",
-                        "use_current_filters": False,  # No context, always false
+                        "should_use_current_filters": False,  # No context, always false
                     },
                 ),
             ),
@@ -197,7 +197,7 @@ async def eval_session_summarization_no_context(patch_feature_enabled, call_root
                     name="session_summarization",
                     args={
                         "session_summarization_query": "analyze the current recordings from today",
-                        "use_current_filters": False,  # Even with "current", no context means false
+                        "should_use_current_filters": False,  # Even with "current", no context means false
                     },
                 ),
             ),
@@ -208,7 +208,7 @@ async def eval_session_summarization_no_context(patch_feature_enabled, call_root
                     name="session_summarization",
                     args={
                         "session_summarization_query": "watch all session recordings",
-                        "use_current_filters": False,  # Even with "all", no context means false
+                        "should_use_current_filters": False,  # Even with "all", no context means false
                     },
                 ),
             ),

@@ -272,9 +272,9 @@ class SessionSummarizationNode(AssistantNode):
             )
             return self._create_error_response(self._base_error_instructions, state)
         # If the decision on the current filters is not made
-        if state.use_current_filters is None:
+        if state.should_use_current_filters is None:
             self._log_failure(
-                f"Use current filters decision is not made when summarizing sessions: {state.use_current_filters}",
+                f"Use current filters decision is not made when summarizing sessions: {state.should_use_current_filters}",
                 conversation_id,
                 start_time,
             )
@@ -283,10 +283,10 @@ class SessionSummarizationNode(AssistantNode):
         current_filters = self._get_contextual_tools(config).get("search_session_recordings", {}).get("current_filters")
         try:
             # Use current filters, if provided
-            if state.use_current_filters:
+            if state.should_use_current_filters:
                 if not current_filters:
                     self._log_failure(
-                        f"Use current filters decision was set to True, but current filters were not provided when summarizing sessions: {state.use_current_filters}",
+                        f"Use current filters decision was set to True, but current filters were not provided when summarizing sessions: {state.should_use_current_filters}",
                         conversation_id,
                         start_time,
                     )
