@@ -5,7 +5,7 @@ import { urls } from 'scenes/urls'
 import { getHogFlowStep } from '../hogflows/steps/HogFlowSteps'
 import { HogFlow } from '../hogflows/types'
 
-// We pull out actions like [Action:action_function_webhook_13ec288f-10af-4e98-abd4-e2828de3305e and replace them with a link to the action
+// We pull out actions like [Action:action_function_webhook_13ec288f-10af-4e98-abd4-e2828de3305e] and replace them with a link to the action
 
 const ACTION_REGEX = /\[Action:([a-zA-Z0-9_-]+)\]/g
 

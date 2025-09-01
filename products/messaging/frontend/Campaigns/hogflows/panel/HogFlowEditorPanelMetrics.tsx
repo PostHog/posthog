@@ -13,11 +13,11 @@ import { ChartDisplayType } from '~/types'
 
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 
-export function HogFlowEditorPanelMetricsDetail(): JSX.Element | null {
+export function HogFlowEditorPanelMetrics(): JSX.Element | null {
     const { selectedNode, campaign } = useValues(hogFlowEditorLogic)
-    const id = selectedNode?.data.id ?? 'unknown'
+    const id = selectedNode?.data.id
 
-    const logicKey = `hog-flow-metrics-${id}`
+    const logicKey = `hog-flow-metrics-${id || 'all'}`
 
     const logic = appMetricsLogic({
         logicKey,

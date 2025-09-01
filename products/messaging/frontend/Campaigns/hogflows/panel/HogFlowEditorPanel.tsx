@@ -12,7 +12,7 @@ import { getHogFlowStep } from '../steps/HogFlowSteps'
 import { HogFlowEditorPanelBuild } from './HogFlowEditorPanelBuild'
 import { HogFlowEditorPanelBuildDetail } from './HogFlowEditorPanelBuildDetail'
 import { HogFlowEditorPanelLogs } from './HogFlowEditorPanelLogs'
-import { HogFlowEditorPanelMetricsDetail } from './HogFlowEditorPanelMetricsDetail'
+import { HogFlowEditorPanelMetrics } from './HogFlowEditorPanelMetrics'
 import { HogFlowEditorPanelNodeRequired } from './components/HogFlowEditorPanelNodeRequired'
 import { HogFlowEditorPanelTest } from './testing/HogFlowEditorPanelTest'
 
@@ -97,11 +97,7 @@ export function HogFlowEditorPanel(): JSX.Element | null {
                         <HogFlowEditorPanelTest />
                     </HogFlowEditorPanelNodeRequired>
                 )}
-                {mode === 'metrics' && (
-                    <HogFlowEditorPanelNodeRequired>
-                        <HogFlowEditorPanelMetricsDetail />
-                    </HogFlowEditorPanelNodeRequired>
-                )}
+                {mode === 'metrics' && <HogFlowEditorPanelMetrics />}
                 {mode === 'logs' && <HogFlowEditorPanelLogs />}
             </div>
         </div>

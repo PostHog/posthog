@@ -1,10 +1,12 @@
 import { actions, events, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 
-import { hogql } from '~/queries/utils'
+import { HogQLQueryString, hogql } from '~/queries/utils'
 import { LogEntryLevel } from '~/types'
 
 import type { logsViewerLogicType } from './logsViewerLogicType'
@@ -13,9 +15,11 @@ export const ALL_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARNING
 export const DEFAULT_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARNING', 'ERROR']
 
 export type LogsViewerLogicProps = {
+    logicKey?: string
     sourceType: 'hog_function' | 'hog_flow'
     sourceId: string
     groupByInstanceId?: boolean
+    searchGroups?: string[]
     // Add forced search params
 }
 
@@ -47,27 +51,39 @@ type LogEntryParams = {
     sourceType: 'hog_function' | 'hog_flow'
     sourceId: string
     levels: LogEntryLevel[]
-    search: string
+    searchGroups: string[]
     date_from?: string
     date_to?: string
     order: 'ASC' | 'DESC'
     groupByInstanceId: boolean
 }
 
-const loadLogs = async (request: LogEntryParams): Promise<LogEntry[]> => {
-    const query = hogql`
-        SELECT
-            instance_id,
-            timestamp,
-            level,
-            message,
-        FROM log_entries
-        WHERE log_source = ${request.sourceType}
+const buildBoundaryFilters = (request: LogEntryParams): string => {
+    return hogql`
+        AND log_source = ${request.sourceType}
         AND log_source_id = ${request.sourceId}
         AND timestamp > {filters.dateRange.from}
         AND timestamp < {filters.dateRange.to}
-        AND lower(level) IN (${hogql.raw(request.levels.map((level) => `'${level.toLowerCase()}'`).join(','))})
-        AND message ILIKE '%${hogql.raw(request.search)}%'
+    `
+}
+
+const buildSearchFilters = ({ searchGroups, levels }: LogEntryParams): string => {
+    let query = hogql`\nAND lower(level) IN (${hogql.raw(levels.map((level) => `'${level.toLowerCase()}'`).join(','))})`
+
+    searchGroups.forEach((search) => {
+        query = (query + hogql`\nAND message ILIKE '%${hogql.raw(search)}%'`) as HogQLQueryString
+    })
+
+    return query
+}
+
+const loadLogs = async (request: LogEntryParams): Promise<LogEntry[]> => {
+    const query = hogql`
+        SELECT instance_id, timestamp, level, message
+        FROM log_entries
+        WHERE 1=1
+        ${hogql.raw(buildBoundaryFilters(request))}
+        ${hogql.raw(buildSearchFilters(request))}
         ORDER BY timestamp ${hogql.raw(request.order)}
         LIMIT ${LOG_VIEWER_LIMIT}`
 
@@ -112,19 +128,14 @@ const loadGroupedLogs = async (request: LogEntryParams): Promise<GroupedLogEntry
                 groupArray((timestamp, level, message))
             ) AS messages
         FROM log_entries
-        WHERE log_source = ${request.sourceType}
-        AND log_source_id = ${request.sourceId}
-        AND timestamp > {filters.dateRange.from}
-        AND timestamp < {filters.dateRange.to}
+        WHERE 1=1 
+        ${hogql.raw(buildBoundaryFilters(request))}
         AND instance_id in (
             SELECT DISTINCT instance_id
             FROM log_entries
-            WHERE log_source = ${request.sourceType}
-            AND log_source_id = ${request.sourceId}
-            AND timestamp > {filters.dateRange.from}
-            AND timestamp < {filters.dateRange.to}
-            AND lower(level) IN (${hogql.raw(request.levels.map((level) => `'${level.toLowerCase()}'`).join(','))})
-            AND message ILIKE '%${hogql.raw(request.search)}%'
+            WHERE 1=1
+            ${hogql.raw(buildBoundaryFilters(request))}
+            ${hogql.raw(buildSearchFilters(request))}
             ORDER BY timestamp ${hogql.raw(request.order)}
             LIMIT ${LOG_VIEWER_LIMIT}
         )
@@ -184,7 +195,7 @@ const sanitizeGroupedLogs = (groups: GroupedLogEntry[]): GroupedLogEntry[] => {
 export const logsViewerLogic = kea<logsViewerLogicType>([
     path((key) => ['scenes', 'pipeline', 'hogfunctions', 'logs', 'logsViewerLogic', key]),
     props({} as LogsViewerLogicProps), // TODO: Remove `stage` from props, it isn't needed here for anything
-    key(({ sourceType, sourceId }) => `${sourceType}:${sourceId}`),
+    key(({ sourceType, sourceId, logicKey }) => logicKey || `${sourceType}:${sourceId}`),
     actions({
         setFilters: (filters: Partial<LogsViewerFilters>) => ({ filters }),
         addLogGroups: (logGroups: GroupedLogEntry[]) => ({ logGroups }),
@@ -198,7 +209,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         loadNewerLogs: true,
         setIsGrouped: (isGrouped: boolean) => ({ isGrouped }),
     }),
-    loaders(({ props, values, actions }) => ({
+    loaders(({ values, actions }) => ({
         logs: [
             [] as GroupedLogEntry[],
             {
@@ -206,19 +217,10 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     await breakpoint(10)
 
                     actions.clearHiddenLogs()
-
-                    const logParams: LogEntryParams = {
-                        levels: values.filters.levels,
-                        search: values.filters.search,
-                        sourceType: props.sourceType,
-                        sourceId: props.sourceId,
-                        date_from: values.filters.date_from,
-                        date_to: values.filters.date_to,
-                        order: 'DESC',
-                        groupByInstanceId: values.isGrouped,
-                    }
-                    const results = await loadGroupedLogs(logParams)
-
+                    const results = await loadGroupedLogs(values.logEntryParams).catch((e) => {
+                        lemonToast.error('Error loading logs ' + e.message)
+                        throw e
+                    })
                     await breakpoint(10)
 
                     return sanitizeGroupedLogs(results)
@@ -228,14 +230,8 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                         return values.logs
                     }
                     const logParams: LogEntryParams = {
-                        levels: values.filters.levels,
-                        search: values.filters.search,
-                        sourceType: props.sourceType,
-                        sourceId: props.sourceId,
+                        ...values.logEntryParams,
                         date_to: values.oldestLogTimestamp.toISOString(),
-                        date_from: values.filters.date_from,
-                        order: 'DESC',
-                        groupByInstanceId: values.isGrouped,
                     }
 
                     const results = await loadGroupedLogs(logParams)
@@ -271,14 +267,9 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                         return values.hiddenLogs
                     }
                     const logParams: LogEntryParams = {
-                        levels: values.filters.levels,
-                        search: values.filters.search,
-                        sourceType: props.sourceType,
-                        sourceId: props.sourceId,
+                        ...values.logEntryParams,
                         date_from: values.newestLogTimestamp.toISOString(),
-                        date_to: values.filters.date_to,
                         order: 'ASC',
-                        groupByInstanceId: values.isGrouped,
                     }
 
                     const results = await loadGroupedLogs(logParams)
@@ -384,6 +375,23 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     },
                     null as Dayjs | null
                 )
+            },
+        ],
+
+        logEntryParams: [
+            (s) => [(_, p) => p, s.filters, s.isGrouped],
+            (props, filters, isGrouped): LogEntryParams => {
+                const searchGroups = [filters.search, ...(props.searchGroups || [])].filter((x) => !!x) as string[]
+                return {
+                    levels: filters.levels,
+                    searchGroups: searchGroups,
+                    sourceType: props.sourceType,
+                    sourceId: props.sourceId,
+                    date_from: filters.date_from,
+                    date_to: filters.date_to,
+                    order: 'DESC',
+                    groupByInstanceId: isGrouped,
+                }
             },
         ],
     })),

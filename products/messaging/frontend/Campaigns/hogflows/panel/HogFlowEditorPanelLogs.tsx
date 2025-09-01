@@ -12,6 +12,8 @@ import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 export function HogFlowEditorPanelLogs(): JSX.Element | null {
     const { campaign, selectedNode } = useValues(hogFlowEditorLogic)
 
+    const actionId = selectedNode?.data.id
+
     return (
         <>
             <div className="border-b">
@@ -25,9 +27,11 @@ export function HogFlowEditorPanelLogs(): JSX.Element | null {
             </div>
             <div className="p-2 flex flex-col gap-2 overflow-y-auto">
                 <LogsViewer
+                    logicKey={`hog-flow-editor-panel-${actionId || 'all'}`}
                     sourceType="hog_flow"
                     sourceId={campaign.id}
                     groupByInstanceId={!selectedNode}
+                    searchGroups={actionId ? [`[Action:${actionId}]`] : undefined}
                     // renderColumns={(columns) => columns.filter((c) => c.key !== 'instanceId')}
                     renderMessage={(m) => renderWorkflowLogMessage(campaign, m)}
                 />
