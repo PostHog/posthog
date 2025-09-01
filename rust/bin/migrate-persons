@@ -1,0 +1,13 @@
+#!/bin/sh
+SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
+
+# for now default to the normal database, change this to default to persons database once that is setup
+PERSONS_DATABASE_NAME=${PERSONS_DATABASE_NAME:-posthog}
+PERSONS_DATABASE_URL=${PERSONS_DATABASE_URL:-postgres://posthog:posthog@localhost:5432/$PERSONS_DATABASE_NAME}
+
+echo "Performing persons migrations for $PERSONS_DATABASE_URL (DATABASE_NAME=$PERSONS_DATABASE_NAME)"
+
+cd $SCRIPT_DIR/..
+
+sqlx database create -D "$PERSONS_DATABASE_URL" 2>/dev/null || true
+sqlx migrate run -D "$PERSONS_DATABASE_URL" --source persons_migrations/

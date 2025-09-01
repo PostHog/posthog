@@ -96,6 +96,9 @@ jobs:
                         - 'posthog/migrations/*.py'
                         - 'products/*/backend/migrations/*.py'
                         - 'products/*/migrations/*.py'  # Legacy structure
+                        - 'rust/persons-migrator/persons_migrations/*.sql'
+                        - 'rust/bin/migrate-persons'
+>>>>>>> 2b92ca7bdb (feat(persons): use sqlx for persons migrations)
 
     check-migrations:
         needs: [changes]
@@ -130,6 +133,16 @@ jobs:
                   enable-cache: true
                   version: 0.7.8
 
+            - name: Install Rust
+              uses: actions-rust-lang/setup-rust-toolchain@v1
+              with:
+                  toolchain: stable
+                  components: cargo
+
+            - name: Install sqlx-cli
+              run: |
+                  cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+
             # First running migrations from master, to simulate the real-world scenario
             - name: Checkout master
               uses: actions/checkout@v4
@@ -147,6 +160,12 @@ jobs:
 
             - name: Run migrations up to master
               run: |
+                  # Run persons migrations using sqlx
+                  PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
+                    sqlx database create 2>/dev/null || true
+                  PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
+                    sqlx migrate run --source rust/persons-migrator/persons_migrations/
+                  # Run Django migrations (excluding managed=False models)
                   python manage.py migrate
 
             # Now we can consider this PR's migrations
@@ -260,14 +279,32 @@ jobs:
 
             - name: Run migrations for this PR
               run: |
+                  # Run persons migrations using sqlx
+                  PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
+                    sqlx migrate run --source rust/persons-migrator/persons_migrations/
+                  # Run Django migrations (excluding managed=False models)
                   python manage.py migrate
 
             - name: Check migrations
               run: |
+                  # Check sqlx persons migrations
+                  PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
+                    sqlx migrate info --source rust/persons-migrator/persons_migrations/
+                  # Check Django migrations (will not create migrations for managed=False models)
                   python manage.py makemigrations --check --dry-run
                   git fetch origin master
+<<<<<<< HEAD
                   # Check migration safety using old SQL-based checker (still uses stdin from git diff)
                   echo "${{ needs.changes.outputs.migrations_files }}" | grep -v migrations/0001_ | python manage.py test_migrations_are_safe
+=======
+                  # `git diff --name-only` returns a list of files that were changed - added OR deleted OR modified
+                  # With `--name-status` we get the same, but including a column for status, respectively: A, D, M
+                  # In this check we exclusively care about files that were
+                  # added (A) in posthog/migrations/. We also want to ignore
+                  # initial migrations (0001_*) as these are guaranteed to be
+                  # run on initial setup where there is no data.
+                  echo "${{ needs.changes.outputs.migrations_files }}" | grep -v migrations/0001_ | grep -v persons_migrations | python manage.py test_migrations_are_safe
+>>>>>>> 2b92ca7bdb (feat(persons): use sqlx for persons migrations)
 
             - name: Check CH migrations
               run: |
@@ -595,6 +632,18 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
+            - name: Install Rust
+              if: ${{ needs.changes.outputs.backend == 'true' }}
+              uses: actions-rust-lang/setup-rust-toolchain@v1
+              with:
+                  toolchain: stable
+                  components: cargo
+
+            - name: Install sqlx-cli
+              if: ${{ needs.changes.outputs.backend == 'true' }}
+              run: |
+                  cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+
             - name: Install the working version of hogql-parser
               if: ${{ needs.changes.outputs.backend == 'true' && steps.hogql-parser-diff.outputs.changed == 'true' }}
               shell: bash
@@ -637,6 +686,18 @@ jobs:
               run: |
                   bin/check_kafka_clickhouse_up
                   bin/check_postgres_up
+
+            - name: Run persons migrations
+              if: ${{ needs.changes.outputs.backend == 'true' }}
+              shell: bash
+              run: |
+                  # Run persons migrations using sqlx before running tests
+                  PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
+                    sqlx database create 2>/dev/null || true
+                  PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
+                    sqlx migrate run --source rust/persons-migrator/persons_migrations/
+                  # Run Django migrations
+                  python manage.py migrate
 
             - name: Wait for Temporal
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
@@ -836,6 +897,16 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
+            - name: Install Rust
+              uses: actions-rust-lang/setup-rust-toolchain@v1
+              with:
+                  toolchain: stable
+                  components: cargo
+
+            - name: Install sqlx-cli
+              run: |
+                  cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+
             - name: Add Kafka and ClickHouse to /etc/hosts
               run: sudo echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
@@ -851,6 +922,17 @@ jobs:
               run: |
                   bin/check_kafka_clickhouse_up
                   bin/check_postgres_up
+
+            - name: Run persons migrations
+              shell: bash
+              run: |
+                  # Run persons migrations using sqlx before running tests
+                  PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
+                    sqlx database create 2>/dev/null || true
+                  PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
+                    sqlx migrate run --source rust/persons-migrator/persons_migrations/
+                  # Run Django migrations
+                  python manage.py migrate
 
             - name: Run async migrations tests
               run: |

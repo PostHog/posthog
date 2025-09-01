@@ -54,6 +54,10 @@ class Person(models.Model):
 
     objects = PersonManager()
 
+    class Meta:
+        # managed via rust/migrate-persons/
+        managed = False
+
     @property
     def distinct_ids(self) -> list[str]:
         if hasattr(self, "distinct_ids_cache"):
@@ -133,6 +137,8 @@ class PersonDistinctId(models.Model):
     version = models.BigIntegerField(null=True, blank=True)
 
     class Meta:
+        # managed via rust/migrate-persons/
+        managed = False
         constraints = [models.UniqueConstraint(fields=["team", "distinct_id"], name="unique distinct_id for team")]
 
 
@@ -144,6 +150,8 @@ class PersonlessDistinctId(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
 
     class Meta:
+        # managed via rust/migrate-persons/
+        managed = False
         constraints = [
             models.UniqueConstraint(fields=["team", "distinct_id"], name="unique personless distinct_id for team")
         ]
@@ -157,6 +165,8 @@ class PersonOverrideMapping(models.Model):
     uuid = models.UUIDField()
 
     class Meta:
+        # managed via rust/migrate-persons/
+        managed = False
         constraints = [
             models.UniqueConstraint(fields=["team_id", "uuid"], name="unique_uuid"),
         ]
@@ -185,6 +195,8 @@ class PersonOverride(models.Model):
     version = models.BigIntegerField(null=True, blank=True)
 
     class Meta:
+        # managed via rust/migrate-persons/
+        managed = False
         constraints = [
             models.UniqueConstraint(
                 fields=["team", "old_person_id"],
@@ -206,6 +218,10 @@ class PendingPersonOverride(models.Model):
     override_person_id = models.UUIDField()
     oldest_event = models.DateTimeField()
 
+    class Meta:
+        # managed via rust/migrate-persons/
+        managed = False
+
 
 class FlatPersonOverride(models.Model):
     # XXX: NOT USED, see https://github.com/PostHog/posthog/pull/23616
@@ -218,6 +234,8 @@ class FlatPersonOverride(models.Model):
     version = models.BigIntegerField(null=True, blank=True)
 
     class Meta:
+        # managed via rust/migrate-persons/
+        managed = False
         indexes = [
             models.Index(fields=["team_id", "override_person_id"]),
         ]
