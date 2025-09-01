@@ -81,14 +81,34 @@ CREATE INDEX IF NOT EXISTS posthog_personoverride_override_person_id_9f32aab1 ON
 CREATE INDEX IF NOT EXISTS posthog_personoverride_team_id_92291e67 ON posthog_personoverride (team_id);
 CREATE UNIQUE INDEX IF NOT EXISTS unique_override_per_old_person_id ON posthog_personoverride (team_id, old_person_id);
 
-ALTER TABLE posthog_personoverride ADD CONSTRAINT old_person_id_different_from_override_person_id 
-    CHECK (old_person_id != override_person_id);
+-- Add check constraint (idempotent)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint 
+        WHERE conname = 'old_person_id_different_from_override_person_id' 
+        AND conrelid = 'posthog_personoverride'::regclass
+    ) THEN
+        ALTER TABLE posthog_personoverride ADD CONSTRAINT old_person_id_different_from_override_person_id 
+            CHECK (old_person_id != override_person_id);
+    END IF;
+END $$;
 
 -- Add exclusion constraint to prevent circular overrides
 CREATE EXTENSION IF NOT EXISTS btree_gist;
-ALTER TABLE posthog_personoverride ADD CONSTRAINT exclude_override_person_id_from_being_old_person_id 
-    EXCLUDE USING gist (team_id WITH =, override_person_id WITH =, old_person_id WITH <>) 
-    DEFERRABLE INITIALLY DEFERRED;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint 
+        WHERE conname = 'exclude_override_person_id_from_being_old_person_id' 
+        AND conrelid = 'posthog_personoverride'::regclass
+    ) THEN
+        ALTER TABLE posthog_personoverride ADD CONSTRAINT exclude_override_person_id_from_being_old_person_id 
+            EXCLUDE USING gist (team_id WITH =, override_person_id WITH =, old_person_id WITH <>) 
+            DEFERRABLE INITIALLY DEFERRED;
+    END IF;
+END $$;
 
 -- PendingPersonOverride table
 CREATE TABLE IF NOT EXISTS posthog_pendingpersonoverride (
@@ -112,8 +132,18 @@ CREATE TABLE IF NOT EXISTS posthog_flatpersonoverride (
 CREATE UNIQUE INDEX IF NOT EXISTS flatpersonoverride_unique_old_person_by_team ON posthog_flatpersonoverride (team_id, old_person_id);
 CREATE INDEX IF NOT EXISTS posthog_fla_team_id_224253_idx ON posthog_flatpersonoverride (team_id, override_person_id);
 
-ALTER TABLE posthog_flatpersonoverride ADD CONSTRAINT flatpersonoverride_check_circular_reference 
-    CHECK (old_person_id != override_person_id);
+-- Add check constraint (idempotent)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint 
+        WHERE conname = 'flatpersonoverride_check_circular_reference' 
+        AND conrelid = 'posthog_flatpersonoverride'::regclass
+    ) THEN
+        ALTER TABLE posthog_flatpersonoverride ADD CONSTRAINT flatpersonoverride_check_circular_reference 
+            CHECK (old_person_id != override_person_id);
+    END IF;
+END $$;
 
 -- FeatureFlagHashKeyOverride table
 CREATE TABLE IF NOT EXISTS posthog_featureflaghashkeyoverride (
@@ -178,7 +208,24 @@ CREATE INDEX IF NOT EXISTS posthog_grouptypemapping_team_id_5fb54d04 ON posthog_
 CREATE UNIQUE INDEX IF NOT EXISTS unique_group_type_index_for_project ON posthog_grouptypemapping (project_id, group_type_index);
 CREATE UNIQUE INDEX IF NOT EXISTS unique_group_types_for_project ON posthog_grouptypemapping (project_id, group_type);
 
-ALTER TABLE posthog_grouptypemapping ADD CONSTRAINT group_type_index_is_less_than_or_equal_5 
-    CHECK (group_type_index <= 5);
-ALTER TABLE posthog_grouptypemapping ADD CONSTRAINT group_type_project_id_is_not_null 
-    CHECK (project_id IS NOT NULL);
+-- Add check constraints (idempotent)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint 
+        WHERE conname = 'group_type_index_is_less_than_or_equal_5' 
+        AND conrelid = 'posthog_grouptypemapping'::regclass
+    ) THEN
+        ALTER TABLE posthog_grouptypemapping ADD CONSTRAINT group_type_index_is_less_than_or_equal_5 
+            CHECK (group_type_index <= 5);
+    END IF;
+    
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint 
+        WHERE conname = 'group_type_project_id_is_not_null' 
+        AND conrelid = 'posthog_grouptypemapping'::regclass
+    ) THEN
+        ALTER TABLE posthog_grouptypemapping ADD CONSTRAINT group_type_project_id_is_not_null 
+            CHECK (project_id IS NOT NULL);
+    END IF;
+END $$;
