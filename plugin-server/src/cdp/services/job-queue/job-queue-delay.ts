@@ -12,11 +12,9 @@ import { PluginsServerConfig } from '../../../types'
 import { logger } from '../../../utils/logger'
 import { CyclotronJobInvocation, CyclotronJobQueueKind } from '../../types'
 
-export type CyclotronJobQueueDelayKind = Extract<CyclotronJobQueueKind, 'delay_24h' | 'delay_60m' | 'delay_10m'>
-
 export const getDelayQueue = (
     queueScheduledAt: DateTime
-): CyclotronJobQueueDelayKind => {
+): CyclotronJobQueueKind => {
     // if (queueScheduledAt > DateTime.now().plus({ hours: 24 })) {
     //     return 'delay_24h'
     // }
@@ -28,7 +26,7 @@ export const getDelayQueue = (
     return 'delay_10m' // Force everything to the 10m queue for now
 }
 
-export const getDelayByQueue = (queue: CyclotronJobQueueDelayKind): number => {
+export const getDelayByQueue = (queue: CyclotronJobQueueKind): number => {
     switch (queue) {
         case 'delay_24h':
             return 24 * 60 * 60 * 1000 // 24 hours
@@ -36,24 +34,20 @@ export const getDelayByQueue = (queue: CyclotronJobQueueDelayKind): number => {
             return 60 * 60 * 1000 // 1 hour
         case 'delay_10m':
             return 10 * 60 * 1000 // 10 minutes
+        default:
+            throw new Error(`Invalid queue: ${queue}`)
     }
 }
 
 export class CyclotronJobQueueDelay {
     private kafkaConsumer?: KafkaConsumer
     private kafkaProducer?: KafkaProducerWrapper
-    private queue: CyclotronJobQueueDelayKind
 
     constructor(
         private config: PluginsServerConfig,
-        queue: CyclotronJobQueueKind,
+        private queue: CyclotronJobQueueKind,
         private consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
-    ) {
-        if (!['delay_24h', 'delay_60m', 'delay_10m'].includes(queue)) {
-            throw new Error(`CyclotronJobQueueDelay requires a delay queue. Received: ${queue}`)
-        }
-        this.queue = queue as CyclotronJobQueueDelayKind
-    }
+    ) {}
 
     /**
      * Helper to only start the producer related code (e.g. when not a consumer)
@@ -127,7 +121,7 @@ export class CyclotronJobQueueDelay {
             return await this.consumeBatch([])
         }
 
-        console.log('CdpCyclotronDelayConsumer', `Consuming batch ${messages.length}`)
+        logger.info('CdpCyclotronDelayConsumer', `Consuming batch ${messages.length}`)
 
         const maxDelayMs = getDelayByQueue(this.queue)
 
@@ -151,7 +145,7 @@ export class CyclotronJobQueueDelay {
                 let delayMs = Math.max(0, scheduledTime.getTime() - now)
                 const waitTime = Math.min(delayMs, maxDelayMs)
 
-                console.log(
+                logger.info(
                     'CdpCyclotronDelayConsumer',
                     `Waiting for ${waitTime}ms before processing ${messages.indexOf(message) + 1}/${messages.length} invocation ${message.key}`
                 )
@@ -168,7 +162,7 @@ export class CyclotronJobQueueDelay {
                     topic:
                         delayMs === 0
                             ? returnTopic
-                            : `cdp_cyclotron_${getDelayQueue(DateTime.fromMillis(scheduledTime.getTime()))}`,
+                            : `cdp_cyclotron_${getDelayQueue(DateTime.fromMillis(scheduledTime.getTime() - waitTime))}`,
                     headers: message.headers as unknown as Record<string, string>,
                 })
 
@@ -182,7 +176,7 @@ export class CyclotronJobQueueDelay {
             }
         }
 
-        console.log('CdpCyclotronDelayConsumer', 'Consumed full delay batch', messages.length)
+        logger.info('CdpCyclotronDelayConsumer', 'Consumed full delay batch', { messageCount: messages.length })
 
         return await this.consumeBatch([])
     }

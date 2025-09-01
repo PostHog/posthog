@@ -107,15 +107,4 @@ describe('CyclotronJobQueueDelay', () => {
         expect(mockProducer.produce).not.toHaveBeenCalled()
         expect(mockConsumer.offsetsStore).toHaveBeenCalledWith([msgNoHeaders])
     })
-
-    it('throws if constructed with a non-delay queue', () => {
-        expect(
-            () =>
-                new CyclotronJobQueueDelay(
-                    { ...defaultConfig },
-                    'hog',
-                    consumeBatch
-                )
-        ).toThrow(/requires a delay queue/i)
-    })
 })
