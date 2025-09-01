@@ -101,6 +101,7 @@ class SessionRecording(UUIDTModel):
             self.console_log_count = metadata["console_log_count"]
             self.console_warn_count = metadata["console_warn_count"]
             self.console_error_count = metadata["console_error_count"]
+            self.retention_period_days = metadata["retention_period_days"]
 
         return True
 
@@ -201,6 +202,7 @@ class SessionRecording(UUIDTModel):
             recording.set_start_url_from_urls(ch_recording.get("urls", None), ch_recording.get("first_url", None))
             recording.ongoing = bool(ch_recording.get("ongoing", False))
             recording.activity_score = ch_recording.get("activity_score", None)
+            recording.retention_period_days = ch_recording.get("retention_period_day", None)
 
             recordings.append(recording)
 
