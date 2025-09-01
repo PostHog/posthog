@@ -5,8 +5,8 @@ import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 import { renderWorkflowLogMessage } from '../../logs/log-utils'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 
-export function HogFlowEditorPanelLogsDetail(): JSX.Element | null {
-    const { selectedNode, campaign } = useValues(hogFlowEditorLogic)
+export function HogFlowEditorPanelLogs(): JSX.Element | null {
+    const { campaign } = useValues(hogFlowEditorLogic)
 
     return (
         <div className="p-2 flex flex-col gap-2 overflow-hidden">

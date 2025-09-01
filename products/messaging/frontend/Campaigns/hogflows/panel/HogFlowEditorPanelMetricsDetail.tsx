@@ -30,12 +30,11 @@ export function HogFlowEditorPanelMetricsDetail(): JSX.Element | null {
     })
 
     const { appMetricsTrendsLoading, appMetricsTrends } = useValues(logic)
-    const { loadAppMetricsTrends, loadAppMetricsTrendsPreviousPeriod } = useActions(logic)
+    const { loadAppMetricsTrends } = useActions(logic)
 
     useEffect(() => {
         loadAppMetricsTrends()
-        loadAppMetricsTrendsPreviousPeriod()
-    }, [loadAppMetricsTrends, loadAppMetricsTrendsPreviousPeriod])
+    }, [loadAppMetricsTrends])
 
     return (
         <div className="p-2 flex flex-col gap-2 overflow-hidden">
