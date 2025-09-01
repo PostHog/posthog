@@ -3865,7 +3865,6 @@ export const externalDataSources = [
     'RevenueCat',
     'Polar',
     'GoogleAds',
-    'LinkedinAds',
     'MetaAds',
     'Klaviyo',
     'Mailchimp',
@@ -3876,6 +3875,7 @@ export const externalDataSources = [
     'MongoDB',
     'TemporalIO',
     'DoIt',
+    'LinkedinAds',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

@@ -7,7 +7,7 @@ from .google_ads.source import GoogleAdsSource
 from .google_sheets.source import GoogleSheetsSource
 from .hubspot.source import HubspotSource
 from .klaviyo.source import KlaviyoSource
-from .linkedin_ads.source import LinkedinAdsSource
+from .linkedin_ads.source import LinkedInAdsSource
 from .mailchimp.source import MailchimpSource
 from .mailjet.source import MailJetSource
 from .meta_ads.source import MetaAdsSource
@@ -35,7 +35,7 @@ __all__ = [
     "GoogleSheetsSource",
     "HubspotSource",
     "KlaviyoSource",
-    "LinkedinAdsSource",
+    "LinkedInAdsSource",
     "MailchimpSource",
     "MailJetSource",
     "MetaAdsSource",

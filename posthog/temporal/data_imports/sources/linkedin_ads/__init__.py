@@ -9,22 +9,20 @@ organized into focused modules:
 
 Main entry points:
 - linkedin_ads_source(): Main data fetching function
-- LinkedinAdsSource: PostHog source integration class
+- LinkedInAdsSource: PostHog source integration class
 """
 
 from .client import LinkedinAdsAuthError, LinkedinAdsClient, LinkedinAdsError, LinkedinAdsRateLimitError
 from .linkedin_ads import get_incremental_fields, get_schemas, linkedin_ads_source
-from .source import LinkedinAdsSource
+from .source import LinkedInAdsSource
 
 __all__ = [
     # Main functions
     "get_incremental_fields",
     "get_schemas",
     "linkedin_ads_source",
-
     # PostHog integration
-    "LinkedinAdsSource",
-
+    "LinkedInAdsSource",
     # Client components
     "LinkedinAdsClient",
     "LinkedinAdsError",

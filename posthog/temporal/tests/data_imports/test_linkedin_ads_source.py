@@ -1,6 +1,8 @@
 import pytest
 from unittest.mock import Mock, patch
 
+from posthog.schema import ExternalDataSourceType
+
 from posthog.models import Team
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
@@ -11,7 +13,7 @@ from posthog.temporal.data_imports.sources.linkedin_ads.client.exceptions import
     LinkedinAdsRateLimitError,
 )
 from posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads import linkedin_ads_source
-from posthog.temporal.data_imports.sources.linkedin_ads.source import LinkedinAdsSource
+from posthog.temporal.data_imports.sources.linkedin_ads.source import LinkedInAdsSource
 from posthog.temporal.data_imports.sources.linkedin_ads.utils import _failure_counts, _last_failure_time
 from posthog.temporal.data_imports.sources.linkedin_ads.utils.constants import CIRCUIT_BREAKER_THRESHOLD
 
@@ -124,12 +126,10 @@ class TestLinkedInAdsSource:
         """Set up test fixtures."""
         self.org = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.org)
-        self.source = LinkedinAdsSource()
+        self.source = LinkedInAdsSource()
 
     def test_source_type(self):
         """Test source type is correct."""
-        from posthog.warehouse.types import ExternalDataSourceType
-
         assert self.source.source_type == ExternalDataSourceType.LINKEDINADS
 
     def test_validate_credentials_missing_account_id(self):
@@ -208,15 +208,12 @@ class TestLinkedInAdsIntegration:
     @patch("posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads.LinkedinAdsClient")
     def test_get_schemas_success(self, mock_client_class):
         """Test successful schema retrieval."""
-        from posthog.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
-        from posthog.temporal.data_imports.sources.linkedin_ads.source import LinkedinAdsSource
-
         # Mock the client
         mock_client = Mock()
         mock_client.get_accounts.return_value = [{"id": "123456789", "name": "Test Account"}]
         mock_client_class.return_value = mock_client
 
-        source = LinkedinAdsSource()
+        source = LinkedInAdsSource()
         config = LinkedinAdsSourceConfig(account_id="123456789", linkedin_ads_integration_id=str(self.integration.id))
 
         with self._mock_access_token():
@@ -231,9 +228,6 @@ class TestLinkedInAdsIntegration:
     @patch("posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads.LinkedinAdsClient")
     def test_linkedin_ads_source_accounts(self, mock_client_class):
         """Test LinkedIn Ads source for accounts resource."""
-        from posthog.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
-        from posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads import linkedin_ads_source
-
         # Mock the client
         mock_client = Mock()
         mock_client.get_accounts.return_value = [
@@ -264,9 +258,6 @@ class TestLinkedInAdsIntegration:
     @patch("posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads.LinkedinAdsClient")
     def test_linkedin_ads_source_campaigns(self, mock_client_class):
         """Test LinkedIn Ads source for campaigns resource."""
-        from posthog.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
-        from posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads import linkedin_ads_source
-
         # Mock the client
         mock_client = Mock()
         mock_client.get_campaigns.return_value = [
@@ -297,9 +288,6 @@ class TestLinkedInAdsIntegration:
     @patch("posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads.LinkedinAdsClient")
     def test_linkedin_ads_source_campaign_stats(self, mock_client_class):
         """Test LinkedIn Ads source for campaign analytics."""
-        from posthog.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
-        from posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads import linkedin_ads_source
-
         # Mock the client
         mock_client = Mock()
         mock_client.get_analytics.return_value = [
@@ -369,7 +357,7 @@ class TestLinkedInAdsIntegration:
             mock_client.get_accounts.return_value = [{"id": "123456789", "name": "Test Account"}]
             mock_client_class.return_value = mock_client
 
-            source = LinkedinAdsSource()
+            source = LinkedInAdsSource()
             config = LinkedinAdsSourceConfig(
                 account_id="123456789", linkedin_ads_integration_id=str(self.integration.id)
             )

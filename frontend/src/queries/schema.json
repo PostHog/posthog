@@ -12158,7 +12158,6 @@
                 "RevenueCat",
                 "Polar",
                 "GoogleAds",
-                "LinkedinAds",
                 "MetaAds",
                 "Klaviyo",
                 "Mailchimp",
@@ -12168,7 +12167,8 @@
                 "GoogleSheets",
                 "MongoDB",
                 "TemporalIO",
-                "DoIt"
+                "DoIt",
+                "LinkedinAds"
             ],
             "type": "string"
         },

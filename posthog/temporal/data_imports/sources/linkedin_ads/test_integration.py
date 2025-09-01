@@ -9,8 +9,8 @@ from posthog.models.organization import Organization
 from posthog.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
 
 from .linkedin_ads import get_incremental_fields, get_schemas, linkedin_ads_source
-from .source import LinkedinAdsSource
-from .utils.utils import record_failure
+from .source import LinkedInAdsSource
+from .utils.utils import _failure_counts, _last_failure_time, record_failure
 
 
 @pytest.mark.django_db
@@ -27,7 +27,6 @@ class TestLinkedInAdsIntegration:
             config={"client_id": "test", "client_secret": "test"},
         )
         # Clear circuit breaker state before each test
-        from .utils.utils import _failure_counts, _last_failure_time
 
         _failure_counts.clear()
         _last_failure_time.clear()
@@ -35,7 +34,6 @@ class TestLinkedInAdsIntegration:
     def teardown_method(self):
         """Clean up after each test."""
         # Clear circuit breaker state after each test
-        from .utils.utils import _failure_counts, _last_failure_time
 
         _failure_counts.clear()
         _last_failure_time.clear()
@@ -185,7 +183,7 @@ class TestLinkedInAdsIntegration:
         mock_client.get_accounts.return_value = [{"id": "123456789", "name": "Test Account"}]
         mock_client_class.return_value = mock_client
 
-        source = LinkedinAdsSource()
+        source = LinkedInAdsSource()
         config = LinkedinAdsSourceConfig(account_id="123456789", linkedin_ads_integration_id=str(self.integration.id))
 
         with self._mock_access_token():
@@ -196,7 +194,7 @@ class TestLinkedInAdsIntegration:
 
     def test_validate_credentials_missing_account_id(self):
         """Test credential validation with missing account ID."""
-        source = LinkedinAdsSource()
+        source = LinkedInAdsSource()
         config = LinkedinAdsSourceConfig(account_id="", linkedin_ads_integration_id=str(self.integration.id))
 
         valid, error = source.validate_credentials(config, self.team.id)
@@ -205,7 +203,7 @@ class TestLinkedInAdsIntegration:
 
     def test_validate_credentials_invalid_account_id_format(self):
         """Test credential validation with invalid account ID format."""
-        source = LinkedinAdsSource()
+        source = LinkedInAdsSource()
         config = LinkedinAdsSourceConfig(account_id="invalid", linkedin_ads_integration_id=str(self.integration.id))
 
         valid, error = source.validate_credentials(config, self.team.id)

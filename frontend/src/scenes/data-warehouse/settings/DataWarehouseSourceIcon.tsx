@@ -94,7 +94,6 @@ export const DATA_WAREHOUSE_SOURCE_ICON_MAP: Record<string, string> = {
     GoogleAds: IconGoogleAds,
     MetaAds: IconMetaAds,
     Klaviyo: IconKlaviyo,
-    LinkedinAds: IconLinkedIn,
     Mailchimp: IconMailchimp,
     Braze: IconBraze,
     Mailjet: IconMailjet,
