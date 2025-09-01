@@ -1497,6 +1497,8 @@ export type LifecycleFilter = {
     toggledLifecycles?: LifecycleFilterLegacy['toggledLifecycles']
     /** @default false */
     showLegend?: LifecycleFilterLegacy['show_legend']
+    /** @default true */
+    stacked?: boolean
 }
 
 export type RefreshType =
