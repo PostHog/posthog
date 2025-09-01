@@ -2,7 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { defaultConfig } from '~/config/config'
 
-import { CyclotronJobQueueDelay } from './job-queue-delay'
+import { CyclotronJobQueueDelay, getDelayByQueue } from './job-queue-delay'
 
 const createKafkaMessage = (message: Partial<Message> = {}): Message => ({
     value: Buffer.from('test-value'),
@@ -78,8 +78,8 @@ describe('CyclotronJobQueueDelay', () => {
     })
 
     it('caps wait at 10m and re-queues to delay topic when still in the future', async () => {
-        const longMs = 30 * 60 * 1000 // 30m
-        const tenMinutes = 10 * 60 * 1000
+        const longMs = getDelayByQueue('delay_10m') * 3
+        const tenMinutes = getDelayByQueue('delay_10m')
         const headers = createHeaders({
             returnTopic: 'cdp_cyclotron_hog',
             queueScheduledAt: new Date(Date.now() + longMs).toISOString(),
