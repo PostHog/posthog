@@ -29,9 +29,6 @@ class DatasetItem(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFi
         indexes = [
             models.Index(fields=["team", "dataset", "-created_at", "id"]),
             models.Index(fields=["team", "dataset", "-updated_at", "id"]),
-            GinIndex(name="llma_datasetitem_input_trgm", fields=["input"], opclasses=["gin_trgm_ops"]),
-            GinIndex(name="llma_datasetitem_output_trgm", fields=["output"], opclasses=["gin_trgm_ops"]),
-            GinIndex(name="llma_datasetitem_metadata_trgm", fields=["metadata"], opclasses=["gin_trgm_ops"]),
         ]
 
     objects: models.Manager["DatasetItem"]
