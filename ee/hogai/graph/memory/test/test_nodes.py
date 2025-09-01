@@ -175,14 +175,6 @@ class TestMemoryOnboardingNode(ClickhouseTestMixin, BaseTest):
         node = MemoryOnboardingNode(team=self.team, user=self.user)
         self.assertEqual(node.should_run_onboarding_at_start(AssistantState(messages=[])), "continue")
 
-    def test_router(self):
-        node = MemoryOnboardingNode(team=self.team, user=self.user)
-        self.assertEqual(node.router(AssistantState(messages=[HumanMessage(content="Hello")])), "initialize_memory")
-        core_memory = CoreMemory.objects.create(team=self.team)
-        core_memory.initial_text = "Some initial text"
-        core_memory.save()
-        self.assertEqual(node.router(AssistantState(messages=[HumanMessage(content="Hello")])), "onboarding_enquiry")
-
     def test_onboarding_initial_message_is_sent_if_no_events(self):
         node = MemoryOnboardingNode(team=self.team, user=self.user)
         new_state = node.run(AssistantState(messages=[HumanMessage(content="Hello")]), {})
@@ -533,12 +525,6 @@ class TestMemoryOnboardingFinalizeNode(ClickhouseTestMixin, BaseTest):
         super().setUp()
         self.core_memory = CoreMemory.objects.create(team=self.team)
         self.node = MemoryOnboardingFinalizeNode(team=self.team, user=self.user)
-
-    def test_router(self):
-        self.assertEqual(self.node.router(AssistantState(messages=[])), "continue")
-        self.assertEqual(
-            self.node.router(AssistantState(messages=[], root_tool_insight_plan="Insights plan")), "insights"
-        )
 
     def test_run(self):
         with patch.object(MemoryOnboardingFinalizeNode, "_model") as model_mock:

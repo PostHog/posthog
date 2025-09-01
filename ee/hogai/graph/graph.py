@@ -279,15 +279,7 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
                 "continue": next_node,
             },
         )
-
-        builder.add_conditional_edges(
-            AssistantNodeName.MEMORY_ONBOARDING,
-            memory_onboarding.router,
-            path_map={
-                "initialize_memory": AssistantNodeName.MEMORY_INITIALIZER,
-                "onboarding_enquiry": AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY,
-            },
-        )
+        builder.add_edge(AssistantNodeName.MEMORY_ONBOARDING, AssistantNodeName.MEMORY_INITIALIZER)
         builder.add_conditional_edges(
             AssistantNodeName.MEMORY_INITIALIZER,
             memory_initializer.router,

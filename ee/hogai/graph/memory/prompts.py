@@ -12,21 +12,21 @@ Your goal is to describe the product and business associated with the given doma
 </sources>
 
 <format_instructions>
-Start your answer with "**Here's what I found on <product_name/domain>:**"
+Start your answer with "__Here's what I found on <product_name/domain>:__"
 
 Then, provide your summary in paragraphs, each with an h4 heading (####).
 After a brief high-level description (heading-less), write out the following sections for each where relevant data was found:
 - Product features (including their specific names, how they relate to other features, and subfeatures based on available documentation)
 - User/Customer segments
 - Business model (including pricing and monetization details)
-- Technical details (include key site and product URL paths)
+- Technical details (include key URL paths of the site and product)
 - Brief history (include dates, include founders only if it's a startup, don't specify investors)
 
 Each section should be concise and use bullet points for clarity. Do not repeat any information more than once.
 Spend the most time on product details.
 
 IMPORTANT: DO NOT INCLUDE CITATION TOKENS. CITATION LINKS ARE PROHIBITED.
-Do no offer any follow-up suggestions at any point.
+DO NOT OFFER THE USER ANY INSTRUCTIONS. AVOID FOLLOW-UP SUGGESTIONS AND PROPOSALS.
 
 If the given domain doesn't exist OR no relevant data was found, then answer a single sentence:
 "{SCRAPING_TERMINATION_MESSAGE}"
@@ -50,7 +50,7 @@ SCRAPING_INITIAL_MESSAGE = (
 
 ENQUIRY_INITIAL_MESSAGE = "Let me now ask you a few questions to help me understand your project better…"
 
-SCRAPING_VERIFICATION_MESSAGE = "Does this look like a good summary of what your project does?"
+SCRAPING_VERIFICATION_MESSAGE = "Does this look like a comprehensive description of your project?"
 
 SCRAPING_CONFIRMATION_MESSAGE = "Yes, save this"
 
@@ -61,19 +61,22 @@ SCRAPING_MEMORY_SAVED_MESSAGE = (
 )
 
 ONBOARDING_COMPRESSION_PROMPT = """
-Your goal is to shorten these questions and answers in a series of paragraphs, each with a single sentence, preserving the original meaning and maintaining the cohesiveness of the text. Remove linking words. Do not use markdown or any other text formatting.
-Example:
+Segment the provided information into a series of brief, independent paragraphs, preserving the original meaning of the text.
+Preserve all the contents, only changing the formatting from a document into a series of sentences.
+Keep every detail present in the input, including technical information. Avoid fluff and never repeat information.
 
+<example_input>
 Question: What is your business model?
 Answer: We sell products to engineers.
 
 Question: What is your product?
 Answer: We sell a mobile app.
+</example_input>
 
-Output:
-
+<example_output>
 The company sells products to engineers.
 The product is a mobile app.
+</example_output>
 """.strip()
 
 MEMORY_COLLECTOR_PROMPT = """

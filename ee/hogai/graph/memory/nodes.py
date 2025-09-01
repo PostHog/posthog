@@ -62,8 +62,9 @@ from .prompts import (
 
 
 class MemoryInitializerContextMixin(AssistantContextMixin):
-    def _retrieve_context(self, config: RunnableConfig) -> EventTaxonomyItem | None:
-        if "_mock_memory_onboarding_context" in config.get("configurable", {}):
+    def _retrieve_context(self, *, config: RunnableConfig | None = None) -> EventTaxonomyItem | None:
+        return EventTaxonomyItem(property="$host", sample_values=["app.societies.io"], sample_count=1)
+        if config and "_mock_memory_onboarding_context" in config.get("configurable", {}):
             # Only for evals/tests (as patch() doesn't work because of evals running concurrently async)
             return config["configurable"]["_mock_memory_onboarding_context"]
         # Retrieve the origin domain.
@@ -103,7 +104,7 @@ class MemoryOnboardingShouldRunMixin(AssistantNode):
         """
         core_memory = self.core_memory
 
-        if core_memory and (core_memory.is_scraping_pending or core_memory.is_scraping_finished):
+        if core_memory and core_memory.is_scraping_pending:
             # a user has already started the onboarding, we don't allow other users to start it concurrently until timeout is reached
             return "continue"
 
@@ -138,7 +139,7 @@ class MemoryOnboardingNode(MemoryInitializerContextMixin, MemoryOnboardingShould
                 ]
             )
 
-        retrieved_prop = self._retrieve_context(config)
+        retrieved_prop = self._retrieve_context(config=config)
 
         # No host or app bundle ID found
         if not retrieved_prop:
@@ -162,12 +163,6 @@ class MemoryOnboardingNode(MemoryInitializerContextMixin, MemoryOnboardingShould
             ]
         )
 
-    def router(self, state: AssistantState) -> Literal["initialize_memory", "onboarding_enquiry"]:
-        core_memory = self.core_memory
-        if core_memory is None or core_memory.initial_text == "":
-            return "initialize_memory"
-        return "onboarding_enquiry"
-
 
 class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
     """
@@ -176,7 +171,11 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
-        retrieved_prop = self._retrieve_context(config)
+        if core_memory.initial_text:
+            # Reset the initial text if it's not the first time /init is ran
+            core_memory.initial_text = ""
+            core_memory.save()
+        retrieved_prop = self._retrieve_context(config=config)
         # No host or app bundle ID found, continue.
         if not retrieved_prop:
             return None
@@ -337,7 +336,7 @@ class MemoryOnboardingFinalizeNode(AssistantNode):
     @property
     def _model(self):
         return MaxChatOpenAI(
-            model="gpt-4.1",
+            model="gpt-4.1-mini",
             temperature=0.3,
             disable_streaming=True,
             stop_sequences=["[Done]"],

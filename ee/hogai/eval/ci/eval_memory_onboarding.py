@@ -156,7 +156,7 @@ class HasCorrectStyle(MemoryLLMClassifier):
             prompt_template="""Determine if the scraped content follows the required formatting structure.
 
 A PASS requires ALL of the following:
-- Starts with exactly "**Here's what I found on [some product/domain name]:**" (bold formatting with colon)
+- Starts with exactly "__Here's what I found on [some product/domain name]:__" (bold formatting with colon)
 - Contains at least one section with #### heading format (h4 markdown headers)
 - Sections should include relevant topics like "Product features", "User/Customer segments", "Business model", "Technical details", or "Brief history"
 - Uses bullet points (-) or structured formatting within sections (not just paragraphs)
@@ -165,13 +165,14 @@ A PASS requires ALL of the following:
 - No citation anywhere (i.e. link in parentheses)
 
 A FAIL occurs if ANY of the following is true:
-- Missing or incorrect opening format (doesn't start with "**Here's what I found on...:**")
+- Missing or incorrect opening format (doesn't start with "__Here's what I found on...:__")
 - No #### section headings found
 - Poor organization with wall-of-text paragraphs instead of structured sections
 - Contains follow-up suggestions like "Would you like to know more?" or "Contact us"
 - Sections lack bullet points or clear structure
 - Generic formatting without the specified markdown structure
 - A citation link is found
+- There is any follow-up suggestion for the reader (like "Let me know if you'd like X" or "To do something, go to Y")
 
 Note: The format requirements are specifically defined in the memory initialization prompt and must be followed exactly.
 
@@ -250,7 +251,7 @@ async def eval_memory_onboarding(call_memory_onboarding, pytestconfig):
                     EventTaxonomyItem(property="$host", sample_values=["salesforce.com"], sample_count=1),
                 ),
                 expected="""
-Here's what I found on salesforce.com:
+__Here's what I found on salesforce.com:__
 
 Salesforce is a leading cloud-based customer relationship management (CRM) platform and enterprise software company offering a broad suite of clouds and platform services (Sales Cloud, Service Cloud, Marketing Cloud, Commerce Cloud), plus analytics, integration, collaboration, data and AI capabilities (Tableau, MuleSoft, Slack, Data Cloud, Einstein / Agentforce) that are sold as modular, integrated SaaS products.
 
@@ -287,7 +288,7 @@ Salesforce is a leading cloud-based customer relationship management (CRM) platf
                     EventTaxonomyItem(property="$host", sample_values=["app.societies.io"], sample_count=1),
                 ),
                 expected="""
-**Here's what I found on societies.io (Artificial Societies):**
+__Here's what I found on societies.io (Artificial Societies):__
 
 Artificial Societies (societies.io / app.societies.io) is a SaaS platform that builds AI-driven “artificial societies” (collections of AI personas and a social‑network model) so users can run rapid simulations to test content, messaging, product ideas and campaigns before launching them in the real world.
 
@@ -340,7 +341,7 @@ Artificial Societies (societies.io / app.societies.io) is a SaaS platform that b
                     ),
                 ),
                 expected="""
-**Here's what I found on Clash of Clans:**
+__Here's what I found on Clash of Clans:__
 
 Clash of Clans is a long-running, free-to-play mobile strategy game by Supercell where players build and upgrade a persistent village, train troops and Heroes, join/clash in Clans, and compete in multiplayer modes such as Clan Wars and seasonal competitive play.
 
