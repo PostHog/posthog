@@ -42,6 +42,7 @@ export const getDelayByQueue = (queue: CyclotronJobQueueKind): number => {
 export class CyclotronJobQueueDelay {
     private kafkaConsumer?: KafkaConsumer
     private kafkaProducer?: KafkaProducerWrapper
+    protected name = 'CdpCyclotronDelayQueue'
 
     constructor(
         private config: PluginsServerConfig,
@@ -121,7 +122,7 @@ export class CyclotronJobQueueDelay {
             return await this.consumeBatch([])
         }
 
-        logger.info('CdpCyclotronDelayConsumer', `Consuming batch ${messages.length}`)
+        logger.info('🔁', `${this.name} - Consuming batch`, { messageCount: messages.length })
 
         const maxDelayMs = getDelayByQueue(this.queue)
 
@@ -136,7 +137,12 @@ export class CyclotronJobQueueDelay {
                         queueScheduledAt,
                         messageKey: message.key,
                     })
-                    this.kafkaConsumer?.offsetsStore([message])
+                    this.kafkaConsumer?.offsetsStore([
+                        {
+                            ...message,
+                            offset: message.offset + 1,
+                        },
+                    ])
                     continue
                 }
 
@@ -145,10 +151,7 @@ export class CyclotronJobQueueDelay {
                 let delayMs = Math.max(0, scheduledTime.getTime() - now)
                 const waitTime = Math.min(delayMs, maxDelayMs)
 
-                logger.info(
-                    'CdpCyclotronDelayConsumer',
-                    `Waiting for ${waitTime}ms before processing ${messages.indexOf(message) + 1}/${messages.length} invocation ${message.key}`
-                )
+                logger.info('🔁', `${this.name} - Waiting for ${waitTime}ms before processing ${messages.indexOf(message) + 1}/${messages.length} invocation ${message.key}`)
 
                 delayMs -= waitTime
 
@@ -166,17 +169,34 @@ export class CyclotronJobQueueDelay {
                     headers: message.headers as unknown as Record<string, string>,
                 })
 
-                this.kafkaConsumer?.offsetsStore([message])
+                const result = this.kafkaConsumer?.offsetsStore([
+                    {
+                        ...message,
+                        offset: message.offset + 1,
+                    },
+                ])
 
-                logger.info('CdpCyclotronDelayConsumer', `Successfully processed and committed message ${message.key}`)
+                logger.info('🔁', `${this.name} - Successfully processed and committed message ${message.key}`, {
+                    offset: message.offset,
+                    result,
+                })
             } catch (error) {
-                logger.error('CdpCyclotronDelayConsumer', `Error processing message ${message.key}`, { error })
-                this.kafkaConsumer?.offsetsStore([message])
+                const result = this.kafkaConsumer?.offsetsStore([
+                    {
+                        ...message,
+                        offset: message.offset + 1,
+                    },
+                ])
+                logger.info('🔁', `${this.name} - Error processing message ${message.key}`, {
+                    offset: message.offset,
+                    result,
+                    error
+                })
                 throw error
             }
         }
 
-        logger.info('CdpCyclotronDelayConsumer', 'Consumed full delay batch', { messageCount: messages.length })
+        logger.info('🔁', `${this.name} - Consumed full delay batch`, { messageCount: messages.length })
 
         return await this.consumeBatch([])
     }
