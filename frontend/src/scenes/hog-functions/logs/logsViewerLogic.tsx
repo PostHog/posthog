@@ -68,7 +68,6 @@ type LogEntryParams = {
     date_from?: string
     date_to?: string
     order: 'ASC' | 'DESC'
-    groupByInstanceId: boolean
 }
 
 const toKey = (log: LogEntry): string => {
@@ -76,7 +75,7 @@ const toKey = (log: LogEntry): string => {
 }
 
 const toAbsoluteClickhouseTimestamp = (timestamp: Dayjs): string => {
-    // We need to include milliseconds for accuracy
+    // TRICKY: CH query is timezone aware so we dont send iso
     return timestamp.format('YYYY-MM-DD HH:mm:ss.SSS')
 }
 
@@ -126,21 +125,6 @@ const loadLogs = async (request: LogEntryParams): Promise<LogEntry[]> => {
 }
 
 const loadGroupedLogs = async (request: LogEntryParams): Promise<GroupedLogEntry[]> => {
-    if (!request.groupByInstanceId) {
-        // NOTE: This looks odd but it allows us to simplify all of our loading logic to support
-        // both grouped and non-grouped logs
-        const nonGroupedLogs = await loadLogs(request)
-        return [
-            {
-                instanceId: 'all',
-                maxTimestamp: dayjs(nonGroupedLogs[0].timestamp),
-                minTimestamp: dayjs(nonGroupedLogs[nonGroupedLogs.length - 1].timestamp),
-                logLevel: nonGroupedLogs[nonGroupedLogs.length - 1].level,
-                entries: nonGroupedLogs,
-            },
-        ]
-    }
-
     const query = hogql`
         SELECT
             instance_id,
@@ -431,8 +415,8 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             },
         ],
         logEntryParams: [
-            (s) => [(_, p) => p, s.filters, s.isGrouped],
-            (props, filters, isGrouped): LogEntryParams => {
+            (s) => [(_, p) => p, s.filters],
+            (props, filters): LogEntryParams => {
                 const searchGroups = [filters.search, ...(props.searchGroups || [])].filter((x) => !!x) as string[]
                 return {
                     levels: filters.levels,
@@ -442,7 +426,6 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     date_from: filters.date_from,
                     date_to: filters.date_to,
                     order: 'DESC',
-                    groupByInstanceId: isGrouped,
                 }
             },
         ],
