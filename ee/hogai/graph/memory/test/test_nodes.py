@@ -308,6 +308,40 @@ class TestMemoryInitializerNode(ClickhouseTestMixin, BaseTest):
 
         flush_persons_and_events()
 
+    def test_memory_onboarding_runs_when_init_with_completed_memory(self):
+        """Test that when /init is used and core memory is completed, the graph DOES run MemoryOnboardingNode"""
+        # Set the existing core memory to completed status
+        self.core_memory.set_core_memory("Some existing core memory")
+
+        memory_onboarding = MemoryOnboardingNode(team=self.team, user=self.user)
+        result = memory_onboarding.should_run_onboarding_at_start(
+            AssistantState(messages=[HumanMessage(content=SLASH_COMMAND_INIT)])
+        )
+        # Should trigger memory onboarding flow (which includes MemoryOnboardingNode)
+        self.assertEqual(result, "memory_onboarding")
+
+    def test_memory_onboarding_runs_when_init_with_nonexistent_memory(self):
+        """Test that when /init is used and core memory doesn't exist, the graph DOES run MemoryOnboardingNode"""
+        # Delete the existing core memory
+        self.core_memory.delete()
+
+        memory_onboarding = MemoryOnboardingNode(team=self.team, user=self.user)
+        result = memory_onboarding.should_run_onboarding_at_start(
+            AssistantState(messages=[HumanMessage(content=SLASH_COMMAND_INIT)])
+        )
+        # Should trigger memory onboarding flow (which includes MemoryInitializerNode)
+        self.assertEqual(result, "memory_onboarding")
+
+    def test_memory_onboarding_does_not_run_when_init_with_pending_memory(self):
+        """Test that when /init is used and core memory is pending, the graph does NOT run MemoryOnboardingNode"""
+        # The core memory from setUp() is already in PENDING status, so we can use it as-is
+        memory_onboarding = MemoryOnboardingNode(team=self.team, user=self.user)
+        result = memory_onboarding.should_run_onboarding_at_start(
+            AssistantState(messages=[HumanMessage(content=SLASH_COMMAND_INIT)])
+        )
+        # Should NOT trigger memory onboarding flow, so MemoryOnboardingNode won't run
+        self.assertEqual(result, "continue")
+
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestMemoryInitializerInterruptNode(ClickhouseTestMixin, BaseTest):
