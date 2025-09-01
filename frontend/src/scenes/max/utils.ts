@@ -166,7 +166,9 @@ export function handleCommandString(options: string, actions: maxLogicType['acti
         actions.setAutoRun(true)
     }
     const cleanedQuestion = options.replace(/^!/, '')
-    actions.setQuestion(cleanedQuestion)
+    if (cleanedQuestion.trim() !== '') {
+        actions.setQuestion(cleanedQuestion)
+    }
 }
 
 // Utility functions for transforming data to max context
