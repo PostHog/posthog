@@ -1,9 +1,11 @@
 import Fuse from 'fuse.js'
 import { LogicWrapper } from 'kea'
+import { ReactNode } from 'react'
 
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
+import { ReplayTaxonomicFilterProperty } from 'scenes/session-recordings/filters/ReplayTaxonomicFilters'
 
 import { AnyDataNode, DatabaseSchemaField, DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 import {
@@ -76,23 +78,31 @@ export interface TaxonomicFilterLogicProps extends TaxonomicFilterProps {
 }
 
 export type TaxonomicFilterValue = string | number | null
-
-export type TaxonomicFilterRender = (props: {
+export type TaxonomicFilterRenderProps = {
     value?: TaxonomicFilterValue
     onChange: (value: TaxonomicFilterValue, item: any) => void
-}) => JSX.Element | null
+    /** allows the component to access the infinite list logic e.g. to react to search results */
+    infiniteListLogicProps: InfiniteListLogicProps
+}
+export type TaxonomicFilterRender = (props: TaxonomicFilterRenderProps) => JSX.Element | null
 
 export interface TaxonomicFilterGroup {
     name: string
     /** Null means this group is not searchable (like HogQL expressions). */
     searchPlaceholder: string | null
+    /**
+     * Overrides the label in the category pill list
+     * */
+    categoryLabel?: (count: number) => ReactNode
     type: TaxonomicFilterGroupType
     /** Component to show instead of the usual taxonomic list. */
     render?: TaxonomicFilterRender
+    /** if you want to override the default local items search behaviour e.g. for the replay group type */
+    localItemsSearch?: (items: TaxonomicDefinitionTypes[], q: string) => TaxonomicDefinitionTypes[]
     endpoint?: string
     /** If present, will be used instead of "endpoint" until the user presses "expand results". */
     scopedEndpoint?: string
-    expandLabel?: (props: { count: number; expandedCount: number }) => React.ReactNode
+    expandLabel?: (props: { count: number; expandedCount: number }) => ReactNode
     options?: Record<string, any>[]
     logic?: LogicWrapper
     value?: string
@@ -190,3 +200,4 @@ export type TaxonomicDefinitionTypes =
     | PersonProperty
     | DataWarehouseTableForInsight
     | MaxContextTaxonomicFilterOption
+    | ReplayTaxonomicFilterProperty

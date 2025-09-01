@@ -2128,6 +2128,18 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Group key",
             "description": "Specified group key",
         },
+        "$virt_revenue": {
+            "description": "The total revenue for this group. This will always be the current total revenue even when referring to a group via events.",
+            "label": "Total revenue",
+            "type": "Numeric",
+            "virtual": True,
+        },
+        "$virt_revenue_last_30_days": {
+            "description": "The total revenue for this group in the last 30 days.",
+            "label": "Total revenue in the last 30 days",
+            "type": "Numeric",
+            "virtual": True,
+        },
     },
     "replay": {
         "snapshot_source": {

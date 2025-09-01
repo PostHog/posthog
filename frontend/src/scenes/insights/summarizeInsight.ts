@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
-import { RETENTION_FIRST_TIME } from 'lib/constants'
+import { RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
 import { alphabet, capitalizeFirstLetter } from 'lib/utils'
 import {
     getDisplayNameFromEntityFilter,
@@ -25,7 +25,6 @@ import {
     Node,
 } from '~/queries/schema/schema-general'
 import {
-    isCalendarHeatmapQuery,
     isDataTableNode,
     isEventsQuery,
     isFunnelsQuery,
@@ -184,7 +183,7 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
             ` based on doing ${getDisplayNameFromEntityFilter(
                 (query.retentionFilter?.targetEntity || {}) as EntityFilter
             )}` +
-            ` ${retentionOptions[query.retentionFilter?.retentionType || RETENTION_FIRST_TIME]} and returning with ` +
+            ` ${retentionOptions[query.retentionFilter?.retentionType || RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS]} and returning with ` +
             (areTargetAndReturningIdentical
                 ? 'the same event'
                 : getDisplayNameFromEntityFilter((query.retentionFilter?.returningEntity || {}) as EntityFilter))
@@ -214,8 +213,6 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
         return `${capitalizeFirstLetter(
             context.aggregationLabel(query.aggregation_group_type_index, true).singular
         )} lifecycle based on ${getDisplayNameFromEntityNode(query.series[0])}`
-    } else if (isCalendarHeatmapQuery(query)) {
-        return `Calendar heatmap of ${getDisplayNameFromEntityNode(query.series[0])}`
     }
     return ''
 }

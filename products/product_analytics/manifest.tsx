@@ -3,7 +3,7 @@ import { combineUrl } from 'kea-router'
 import { IconGraph } from '@posthog/icons'
 
 import { AlertType } from 'lib/components/Alerts/types'
-import { FEATURE_FLAGS, INSIGHT_VISUAL_ORDER } from 'lib/constants'
+import { INSIGHT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { DashboardFilter, HogQLFilters, HogQLVariable, Node, NodeKind } from '~/queries/schema/schema-general'
@@ -125,14 +125,6 @@ export const manifest: ProductManifest = {
             href: urls.insightNew({ type: InsightType.LIFECYCLE }),
             iconType: 'insightLifecycle',
             visualOrder: INSIGHT_VISUAL_ORDER.lifecycle,
-        },
-        {
-            path: `Insight/Calendar heatmap`,
-            type: 'insight',
-            href: urls.insightNew({ type: InsightType.CALENDAR_HEATMAP }),
-            iconType: 'insightCalendarHeatmap',
-            visualOrder: INSIGHT_VISUAL_ORDER.calendarHeatmap,
-            flag: FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT,
         },
     ],
     treeItemsProducts: [

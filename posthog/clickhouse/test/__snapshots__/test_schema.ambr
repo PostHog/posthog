@@ -483,7 +483,8 @@
       event_count Int64,
       message_count Int64,
       snapshot_source LowCardinality(Nullable(String)),
-      snapshot_library Nullable(String)
+      snapshot_library Nullable(String),
+      retention_period_days Nullable(Int64),
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
   
   '''
@@ -1559,7 +1560,8 @@
       event_count Int64,
       message_count Int64,
       snapshot_source LowCardinality(Nullable(String)),
-      snapshot_library Nullable(String)
+      snapshot_library Nullable(String),
+      retention_period_days Nullable(Int64),
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
   
   '''
@@ -2116,6 +2118,8 @@
       lc_id String,
       lc_route_id String,
       lc_access_method LowCardinality(String),
+      lc_api_key_label String,
+      lc_api_key_mask String,
   
       lc_query_type LowCardinality(String),
       lc_product LowCardinality(String),
@@ -2544,7 +2548,9 @@
       snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-      _timestamp SimpleAggregateFunction(max, DateTime)
+      _timestamp SimpleAggregateFunction(max, DateTime),
+      -- retention period for this session, in days. Useful to show TTL for the recording
+      retention_period_days Nullable(Int64)
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
   
   '''
@@ -2569,7 +2575,8 @@
   `event_count` Int64,
   `snapshot_source` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
   `snapshot_library` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-  `_timestamp` Nullable(DateTime)
+  `_timestamp` Nullable(DateTime),
+  `retention_period_days` Nullable(Int64)
   )
   AS SELECT
   session_id,
@@ -2604,7 +2611,10 @@
   sum(event_count) as event_count,
   argMinState(snapshot_source, first_timestamp) as snapshot_source,
   argMinState(snapshot_library, first_timestamp) as snapshot_library,
-  max(_timestamp) as _timestamp
+  max(_timestamp) as _timestamp,
+  -- CH will pick the retention period here, but only if there is a single unique non-null value across all blocks
+  -- ...otherwise this column will be NULL
+  singleValueOrNull(retention_period_days) as retention_period_days
   FROM posthog_test.kafka_session_replay_events
   group by session_id, team_id
   
@@ -3264,7 +3274,9 @@
       snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-      _timestamp SimpleAggregateFunction(max, DateTime)
+      _timestamp SimpleAggregateFunction(max, DateTime),
+      -- retention period for this session, in days. Useful to show TTL for the recording
+      retention_period_days Nullable(Int64)
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
   
       PARTITION BY toYYYYMM(min_first_timestamp)
@@ -3418,6 +3430,8 @@
   has_gclid Bool,
   has_gad_source_paid_search Bool,
   has_fbclid Bool,
+  mat_metadata_loggedIn Bool,
+  mat_metadata_backend String,
       persons_uniq_state AggregateFunction(uniq, UUID),
       sessions_uniq_state AggregateFunction(uniq, String),
       pageviews_count_state AggregateFunction(sum, UInt64),
@@ -3450,7 +3464,9 @@
       region_name,
       has_gclid,
       has_gad_source_paid_search,
-      has_fbclid
+      has_fbclid,
+      mat_metadata_loggedIn,
+      mat_metadata_backend
   )
       
   '''
@@ -3484,6 +3500,8 @@
   has_gclid Bool,
   has_gad_source_paid_search Bool,
   has_fbclid Bool,
+  mat_metadata_loggedIn Bool,
+  mat_metadata_backend String,
       persons_uniq_state AggregateFunction(uniq, UUID),
       sessions_uniq_state AggregateFunction(uniq, String),
       pageviews_count_state AggregateFunction(sum, UInt64),
@@ -3515,7 +3533,9 @@
       region_name,
       has_gclid,
       has_gad_source_paid_search,
-      has_fbclid
+      has_fbclid,
+      mat_metadata_loggedIn,
+      mat_metadata_backend
   )
       PARTITION BY formatDateTime(period_bucket, '%Y%m%d%H')
       TTL period_bucket + INTERVAL 24 HOUR DELETE
@@ -3551,6 +3571,8 @@
   has_gclid Bool,
   has_gad_source_paid_search Bool,
   has_fbclid Bool,
+  mat_metadata_loggedIn Bool,
+  mat_metadata_backend String,
       persons_uniq_state AggregateFunction(uniq, UUID),
       sessions_uniq_state AggregateFunction(uniq, String),
       pageviews_count_state AggregateFunction(sum, UInt64),
@@ -3583,7 +3605,9 @@
       region_name,
       has_gclid,
       has_gad_source_paid_search,
-      has_fbclid
+      has_fbclid,
+      mat_metadata_loggedIn,
+      mat_metadata_backend
   )
       
   '''
@@ -3618,6 +3642,8 @@
   has_gclid Bool,
   has_gad_source_paid_search Bool,
   has_fbclid Bool,
+  mat_metadata_loggedIn Bool,
+  mat_metadata_backend String,
       persons_uniq_state AggregateFunction(uniq, UUID),
       sessions_uniq_state AggregateFunction(uniq, String),
       pageviews_count_state AggregateFunction(sum, UInt64),
@@ -3648,7 +3674,9 @@
       region_name,
       has_gclid,
       has_gad_source_paid_search,
-      has_fbclid
+      has_fbclid,
+      mat_metadata_loggedIn,
+      mat_metadata_backend
   )
       
   '''
@@ -3683,6 +3711,8 @@
   has_gclid Bool,
   has_gad_source_paid_search Bool,
   has_fbclid Bool,
+  mat_metadata_loggedIn Bool,
+  mat_metadata_backend String,
       persons_uniq_state AggregateFunction(uniq, UUID),
       sessions_uniq_state AggregateFunction(uniq, String),
       pageviews_count_state AggregateFunction(sum, UInt64),
@@ -3713,7 +3743,9 @@
       region_name,
       has_gclid,
       has_gad_source_paid_search,
-      has_fbclid
+      has_fbclid,
+      mat_metadata_loggedIn,
+      mat_metadata_backend
   )
       
   '''
@@ -3748,6 +3780,8 @@
   has_gclid Bool,
   has_gad_source_paid_search Bool,
   has_fbclid Bool,
+  mat_metadata_loggedIn Bool,
+  mat_metadata_backend String,
       persons_uniq_state AggregateFunction(uniq, UUID),
       sessions_uniq_state AggregateFunction(uniq, String),
       pageviews_count_state AggregateFunction(sum, UInt64),
@@ -3777,7 +3811,9 @@
       region_name,
       has_gclid,
       has_gad_source_paid_search,
-      has_fbclid
+      has_fbclid,
+      mat_metadata_loggedIn,
+      mat_metadata_backend
   )
       PARTITION BY formatDateTime(period_bucket, '%Y%m%d%H')
       TTL period_bucket + INTERVAL 24 HOUR DELETE
@@ -4005,7 +4041,9 @@
       snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-      _timestamp SimpleAggregateFunction(max, DateTime)
+      _timestamp SimpleAggregateFunction(max, DateTime),
+      -- retention period for this session, in days. Useful to show TTL for the recording
+      retention_period_days Nullable(Int64)
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
   
   '''
@@ -4642,6 +4680,8 @@
       lc_id String,
       lc_route_id String,
       lc_access_method LowCardinality(String),
+      lc_api_key_label String,
+      lc_api_key_mask String,
   
       lc_query_type LowCardinality(String),
       lc_product LowCardinality(String),
@@ -5142,7 +5182,9 @@
       snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-      _timestamp SimpleAggregateFunction(max, DateTime)
+      _timestamp SimpleAggregateFunction(max, DateTime),
+      -- retention period for this session, in days. Useful to show TTL for the recording
+      retention_period_days Nullable(Int64)
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
   
       PARTITION BY toYYYYMM(min_first_timestamp)
@@ -5296,6 +5338,8 @@
   has_gclid Bool,
   has_gad_source_paid_search Bool,
   has_fbclid Bool,
+  mat_metadata_loggedIn Bool,
+  mat_metadata_backend String,
       persons_uniq_state AggregateFunction(uniq, UUID),
       sessions_uniq_state AggregateFunction(uniq, String),
       pageviews_count_state AggregateFunction(sum, UInt64),
@@ -5328,7 +5372,9 @@
       region_name,
       has_gclid,
       has_gad_source_paid_search,
-      has_fbclid
+      has_fbclid,
+      mat_metadata_loggedIn,
+      mat_metadata_backend
   )
       
   '''
@@ -5362,6 +5408,8 @@
   has_gclid Bool,
   has_gad_source_paid_search Bool,
   has_fbclid Bool,
+  mat_metadata_loggedIn Bool,
+  mat_metadata_backend String,
       persons_uniq_state AggregateFunction(uniq, UUID),
       sessions_uniq_state AggregateFunction(uniq, String),
       pageviews_count_state AggregateFunction(sum, UInt64),
@@ -5393,7 +5441,9 @@
       region_name,
       has_gclid,
       has_gad_source_paid_search,
-      has_fbclid
+      has_fbclid,
+      mat_metadata_loggedIn,
+      mat_metadata_backend
   )
       PARTITION BY formatDateTime(period_bucket, '%Y%m%d%H')
       TTL period_bucket + INTERVAL 24 HOUR DELETE
@@ -5429,6 +5479,8 @@
   has_gclid Bool,
   has_gad_source_paid_search Bool,
   has_fbclid Bool,
+  mat_metadata_loggedIn Bool,
+  mat_metadata_backend String,
       persons_uniq_state AggregateFunction(uniq, UUID),
       sessions_uniq_state AggregateFunction(uniq, String),
       pageviews_count_state AggregateFunction(sum, UInt64),
@@ -5461,7 +5513,9 @@
       region_name,
       has_gclid,
       has_gad_source_paid_search,
-      has_fbclid
+      has_fbclid,
+      mat_metadata_loggedIn,
+      mat_metadata_backend
   )
       
   '''
@@ -5496,6 +5550,8 @@
   has_gclid Bool,
   has_gad_source_paid_search Bool,
   has_fbclid Bool,
+  mat_metadata_loggedIn Bool,
+  mat_metadata_backend String,
       persons_uniq_state AggregateFunction(uniq, UUID),
       sessions_uniq_state AggregateFunction(uniq, String),
       pageviews_count_state AggregateFunction(sum, UInt64),
@@ -5526,7 +5582,9 @@
       region_name,
       has_gclid,
       has_gad_source_paid_search,
-      has_fbclid
+      has_fbclid,
+      mat_metadata_loggedIn,
+      mat_metadata_backend
   )
       
   '''
@@ -5561,6 +5619,8 @@
   has_gclid Bool,
   has_gad_source_paid_search Bool,
   has_fbclid Bool,
+  mat_metadata_loggedIn Bool,
+  mat_metadata_backend String,
       persons_uniq_state AggregateFunction(uniq, UUID),
       sessions_uniq_state AggregateFunction(uniq, String),
       pageviews_count_state AggregateFunction(sum, UInt64),
@@ -5591,7 +5651,9 @@
       region_name,
       has_gclid,
       has_gad_source_paid_search,
-      has_fbclid
+      has_fbclid,
+      mat_metadata_loggedIn,
+      mat_metadata_backend
   )
       
   '''
@@ -5626,6 +5688,8 @@
   has_gclid Bool,
   has_gad_source_paid_search Bool,
   has_fbclid Bool,
+  mat_metadata_loggedIn Bool,
+  mat_metadata_backend String,
       persons_uniq_state AggregateFunction(uniq, UUID),
       sessions_uniq_state AggregateFunction(uniq, String),
       pageviews_count_state AggregateFunction(sum, UInt64),
@@ -5655,7 +5719,9 @@
       region_name,
       has_gclid,
       has_gad_source_paid_search,
-      has_fbclid
+      has_fbclid,
+      mat_metadata_loggedIn,
+      mat_metadata_backend
   )
       PARTITION BY formatDateTime(period_bucket, '%Y%m%d%H')
       TTL period_bucket + INTERVAL 24 HOUR DELETE
@@ -5706,7 +5772,9 @@
       snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-      _timestamp SimpleAggregateFunction(max, DateTime)
+      _timestamp SimpleAggregateFunction(max, DateTime),
+      -- retention period for this session, in days. Useful to show TTL for the recording
+      retention_period_days Nullable(Int64)
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
   
   '''

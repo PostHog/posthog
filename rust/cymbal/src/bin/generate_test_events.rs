@@ -27,7 +27,7 @@ async fn main() {
 
     loop {
         println!("Sending {} exception kafka", exceptions.len());
-        send_iter_to_kafka(&producer, "exception_symbolification_events", &exceptions)
+        send_iter_to_kafka(&producer, "exceptions_ingestion", &exceptions)
             .await
             .into_iter()
             .collect::<Result<Vec<_>, _>>()

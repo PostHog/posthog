@@ -179,7 +179,7 @@ class TeamMemberAccessPermission(BasePermission):
     message = "You don't have access to the project."
 
     def has_permission(self, request, view) -> bool:
-        if isinstance(request.successful_authenticator, ProjectSecretAPIKeyAuthentication):
+        if is_authenticated_via_project_secret_api_token(request):
             # Ignore the team check for project secret API keys. It's handled by the ProjectSecretAPITokenPermission
             return True
 
@@ -194,6 +194,10 @@ class TeamMemberAccessPermission(BasePermission):
         return requesting_level is not None
 
 
+def is_authenticated_via_project_secret_api_token(request: Request) -> bool:
+    return isinstance(request.successful_authenticator, ProjectSecretAPIKeyAuthentication)
+
+
 def _is_request_for_project_secret_api_token_secured_endpoint(request: Request) -> bool:
     return bool(
         request.resolver_match
@@ -201,6 +205,7 @@ def _is_request_for_project_secret_api_token_secured_endpoint(request: Request) 
         in {
             "featureflag-local-evaluation",
             "project_feature_flags-remote-config",
+            "project_feature_flags-local-evaluation",
         }
     )
 
@@ -554,7 +559,7 @@ class AccessControlPermission(ScopeBasePermission):
         # Primarily we are checking the user's access to the parent resource type (i.e. project, organization)
         # as well as enforcing any global restrictions (e.g. generically only editing of a flag is allowed)
 
-        if isinstance(request.successful_authenticator, ProjectSecretAPIKeyAuthentication):
+        if is_authenticated_via_project_secret_api_token(request):
             # Ignore the team check for project secret API keys. It's handled by the ProjectSecretAPITokenPermission
             return True
 
@@ -661,11 +666,7 @@ class ProjectSecretAPITokenPermission(BasePermission):
             return True
 
         # Check that the endpoint is allowed for secret API keys
-        if request.resolver_match.view_name not in (
-            "featureflag-local-evaluation",
-            "project_feature_flags-remote-config",
-            "project_feature_flags-local-evaluation",
-        ):
+        if not _is_request_for_project_secret_api_token_secured_endpoint(request):
             return False
 
         # Check team consistency: authenticated team must match resolved team
