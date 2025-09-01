@@ -1,5 +1,18 @@
-import { actions, events, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import {
+    actions,
+    afterMount,
+    beforeUnmount,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    propsChanged,
+    reducers,
+    selectors,
+} from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -23,7 +36,6 @@ export type LogsViewerLogicProps = {
     sourceId: string
     groupByInstanceId?: boolean
     searchGroups?: string[]
-    // Add forced search params
 }
 
 export type LogsViewerFilters = {
@@ -501,8 +513,10 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                 actions.loadMoreUngroupedLogs()
             }
         },
-        setFilters: async (_, breakpoint) => {
-            await breakpoint(500)
+        setFilters: async ({ filters }, breakpoint) => {
+            console.log('setFilters', filters)
+            await breakpoint(filters.search ? 500 : 10) // Longer debounce when typing in the search field
+            console.log('setFilters after breakpoint')
             actions.loadLogs()
         },
         setIsGrouped: async (_) => {
@@ -533,12 +547,46 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             actions.clearHiddenLogs()
         },
     })),
-    events(({ actions, cache }) => ({
-        afterMount: () => {
-            actions.loadLogs()
-        },
-        beforeUnmount: () => {
-            clearInterval(cache.pollingTimeout)
-        },
-    })),
+    afterMount(({ actions }) => {
+        actions.loadLogs()
+    }),
+    beforeUnmount(({ cache }) => {
+        clearInterval(cache.pollingTimeout)
+    }),
+    actionToUrl(({ values, props }) => {
+        const syncProperties = (
+            properties: Record<string, any>
+        ): [string, Record<string, any>, Record<string, any>] => {
+            const newSearch = { ...router.values.searchParams, ...properties }
+            Object.keys(properties).forEach((key) => {
+                if (properties[key] === null || properties[key] === undefined) {
+                    delete newSearch[key]
+                }
+            })
+            return [router.values.location.pathname, newSearch, router.values.hashParams]
+        }
+
+        return {
+            setFilters: ({ filters }) => syncProperties(filters),
+            setIsGrouped: () => syncProperties({ grouped: values.isGrouped }),
+        }
+    }),
+    urlToAction(({ actions, values }) => {
+        const reactToTabChange = (_: any, search: Record<string, any>): void => {
+            console.log('reactToTabChange', search)
+            Object.keys(search).forEach((key) => {
+                if (key in values.filters && search[key] !== values.filters[key as keyof LogsViewerFilters]) {
+                    actions.setFilters({ [key]: search[key] })
+                }
+            })
+
+            if (typeof search.grouped === 'boolean' && search.grouped !== values.isGrouped) {
+                actions.setIsGrouped(search.grouped)
+            }
+        }
+
+        return {
+            '*': reactToTabChange,
+        }
+    }),
 ])

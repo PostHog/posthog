@@ -85,12 +85,14 @@ export function LogsViewer({
             title: 'Timestamp',
             key: 'timestamp',
             dataIndex: 'timestamp',
+            width: 0,
             render: (_, { timestamp }) => <TZLabel time={timestamp} />,
         },
         {
             title: 'Level',
             key: 'level',
             dataIndex: 'level',
+            width: 0,
             render: (_, { level }) => <LemonTag type={tagTypeForLevel(level)}>{level.toUpperCase()}</LemonTag>,
         },
         {
@@ -217,6 +219,7 @@ export function LogsViewer({
                         placeholder="Search for messages containing…"
                         fullWidth
                         onChange={(value) => setFilters({ search: value })}
+                        value={filters.search}
                         allowClear
                         prefix={
                             <>
