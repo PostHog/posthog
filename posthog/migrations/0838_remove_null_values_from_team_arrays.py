@@ -23,8 +23,7 @@ class Migration(migrations.Migration):
             """
             UPDATE posthog_team
             SET recording_domains = array_remove(recording_domains, NULL)
-            WHERE recording_domains IS NOT NULL
-              AND array_position(recording_domains, NULL) IS NOT NULL;
+            WHERE recording_domains IS NOT NULL AND array_position(recording_domains, NULL) IS NOT NULL;
             """,
             reverse_sql=migrations.RunSQL.noop,
         ),
