@@ -73,6 +73,7 @@ class session_summarization(BaseModel):
         """
     )
     should_use_current_filters: bool = Field(
+        default=False,
         description="""
         - Whether to use current filters from user's UI to find relevant session recordings.
         - IMPORTANT: Should be always `false` if the current filters or `search_session_recordings` tool are not present in the conversation history.
@@ -88,7 +89,7 @@ class session_summarization(BaseModel):
             - the user specifies date/time period different from the current filters
             - the user specifies specific conditions (user, device, id, URL, etc.) not present in the current filters
             - the user's query is highly specific and not related to the current filters
-        """
+        """,
     )
 
 
