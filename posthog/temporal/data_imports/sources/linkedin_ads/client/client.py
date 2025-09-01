@@ -8,13 +8,7 @@ import structlog
 from ..utils.constants import API_BASE_URL, API_VERSION, DEFAULT_PAGE_SIZE, MAX_PAGES_SAFETY_LIMIT
 from ..utils.date_handler import LinkedinAdsDateHandler
 from ..utils.schemas import LINKEDIN_ADS_ENDPOINTS, LINKEDIN_ADS_FIELDS, LinkedinAdsResource
-from ..utils.types import (
-    LinkedinAccountType,
-    LinkedinAnalyticsType,
-    LinkedinCampaignGroupType,
-    LinkedinCampaignType,
-    RequestParams,
-)
+from ..utils.types import RequestParams
 from .exceptions import LinkedinAdsError
 from .request_handler import LinkedinAdsRequestHandler
 
@@ -56,20 +50,23 @@ class LinkedinAdsClient:
 
         logger.info("LinkedIn Ads Client initialized", base_url=self.base_url, api_version=self.api_version)
 
-    def get_accounts(self) -> list[LinkedinAccountType]:
+    def get_accounts(self) -> list[dict[str, Any]]:
         """Get ad accounts accessible to the authenticated user.
 
         Returns:
             List of ad account objects
         """
         endpoint = LINKEDIN_ADS_ENDPOINTS[LinkedinAdsResource.Accounts]
-        params = {"q": "search", "fields": ",".join(LINKEDIN_ADS_FIELDS[LinkedinAdsResource.Accounts])}
+        params: dict[str, str | int] = {
+            "q": "search",
+            "fields": ",".join(LINKEDIN_ADS_FIELDS[LinkedinAdsResource.Accounts]),
+        }
 
         url = f"{self.base_url}/{endpoint}"
         data = self.request_handler.make_request(url, params)
         return data.get("elements", [])
 
-    def get_campaigns(self, account_id: str, **kwargs) -> list[LinkedinCampaignType]:
+    def get_campaigns(self, account_id: str, **kwargs) -> list[dict[str, Any]]:
         """Get campaigns for a specific ad account.
 
         Args:
@@ -82,11 +79,14 @@ class LinkedinAdsClient:
         self._validate_account_id(account_id)
 
         endpoint = f"adAccounts/{account_id}/adCampaigns"
-        params = {"q": "search", "fields": ",".join(LINKEDIN_ADS_FIELDS[LinkedinAdsResource.Campaigns])}
+        params: dict[str, str | int] = {
+            "q": "search",
+            "fields": ",".join(LINKEDIN_ADS_FIELDS[LinkedinAdsResource.Campaigns]),
+        }
 
         return self._get_paginated_data(endpoint, params)
 
-    def get_campaign_groups(self, account_id: str, **kwargs) -> list[LinkedinCampaignGroupType]:
+    def get_campaign_groups(self, account_id: str, **kwargs) -> list[dict[str, Any]]:
         """Get campaign groups for a specific ad account.
 
         Args:
@@ -99,13 +99,16 @@ class LinkedinAdsClient:
         self._validate_account_id(account_id)
 
         endpoint = f"adAccounts/{account_id}/adCampaignGroups"
-        params = {"q": "search", "fields": ",".join(LINKEDIN_ADS_FIELDS[LinkedinAdsResource.CampaignGroups])}
+        params: dict[str, str | int] = {
+            "q": "search",
+            "fields": ",".join(LINKEDIN_ADS_FIELDS[LinkedinAdsResource.CampaignGroups]),
+        }
 
         return self._get_paginated_data(endpoint, params)
 
     def get_analytics(
         self, account_id: str, pivot: str, date_start: Optional[str] = None, date_end: Optional[str] = None, **kwargs
-    ) -> list[LinkedinAnalyticsType]:
+    ) -> list[dict[str, Any]]:
         """Get analytics data using the /rest/adAnalytics endpoint.
 
         Args:
@@ -125,7 +128,7 @@ class LinkedinAdsClient:
         start_date, end_date = self.date_handler.calculate_date_range(date_start, date_end)
         date_range_param = self.date_handler.format_linkedin_date_range(start_date, end_date)
 
-        params = {
+        params: dict[str, str | int] = {
             "q": "analytics",
             "pivot": pivot,
             "timeGranularity": "DAILY",

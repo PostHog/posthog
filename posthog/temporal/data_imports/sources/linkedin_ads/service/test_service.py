@@ -27,9 +27,7 @@ class TestLinkedinAdsService:
             config={"client_id": "test", "client_secret": "test"},
         )
 
-        self.config = LinkedinAdsSourceConfig(
-            account_id="123456789", linkedin_ads_integration_id=str(self.integration.id)
-        )
+        self.config = LinkedinAdsSourceConfig(account_id="123456789", linkedin_ads_integration_id=self.integration.id)
 
     def test_service_initialization(self):
         """Test service initializes correctly."""
@@ -43,16 +41,14 @@ class TestLinkedinAdsService:
     def test_service_validates_configuration(self):
         """Test service validates configuration on initialization."""
         # Test missing account ID
-        invalid_config = LinkedinAdsSourceConfig(account_id="", linkedin_ads_integration_id=str(self.integration.id))
+        invalid_config = LinkedinAdsSourceConfig(account_id="", linkedin_ads_integration_id=self.integration.id)
 
         with pytest.raises(ValueError, match="LinkedIn account ID is required"):
             LinkedinAdsService(invalid_config, self.team.id)
 
     def test_service_validates_account_id_format(self):
         """Test service validates account ID format."""
-        invalid_config = LinkedinAdsSourceConfig(
-            account_id="invalid", linkedin_ads_integration_id=str(self.integration.id)
-        )
+        invalid_config = LinkedinAdsSourceConfig(account_id="invalid", linkedin_ads_integration_id=self.integration.id)
 
         with pytest.raises(ValueError, match="Invalid LinkedIn account ID format"):
             LinkedinAdsService(invalid_config, self.team.id)
@@ -90,7 +86,15 @@ class TestLinkedinAdsService:
         resource_map = service._get_resource_method_map(mock_client)
 
         # Check that all expected resources are mapped
-        expected_resources = ["campaign_stats", "campaign_group_stats", "campaigns", "campaign_groups", "accounts"]
+        from ..utils.schemas import LinkedinAdsResource
+
+        expected_resources = [
+            LinkedinAdsResource.CampaignStats,
+            LinkedinAdsResource.CampaignGroupStats,
+            LinkedinAdsResource.Campaigns,
+            LinkedinAdsResource.CampaignGroups,
+            LinkedinAdsResource.Accounts,
+        ]
 
         for resource in expected_resources:
             assert resource in resource_map

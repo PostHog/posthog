@@ -200,10 +200,16 @@ class LinkedinAdsService:
         # Map resource names to client methods
         resource_map = self._get_resource_method_map(client)
 
-        if resource_name not in resource_map:
+        # Convert string resource name to enum
+        try:
+            resource_enum = LinkedinAdsResource(resource_name)
+        except ValueError:
             raise ValueError(f"Unknown resource: {resource_name}")
 
-        method, pivot = resource_map[resource_name]
+        if resource_enum not in resource_map:
+            raise ValueError(f"Unknown resource: {resource_name}")
+
+        method, pivot = resource_map[resource_enum]
 
         if pivot:
             # Analytics methods need pivot and dates
@@ -224,7 +230,7 @@ class LinkedinAdsService:
             else:
                 return method(self.account_id)
 
-    def _get_resource_method_map(self, client: LinkedinAdsClient) -> dict[str, ResourceMethodTuple]:
+    def _get_resource_method_map(self, client: LinkedinAdsClient) -> dict[LinkedinAdsResource, ResourceMethodTuple]:
         """Get mapping of resource names to client methods.
 
         Args:

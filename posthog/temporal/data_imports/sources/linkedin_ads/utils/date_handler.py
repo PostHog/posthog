@@ -122,6 +122,8 @@ class LinkedinAdsDateHandler:
         else:
             # Both dates provided
             try:
+                if date_start is None or date_end is None:
+                    raise ValueError("Both dates must be provided")
                 start_date = dt.datetime.strptime(date_start, "%Y-%m-%d")
                 end_date = dt.datetime.strptime(date_end, "%Y-%m-%d")
 
@@ -190,10 +192,14 @@ class LinkedinAdsDateHandler:
         calculated_start = now - dt.timedelta(days=max_lookback_days)
 
         # Parse last_value into datetime
-        if hasattr(last_value, "strftime"):
-            last_value_date = (
-                last_value if isinstance(last_value, dt.datetime) else dt.datetime.combine(last_value, dt.time.min)
-            )
+        if hasattr(last_value, "strftime") and last_value is not None:
+            if isinstance(last_value, dt.datetime):
+                last_value_date = last_value
+            elif isinstance(last_value, dt.date):
+                last_value_date = dt.datetime.combine(last_value, dt.time.min)
+            else:
+                # Fallback for other types with strftime (shouldn't happen)
+                last_value_date = dt.datetime.strptime(str(last_value), "%Y-%m-%d")
         else:
             last_value_date = dt.datetime.strptime(str(last_value), "%Y-%m-%d")
 
@@ -222,7 +228,7 @@ class LinkedinAdsDateHandler:
         Returns:
             Start date string in YYYY-MM-DD format
         """
-        if hasattr(last_value, "strftime"):
+        if hasattr(last_value, "strftime") and last_value is not None:
             date_start = last_value.strftime("%Y-%m-%d")
         else:
             date_start = str(last_value)

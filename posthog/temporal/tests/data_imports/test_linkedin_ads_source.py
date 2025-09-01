@@ -1,8 +1,6 @@
 import pytest
 from unittest.mock import Mock, patch
 
-from posthog.schema import ExternalDataSourceType
-
 from posthog.models import Team
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
@@ -16,6 +14,7 @@ from posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads import link
 from posthog.temporal.data_imports.sources.linkedin_ads.source import LinkedInAdsSource
 from posthog.temporal.data_imports.sources.linkedin_ads.utils import _failure_counts, _last_failure_time
 from posthog.temporal.data_imports.sources.linkedin_ads.utils.constants import CIRCUIT_BREAKER_THRESHOLD
+from posthog.warehouse.types import ExternalDataSourceType, IncrementalFieldType
 
 
 class TestLinkedInAdsClient:
@@ -42,7 +41,7 @@ class TestLinkedInAdsClient:
         mock_get.return_value = mock_response
 
         client = LinkedinAdsClient("test_token")
-        result = client._make_request("test_endpoint")
+        result = client.request_handler.make_request("test_endpoint")
 
         assert result == {"elements": [{"id": "123"}]}
 
@@ -57,7 +56,7 @@ class TestLinkedInAdsClient:
         client = LinkedinAdsClient("test_token")
 
         with pytest.raises(LinkedinAdsAuthError, match="LinkedIn API authentication failed"):
-            client._make_request("test_endpoint")
+            client.request_handler.make_request("test_endpoint")
 
     @patch("requests.Session.get")
     def test_make_request_rate_limit_with_retry(self, mock_get):
@@ -76,7 +75,7 @@ class TestLinkedInAdsClient:
         client = LinkedinAdsClient("test_token")
 
         with patch("time.sleep"):  # Skip actual sleep
-            result = client._make_request("test_endpoint")
+            result = client.request_handler.make_request("test_endpoint")
 
         assert result == {"success": True}
         assert mock_get.call_count == 2
@@ -93,7 +92,7 @@ class TestLinkedInAdsClient:
 
         with patch("time.sleep"):  # Skip actual sleep
             with pytest.raises(LinkedinAdsRateLimitError, match="LinkedIn API rate limit exceeded"):
-                client._make_request("test_endpoint")
+                client.request_handler.make_request("test_endpoint")
 
     @patch("requests.Session.get")
     def test_make_request_server_error_with_retry(self, mock_get):
@@ -112,7 +111,7 @@ class TestLinkedInAdsClient:
         client = LinkedinAdsClient("test_token")
 
         with patch("time.sleep"):  # Skip actual sleep
-            result = client._make_request("test_endpoint")
+            result = client.request_handler.make_request("test_endpoint")
 
         assert result == {"success": True}
         assert mock_get.call_count == 2
@@ -134,30 +133,30 @@ class TestLinkedInAdsSource:
 
     def test_validate_credentials_missing_account_id(self):
         """Test credential validation with missing account ID."""
-        config = LinkedinAdsSourceConfig(account_id="", linkedin_ads_integration_id="123")
+        config = LinkedinAdsSourceConfig(account_id="", linkedin_ads_integration_id=123)
 
         valid, error = self.source.validate_credentials(config, self.team.id)
         assert valid is False
-        assert "Account ID is required" in error
+        assert error is not None and "Account ID is required" in error
 
     def test_validate_credentials_invalid_account_id_format(self):
         """Test credential validation with invalid account ID format."""
-        config = LinkedinAdsSourceConfig(account_id="invalid-id", linkedin_ads_integration_id="123")
+        config = LinkedinAdsSourceConfig(account_id="invalid-id", linkedin_ads_integration_id=123)
 
         valid, error = self.source.validate_credentials(config, self.team.id)
         assert valid is False
-        assert "Invalid account ID format" in error
+        assert error is not None and "Invalid account ID format" in error
 
     def test_validate_credentials_missing_integration(self):
         """Test credential validation with missing integration."""
         config = LinkedinAdsSourceConfig(
             account_id="123456789",
-            linkedin_ads_integration_id="99999999",  # Non-existent integer ID
+            linkedin_ads_integration_id=99999999,  # Non-existent integer ID
         )
 
         valid, error = self.source.validate_credentials(config, self.team.id)
         assert valid is False
-        assert "LinkedIn Ads integration not found" in error
+        assert error is not None and "LinkedIn Ads integration not found" in error
 
     def test_validate_credentials_missing_access_token(self):
         """Test credential validation with missing access token."""
@@ -169,11 +168,11 @@ class TestLinkedInAdsSource:
             # Don't set access_token to test the missing token case
         )
 
-        config = LinkedinAdsSourceConfig(account_id="123456789", linkedin_ads_integration_id=str(integration.id))
+        config = LinkedinAdsSourceConfig(account_id="123456789", linkedin_ads_integration_id=integration.id)
 
         valid, error = self.source.validate_credentials(config, self.team.id)
         assert valid is False
-        assert "access token not found" in error
+        assert error is not None and "access token not found" in error
 
 
 @pytest.mark.django_db
@@ -214,7 +213,7 @@ class TestLinkedInAdsIntegration:
         mock_client_class.return_value = mock_client
 
         source = LinkedInAdsSource()
-        config = LinkedinAdsSourceConfig(account_id="123456789", linkedin_ads_integration_id=str(self.integration.id))
+        config = LinkedinAdsSourceConfig(account_id="123456789", linkedin_ads_integration_id=self.integration.id)
 
         with self._mock_access_token():
             schemas = source.get_schemas(config, self.team.id)
@@ -242,7 +241,7 @@ class TestLinkedInAdsIntegration:
         ]
         mock_client_class.return_value = mock_client
 
-        config = LinkedinAdsSourceConfig(account_id="123456789", linkedin_ads_integration_id=str(self.integration.id))
+        config = LinkedinAdsSourceConfig(account_id="123456789", linkedin_ads_integration_id=self.integration.id)
 
         with self._mock_access_token():
             response = linkedin_ads_source(
@@ -250,9 +249,10 @@ class TestLinkedInAdsIntegration:
             )
 
         assert response.name == "accounts"
-        assert len(response.items) == 1
-        assert response.items[0]["id"] == "123456789"
-        assert response.items[0]["name"] == "Test Account"
+        items = list(response.items)
+        assert len(items) == 1
+        assert items[0]["id"] == "123456789"
+        assert items[0]["name"] == "Test Account"
         assert response.primary_keys == ["id"]
 
     @patch("posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads.LinkedinAdsClient")
@@ -271,7 +271,7 @@ class TestLinkedInAdsIntegration:
         ]
         mock_client_class.return_value = mock_client
 
-        config = LinkedinAdsSourceConfig(account_id="123456789", linkedin_ads_integration_id=str(self.integration.id))
+        config = LinkedinAdsSourceConfig(account_id="123456789", linkedin_ads_integration_id=self.integration.id)
 
         with self._mock_access_token():
             response = linkedin_ads_source(
@@ -279,11 +279,12 @@ class TestLinkedInAdsIntegration:
             )
 
         assert response.name == "campaigns"
-        assert len(response.items) == 1
-        assert response.items[0]["id"] == "987654321"
-        assert response.items[0]["name"] == "Test Campaign"
-        assert "created_time" in response.items[0]
-        assert "last_modified_time" in response.items[0]
+        items = list(response.items)
+        assert len(items) == 1
+        assert items[0]["id"] == "987654321"
+        assert items[0]["name"] == "Test Campaign"
+        assert "created_time" in items[0]
+        assert "last_modified_time" in items[0]
 
     @patch("posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads.LinkedinAdsClient")
     def test_linkedin_ads_source_campaign_stats(self, mock_client_class):
@@ -304,7 +305,7 @@ class TestLinkedInAdsIntegration:
         ]
         mock_client_class.return_value = mock_client
 
-        config = LinkedinAdsSourceConfig(account_id="123456789", linkedin_ads_integration_id=str(self.integration.id))
+        config = LinkedinAdsSourceConfig(account_id="123456789", linkedin_ads_integration_id=self.integration.id)
 
         with self._mock_access_token():
             response = linkedin_ads_source(
@@ -313,13 +314,14 @@ class TestLinkedInAdsIntegration:
                 team_id=self.team.id,
                 should_use_incremental_field=True,
                 incremental_field="dateRange.start",
-                incremental_field_type="Date",
+                incremental_field_type=IncrementalFieldType.Date,
                 date_start="2025-08-01",
             )
 
         assert response.name == "campaign_stats"
-        assert len(response.items) == 1
-        item = response.items[0]
+        items = list(response.items)
+        assert len(items) == 1
+        item = items[0]
         assert item["impressions"] == 1000
         assert item["clicks"] == 50
         assert item["cost_in_usd"] == 25.50  # Converted to float
@@ -335,7 +337,7 @@ class TestLinkedInAdsIntegration:
         mock_client.get_accounts.side_effect = Exception("API Error")
         mock_client_class.return_value = mock_client
 
-        config = LinkedinAdsSourceConfig(account_id="123456789", linkedin_ads_integration_id=str(self.integration.id))
+        config = LinkedinAdsSourceConfig(account_id="123456789", linkedin_ads_integration_id=self.integration.id)
 
         # Trigger failures up to threshold
         with self._mock_access_token():
@@ -358,9 +360,7 @@ class TestLinkedInAdsIntegration:
             mock_client_class.return_value = mock_client
 
             source = LinkedInAdsSource()
-            config = LinkedinAdsSourceConfig(
-                account_id="123456789", linkedin_ads_integration_id=str(self.integration.id)
-            )
+            config = LinkedinAdsSourceConfig(account_id="123456789", linkedin_ads_integration_id=self.integration.id)
 
             with self._mock_access_token():
                 valid, error = source.validate_credentials(config, self.team.id)

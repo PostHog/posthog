@@ -1,6 +1,7 @@
 """Tests for LinkedIn Ads utility functions."""
 
 import datetime as dt
+from typing import Any
 
 from unittest.mock import patch
 
@@ -151,7 +152,7 @@ class TestLinkedInAdsDataFlattening:
         item = {
             "dateRange": {"start": {"year": 2025, "month": 8, "day": 1}, "end": {"year": 2025, "month": 8, "day": 31}}
         }
-        flattened = {}
+        flattened: dict[str, Any] = {}
 
         flatten_date_range(item, flattened)
 
@@ -161,7 +162,7 @@ class TestLinkedInAdsDataFlattening:
     def test_flatten_date_range_no_date_range(self):
         """Test date range flattening with no dateRange field."""
         item = {"id": "123"}
-        flattened = {}
+        flattened: dict[str, Any] = {}
 
         flatten_date_range(item, flattened)
 
@@ -171,7 +172,7 @@ class TestLinkedInAdsDataFlattening:
     def test_flatten_pivot_values_campaign(self):
         """Test pivot values flattening for campaign."""
         item = {"pivotValues": ["urn:li:sponsoredCampaign:987654321"]}
-        flattened = {}
+        flattened: dict[str, Any] = {}
 
         flatten_pivot_values(item, flattened, "campaign_stats")
 
@@ -180,7 +181,7 @@ class TestLinkedInAdsDataFlattening:
     def test_flatten_pivot_values_campaign_group(self):
         """Test pivot values flattening for campaign group."""
         item = {"pivotValues": ["urn:li:sponsoredCampaignGroup:123456789"]}
-        flattened = {}
+        flattened: dict[str, Any] = {}
 
         flatten_pivot_values(item, flattened, "campaign_group_stats")
 
@@ -189,7 +190,7 @@ class TestLinkedInAdsDataFlattening:
     def test_flatten_pivot_values_invalid_id(self):
         """Test pivot values flattening with invalid ID."""
         item = {"pivotValues": ["urn:li:sponsoredCampaign:invalid_id"]}
-        flattened = {}
+        flattened: dict[str, Any] = {}
 
         flatten_pivot_values(item, flattened, "campaign_stats")
 
@@ -198,7 +199,7 @@ class TestLinkedInAdsDataFlattening:
     def test_flatten_cost_in_usd(self):
         """Test cost conversion from string to float."""
         item = {"costInUsd": "25.50"}
-        flattened = item.copy()
+        flattened: dict[str, Any] = item.copy()
 
         flatten_cost_in_usd(item, flattened, "campaign_stats")
 
@@ -217,7 +218,7 @@ class TestLinkedInAdsDataFlattening:
     def test_flatten_change_audit_stamps(self):
         """Test change audit stamps flattening."""
         item = {"changeAuditStamps": {"created": {"time": 1609459200000}, "lastModified": {"time": 1609545600000}}}
-        flattened = {}
+        flattened: dict[str, Any] = {}
 
         flatten_change_audit_stamps(item, flattened)
 

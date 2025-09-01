@@ -84,7 +84,7 @@ class TestLinkedInAdsIntegration:
         ]
         mock_client_class.return_value = mock_client
 
-        config = LinkedinAdsSourceConfig(account_id="123456789", linkedin_ads_integration_id=str(self.integration.id))
+        config = LinkedinAdsSourceConfig(account_id="123456789", linkedin_ads_integration_id=self.integration.id)
 
         with self._mock_access_token():
             response = linkedin_ads_source(
@@ -92,9 +92,10 @@ class TestLinkedInAdsIntegration:
             )
 
         assert response.name == "accounts"
-        assert len(response.items) == 1
-        assert response.items[0]["id"] == "123456789"
-        assert response.items[0]["name"] == "Test Account"
+        items = list(response.items)
+        assert len(items) == 1
+        assert items[0]["id"] == "123456789"
+        assert items[0]["name"] == "Test Account"
 
     @patch("posthog.temporal.data_imports.sources.linkedin_ads.client.LinkedinAdsClient")
     def test_linkedin_ads_source_campaigns(self, mock_client_class):
@@ -112,7 +113,7 @@ class TestLinkedInAdsIntegration:
         ]
         mock_client_class.return_value = mock_client
 
-        config = LinkedinAdsSourceConfig(account_id="123456789", linkedin_ads_integration_id=str(self.integration.id))
+        config = LinkedinAdsSourceConfig(account_id="123456789", linkedin_ads_integration_id=self.integration.id)
 
         with self._mock_access_token():
             response = linkedin_ads_source(
@@ -120,9 +121,10 @@ class TestLinkedInAdsIntegration:
             )
 
         assert response.name == "campaigns"
-        assert len(response.items) == 1
-        assert response.items[0]["id"] == "987654321"
-        assert response.items[0]["name"] == "Test Campaign"
+        items = list(response.items)
+        assert len(items) == 1
+        assert items[0]["id"] == "987654321"
+        assert items[0]["name"] == "Test Campaign"
 
     @patch("posthog.temporal.data_imports.sources.linkedin_ads.client.LinkedinAdsClient")
     def test_linkedin_ads_source_analytics(self, mock_client_class):
@@ -143,7 +145,7 @@ class TestLinkedInAdsIntegration:
         ]
         mock_client_class.return_value = mock_client
 
-        config = LinkedinAdsSourceConfig(account_id="123456789", linkedin_ads_integration_id=str(self.integration.id))
+        config = LinkedinAdsSourceConfig(account_id="123456789", linkedin_ads_integration_id=self.integration.id)
 
         with self._mock_access_token():
             response = linkedin_ads_source(
@@ -151,10 +153,11 @@ class TestLinkedInAdsIntegration:
             )
 
         assert response.name == "campaign_stats"
-        assert len(response.items) == 1
+        items = list(response.items)
+        assert len(items) == 1
 
         # Check flattened data
-        item = response.items[0]
+        item = items[0]
         assert item["impressions"] == 1000
         assert item["clicks"] == 50
         assert item["cost_in_usd"] == 25.5
@@ -162,7 +165,7 @@ class TestLinkedInAdsIntegration:
 
     def test_linkedin_ads_source_circuit_breaker(self):
         """Test circuit breaker functionality."""
-        config = LinkedinAdsSourceConfig(account_id="123456789", linkedin_ads_integration_id=str(self.integration.id))
+        config = LinkedinAdsSourceConfig(account_id="123456789", linkedin_ads_integration_id=self.integration.id)
 
         # Circuit breaker should be open after too many failures
         # This would require setting up failure state first
@@ -184,7 +187,7 @@ class TestLinkedInAdsIntegration:
         mock_client_class.return_value = mock_client
 
         source = LinkedInAdsSource()
-        config = LinkedinAdsSourceConfig(account_id="123456789", linkedin_ads_integration_id=str(self.integration.id))
+        config = LinkedinAdsSourceConfig(account_id="123456789", linkedin_ads_integration_id=self.integration.id)
 
         with self._mock_access_token():
             valid, error = source.validate_credentials(config, self.team.id)
@@ -195,17 +198,17 @@ class TestLinkedInAdsIntegration:
     def test_validate_credentials_missing_account_id(self):
         """Test credential validation with missing account ID."""
         source = LinkedInAdsSource()
-        config = LinkedinAdsSourceConfig(account_id="", linkedin_ads_integration_id=str(self.integration.id))
+        config = LinkedinAdsSourceConfig(account_id="", linkedin_ads_integration_id=self.integration.id)
 
         valid, error = source.validate_credentials(config, self.team.id)
         assert valid is False
-        assert "Account ID is required" in error
+        assert error is not None and "Account ID is required" in error
 
     def test_validate_credentials_invalid_account_id_format(self):
         """Test credential validation with invalid account ID format."""
         source = LinkedInAdsSource()
-        config = LinkedinAdsSourceConfig(account_id="invalid", linkedin_ads_integration_id=str(self.integration.id))
+        config = LinkedinAdsSourceConfig(account_id="invalid", linkedin_ads_integration_id=self.integration.id)
 
         valid, error = source.validate_credentials(config, self.team.id)
         assert valid is False
-        assert "Invalid account ID format" in error
+        assert error is not None and "Invalid account ID format" in error

@@ -141,6 +141,7 @@ class TestDataFlattening:
 
         primary_keys = determine_primary_keys("campaign_stats", flattened_data)
         # Analytics should have composite primary key
+        assert primary_keys is not None
         assert "campaign_id" in primary_keys
         assert "date_range_start" in primary_keys
 
@@ -155,11 +156,11 @@ class TestTypeDefinitions:
 
     def test_linkedin_ads_resource_enum(self):
         """Test LinkedIn Ads resource enum values."""
-        assert LinkedinAdsResource.Accounts == "accounts"
-        assert LinkedinAdsResource.Campaigns == "campaigns"
-        assert LinkedinAdsResource.CampaignGroups == "campaign_groups"
-        assert LinkedinAdsResource.CampaignStats == "campaign_stats"
-        assert LinkedinAdsResource.CampaignGroupStats == "campaign_group_stats"
+        assert LinkedinAdsResource.Accounts.value == "accounts"
+        assert LinkedinAdsResource.Campaigns.value == "campaigns"
+        assert LinkedinAdsResource.CampaignGroups.value == "campaign_groups"
+        assert LinkedinAdsResource.CampaignStats.value == "campaign_stats"
+        assert LinkedinAdsResource.CampaignGroupStats.value == "campaign_group_stats"
 
     def test_type_definitions_exist(self):
         """Test that key type definitions exist."""

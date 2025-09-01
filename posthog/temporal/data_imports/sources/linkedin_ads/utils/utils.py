@@ -20,8 +20,8 @@ from .constants import (
 logger = structlog.get_logger(__name__)
 
 # Simple circuit breaker for tracking failures
-_failure_counts = defaultdict(int)
-_last_failure_time = defaultdict(float)
+_failure_counts: defaultdict[str, int] = defaultdict(int)
+_last_failure_time: defaultdict[str, float] = defaultdict(float)
 
 
 def validate_account_id(account_id: str) -> bool:
@@ -181,7 +181,7 @@ def flatten_pivot_values(item: dict[str, Any], flattened_item: dict[str, Any], r
 
                 # Convert ID to integer (LinkedIn IDs are always integers)
                 try:
-                    pivot_id = int(pivot_id_str)
+                    pivot_id: int | str = int(pivot_id_str)
                 except ValueError:
                     logger.warning(
                         "Failed to convert pivot ID to int",
