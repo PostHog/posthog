@@ -208,11 +208,11 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results,
             [
                 RevenueAnalyticsOverviewItem(
-                    key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("1727.0246133332")
+                    key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("1631.9303277469")
                 ),
                 RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=3),
                 RevenueAnalyticsOverviewItem(
-                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("575.674871111")
+                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("543.9767759156")
                 ),
             ],
         )
@@ -225,11 +225,9 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             results,
             [
-                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("0")),
+                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.REVENUE, value=0),
                 RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=0),
-                RevenueAnalyticsOverviewItem(
-                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("0")
-                ),
+                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=0),
             ],
         )
 
@@ -270,11 +268,11 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results,
             [
                 RevenueAnalyticsOverviewItem(
-                    key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("133.9132683333")
+                    key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("33.8068654006")
                 ),
                 RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=2),
                 RevenueAnalyticsOverviewItem(
-                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("66.9566341666")
+                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("16.9034327003")
                 ),
             ],
         )
