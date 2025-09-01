@@ -96,7 +96,9 @@ mod tests {
         let event_uuid = Uuid::now_v7();
 
         let timestamp = Utc::now();
-        let result = create_identify_event(team_id, token, user_id, device_id, event_uuid, timestamp).unwrap();
+        let result =
+            create_identify_event(team_id, token, user_id, device_id, event_uuid, timestamp)
+                .unwrap();
 
         assert_eq!(result.team_id, team_id);
         assert_eq!(result.inner.token, token);
@@ -139,7 +141,9 @@ mod tests {
         let event_uuid = Uuid::now_v7();
 
         let timestamp = Utc::now();
-        let result = create_identify_event(team_id, token, user_id, device_id, event_uuid, timestamp).unwrap();
+        let result =
+            create_identify_event(team_id, token, user_id, device_id, event_uuid, timestamp)
+                .unwrap();
 
         // Verify the event has all required fields
         assert!(!result.inner.data.is_empty());
@@ -165,7 +169,9 @@ mod tests {
         let event_uuid = Uuid::now_v7();
 
         let timestamp = Utc::now();
-        let result = create_identify_event(team_id, token, user_id, device_id, event_uuid, timestamp).unwrap();
+        let result =
+            create_identify_event(team_id, token, user_id, device_id, event_uuid, timestamp)
+                .unwrap();
 
         // Verify basic structure
         assert_eq!(result.team_id, team_id);
@@ -206,7 +212,8 @@ mod tests {
             .contains("user_id cannot be empty"));
 
         // Test with whitespace-only strings (should fail)
-        let result = create_identify_event(team_id, token, "   ", "device123", event_uuid, timestamp);
+        let result =
+            create_identify_event(team_id, token, "   ", "device123", event_uuid, timestamp);
         assert!(result.is_err(), "Should reject whitespace-only user_id");
         assert!(result
             .unwrap_err()
@@ -223,8 +230,14 @@ mod tests {
         // Test with very long strings (should succeed)
         let long_user_id = "a".repeat(1000);
         let long_device_id = "b".repeat(1000);
-        let result =
-            create_identify_event(team_id, token, &long_user_id, &long_device_id, event_uuid, timestamp);
+        let result = create_identify_event(
+            team_id,
+            token,
+            &long_user_id,
+            &long_device_id,
+            event_uuid,
+            timestamp,
+        );
         assert!(result.is_ok(), "Should handle very long strings");
 
         // Test with unicode characters (should succeed)
@@ -261,7 +274,9 @@ mod tests {
         let event_uuid = Uuid::now_v7();
 
         let timestamp = Utc::now();
-        let result = create_identify_event(team_id, token, user_id, device_id, event_uuid, timestamp).unwrap();
+        let result =
+            create_identify_event(team_id, token, user_id, device_id, event_uuid, timestamp)
+                .unwrap();
         let data: RawEvent = serde_json::from_str(&result.inner.data).unwrap();
 
         // Verify exact JSON structure
@@ -300,9 +315,11 @@ mod tests {
 
         let timestamp = Utc::now();
         let result1 =
-            create_identify_event(team_id, token, user_id, device_id, event_uuid1, timestamp).unwrap();
+            create_identify_event(team_id, token, user_id, device_id, event_uuid1, timestamp)
+                .unwrap();
         let result2 =
-            create_identify_event(team_id, token, user_id, device_id, event_uuid2, timestamp).unwrap();
+            create_identify_event(team_id, token, user_id, device_id, event_uuid2, timestamp)
+                .unwrap();
 
         // UUIDs should be preserved
         assert_eq!(result1.inner.uuid, event_uuid1);
@@ -326,7 +343,9 @@ mod tests {
         let event_uuid = Uuid::now_v7();
 
         let timestamp = Utc::now();
-        let result = create_identify_event(team_id, token, user_id, device_id, event_uuid, timestamp).unwrap();
+        let result =
+            create_identify_event(team_id, token, user_id, device_id, event_uuid, timestamp)
+                .unwrap();
 
         // Verify CapturedEvent structure
         assert_eq!(result.inner.uuid, event_uuid);
@@ -355,7 +374,15 @@ mod tests {
             .unwrap()
             .with_timezone(&Utc);
 
-        let result = create_identify_event(team_id, token, user_id, device_id, event_uuid, specific_timestamp).unwrap();
+        let result = create_identify_event(
+            team_id,
+            token,
+            user_id,
+            device_id,
+            event_uuid,
+            specific_timestamp,
+        )
+        .unwrap();
 
         // Parse the data and verify timestamp is preserved
         let data: RawEvent = serde_json::from_str(&result.inner.data).unwrap();
@@ -382,7 +409,8 @@ mod tests {
 
         let timestamp = Utc::now();
         for (user_id, device_id) in failing_cases {
-            let result = create_identify_event(team_id, token, user_id, device_id, event_uuid, timestamp);
+            let result =
+                create_identify_event(team_id, token, user_id, device_id, event_uuid, timestamp);
             assert!(
                 result.is_err(),
                 "Should reject invalid case: user_id='{user_id}', device_id='{device_id}'"
@@ -400,7 +428,8 @@ mod tests {
         ];
 
         for (user_id, device_id) in valid_cases {
-            let result = create_identify_event(team_id, token, user_id, device_id, event_uuid, timestamp);
+            let result =
+                create_identify_event(team_id, token, user_id, device_id, event_uuid, timestamp);
             assert!(
                 result.is_ok(),
                 "Should accept valid case: user_id='{user_id}', device_id='{device_id}'"
