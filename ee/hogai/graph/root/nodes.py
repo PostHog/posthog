@@ -105,10 +105,6 @@ class RootNodeUIContextMixin(AssistantNode):
 
         query_runner = AssistantQueryExecutor(self._team, self._utc_now_datetime)
 
-        # Extract global filters and variables override from UI context
-        filters_override = ui_context.filters_override.model_dump() if ui_context.filters_override else None
-        variables_override = ui_context.variables_override if ui_context.variables_override else None
-
         # Format dashboard context with insights
         dashboard_context = ""
         if ui_context.dashboards:
@@ -130,8 +126,6 @@ class RootNodeUIContextMixin(AssistantNode):
                             insight,
                             query_runner,
                             dashboard_filters,
-                            filters_override,
-                            variables_override,
                             heading="####",
                         )
                         if formatted_insight:
@@ -165,9 +159,7 @@ class RootNodeUIContextMixin(AssistantNode):
         if ui_context.insights:
             insights_results = []
             for insight in ui_context.insights:
-                result = self._run_and_format_insight(
-                    config, insight, query_runner, None, filters_override, variables_override, heading="##"
-                )
+                result = self._run_and_format_insight(config, insight, query_runner, None, heading="##")
                 if result:
                     insights_results.append(result)
 
@@ -195,8 +187,6 @@ class RootNodeUIContextMixin(AssistantNode):
         config: RunnableConfig,
         insight: MaxInsightContext,
         query_runner: AssistantQueryExecutor,
-        dashboard_filters: Optional[dict] = None,
-        filters_override: Optional[dict] = None,
         variables_override: Optional[dict] = None,
         heading: Optional[str] = None,
     ) -> str | None:
@@ -220,12 +210,12 @@ class RootNodeUIContextMixin(AssistantNode):
 
             query_obj = cast(SupportedQueryTypes, insight.query)
 
-            if dashboard_filters or filters_override or variables_override:
+            if insight.dashboard_filters or insight.filters_override or variables_override:
                 query_dict = insight.query.model_dump(mode="json")
-                if dashboard_filters:
-                    query_dict = apply_dashboard_filters_to_dict(query_dict, dashboard_filters, self._team)
-                if filters_override:
-                    query_dict = apply_dashboard_filters_to_dict(query_dict, filters_override, self._team)
+                if insight.dashboard_filters:
+                    query_dict = apply_dashboard_filters_to_dict(query_dict, insight.dashboard_filters, self._team)
+                if insight.filters_override:
+                    query_dict = apply_dashboard_filters_to_dict(query_dict, insight.filters_override, self._team)
                 if variables_override:
                     query_dict = apply_dashboard_variables_to_dict(query_dict, variables_override, self._team)
 

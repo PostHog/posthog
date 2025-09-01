@@ -248,12 +248,12 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             },
         ],
         maxContext: [
-            (s) => [s.insight],
-            (insight: Partial<QueryBasedInsightModel>): MaxContextInput[] => {
+            (s) => [s.insight, s.filtersOverride, s.variablesOverride],
+            (insight: Partial<QueryBasedInsightModel>, filtersOverride, variablesOverride): MaxContextInput[] => {
                 if (!insight || !insight.short_id || !insight.query) {
                     return []
                 }
-                return [createMaxContextHelpers.insight(insight)]
+                return [createMaxContextHelpers.insight(insight, filtersOverride, variablesOverride)]
             },
         ],
         hasOverrides: [

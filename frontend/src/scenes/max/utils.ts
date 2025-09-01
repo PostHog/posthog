@@ -16,7 +16,14 @@ import {
     RootAssistantMessage,
     VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
-import { FunnelsQuery, HogQLQuery, RetentionQuery, TrendsQuery } from '~/queries/schema/schema-general'
+import {
+    DashboardFilter,
+    FunnelsQuery,
+    HogQLQuery,
+    HogQLVariable,
+    RetentionQuery,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isHogQLQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
 import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel, SidePanelTab } from '~/types'
 
@@ -160,7 +167,11 @@ export function generateBurstPoints(spikeCount: number, spikiness: number): stri
 }
 
 // Utility functions for transforming data to max context
-export const insightToMaxContext = (insight: Partial<QueryBasedInsightModel>): MaxInsightContext => {
+export const insightToMaxContext = (
+    insight: Partial<QueryBasedInsightModel>,
+    filtersOverride?: DashboardFilter,
+    variablesOverride?: Record<string, HogQLVariable>
+): MaxInsightContext => {
     const source = (insight.query as any)?.source
     return {
         type: MaxContextType.INSIGHT,
@@ -168,6 +179,8 @@ export const insightToMaxContext = (insight: Partial<QueryBasedInsightModel>): M
         name: insight.name || insight.derived_name,
         description: insight.description,
         query: source,
+        filtersOverride,
+        variablesOverride,
     }
 }
 
