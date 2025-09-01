@@ -290,7 +290,8 @@ class SessionReplayEvents:
                 argMinMerge(snapshot_source) as snapshot_source,
                 groupArrayArray(block_first_timestamps) as block_first_timestamps,
                 groupArrayArray(block_last_timestamps) as block_last_timestamps,
-                groupArrayArray(block_urls) as block_urls
+                groupArrayArray(block_urls) as block_urls,
+                singleValueOrNull(retention_period_days) as retention_period_days
             FROM
                 session_replay_events
             PREWHERE
