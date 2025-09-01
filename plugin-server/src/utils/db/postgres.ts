@@ -102,18 +102,6 @@ export class PostgresRouter {
             this.pools.set(PostgresUse.PERSONS_READ, this.pools.get(PostgresUse.PERSONS_WRITE)!)
             logger.info('👍', `Using persons write pool for read-only`)
         }
-        if (serverConfig.COUNTERS_DATABASE_URL) {
-            logger.info('🤔', `Connecting to counters Postgresql...`)
-            this.pools.set(
-                PostgresUse.COUNTERS_RW,
-                createPostgresPool(
-                    serverConfig.COUNTERS_DATABASE_URL,
-                    serverConfig.POSTGRES_CONNECTION_POOL_SIZE,
-                    app_name
-                )
-            )
-            logger.info('👍', `Counters Postgresql ready`)
-        }
     }
 
     public async query<R extends QueryResultRow = any, I extends any[] = any[]>(

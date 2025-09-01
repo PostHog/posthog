@@ -30,11 +30,6 @@ export function getDefaultConfig(): PluginsServerConfig {
               : '',
         DATABASE_READONLY_URL: '',
         PLUGIN_STORAGE_DATABASE_URL: '',
-        COUNTERS_DATABASE_URL: isTestEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/test_counters'
-            : isDevEnv()
-              ? 'postgres://posthog:posthog@localhost:5432/counters'
-              : '',
         PERSONS_DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_posthog'
             : isDevEnv()
@@ -346,17 +341,6 @@ export function overrideWithEnv(
         const encodedUser = encodeURIComponent(newConfig.POSTHOG_DB_USER)
         const encodedPassword = encodeURIComponent(newConfig.POSTHOG_DB_PASSWORD)
         newConfig.DATABASE_URL = `postgres://${encodedUser}:${encodedPassword}@${newConfig.POSTHOG_POSTGRES_HOST}:${newConfig.POSTHOG_POSTGRES_PORT}/${newConfig.POSTHOG_DB_NAME}`
-    }
-
-    if (
-        !newConfig.COUNTERS_DATABASE_URL &&
-        newConfig.POSTGRES_COUNTERS_HOST &&
-        newConfig.POSTGRES_COUNTERS_USER &&
-        newConfig.POSTGRES_COUNTERS_PASSWORD
-    ) {
-        const encodedUser = encodeURIComponent(newConfig.POSTGRES_COUNTERS_USER)
-        const encodedPassword = encodeURIComponent(newConfig.POSTGRES_COUNTERS_PASSWORD)
-        newConfig.COUNTERS_DATABASE_URL = `postgres://${encodedUser}:${encodedPassword}@${newConfig.POSTGRES_COUNTERS_HOST}:5432/counters`
     }
 
     if (!Object.keys(KAFKAJS_LOG_LEVEL_MAPPING).includes(newConfig.KAFKAJS_LOG_LEVEL)) {

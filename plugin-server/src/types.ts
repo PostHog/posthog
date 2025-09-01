@@ -216,7 +216,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PERSONS_MIGRATION_DATABASE_URL: string // Read-write Postgres database for persons during dual write/migration
     PERSONS_MIGRATION_READONLY_DATABASE_URL: string // Optional read-only replica to the persons Postgres database during dual write/migration
     PLUGIN_STORAGE_DATABASE_URL: string // Optional read-write Postgres database for plugin storage
-    COUNTERS_DATABASE_URL: string // Optional read-write Postgres database for counters
     POSTGRES_CONNECTION_POOL_SIZE: number
     POSTHOG_DB_NAME: string | null
     POSTHOG_DB_USER: string
