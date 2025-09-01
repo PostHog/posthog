@@ -6,6 +6,7 @@ import React, { useContext } from 'react'
 import { IconChevronDown } from '@posthog/icons'
 
 import { accessLevelSatisfied, resourceTypeToString } from 'lib/components/AccessControlAction'
+import type { AccessControlLevel } from 'lib/components/AccessControlAction'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
 
 import { AccessControlResourceType } from '~/types'
@@ -83,8 +84,8 @@ export interface LemonButtonPropsBase
     /** Whether to force the tooltip to be visible. */
     tooltipForceMount?: boolean
     /** Access control props for automatic permission checking */
-    userAccessLevel?: 'none' | 'member' | 'admin' | 'viewer' | 'editor' | 'manager'
-    minAccessLevel?: 'none' | 'member' | 'admin' | 'viewer' | 'editor' | 'manager'
+    userAccessLevel?: AccessControlLevel
+    minAccessLevel?: AccessControlLevel
     resourceType?: AccessControlResourceType
 }
 

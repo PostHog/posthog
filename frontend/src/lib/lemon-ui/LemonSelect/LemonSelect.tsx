@@ -4,6 +4,7 @@ import React, { useMemo } from 'react'
 import { IconX } from '@posthog/icons'
 
 import 'lib/components/AccessControlAction'
+import type { AccessControlLevel } from 'lib/components/AccessControlAction'
 import { LemonDropdownProps } from 'lib/lemon-ui/LemonDropdown'
 
 import { AccessControlResourceType } from '~/types'
@@ -85,8 +86,8 @@ export interface LemonSelectPropsBase<T>
     visible?: LemonDropdownProps['visible']
     startVisible?: LemonDropdownProps['startVisible']
     /** Access control props for automatic permission checking */
-    userAccessLevel?: 'none' | 'member' | 'admin' | 'viewer' | 'editor' | 'manager'
-    minAccessLevel?: 'none' | 'member' | 'admin' | 'viewer' | 'editor' | 'manager'
+    userAccessLevel?: AccessControlLevel
+    minAccessLevel?: AccessControlLevel
     resourceType?: AccessControlResourceType
 }
 

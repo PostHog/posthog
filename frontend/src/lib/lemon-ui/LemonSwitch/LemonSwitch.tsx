@@ -4,6 +4,7 @@ import clsx from 'clsx'
 import { forwardRef, useMemo, useState } from 'react'
 
 import { accessLevelSatisfied, resourceTypeToString } from 'lib/components/AccessControlAction'
+import type { AccessControlLevel } from 'lib/components/AccessControlAction'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
@@ -30,8 +31,8 @@ export interface LemonSwitchProps {
     sliderColorOverrideUnchecked?: string
     loading?: boolean
     /** Access control props for automatic permission checking */
-    userAccessLevel?: 'none' | 'member' | 'admin' | 'viewer' | 'editor' | 'manager'
-    minAccessLevel?: 'none' | 'member' | 'admin' | 'viewer' | 'editor' | 'manager'
+    userAccessLevel?: AccessControlLevel
+    minAccessLevel?: AccessControlLevel
     resourceType?: AccessControlResourceType
 }
 
