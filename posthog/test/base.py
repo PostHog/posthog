@@ -157,6 +157,7 @@ from posthog.models.web_preaggregated.team_selection import (
     WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL,
     WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL,
 )
+from posthog.person_db_router import PERSONS_DB_MODELS
 from posthog.session_recordings.sql.session_recording_event_sql import (
     DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL,
     DROP_SESSION_RECORDING_EVENTS_TABLE_SQL,
@@ -597,6 +598,13 @@ class PostHogTestCase(SimpleTestCase):
         global persons_ordering_int
         persons_ordering_int = 0
         super().tearDown()
+
+        # manually truncate unmanaged persons tables
+        from django.db import connection
+
+        with connection.cursor() as cursor:
+            for table in PERSONS_DB_MODELS:
+                cursor.execute(f"TRUNCATE TABLE {table} CASCADE")
 
     def validate_basic_html(self, html_message, site_url, preheader=None):
         # absolute URLs are used
