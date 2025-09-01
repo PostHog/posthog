@@ -168,7 +168,7 @@ export function LogsViewer({
     )
 
     return (
-        <div className="flex-1 deprecated-space-y-2 ph-no-capture flex flex-col overflow-hidden">
+        <div className="flex-1 deprecated-space-y-2 ph-no-capture flex flex-col">
             <div className="flex flex-wrap flex-row-reverse items-center gap-2">
                 <div className="flex items-center gap-2 flex-1 min-w-100">
                     <LemonInput

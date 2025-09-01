@@ -23,7 +23,7 @@ export function HogFlowEditorPanelLogs(): JSX.Element | null {
                     Click here to open in full log viewer
                 </LemonButton>
             </div>
-            <div className="p-2 flex flex-col gap-2 overflow-hidden">
+            <div className="p-2 flex flex-col gap-2 overflow-y-auto">
                 <LogsViewer
                     sourceType="hog_flow"
                     sourceId={campaign.id}
