@@ -28,28 +28,24 @@ def negative_event_predicates(
     event_exprs: list[ast.Expr] = []
 
     for entity in entities:
-        # DataWarehouseNode is not supported
         if isinstance(entity, DataWarehouseNode):
             raise NotImplementedError("DataWarehouseNode is not supported in negative event predicates")
 
-        # Skip string entities as they don't have properties
         if isinstance(entity, str):
             continue
 
         # the entity itself is always a positive expression,
         # so we don't need to check it here where we're looking only
-        # for negative items to check across the session in its propertiess
+        # for negative items to check across the session in its properties
         has_negative_operator = False
 
         for prop in entity.properties or []:
-            # Check if the property has a negative operator
             if hasattr(prop, "operator") and prop.operator in NEGATIVE_OPERATORS:
                 has_negative_operator = True
                 break
 
         # got to check entity properties exist to help mypy
         if has_negative_operator and entity.properties:
-            # Only append one expression per entity with all its properties
             event_exprs.append(property_to_expr(entity.properties, team=team, scope="replay_entity"))
 
     return event_exprs
