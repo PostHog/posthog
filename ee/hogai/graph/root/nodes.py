@@ -722,17 +722,15 @@ class RootNodeTools(AssistantNode):
 
             return PartialAssistantState(
                 messages=[
-                    (
-                        AssistantToolCallMessage(
-                            content=str(result.content) if result.content else "",
-                            ui_payload={tool_call.name: result.artifact},
-                            id=str(uuid4()),
-                            tool_call_id=tool_call.id,
-                            visible=tool_class.show_tool_call_message,
-                        )
-                        if not isinstance(result, AssistantToolCallMessage)
-                        else result
+                    AssistantToolCallMessage(
+                        content=str(result.content) if result.content else "",
+                        ui_payload={tool_call.name: result.artifact},
+                        id=str(uuid4()),
+                        tool_call_id=tool_call.id,
+                        visible=tool_class.show_tool_call_message,
                     )
+                    if not isinstance(result, AssistantToolCallMessage)
+                    else result
                 ],
                 root_tool_calls_count=tool_call_count + 1,
             )
