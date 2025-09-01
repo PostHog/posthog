@@ -87,7 +87,7 @@ class session_summarization(BaseModel):
             - no current filters or `search_session_recordings` tool are present in the conversation
             - the user specifies date/time period different from the current filters
             - the user specifies specific conditions (user, device, id, URL, etc.) not present in the current filters
-            - the the query is highly specific and not related to the current filters
+            - the query is highly specific and not related to the current filters
         """
     )
 
