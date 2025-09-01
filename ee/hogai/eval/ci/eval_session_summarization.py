@@ -1,3 +1,5 @@
+from functools import partial
+
 import pytest
 from unittest.mock import patch
 
@@ -67,13 +69,9 @@ def call_root_for_replay_sessions(demo_org_team_user):
 async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_replay_sessions, pytestconfig):
     """Test routing between search_session_recordings (contextual) and session_summarization (root) with context."""
 
-    # Create a wrapper that includes context
-    async def task_with_context(input: str) -> AssistantMessage:
-        return await call_root_for_replay_sessions(input, include_search_session_recordings_context=True)
-
     await MaxPublicEval(
         experiment_name="tool_routing_session_replay",
-        task=task_with_context,
+        task=call_root_for_replay_sessions,
         scores=[ToolRelevance(semantic_similarity_args={"change", "session_summarization_query"})],
         data=[
             # Cases where search_session_recordings should be used (filtering/searching)
@@ -169,13 +167,12 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
 async def eval_session_summarization_no_context(patch_feature_enabled, call_root_for_replay_sessions, pytestconfig):
     """Test session summarization without search_session_recordings context - should_use_current_filters should always be false."""
 
-    # Create a wrapper that excludes context
-    async def task_without_context(input: str) -> AssistantMessage:
-        return await call_root_for_replay_sessions(input, include_search_session_recordings_context=False)
+    # Use partial to avoid adding session search context
+    task_without_context = partial(call_root_for_replay_sessions, include_search_session_recordings_context=False)
 
     await MaxPublicEval(
         experiment_name="session_summarization_no_context",
-        task=task_without_context,  # Using default include_search_session_recordings_context=False
+        task=task_without_context,
         scores=[ToolRelevance(semantic_similarity_args={"session_summarization_query"})],
         data=[
             # All cases should have should_use_current_filters=false when no context
