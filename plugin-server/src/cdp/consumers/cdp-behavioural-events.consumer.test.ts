@@ -8,7 +8,7 @@ import { Hub, RawClickHouseEvent, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { CdpBehaviouralEventsConsumer } from './cdp-behavioural-events.consumer'
 
-jest.setTimeout(25_000)
+jest.setTimeout(20_000)
 
 const TEST_FILTERS = {
     // Simple pageview event filter: event == '$pageview'
