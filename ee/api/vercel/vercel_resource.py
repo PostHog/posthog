@@ -52,7 +52,7 @@ class VercelBillingPlanSerializer(serializers.Serializer):
     )
     minimumAmount = serializers.CharField(
         required=False,
-        help_text="Optional, ignored unless plan type is `prepayment`. The minimum amount of credits a user can purchase at a time. The value is a decimal string representation of the USD amount, e.g. '4.39' for $4.39 USD as the minumum amount.",
+        help_text="Optional, ignored unless plan type is `prepayment`. The minimum amount of credits a user can purchase at a time. The value is a decimal string representation of the USD amount, e.g. '4.39' for $4.39 USD as the minimum amount.",
     )
     maximumAmount = serializers.CharField(
         required=False,
