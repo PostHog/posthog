@@ -420,35 +420,32 @@ const MarketingDashboard = (): JSX.Element => {
         </LemonBanner>
     )
 
-    if (validExternalTables.length === 0 && validNativeSources.length === 0) {
-        return (
-            <>
-                {feedbackBanner}
-                <LemonBanner type="warning">
-                    You need to configure your marketing data sources in the settings{' '}
-                    <Link to={urls.settings('environment-marketing-analytics')}>here</Link>.
-                </LemonBanner>
-            </>
-        )
-    }
-
+    let component: JSX.Element | null = null
     if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_MARKETING]) {
         // fallback in case the user is able to access the page but the feature flag is not enabled
-        return (
-            <>
-                {feedbackBanner}
-                <LemonBanner type="info">
-                    You can enable marketing analytics in the feature preview settings{' '}
-                    <Link to="https://app.posthog.com/settings/user-feature-previews#marketing-analytics">here</Link>.
-                </LemonBanner>
-            </>
+        component = (
+            <LemonBanner type="info">
+                You can enable marketing analytics in the feature preview settings{' '}
+                <Link to="https://app.posthog.com/settings/user-feature-previews#marketing-analytics">here</Link>.
+            </LemonBanner>
         )
+    } else if (validExternalTables.length === 0 && validNativeSources.length === 0) {
+        // if the user has no sources configured, show a warning instead of an empty state
+        component = (
+            <LemonBanner type="warning">
+                You need to configure your marketing data sources in the settings{' '}
+                <Link to={urls.settings('environment-marketing-analytics')}>here</Link>.
+            </LemonBanner>
+        )
+    } else {
+        // if the user has sources configured and the feature flag is enabled, show the tiles
+        component = <Tiles />
     }
 
     return (
         <>
             {feedbackBanner}
-            <Tiles />
+            {component}
         </>
     )
 }
