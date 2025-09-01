@@ -463,16 +463,13 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             actions.clearLogs()
             actions.loadLogs()
         },
-        loadGroupedLogsSuccess: () => {
-            actions.scheduleLoadNewerLogs()
-        },
-        loadUngroupedLogsSuccess: () => {
-            actions.scheduleLoadNewerLogs()
+        loadGroupedLogsSuccess: () => actions.scheduleLoadNewerLogs(),
+        loadUngroupedLogsSuccess: () => actions.scheduleLoadNewerLogs(),
+        clearHiddenLogs: () => {
+            clearTimeout(cache.pollingTimeout)
         },
         scheduleLoadNewerLogs: () => {
-            if (cache.pollingTimeout) {
-                clearTimeout(cache.pollingTimeout)
-            }
+            clearTimeout(cache.pollingTimeout)
             cache.pollingTimeout = setTimeout(() => actions.loadNewerLogs(), 5000)
         },
     })),
