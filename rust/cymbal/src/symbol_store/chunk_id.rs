@@ -89,7 +89,7 @@ where
         if let Some(failure_reason) = &record.failure_reason {
             counter!(CHUNK_ID_FAILURE_FETCHED).increment(1);
             let error: FrameError =
-                serde_json::from_str(&failure_reason).map_err(UnhandledError::from)?;
+                serde_json::from_str(failure_reason).map_err(UnhandledError::from)?;
             return Err(error.into());
         }
 
@@ -99,7 +99,7 @@ where
             panic!("No storage pointer found for chunk id {id}");
         };
 
-        let Ok(data) = self.client.get(&self.bucket, &storage_ptr).await else {
+        let Ok(data) = self.client.get(&self.bucket, storage_ptr).await else {
             let mut record = record;
             record.delete(&self.pool).await?;
             // This is kind-of false - the actual problem is missing data in s3, with a record that exists, rather than no record being found for

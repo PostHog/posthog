@@ -169,7 +169,7 @@ where
             metrics::counter!(SYMBOL_SET_DB_HITS).increment(1);
             if let Some(storage_ptr) = &record.storage_ptr {
                 info!("Found s3 saved symbol set data for {}", set_ref);
-                let Ok(data) = self.s3_client.get(&self.bucket, &storage_ptr).await else {
+                let Ok(data) = self.s3_client.get(&self.bucket, storage_ptr).await else {
                     let mut record = record;
                     record.delete(&self.pool).await?;
                     // This is kind-of false - the actual problem is missing data in s3, with a record that exists, rather than no record being found for
