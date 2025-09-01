@@ -47,6 +47,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpBehaviouralEventsConsumer'
     private kafkaConsumer: KafkaConsumer
     private actionManager: ActionManagerCDP
+    private filterHashCache = new Map<string, string>()
 
     constructor(hub: Hub, topic: string = KAFKA_EVENTS_JSON, groupId: string = 'cdp-behavioural-events-consumer') {
         super(hub)
@@ -75,6 +76,20 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
             })
             // Don't clear queue on error - messages will be retried with next batch
         }
+    }
+
+    private createFilterHash(bytecode: any): string {
+        const data = typeof bytecode === 'string' ? bytecode : JSON.stringify(bytecode)
+
+        // Check cache first
+        if (this.filterHashCache.has(data)) {
+            return this.filterHashCache.get(data)!
+        }
+
+        // Calculate hash and cache it
+        const hash = createHash('sha256').update(data).digest('hex').substring(0, 16)
+        this.filterHashCache.set(data, hash)
+        return hash
     }
 
     // Evaluate if event matches action using bytecode execution
@@ -170,9 +185,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                             if (matches) {
                                 // Hash the action bytecode/id as the condition identifier
                                 // This ensures consistent condition hashes for the same action
-                                const condition = createHash('sha256')
-                                    .update(action.bytecode || `action_${action.id}`)
-                                    .digest('hex')
+                                const bytecodeHash = this.createFilterHash(action.bytecode)
 
                                 const behavioralCohortMatch: ProducedEvent = {
                                     key: behavioralEvent.personId, // Partition by person_id
@@ -181,7 +194,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                                         cohort_id: action.id, // Use action ID as proxy for cohort_id
                                         evaluation_timestamp: evaluationTimestamp,
                                         person_id: behavioralEvent.personId,
-                                        condition: condition,
+                                        condition: bytecodeHash,
                                         latest_event_is_match: true, // True because we only publish matches
                                     },
                                 }
@@ -194,7 +207,6 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                     logger.error('Error processing team events', { teamId, error: e })
                 }
             }
-
             return events
         })
     }
