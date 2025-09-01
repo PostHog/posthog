@@ -850,8 +850,17 @@ export const surveyLogic = kea<surveyLogicType>([
                         events.distinct_id,
                         events.timestamp
                     FROM events
+                    LEFT JOIN persons person ON events.person_id = person.id 
+                        AND person.id IN (
+                            SELECT DISTINCT person_id 
+                            FROM events 
+                            WHERE event = '${SurveyEventName.SENT}'
+                            AND events.properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
+                            ${values.timestampFilter}
+                            LIMIT ${limit}
+                        )
                     WHERE event = '${SurveyEventName.SENT}'
-                        AND properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
+                        AND events.properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
                         ${values.timestampFilter}
                         ${values.answerFilterHogQLExpression}
                         ${values.partialResponsesFilter}
