@@ -792,9 +792,9 @@ export function ProjectTree({
                                         key={tag}
                                         type={tag === 'alpha' ? 'completion' : tag === 'beta' ? 'warning' : 'success'}
                                         size="small"
-                                        className="ml-2 relative top-[-1px]"
+                                        className="-mt-[2px] bg-primary font-bold"
                                     >
-                                        {tag.toUpperCase()}
+                                        {tag === 'alpha' ? 'α' : tag === 'beta' ? 'β' : ''}
                                     </LemonTag>
                                 ))}
                             </>
