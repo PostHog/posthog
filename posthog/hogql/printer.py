@@ -619,7 +619,7 @@ class _Printer(Visitor[str]):
         return self.visit(node.expr)
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
-        if self.context.pretty_print:
+        if self.context.readable_print:
             return f"{self.visit(node.left)} {node.op} {self.visit(node.right)}"
         if node.op == ast.ArithmeticOperationOp.Add:
             return f"plus({self.visit(node.left)}, {self.visit(node.right)})"
@@ -637,14 +637,14 @@ class _Printer(Visitor[str]):
     def visit_and(self, node: ast.And):
         if len(node.exprs) == 1:
             return self.visit(node.exprs[0])
-        if self.context.pretty_print:
+        if self.context.readable_print:
             return f" AND ".join([f"{self.visit(expr)}" for expr in node.exprs])
         return f"and({', '.join([self.visit(expr) for expr in node.exprs])})"
 
     def visit_or(self, node: ast.Or):
         if len(node.exprs) == 1:
             return self.visit(node.exprs[0])
-        if self.context.pretty_print:
+        if self.context.readable_print:
             return f" OR ".join([f"{self.visit(expr)}" for expr in node.exprs])
         return f"or({', '.join([self.visit(expr) for expr in node.exprs])})"
 
@@ -934,10 +934,10 @@ class _Printer(Visitor[str]):
         value_if_one_side_is_null = False
         value_if_both_sides_are_null = False
 
-        # Different output formats for pretty_print and clickhouse
+        # Different output formats for readable_print and clickhouse
         op = (
             self.__get_sql_op(node.op, left, right)
-            if self.context.pretty_print
+            if self.context.readable_print
             else self.__get_clickhouse_op(node.op, left, right)
         )
 

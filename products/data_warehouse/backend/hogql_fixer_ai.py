@@ -193,7 +193,7 @@ class HogQLQueryFixerTool(MaxTool):
             enable_select_queries=True,
             database=database,
             limit_top_select=False,
-            pretty_print=True,
+            readable_print=True,
             keep_placeholders=True,
         )
 

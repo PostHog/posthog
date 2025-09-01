@@ -800,7 +800,7 @@ class TestResolver(BaseTest):
                 team_id=self.team.pk,
                 enable_select_queries=True,
                 keep_placeholders=True,
-                pretty_print=True,
+                readable_print=True,
             ),
             dialect="hogql",
         )

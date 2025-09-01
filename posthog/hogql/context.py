@@ -67,7 +67,7 @@ class HogQLContext:
     keep_placeholders: bool = False
 
     # Whether or not to output a human-readable version of the query
-    pretty_print: bool = False
+    readable_print: bool = False
 
     def __post_init__(self):
         if self.team:

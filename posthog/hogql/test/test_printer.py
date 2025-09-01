@@ -2674,7 +2674,7 @@ class TestPrinter(BaseTest):
             team_id=self.team.pk,
             enable_select_queries=True,
             limit_top_select=False,
-            pretty_print=True,
+            readable_print=True,
         )
 
         query_ast = parse_select(
@@ -2689,7 +2689,7 @@ class TestPrinter(BaseTest):
             team_id=self.team.pk,
             enable_select_queries=True,
             limit_top_select=False,
-            pretty_print=True,
+            readable_print=True,
         )
 
         query_ast = parse_select("SELECT countIf(equals(event, 'test'))")
@@ -2699,7 +2699,7 @@ class TestPrinter(BaseTest):
 
     def test_pretty_print_compare_operation(self):
         loose_context = HogQLContext(
-            team_id=self.team.pk, enable_select_queries=True, limit_top_select=False, pretty_print=True
+            team_id=self.team.pk, enable_select_queries=True, limit_top_select=False, readable_print=True
         )
 
         query_ast = parse_select("SELECT * FROM events WHERE event = 'test' AND properties.$os = 'macos'")
@@ -2709,7 +2709,7 @@ class TestPrinter(BaseTest):
 
     def test_pretty_print_arithmetic_operation(self):
         loose_context = HogQLContext(
-            team_id=self.team.pk, enable_select_queries=True, limit_top_select=False, pretty_print=True
+            team_id=self.team.pk, enable_select_queries=True, limit_top_select=False, readable_print=True
         )
 
         query_ast = parse_select("SELECT 30 * 20 + 10")
@@ -2729,7 +2729,7 @@ class TestPrinter(BaseTest):
 
     def test_pretty_print_boolean_logic(self):
         loose_context = HogQLContext(
-            team_id=self.team.pk, enable_select_queries=True, pretty_print=True, limit_top_select=False
+            team_id=self.team.pk, enable_select_queries=True, readable_print=True, limit_top_select=False
         )
 
         query_ast = parse_select(
@@ -2743,9 +2743,9 @@ class TestPrinter(BaseTest):
 
     def test_pretty_print_preserves_select_asterisk(self):
         loose_context = HogQLContext(
-            team_id=self.team.pk, enable_select_queries=True, pretty_print=True, limit_top_select=False
+            team_id=self.team.pk, enable_select_queries=True, readable_print=True, limit_top_select=False
         )
-        strict_context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, pretty_print=False)
+        strict_context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, readable_print=False)
 
         # Test SELECT * preservation
         query_ast = parse_select("SELECT * FROM events")
@@ -2753,7 +2753,7 @@ class TestPrinter(BaseTest):
         strict_result = print_ast(query_ast, strict_context, "hogql")
         self.assertNotIn("SELECT *", strict_result)  # Should be expanded
 
-        # With pretty_print=True - should preserve SELECT *
+        # With readable_print=True - should preserve SELECT *
         loose_result = print_ast(query_ast, loose_context, "hogql")
         self.assertIn("SELECT *", loose_result)  # Should preserve *
 

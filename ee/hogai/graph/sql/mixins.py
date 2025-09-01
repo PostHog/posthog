@@ -62,7 +62,7 @@ class HogQLGeneratorMixin(AssistantContextMixin):
             database=database,
             enable_select_queries=True,
             limit_top_select=False,
-            pretty_print=True,
+            readable_print=True,
             keep_placeholders=True,
         )
         return hogql_context
