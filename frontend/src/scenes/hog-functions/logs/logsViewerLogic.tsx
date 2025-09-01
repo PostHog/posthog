@@ -518,7 +518,6 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                 return
             }
 
-            // TODO: Add the logs to the right reducer
             if (values.isGrouped) {
                 actions.loadMoreGroupedLogsSuccess(
                     groupLogs([...values.hiddenLogs, ...values.groupedLogs.flatMap((group) => group.entries)])
