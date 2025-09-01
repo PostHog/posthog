@@ -96,7 +96,7 @@ impl CaptureQuotaLimiter {
     where
         F: Fn(&RawEvent) -> bool + Send + Sync + Clone + 'static,
     {
-        let err_msg = format!("failed to create scoped limiter: {:?}", resource);
+        let err_msg = format!("failed to create scoped limiter: {resource:?}");
         let limiter = ScopedLimiter::new(
             resource.clone(),
             RedisLimiter::new(
@@ -199,7 +199,7 @@ impl CaptureQuotaLimiter {
         Ok(filtered_events)
     }
 
-    fn get_resource_for_mode(mode: CaptureMode) -> QuotaResource {
+    pub fn get_resource_for_mode(mode: CaptureMode) -> QuotaResource {
         match mode {
             CaptureMode::Events => QuotaResource::Events,
             CaptureMode::Recordings => QuotaResource::Recordings,

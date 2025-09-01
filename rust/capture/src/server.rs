@@ -4,13 +4,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common_redis::RedisClient;
-use common_types::RawEvent;
 use health::{ComponentStatus, HealthRegistry};
 use limiters::redis::ServiceName;
 use tokio::net::TcpListener;
 
 use crate::config::CaptureMode;
 use crate::config::Config;
+use crate::limiters::{is_exception_event, is_llm_event, is_survey_event};
 
 use limiters::overflow::OverflowLimiter;
 use limiters::redis::{QuotaResource, RedisLimiter, OVERFLOW_LIMITER_CACHE_KEY};
@@ -144,23 +144,9 @@ where
     // QuotaResource type and a predicate function that will match events to be limited
     let quota_limiter =
         CaptureQuotaLimiter::new(&config, redis_client.clone(), Duration::from_secs(5))
-            .add_scoped_limiter(
-                QuotaResource::Exceptions,
-                Box::new(|e: &RawEvent| e.event.as_str() == "$exception"),
-            )
-            .add_scoped_limiter(
-                QuotaResource::Surveys,
-                Box::new(|e: &RawEvent| {
-                    matches!(
-                        e.event.as_str(),
-                        "survey sent" | "survey shown" | "survey dismissed"
-                    )
-                }),
-            )
-            .add_scoped_limiter(
-                QuotaResource::LLMEvents,
-                Box::new(|e: &RawEvent| e.event.starts_with("$ai_")),
-            );
+            .add_scoped_limiter(QuotaResource::Exceptions, Box::new(is_exception_event))
+            .add_scoped_limiter(QuotaResource::Surveys, Box::new(is_survey_event))
+            .add_scoped_limiter(QuotaResource::LLMEvents, Box::new(is_llm_event));
 
     // TODO: remove this once we have a billing limiter
     let token_dropper = config

@@ -10,7 +10,6 @@ use axum::http::StatusCode;
 use axum::Router;
 use axum_test_helper::TestClient;
 use common_redis::MockRedisClient;
-use common_types::RawEvent;
 use health::HealthRegistry;
 use limiters::redis::{QuotaResource, QUOTA_LIMITER_CACHE_KEY};
 use limiters::token_dropper::TokenDropper;
@@ -18,7 +17,7 @@ use serde_json::Value;
 
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
-use capture::limiters::CaptureQuotaLimiter;
+use capture::limiters::{is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter};
 use capture::router::router;
 use capture::sinks::Event;
 use capture::time::TimeSource;
@@ -58,89 +57,66 @@ impl TimeSource for FixedTimeSource {
     }
 }
 
-async fn setup_billing_limited_router(token: &str, is_limited: bool) -> (Router, MemorySink) {
-    setup_router_with_limits(token, is_limited, false, false, false).await
-}
-
-async fn setup_survey_limited_router(token: &str, is_survey_limited: bool) -> (Router, MemorySink) {
-    setup_router_with_limits(token, false, is_survey_limited, false, false).await
-}
-
 async fn setup_router_with_limits(
     token: &str,
-    is_billing_limited: bool,
-    is_survey_limited: bool,
-    is_ai_limited: bool,
-    is_exceptions_limited: bool,
+    // one of CaptureMode::Events or CaptureMode::Recordings
+    //controls global limiter applied to the token
+    capture_mode: CaptureMode,
+    // if true, the global billing limit for the supplied CaptureMode will be set for this token
+    set_global_limit: bool,
+    // resources that will be set limited for the given token for scoped limiters to detect
+    resources_to_limit: Vec<QuotaResource>,
 ) -> (Router, MemorySink) {
-    let liveness = HealthRegistry::new("billing_limit_tests");
+    let liveness = HealthRegistry::new("quota_limit_tests");
     let sink = MemorySink::default();
     let timesource = FixedTimeSource {
         time: "2025-07-31T12:00:00Z".to_string(),
     };
 
+    // bootstrap for the CaptureQuotaLimiter. Defines which
+    // global limiter will be applied for this token ("events" or "recordings")
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
+    cfg.capture_mode = capture_mode.clone();
 
-    // Set up billing limit for the specific token using zrangebyscore
-    let billing_key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, "events");
-    let mut redis = if is_billing_limited {
-        MockRedisClient::new().zrangebyscore_ret(&billing_key, vec![token.to_string()])
+    // Set up global billing limit for the specific token using zrangebyscore
+    // using the same CaptureMode (QuotaResource) as set above in the app Config
+    let global_billing_resource = CaptureQuotaLimiter::get_resource_for_mode(capture_mode.clone());
+    let global_billing_key = format!(
+        "{}{}",
+        QUOTA_LIMITER_CACHE_KEY,
+        global_billing_resource.as_str()
+    );
+
+    let mut redis = if set_global_limit {
+        MockRedisClient::new().zrangebyscore_ret(&global_billing_key, vec![token.to_string()])
     } else {
-        MockRedisClient::new()
+        MockRedisClient::new().zrangebyscore_ret(&global_billing_key, vec![])
     };
 
-    // Set up survey limiter - always required now
-    let survey_key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, "surveys");
-    redis = redis.zrangebyscore_ret(
-        &survey_key,
-        if is_survey_limited {
-            vec![token.to_string()]
-        } else {
-            vec![]
-        },
-    );
+    // TODO: add more scoped limiter resource types here as needed!
+    for resource in &[
+        QuotaResource::Exceptions,
+        QuotaResource::Surveys,
+        QuotaResource::LLMEvents,
+    ] {
+        let key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, resource.as_str());
 
-    // Set up AI events limiter with its own Redis client
-    let ai_key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, "llm_events");
-    redis = redis.zrangebyscore_ret(
-        &ai_key,
-        if is_ai_limited {
+        let limited_tokens = if resources_to_limit.contains(resource) {
             vec![token.to_string()]
         } else {
             vec![]
-        },
-    );
+        };
 
-    let exceptions_key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, "exceptions");
-    redis = redis.zrangebyscore_ret(
-        &exceptions_key,
-        if is_exceptions_limited {
-            vec![token.to_string()]
-        } else {
-            vec![]
-        },
-    );
+        redis = redis.zrangebyscore_ret(&key, limited_tokens)
+    }
+
     let redis = Arc::new(redis);
 
+    // TODO: add more scoped limiters to test helper as needed in the future!
     let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60))
-        .add_scoped_limiter(
-            QuotaResource::Exceptions,
-            Box::new(|e: &RawEvent| e.event.as_str() == "$exception"),
-        )
-        .add_scoped_limiter(
-            QuotaResource::Surveys,
-            Box::new(|e: &RawEvent| {
-                matches!(
-                    e.event.as_str(),
-                    "survey sent" | "survey shown" | "survey dismissed"
-                )
-            }),
-        )
-        .add_scoped_limiter(
-            QuotaResource::LLMEvents,
-            Box::new(|e: &RawEvent| e.event.starts_with("$ai_")),
-        );
+        .add_scoped_limiter(QuotaResource::Exceptions, Box::new(is_exception_event))
+        .add_scoped_limiter(QuotaResource::Surveys, Box::new(is_survey_event))
+        .add_scoped_limiter(QuotaResource::LLMEvents, Box::new(is_llm_event));
 
     let app = router(
         timesource,
@@ -190,17 +166,32 @@ fn create_batch_payload_with_token(events: &[&str], token: &str) -> String {
     }
 }
 
+fn extract_captured_event_names(events: &[ProcessedEvent]) -> Vec<String> {
+    events
+        .iter()
+        .map(|e| {
+            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
+            event_data["event"].as_str().unwrap().to_string()
+        })
+        .collect()
+}
+
 #[tokio::test]
-async fn test_billing_limit_retains_only_exception_events() {
-    let token = "test_token_exception";
-    let (router, sink) = setup_billing_limited_router(token, true).await;
+async fn test_billing_limit_retains_only_scoped_limiter_events() {
+    let token = "test_token_global_limit_only";
+    let (router, sink) = setup_router_with_limits(token, CaptureMode::Events, true, vec![]).await;
     let client = TestClient::new(router);
 
+    // of these events, only the event types that are
+    // associated with a scoped limiter should be retained.
+    // in this case, those should be:
+    // "$exception", "$ai_generation" and "survey sent"
     let events = [
         "$exception",
         "pageview",
-        "$exception",
         "$something_else",
+        "$ai_generation",
+        "survey sent",
         "pageleave",
     ];
     let payload = create_batch_payload_with_token(&events, token);
@@ -218,21 +209,67 @@ async fn test_billing_limit_retains_only_exception_events() {
 
     // Check that only exception events were retained
     let captured_events = sink.events();
-    assert_eq!(captured_events.len(), 2);
+    assert_eq!(captured_events.len(), 3);
 
-    // Parse the event data to check the event name
-    let event_data: Value = serde_json::from_str(&captured_events[0].event.data).unwrap();
-    assert_eq!(event_data["event"], "$exception");
+    // check the events we expect are captured not filtered away
+    let event_names: Vec<String> = extract_captured_event_names(&captured_events);
+    assert!(event_names.contains(&"$exception".to_string()));
+    assert!(event_names.contains(&"$ai_generation".to_string()));
+    assert!(event_names.contains(&"survey sent".to_string()));
 }
 
 #[tokio::test]
 async fn test_billing_limit_returns_ok_when_no_retained_events() {
     let token = "test_token_empty";
-    let (router, sink) = setup_billing_limited_router(token, true).await;
+    let (router, sink) = setup_router_with_limits(token, CaptureMode::Events, true, vec![]).await;
     let client = TestClient::new(router);
 
-    // Only regular events that should be filtered out
+    // Only regular events that should be filtered out if global limit is applied
     let events = ["pageview", "click", "$pageview", "custom_event"];
+    let payload = create_batch_payload_with_token(&events, token);
+
+    let response = client
+        .post("/e")
+        .body(payload)
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
+
+    // Should return OK even when all events are filtered (legacy behavior)
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // No events should be captured
+    let captured_events = sink.events();
+    assert_eq!(captured_events.len(), 0);
+}
+
+#[tokio::test]
+async fn test_billing_limit_returns_ok_when_no_retained_events_with_scoped_limiters() {
+    let token = "test_token_empty";
+    let (router, sink) = setup_router_with_limits(
+        token,
+        CaptureMode::Events,
+        true,
+        vec![
+            QuotaResource::Exceptions,
+            QuotaResource::Surveys,
+            QuotaResource::LLMEvents,
+        ],
+    )
+    .await;
+    let client = TestClient::new(router);
+
+    // Only regular events that should be filtered out if global limit is applied
+    let events = [
+        "pageview",
+        "$exception",
+        "click",
+        "survey sent",
+        "$pageview",
+        "$ai_generation",
+        "custom_event",
+    ];
     let payload = create_batch_payload_with_token(&events, token);
 
     let response = client
@@ -254,10 +291,10 @@ async fn test_billing_limit_returns_ok_when_no_retained_events() {
 #[tokio::test]
 async fn test_no_billing_limit_retains_all_events() {
     let token = "test_token_no_limit";
-    let (router, sink) = setup_billing_limited_router(token, false).await; // Not limited
+    let (router, sink) = setup_router_with_limits(token, CaptureMode::Events, false, vec![]).await; // Not limited
     let client = TestClient::new(router);
 
-    let events = ["$exception", "pageview", "survey sent", "click"];
+    let events = ["pageview", "$exception", "click", "survey sent", "pageleave", "$ai_foobar"];
     let payload = create_batch_payload_with_token(&events, token);
 
     let response = client
@@ -273,39 +310,34 @@ async fn test_no_billing_limit_retains_all_events() {
 
     // All events should be retained when not billing limited
     let captured_events = sink.events();
-    assert_eq!(captured_events.len(), 4);
+    assert_eq!(captured_events.len(), 6);
 
-    // Parse the event data to check all event names are present
-    let event_names: Vec<String> = captured_events
-        .iter()
-        .map(|e| {
-            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
-            event_data["event"].as_str().unwrap().to_string()
-        })
-        .collect();
-
+    // Parse the event data to check expected events are present
+    let event_names: Vec<String> = extract_captured_event_names(&captured_events);
     assert!(event_names.contains(&"$exception".to_string()));
-    assert!(event_names.contains(&"pageview".to_string()));
+    assert!(event_names.contains(&"$ai_foobar".to_string()));
     assert!(event_names.contains(&"survey sent".to_string()));
+    assert!(event_names.contains(&"pageview".to_string()));
+    assert!(event_names.contains(&"pageleave".to_string()));
     assert!(event_names.contains(&"click".to_string()));
 }
 
-// Test with /i/v0/e endpoint
 #[tokio::test]
 async fn test_billing_limit_on_i_endpoint() {
     let token = "test_token_i_endpoint";
-    let (router, sink) = setup_billing_limited_router(token, true).await;
+    let (router, sink) = setup_router_with_limits(token, CaptureMode::Events, true, vec![]).await;
     let client = TestClient::new(router);
 
+    // only scoped limiter event types should be retained
+    // since only global limiter is active for this test
     let events = [
         "survey sent",
         "$ai_foobar",
         "$exception",
         "pageview",
         "survey dismissed",
-        "$exception",
         "pageleave",
-        "some_other_event",
+        "click",
     ];
     let payload = create_batch_payload_with_token(&events, token);
 
@@ -324,31 +356,26 @@ async fn test_billing_limit_on_i_endpoint() {
     let captured_events = sink.events();
 
     // all but the exception, AI, and survey events should be dropped from the input batch
-    assert_eq!(captured_events.len(), 5);
+    assert_eq!(captured_events.len(), 4);
 
     // Parse the event data to check the event names
-    let event_names: Vec<String> = captured_events
-        .iter()
-        .map(|e| {
-            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
-            event_data["event"].as_str().unwrap().to_string()
-        })
-        .collect();
-
+    let event_names: Vec<String> = extract_captured_event_names(&captured_events);
     assert!(event_names.contains(&"$exception".to_string()));
+    assert!(event_names.contains(&"$ai_foobar".to_string()));
+    assert!(event_names.contains(&"survey sent".to_string()));
+    assert!(event_names.contains(&"survey dismissed".to_string()));
 }
 
-// Tests for check_survey_quota_and_filter function
-//
-// These tests verify that the survey-specific quota limiting works correctly.
-// Survey quota limiting is separate from billing limits:
-// - Billing limits: When exceeded, only $exception and survey events are retained
-// - Survey limits: When exceeded, only survey events are filtered out (other events pass through)
-// Both can be applied simultaneously, with billing limits applied first, then survey limits
 #[tokio::test]
-async fn test_survey_quota_limit_filters_only_survey_events() {
+async fn test_survey_limiter_filters_only_survey_events() {
     let token = "test_token_survey_quota";
-    let (router, sink) = setup_survey_limited_router(token, true).await;
+    let (router, sink) = setup_router_with_limits(
+        token,
+        CaptureMode::Events,
+        false,
+        vec![QuotaResource::Surveys],
+    )
+    .await;
     let client = TestClient::new(router);
 
     let events = [
@@ -375,13 +402,7 @@ async fn test_survey_quota_limit_filters_only_survey_events() {
     let captured_events = sink.events();
     assert_eq!(captured_events.len(), 3); // pageview, click, $exception
 
-    let event_names: Vec<String> = captured_events
-        .iter()
-        .map(|e| {
-            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
-            event_data["event"].as_str().unwrap().to_string()
-        })
-        .collect();
+    let event_names: Vec<String> = extract_captured_event_names(&captured_events);
 
     // Non-survey events should be present
     assert!(event_names.contains(&"pageview".to_string()));
@@ -394,9 +415,15 @@ async fn test_survey_quota_limit_filters_only_survey_events() {
 }
 
 #[tokio::test]
-async fn test_survey_quota_limit_returns_error_when_only_survey_events() {
+async fn test_survey_limiter_returns_ok_when_only_survey_events() {
     let token = "test_token_only_surveys";
-    let (router, sink) = setup_survey_limited_router(token, true).await;
+    let (router, sink) = setup_router_with_limits(
+        token,
+        CaptureMode::Events,
+        false,
+        vec![QuotaResource::Surveys],
+    )
+    .await;
     let client = TestClient::new(router);
 
     // Only survey events in the payload
@@ -417,28 +444,27 @@ async fn test_survey_quota_limit_returns_error_when_only_survey_events() {
     // When quota exceeded, ALL survey events should be filtered out
     let captured_events = sink.events();
     assert_eq!(captured_events.len(), 0);
-
-    let event_names: Vec<String> = captured_events
-        .iter()
-        .map(|e| {
-            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
-            event_data["event"].as_str().unwrap().to_string()
-        })
-        .collect();
-
-    // All survey events should be filtered out when quota exceeded
-    assert!(!event_names.contains(&"survey sent".to_string()));
-    assert!(!event_names.contains(&"survey shown".to_string()));
-    assert!(!event_names.contains(&"survey dismissed".to_string()));
 }
 
 #[tokio::test]
 async fn test_survey_quota_limit_allows_survey_events_when_not_limited() {
     let token = "test_token_survey_not_limited";
-    let (router, sink) = setup_survey_limited_router(token, false).await; // Not survey limited
+    let (router, sink) = setup_router_with_limits(
+        token,
+        CaptureMode::Events,
+        true,
+        vec![QuotaResource::Exceptions, QuotaResource::LLMEvents],
+    )
+    .await; // Not survey limited
     let client = TestClient::new(router);
 
-    let events = ["survey sent", "pageview", "survey shown"];
+    let events = [
+        "$ai_yiss",
+        "survey sent",
+        "pageview",
+        "survey shown",
+        "$exception",
+    ];
     let payload = create_batch_payload_with_token(&events, token);
 
     let response = client
@@ -456,67 +482,28 @@ async fn test_survey_quota_limit_allows_survey_events_when_not_limited() {
     let captured_events = sink.events();
     assert_eq!(captured_events.len(), 3);
 
-    let event_names: Vec<String> = captured_events
-        .iter()
-        .map(|e| {
-            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
-            event_data["event"].as_str().unwrap().to_string()
-        })
-        .collect();
-
+    let event_names: Vec<String> = extract_captured_event_names(&captured_events);
     assert!(event_names.contains(&"survey sent".to_string()));
     assert!(event_names.contains(&"pageview".to_string()));
     assert!(event_names.contains(&"survey shown".to_string()));
 }
 
 #[tokio::test]
-async fn test_survey_quota_limit_ignores_non_survey_events() {
-    let token = "test_token_survey_ignore_non_survey";
-    let (router, sink) = setup_survey_limited_router(token, true).await;
-    let client = TestClient::new(router);
-
-    // No survey events in the payload
-    let events = ["pageview", "click", "$exception", "custom_event"];
-    let payload = create_batch_payload_with_token(&events, token);
-
-    let response = client
-        .post("/e")
-        .body(payload)
-        .header("Content-Type", "application/json")
-        .header("X-Forwarded-For", "127.0.0.1")
-        .send()
-        .await;
-
-    // Should return OK
-    assert_eq!(response.status(), StatusCode::OK);
-
-    // All events should be captured since survey quota doesn't affect non-survey events
-    let captured_events = sink.events();
-    assert_eq!(captured_events.len(), 4);
-
-    let event_names: Vec<String> = captured_events
-        .iter()
-        .map(|e| {
-            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
-            event_data["event"].as_str().unwrap().to_string()
-        })
-        .collect();
-
-    assert!(event_names.contains(&"pageview".to_string()));
-    assert!(event_names.contains(&"click".to_string()));
-    assert!(event_names.contains(&"$exception".to_string()));
-    assert!(event_names.contains(&"custom_event".to_string()));
-}
-
-#[tokio::test]
 async fn test_both_billing_and_survey_limits_applied() {
     let token = "test_token_both_limits";
-    let (router, sink) = setup_router_with_limits(token, true, true, false, false).await; // Both billing and survey limited
+    let (router, sink) = setup_router_with_limits(
+        token,
+        CaptureMode::Events,
+        true,
+        vec![QuotaResource::Surveys],
+    )
+    .await; // Both billing and survey limited
     let client = TestClient::new(router);
 
     let events = [
         "$exception",
         "survey sent",
+        "$ai_generation",
         "pageview",
         "survey shown",
         "click",
@@ -538,10 +525,11 @@ async fn test_both_billing_and_survey_limits_applied() {
     // Then survey limit is applied (filters out survey events)
     // So only $exception should remain
     let captured_events = sink.events();
-    assert_eq!(captured_events.len(), 1);
+    assert_eq!(captured_events.len(), 2);
 
-    let event_data: Value = serde_json::from_str(&captured_events[0].event.data).unwrap();
-    assert_eq!(event_data["event"], "$exception");
+    let event_names: Vec<String> = extract_captured_event_names(&captured_events);
+    assert!(event_names.contains(&"$exception".to_string()));
+    assert!(event_names.contains(&"$ai_generation".to_string()));
 }
 
 // Helper function to create survey events with custom properties including $survey_submission_id
@@ -586,7 +574,13 @@ fn create_survey_events_with_submission_ids(
 #[tokio::test]
 async fn test_survey_quota_groups_events_by_submission_id() {
     let token = "test_token_submission_grouping";
-    let (router, sink) = setup_survey_limited_router(token, true).await;
+    let (router, sink) = setup_router_with_limits(
+        token,
+        CaptureMode::Events,
+        false,
+        vec![QuotaResource::Surveys],
+    )
+    .await;
     let client = TestClient::new(router);
 
     // Create events with same submission_id - should be grouped together
@@ -599,7 +593,7 @@ async fn test_survey_quota_groups_events_by_submission_id() {
     let payload = create_survey_events_with_submission_ids(&events, token);
 
     let response = client
-        .post("/e")
+        .post("/batch")
         .body(payload)
         .header("Content-Type", "application/json")
         .header("X-Forwarded-For", "127.0.0.1")
@@ -619,7 +613,13 @@ async fn test_survey_quota_groups_events_by_submission_id() {
 #[tokio::test]
 async fn test_survey_quota_handles_multiple_submission_groups() {
     let token = "test_token_multiple_submissions";
-    let (router, sink) = setup_survey_limited_router(token, true).await;
+    let (router, sink) = setup_router_with_limits(
+        token,
+        CaptureMode::Events,
+        true,
+        vec![QuotaResource::Surveys],
+    )
+    .await;
     let client = TestClient::new(router);
 
     // Create events with different submission_ids - each group should be filtered separately
@@ -633,7 +633,7 @@ async fn test_survey_quota_handles_multiple_submission_groups() {
     let payload = create_survey_events_with_submission_ids(&events, token);
 
     let response = client
-        .post("/e")
+        .post("/i/v0/e")
         .body(payload)
         .header("Content-Type", "application/json")
         .header("X-Forwarded-For", "127.0.0.1")
@@ -653,7 +653,13 @@ async fn test_survey_quota_handles_multiple_submission_groups() {
 #[tokio::test]
 async fn test_survey_quota_backward_compatibility_without_submission_id() {
     let token = "test_token_backward_compat";
-    let (router, sink) = setup_survey_limited_router(token, true).await;
+    let (router, sink) = setup_router_with_limits(
+        token,
+        CaptureMode::Events,
+        false,
+        vec![QuotaResource::Surveys],
+    )
+    .await;
     let client = TestClient::new(router);
 
     // Create survey events without $survey_submission_id - should count individually
@@ -678,26 +684,21 @@ async fn test_survey_quota_backward_compatibility_without_submission_id() {
     let captured_events = sink.events();
     assert_eq!(captured_events.len(), 1);
 
-    let event_names: Vec<String> = captured_events
-        .iter()
-        .map(|e| {
-            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
-            event_data["event"].as_str().unwrap().to_string()
-        })
-        .collect();
-
-    // All survey events should be filtered out when quota exceeded
-    assert!(!event_names.contains(&"survey sent".to_string()));
-    assert!(!event_names.contains(&"survey shown".to_string()));
-
-    // Non-survey events should be kept
+    let event_names: Vec<String> = extract_captured_event_names(&captured_events);
+    // Non-survey event should be kept
     assert!(event_names.contains(&"pageview".to_string()));
 }
 
 #[tokio::test]
 async fn test_survey_quota_mixed_with_and_without_submission_id() {
     let token = "test_token_mixed_submissions";
-    let (router, sink) = setup_survey_limited_router(token, true).await;
+    let (router, sink) = setup_router_with_limits(
+        token,
+        CaptureMode::Events,
+        false,
+        vec![QuotaResource::Surveys],
+    )
+    .await;
     let client = TestClient::new(router);
 
     // Mix of events with and without submission_id
@@ -724,14 +725,20 @@ async fn test_survey_quota_mixed_with_and_without_submission_id() {
     let captured_events = sink.events();
     assert_eq!(captured_events.len(), 1);
 
-    let event_data: Value = serde_json::from_str(&captured_events[0].event.data).unwrap();
-    assert_eq!(event_data["event"], "custom_event");
+    let event_names: Vec<String> = extract_captured_event_names(&captured_events);
+    assert!(event_names.contains(&"custom_event".to_string()));
 }
 
 #[tokio::test]
 async fn test_survey_quota_empty_submission_id_treated_as_none() {
     let token = "test_token_empty_submission";
-    let (router, sink) = setup_survey_limited_router(token, true).await;
+    let (router, sink) = setup_router_with_limits(
+        token,
+        CaptureMode::Events,
+        false,
+        vec![QuotaResource::Surveys],
+    )
+    .await;
     let client = TestClient::new(router);
 
     // Create events with empty string submission_id - should be treated as None
@@ -764,7 +771,7 @@ async fn test_survey_quota_empty_submission_id_treated_as_none() {
     .to_string();
 
     let response = client
-        .post("/e")
+        .post("/batch")
         .body(payload)
         .header("Content-Type", "application/json")
         .header("X-Forwarded-For", "127.0.0.1")
@@ -777,14 +784,14 @@ async fn test_survey_quota_empty_submission_id_treated_as_none() {
     let captured_events = sink.events();
     assert_eq!(captured_events.len(), 1);
 
-    let event_data: Value = serde_json::from_str(&captured_events[0].event.data).unwrap();
-    assert_eq!(event_data["event"], "pageview");
+    let event_names: Vec<String> = extract_captured_event_names(&captured_events);
+    assert!(event_names.contains(&"pageview".to_string()));
 }
 
 #[tokio::test]
 async fn test_survey_quota_allows_events_when_not_limited() {
     let token = "test_token_not_survey_limited";
-    let (router, sink) = setup_survey_limited_router(token, false).await; // Not survey limited
+    let (router, sink) = setup_router_with_limits(token, CaptureMode::Events, false, vec![]).await; // Not survey limited
     let client = TestClient::new(router);
 
     // Create events with submission_ids - should all pass through when not limited
@@ -810,14 +817,7 @@ async fn test_survey_quota_allows_events_when_not_limited() {
     let captured_events = sink.events();
     assert_eq!(captured_events.len(), 4);
 
-    let event_names: Vec<String> = captured_events
-        .iter()
-        .map(|e| {
-            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
-            event_data["event"].as_str().unwrap().to_string()
-        })
-        .collect();
-
+    let event_names: Vec<String> = extract_captured_event_names(&captured_events);
     assert!(event_names.contains(&"survey sent".to_string()));
     assert!(event_names.contains(&"survey shown".to_string()));
     assert!(event_names.contains(&"survey dismissed".to_string()));
@@ -890,10 +890,11 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
     // Since this is the first time seeing submission_first, survey events should be allowed through
     // but then dropped by the main quota system since we're survey limited
     let captured_events = sink.events();
-    assert_eq!(captured_events.len(), 1); // Only pageview should remain
+    assert_eq!(captured_events.len(), 1);
 
-    let event_data: Value = serde_json::from_str(&captured_events[0].event.data).unwrap();
-    assert_eq!(event_data["event"], "pageview");
+    // Only pageview should remain
+    let event_names: Vec<String> = extract_captured_event_names(&captured_events);
+    assert!(event_names.contains(&"pageview".to_string()));
 }
 
 #[tokio::test]
@@ -966,6 +967,7 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
     assert_eq!(event_data["event"], "click");
 }
 
+// TODO(eli): REVISIT THIS - SHOULD FAIL ATM
 #[tokio::test]
 async fn test_survey_quota_cross_batch_redis_error_fail_open() {
     let token = "test_token_redis_error";
@@ -1041,9 +1043,15 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
 }
 
 #[tokio::test]
-async fn test_survey_quota_only_limits_survey_sent_events() {
+async fn test_survey_and_global_limited_drops_all_events_when_only_matching_events_in_payload() {
     let token = "test_token_only_survey_sent";
-    let (router, sink) = setup_survey_limited_router(token, true).await;
+    let (router, sink) = setup_router_with_limits(
+        token,
+        CaptureMode::Events,
+        true,
+        vec![QuotaResource::Surveys],
+    )
+    .await;
     let client = TestClient::new(router);
 
     // Mix of all survey event types - when quota exceeded, ALL survey events should be dropped
@@ -1056,7 +1064,7 @@ async fn test_survey_quota_only_limits_survey_sent_events() {
     let payload = create_survey_events_with_submission_ids(&events, token);
 
     let response = client
-        .post("/e")
+        .post("/batch")
         .body(payload)
         .header("Content-Type", "application/json")
         .header("X-Forwarded-For", "127.0.0.1")
@@ -1067,75 +1075,19 @@ async fn test_survey_quota_only_limits_survey_sent_events() {
 
     // When survey quota is exceeded, ALL survey events should be dropped
     let captured_events = sink.events();
-    assert_eq!(captured_events.len(), 1); // only pageview
-
-    let event_names: Vec<String> = captured_events
-        .iter()
-        .map(|e| {
-            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
-            event_data["event"].as_str().unwrap().to_string()
-        })
-        .collect();
-
-    // All survey events should be dropped when quota exceeded
-    assert!(!event_names.contains(&"survey sent".to_string()));
-    assert!(!event_names.contains(&"survey shown".to_string()));
-    assert!(!event_names.contains(&"survey dismissed".to_string()));
-
-    // Non-survey events should be kept
-    assert!(event_names.contains(&"pageview".to_string()));
-}
-
-#[tokio::test]
-async fn test_survey_quota_backward_compatibility_survey_sent_only() {
-    let token = "test_token_survey_sent_backward_compat";
-    let (router, sink) = setup_survey_limited_router(token, true).await;
-    let client = TestClient::new(router);
-
-    // Survey events without submission_id - when quota exceeded, ALL survey events should be dropped
-    let events = [
-        ("survey sent", None),      // Should be dropped due to quota (no submission_id)
-        ("survey shown", None),     // Should also be dropped when quota exceeded
-        ("survey dismissed", None), // Should also be dropped when quota exceeded
-        ("pageview", None),         // Non-survey event
-    ];
-    let payload = create_survey_events_with_submission_ids(&events, token);
-
-    let response = client
-        .post("/e")
-        .body(payload)
-        .header("Content-Type", "application/json")
-        .header("X-Forwarded-For", "127.0.0.1")
-        .send()
-        .await;
-
-    assert_eq!(response.status(), StatusCode::OK);
-
-    // When quota exceeded, ALL survey events should be dropped
-    let captured_events = sink.events();
-    assert_eq!(captured_events.len(), 1);
-
-    let event_names: Vec<String> = captured_events
-        .iter()
-        .map(|e| {
-            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
-            event_data["event"].as_str().unwrap().to_string()
-        })
-        .collect();
-
-    // All survey events should be dropped when quota exceeded
-    assert!(!event_names.contains(&"survey sent".to_string()));
-    assert!(!event_names.contains(&"survey shown".to_string()));
-    assert!(!event_names.contains(&"survey dismissed".to_string()));
-
-    // Non-survey events should be kept
-    assert!(event_names.contains(&"pageview".to_string()));
+    assert_eq!(captured_events.len(), 0); // only pageview
 }
 
 #[tokio::test]
 async fn test_ai_events_quota_limit_filters_only_ai_events() {
     let token = "test_token";
-    let (app, sink) = setup_ai_limited_router(token, true).await;
+    let (app, sink) = setup_router_with_limits(
+        token,
+        CaptureMode::Events,
+        false,
+        vec![QuotaResource::LLMEvents],
+    )
+    .await;
     let client = TestClient::new(app);
 
     let ai_event = serde_json::json!({
@@ -1165,17 +1117,11 @@ async fn test_ai_events_quota_limit_filters_only_ai_events() {
         .await;
     assert_eq!(res.status(), StatusCode::OK);
 
-    let events = sink.events();
-    assert_eq!(events.len(), 2); // Only non-AI events should be kept
+    let captured_events = sink.events();
+    assert_eq!(captured_events.len(), 2); // Only non-AI events should be kept
 
     // Verify only non-AI events were kept
-    let event_names: Vec<String> = events
-        .iter()
-        .map(|e| {
-            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
-            event_data["event"].as_str().unwrap().to_string()
-        })
-        .collect();
+    let event_names: Vec<String> = extract_captured_event_names(&captured_events);
     assert!(event_names.contains(&"pageview".to_string()));
     assert!(event_names.contains(&"custom_event".to_string()));
     assert!(!event_names.contains(&"$ai_generation".to_string()));
@@ -1184,9 +1130,15 @@ async fn test_ai_events_quota_limit_filters_only_ai_events() {
 }
 
 #[tokio::test]
-async fn test_ai_events_quota_limit_returns_error_when_only_ai_events() {
+async fn test_ai_events_quota_limit_returns_ok_with_empty_sink_when_only_ai_events() {
     let token = "test_token";
-    let (app, _) = setup_ai_limited_router(token, true).await;
+    let (app, sink) = setup_router_with_limits(
+        token,
+        CaptureMode::Events,
+        false,
+        vec![QuotaResource::LLMEvents],
+    )
+    .await;
     let client = TestClient::new(app);
 
     let ai_only_event = serde_json::json!({
@@ -1206,12 +1158,15 @@ async fn test_ai_events_quota_limit_returns_error_when_only_ai_events() {
         .send()
         .await;
     assert_eq!(res.status(), StatusCode::OK);
+
+    let captured_events = sink.events();
+    assert_eq!(captured_events.len(), 0);
 }
 
 #[tokio::test]
 async fn test_ai_events_quota_allows_ai_events_when_not_limited() {
     let token = "test_token";
-    let (app, sink) = setup_ai_limited_router(token, false).await;
+    let (app, sink) = setup_router_with_limits(token, CaptureMode::Events, true, vec![]).await;
     let client = TestClient::new(app);
 
     let ai_event = serde_json::json!({
@@ -1232,16 +1187,10 @@ async fn test_ai_events_quota_allows_ai_events_when_not_limited() {
         .await;
     assert_eq!(res.status(), StatusCode::OK);
 
-    let events = sink.events();
-    assert_eq!(events.len(), 3); // All events should be kept when not limited
+    let captured_events = sink.events();
+    assert_eq!(captured_events.len(), 3); // All events should be kept when not limited
 
-    let event_names: Vec<String> = events
-        .iter()
-        .map(|e| {
-            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
-            event_data["event"].as_str().unwrap().to_string()
-        })
-        .collect();
+    let event_names: Vec<String> = extract_captured_event_names(&captured_events);
     assert!(event_names.contains(&"$ai_generation".to_string()));
     assert!(event_names.contains(&"$ai_span".to_string()));
     assert!(event_names.contains(&"pageview".to_string()));
@@ -1250,7 +1199,13 @@ async fn test_ai_events_quota_allows_ai_events_when_not_limited() {
 #[tokio::test]
 async fn test_ai_events_quota_ignores_non_ai_events() {
     let token = "test_token";
-    let (app, sink) = setup_ai_limited_router(token, true).await;
+    let (app, sink) = setup_router_with_limits(
+        token,
+        CaptureMode::Events,
+        false,
+        vec![QuotaResource::LLMEvents],
+    )
+    .await;
     let client = TestClient::new(app);
 
     // Send only non-AI events when AI quota is exceeded
@@ -1272,19 +1227,25 @@ async fn test_ai_events_quota_ignores_non_ai_events() {
         .await;
     assert_eq!(res.status(), StatusCode::OK);
 
-    let events = sink.events();
-    assert_eq!(events.len(), 3); // All non-AI events should pass through
-}
+    let captured_events = sink.events();
+    assert_eq!(captured_events.len(), 3);
 
-// Helper function to set up router with AI limiting
-async fn setup_ai_limited_router(token: &str, is_ai_limited: bool) -> (Router, MemorySink) {
-    setup_router_with_limits(token, false, false, is_ai_limited, false).await
+    let event_names: Vec<String> = extract_captured_event_names(&captured_events);
+    assert!(event_names.contains(&"pageview".to_string()));
+    assert!(event_names.contains(&"custom_event".to_string()));
+    assert!(event_names.contains(&"$autocapture".to_string()));
 }
 
 #[tokio::test]
 async fn test_both_billing_and_ai_limits_applied() {
     let token = "test_token";
-    let (app, sink) = setup_router_with_limits(token, true, false, true, false).await;
+    let (app, sink) = setup_router_with_limits(
+        token,
+        CaptureMode::Events,
+        true,
+        vec![QuotaResource::LLMEvents],
+    )
+    .await;
     let client = TestClient::new(app);
 
     let mixed_event = serde_json::json!({
@@ -1305,25 +1266,23 @@ async fn test_both_billing_and_ai_limits_applied() {
         .await;
     assert_eq!(res.status(), StatusCode::OK);
 
-    let events = sink.events();
-    assert_eq!(events.len(), 1); // Only exception should remain
+    let captured_events = sink.events();
+    assert_eq!(captured_events.len(), 1); // Only exception should remain
 
-    let event_names: Vec<String> = events
-        .iter()
-        .map(|e| {
-            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
-            event_data["event"].as_str().unwrap().to_string()
-        })
-        .collect();
+    let event_names: Vec<String> = extract_captured_event_names(&captured_events);
     assert!(event_names.contains(&"$exception".to_string()));
-    assert!(!event_names.contains(&"$ai_generation".to_string()));
-    assert!(!event_names.contains(&"pageview".to_string()));
 }
 
 #[tokio::test]
 async fn test_ai_and_survey_limits_interaction() {
     let token = "test_token";
-    let (app, sink) = setup_router_with_limits(token, false, true, true, false).await;
+    let (app, sink) = setup_router_with_limits(
+        token,
+        CaptureMode::Events,
+        false,
+        vec![QuotaResource::LLMEvents, QuotaResource::Surveys],
+    )
+    .await;
     let client = TestClient::new(app);
 
     let mixed_event = serde_json::json!({
@@ -1337,7 +1296,7 @@ async fn test_ai_and_survey_limits_interaction() {
     });
 
     let res = client
-        .post("/e")
+        .post("/i/v0/e")
         .body(mixed_event.to_string())
         .header("Content-Type", "application/json")
         .header("X-Forwarded-For", "127.0.0.1")
@@ -1347,26 +1306,28 @@ async fn test_ai_and_survey_limits_interaction() {
 
     assert_eq!(status, StatusCode::OK);
 
-    let events = sink.events();
-    assert_eq!(events.len(), 2); // Only regular events should remain
+    let captured_events = sink.events();
+    assert_eq!(captured_events.len(), 2); // Only regular events should remain
 
-    let event_names: Vec<String> = events
-        .iter()
-        .map(|e| {
-            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
-            event_data["event"].as_str().unwrap().to_string()
-        })
-        .collect();
+    let event_names: Vec<String> = extract_captured_event_names(&captured_events);
     assert!(event_names.contains(&"pageview".to_string()));
     assert!(event_names.contains(&"custom_event".to_string()));
-    assert!(!event_names.contains(&"$ai_generation".to_string()));
-    assert!(!event_names.contains(&"survey sent".to_string()));
 }
 
 #[tokio::test]
-async fn test_all_three_limits_applied() {
+async fn test_all_scoped_limits_applied() {
     let token = "test_token";
-    let (app, sink) = setup_router_with_limits(token, true, true, true, true).await;
+    let (app, sink) = setup_router_with_limits(
+        token,
+        CaptureMode::Events,
+        false,
+        vec![
+            QuotaResource::LLMEvents,
+            QuotaResource::Surveys,
+            QuotaResource::Exceptions,
+        ],
+    )
+    .await;
     let client = TestClient::new(app);
 
     let mixed_event = serde_json::json!({
@@ -1388,222 +1349,23 @@ async fn test_all_three_limits_applied() {
         .await;
     assert_eq!(res.status(), StatusCode::OK);
 
-    let events = sink.events();
-    assert_eq!(events.len(), 1); // Only exception should remain
+    let captured_events = sink.events();
+    assert_eq!(captured_events.len(), 1); // Only exception should remain
 
-    let event_names: Vec<String> = events
-        .iter()
-        .map(|e| {
-            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
-            event_data["event"].as_str().unwrap().to_string()
-        })
-        .collect();
-    assert!(event_names.contains(&"$exception".to_string()));
-    assert!(!event_names.contains(&"$ai_generation".to_string()));
-    assert!(!event_names.contains(&"survey sent".to_string()));
-    assert!(!event_names.contains(&"pageview".to_string()));
+    let event_names: Vec<String> = extract_captured_event_names(&captured_events);
+    assert!(event_names.contains(&"pageview".to_string()));
 }
 
 #[tokio::test]
-async fn test_ai_event_name_detection() {
-    // Test various event names to ensure is_ai_event() works correctly
-    let test_cases = vec![
-        ("$ai_generation", true),
-        ("$ai_completion", true),
-        ("$ai_span", true),
-        ("$ai_trace", true),
-        ("$ai_custom", true),
-        ("$ai_", true),           // Edge case: exactly "$ai_"
-        ("$ai", false),           // No underscore
-        ("$ainotthis", false),    // No underscore after ai
-        ("ai_generation", false), // Missing $
-        ("$pageview", false),
-        ("pageview", false),
-    ];
-
+async fn test_ai_quota_with_empty_batch_returns_bad_request() {
     let token = "test_token";
-
-    for (event_name, should_be_filtered) in test_cases {
-        let (app, sink) = setup_ai_limited_router(token, true).await;
-        let client = TestClient::new(app);
-
-        let event = serde_json::json!({
-            "api_key": token,
-            "batch": [
-                {"event": event_name, "properties": {"distinct_id": "user"}},
-                {"event": "pageview", "properties": {"distinct_id": "user"}}  // Control event
-            ]
-        });
-
-        let res = client
-            .post("/e")
-            .body(event.to_string())
-            .header("Content-Type", "application/json")
-            .header("X-Forwarded-For", "127.0.0.1")
-            .send()
-            .await;
-        assert_eq!(res.status(), StatusCode::OK);
-
-        let events = sink.events();
-
-        if should_be_filtered {
-            // AI event should be filtered, only pageview remains
-            assert_eq!(events.len(), 1, "Event '{event_name}' should be filtered");
-            let event_data: Value = serde_json::from_str(&events[0].event.data).unwrap();
-            assert_eq!(event_data["event"], "pageview");
-        } else {
-            // Non-AI event should pass through with pageview
-            assert_eq!(
-                events.len(),
-                2,
-                "Event '{event_name}' should not be filtered"
-            );
-        }
-    }
-}
-
-#[tokio::test]
-async fn test_ai_generation_event_limited() {
-    let token = "test_token";
-    let (app, sink) = setup_ai_limited_router(token, true).await;
-    let client = TestClient::new(app);
-
-    let event = serde_json::json!({
-        "api_key": token,
-        "batch": [
-            {
-                "event": "$ai_generation",
-                "properties": {
-                    "distinct_id": "user",
-                    "$ai_model": "gpt-4",
-                    "$ai_provider": "openai",
-                    "$ai_input_tokens": 100,
-                    "$ai_output_tokens": 200
-                }
-            }
-        ]
-    });
-
-    let res = client
-        .post("/i/v0/e")
-        .body(event.to_string())
-        .header("Content-Type", "application/json")
-        .header("X-Forwarded-For", "127.0.0.1")
-        .send()
-        .await;
-    assert_eq!(res.status(), StatusCode::OK); // Returns OK even when all events are filtered (legacy behavior)
-
-    let events = sink.events();
-    assert_eq!(events.len(), 0); // AI event should be filtered
-}
-
-#[tokio::test]
-async fn test_ai_span_event_limited() {
-    let token = "test_token";
-    let (app, sink) = setup_ai_limited_router(token, true).await;
-    let client = TestClient::new(app);
-
-    let event = serde_json::json!({
-        "api_key": token,
-        "batch": [
-            {
-                "event": "$ai_span",
-                "properties": {
-                    "distinct_id": "user",
-                    "$ai_trace_id": "trace_123",
-                    "$ai_span_id": "span_456"
-                }
-            },
-            {"event": "custom", "properties": {"distinct_id": "user"}}
-        ]
-    });
-
-    let res = client
-        .post("/i/v0/e")
-        .body(event.to_string())
-        .header("Content-Type", "application/json")
-        .header("X-Forwarded-For", "127.0.0.1")
-        .send()
-        .await;
-    assert_eq!(res.status(), StatusCode::OK);
-
-    let events = sink.events();
-    assert_eq!(events.len(), 1);
-    let event_data: Value = serde_json::from_str(&events[0].event.data).unwrap();
-    assert_eq!(event_data["event"], "custom");
-}
-
-#[tokio::test]
-async fn test_ai_trace_event_limited() {
-    let token = "test_token";
-    let (app, sink) = setup_ai_limited_router(token, true).await;
-    let client = TestClient::new(app);
-
-    let event = serde_json::json!({
-        "api_key": token,
-        "batch": [
-            {
-                "event": "$ai_trace",
-                "properties": {
-                    "distinct_id": "user",
-                    "$ai_trace_id": "trace_789"
-                }
-            },
-            {"event": "$autocapture", "properties": {"distinct_id": "user"}}
-        ]
-    });
-
-    let res = client
-        .post("/i/v0/e")
-        .body(event.to_string())
-        .header("Content-Type", "application/json")
-        .header("X-Forwarded-For", "127.0.0.1")
-        .send()
-        .await;
-    assert_eq!(res.status(), StatusCode::OK);
-
-    let events = sink.events();
-    assert_eq!(events.len(), 1);
-    let event_data: Value = serde_json::from_str(&events[0].event.data).unwrap();
-    assert_eq!(event_data["event"], "$autocapture");
-}
-
-#[tokio::test]
-async fn test_custom_ai_prefixed_events_limited() {
-    let token = "test_token";
-    let (app, sink) = setup_ai_limited_router(token, true).await;
-    let client = TestClient::new(app);
-
-    // Custom AI events that follow the $ai_ pattern should also be limited
-    let event = serde_json::json!({
-        "api_key": token,
-        "batch": [
-            {"event": "$ai_custom_metric", "properties": {"distinct_id": "user"}},
-            {"event": "$ai_user_feedback", "properties": {"distinct_id": "user"}},
-            {"event": "$ai_model_switch", "properties": {"distinct_id": "user"}},
-            {"event": "non_ai_event", "properties": {"distinct_id": "user"}}
-        ]
-    });
-
-    let res = client
-        .post("/i/v0/e")
-        .body(event.to_string())
-        .header("Content-Type", "application/json")
-        .header("X-Forwarded-For", "127.0.0.1")
-        .send()
-        .await;
-    assert_eq!(res.status(), StatusCode::OK);
-
-    let events = sink.events();
-    assert_eq!(events.len(), 1); // Only non-AI event should pass
-    let event_data: Value = serde_json::from_str(&events[0].event.data).unwrap();
-    assert_eq!(event_data["event"], "non_ai_event");
-}
-
-#[tokio::test]
-async fn test_ai_quota_with_empty_batch() {
-    let token = "test_token";
-    let (app, _sink) = setup_ai_limited_router(token, true).await;
+    let (app, _sink) = setup_router_with_limits(
+        token,
+        CaptureMode::Events,
+        false,
+        vec![QuotaResource::LLMEvents],
+    )
+    .await;
     let client = TestClient::new(app);
 
     let empty_event = serde_json::json!({
@@ -1645,7 +1407,8 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
     let mut cfg = DEFAULT_CONFIG.clone();
     cfg.capture_mode = CaptureMode::Events;
 
-    let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60));
+    let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60))
+        .add_scoped_limiter(QuotaResource::LLMEvents, Box::new(is_llm_event));
 
     let app = router(
         timesource,
@@ -1696,7 +1459,13 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
 #[tokio::test]
 async fn test_ai_quota_cross_batch_consistency() {
     let token = "test_token_cross_batch_ai";
-    let (app, sink) = setup_ai_limited_router(token, true).await;
+    let (app, sink) = setup_router_with_limits(
+        token,
+        CaptureMode::Events,
+        false,
+        vec![QuotaResource::LLMEvents],
+    )
+    .await;
     let client = TestClient::new(app);
 
     // First batch - AI events should be filtered
@@ -1736,16 +1505,10 @@ async fn test_ai_quota_cross_batch_consistency() {
     assert_eq!(res.status(), StatusCode::OK);
 
     // Both batches should have AI events filtered out consistently
-    let events = sink.events();
-    assert_eq!(events.len(), 2); // Only non-AI events
+    let captured_events = sink.events();
+    assert_eq!(captured_events.len(), 2); // Only non-AI events
 
-    let event_names: Vec<String> = events
-        .iter()
-        .map(|e| {
-            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
-            event_data["event"].as_str().unwrap().to_string()
-        })
-        .collect();
+    let event_names: Vec<String> = extract_captured_event_names(&captured_events);
     assert!(event_names.contains(&"pageview".to_string()));
     assert!(event_names.contains(&"click".to_string()));
     assert!(!event_names.contains(&"$ai_generation".to_string()));
@@ -1755,7 +1518,13 @@ async fn test_ai_quota_cross_batch_consistency() {
 #[tokio::test]
 async fn test_ai_quota_all_ai_event_types_count() {
     let token = "test_token_all_types";
-    let (app, sink) = setup_ai_limited_router(token, true).await;
+    let (app, sink) = setup_router_with_limits(
+        token,
+        CaptureMode::Events,
+        false,
+        vec![QuotaResource::LLMEvents],
+    )
+    .await;
     let client = TestClient::new(app);
 
     // Test that ALL events starting with "$ai_" count toward quota
@@ -1783,17 +1552,11 @@ async fn test_ai_quota_all_ai_event_types_count() {
         .await;
     assert_eq!(res.status(), StatusCode::OK);
 
-    let events = sink.events();
+    let captured_events = sink.events();
     // Only non-AI events should pass: $ainotcounted, ai_generation, pageview
-    assert_eq!(events.len(), 3);
+    assert_eq!(captured_events.len(), 3);
 
-    let event_names: Vec<String> = events
-        .iter()
-        .map(|e| {
-            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
-            event_data["event"].as_str().unwrap().to_string()
-        })
-        .collect();
+    let event_names: Vec<String> = extract_captured_event_names(&captured_events);
     assert!(event_names.contains(&"$ainotcounted".to_string())); // No underscore after $ai
     assert!(event_names.contains(&"ai_generation".to_string())); // No $ prefix
     assert!(event_names.contains(&"pageview".to_string()));
@@ -1810,7 +1573,13 @@ async fn test_ai_quota_all_ai_event_types_count() {
 #[tokio::test]
 async fn test_ai_quota_empty_null_field_handling() {
     let token = "test_token_empty_fields_ai";
-    let (app, _sink) = setup_ai_limited_router(token, true).await;
+    let (app, _sink) = setup_router_with_limits(
+        token,
+        CaptureMode::Events,
+        true,
+        vec![QuotaResource::LLMEvents],
+    )
+    .await;
     let client = TestClient::new(app);
 
     // Test various empty/null scenarios
