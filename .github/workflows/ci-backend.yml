@@ -198,8 +198,12 @@ jobs:
                   # Initialize comment body for SQL changes
                   COMMENT_BODY="## Migration SQL Changes\n\nHey 👋, we've detected some migrations on this PR. Here's the SQL output for each migration, make sure they make sense:\n\n"
 
-                  # Process each changed migration file
+                  # Process each changed migration file (excluding Rust migrations)
                   for file in $CHANGED_FILES; do
+                    # Skip Rust migrations as they're handled separately by sqlx
+                    if [[ $file =~ rust/persons_migrations ]]; then
+                      continue
+                    fi
                     if [[ $file =~ migrations/([0-9]+)_ ]]; then
                       migration_number="${BASH_REMATCH[1]}"
                       # Get app name by looking at the directory structure
@@ -307,13 +311,14 @@ jobs:
                   # Check Django migrations (will not create migrations for managed=False models)
                   python manage.py makemigrations --check --dry-run
                   git fetch origin master
+
                   # `git diff --name-only` returns a list of files that were changed - added OR deleted OR modified
                   # With `--name-status` we get the same, but including a column for status, respectively: A, D, M
                   # In this check we exclusively care about files that were
                   # added (A) in posthog/migrations/. We also want to ignore
                   # initial migrations (0001_*) as these are guaranteed to be
                   # run on initial setup where there is no data.
-                  echo "${{ needs.changes.outputs.migrations_files }}" | grep -v migrations/0001_ | grep -v persons_migrations | python manage.py test_migrations_are_safe
+                  echo "${{ needs.changes.outputs.migrations_files }}" | grep -v migrations/0001_ | grep -v 'rust/persons_migrations' | python manage.py test_migrations_are_safe
 
             - name: Check CH migrations
               run: |
