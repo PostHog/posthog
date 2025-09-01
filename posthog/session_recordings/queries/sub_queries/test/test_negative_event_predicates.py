@@ -3,7 +3,6 @@ from typing import cast
 import pytest
 from unittest.mock import MagicMock
 
-from inline_snapshot import snapshot
 from parameterized import parameterized
 
 from posthog.schema import (
@@ -295,10 +294,9 @@ class TestNegativeEventPredicates:
         entities = cast(list[EventsNode | ActionsNode | DataWarehouseNode | str], [entity])
         result = negative_event_predicates(team, entities)
 
-        assert len(result) == 1
-        expr_sql = str(result[0])
-        assert expr_sql == snapshot(
-            "sql(and(or(equals(events.properties.user_id, NULL), not(JSONHas(events.properties, 'user_id'))), notEquals(events.properties.browser, 'safari'), equals(events.properties.url, 'example.com')))"
+        self._compare_with_snapshot(
+            result,
+            "sql(and(or(equals(events.properties.user_id, NULL), not(JSONHas(events.properties, 'user_id'))), notEquals(events.properties.browser, 'safari'), equals(events.properties.url, 'example.com')))",
         )
 
     def test_negative_predicates_exclude_positive_operators_from_logic(self):
