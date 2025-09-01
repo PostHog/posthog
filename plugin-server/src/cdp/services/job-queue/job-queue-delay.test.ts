@@ -56,7 +56,7 @@ describe('CyclotronJobQueueDelay', () => {
                 headers: headers as any,
             })
         )
-        expect(mockConsumer.offsetsStore).toHaveBeenCalledWith([msg])
+        expect(mockConsumer.offsetsStore).toHaveBeenCalledWith([{ ...msg, offset: msg.offset + 1 }])
         expect(consumeBatch).toHaveBeenCalledWith([])
     })
 
@@ -74,7 +74,7 @@ describe('CyclotronJobQueueDelay', () => {
         await promise
 
         expect(mockProducer.produce).toHaveBeenCalledWith(expect.objectContaining({ topic: 'cdp_cyclotron_hog' }))
-        expect(mockConsumer.offsetsStore).toHaveBeenCalledWith([msg])
+        expect(mockConsumer.offsetsStore).toHaveBeenCalledWith([{ ...msg, offset: msg.offset + 1 }])
     })
 
     it('caps wait at 10m and re-queues to delay topic when still in the future', async () => {
@@ -96,7 +96,7 @@ describe('CyclotronJobQueueDelay', () => {
                 topic: 'cdp_cyclotron_delay_10m',
             })
         )
-        expect(mockConsumer.offsetsStore).toHaveBeenCalledWith([msg])
+        expect(mockConsumer.offsetsStore).toHaveBeenCalledWith([{ ...msg, offset: msg.offset + 1 }])
     })
 
     it('skips message and commits offset when required headers are missing', async () => {
@@ -105,6 +105,6 @@ describe('CyclotronJobQueueDelay', () => {
         await (queue as any)['consumeKafkaBatch']([msgNoHeaders])
 
         expect(mockProducer.produce).not.toHaveBeenCalled()
-        expect(mockConsumer.offsetsStore).toHaveBeenCalledWith([msgNoHeaders])
+        expect(mockConsumer.offsetsStore).toHaveBeenCalledWith([{ ...msgNoHeaders, offset: msgNoHeaders.offset + 1 }])
     })
 })
