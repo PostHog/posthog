@@ -21,9 +21,18 @@ CREATE INDEX IF NOT EXISTS posthog_per_team_id_bec4e5_idx ON posthog_person (tea
 CREATE INDEX IF NOT EXISTS posthog_person_team_id_325c1b73 ON posthog_person (team_id);
 CREATE INDEX IF NOT EXISTS posthog_person_uuid_82b4a3ed ON posthog_person (uuid);
 
--- Add check constraint for properties size
-ALTER TABLE posthog_person ADD CONSTRAINT check_properties_size 
-    CHECK (pg_column_size(properties) <= 655360) NOT VALID;
+-- Add check constraint for properties size (idempotent)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint 
+        WHERE conname = 'check_properties_size' 
+        AND conrelid = 'posthog_person'::regclass
+    ) THEN
+        ALTER TABLE posthog_person ADD CONSTRAINT check_properties_size 
+            CHECK (pg_column_size(properties) <= 655360) NOT VALID;
+    END IF;
+END $$;
 
 -- PersonDistinctId table
 CREATE TABLE IF NOT EXISTS posthog_persondistinctid (
