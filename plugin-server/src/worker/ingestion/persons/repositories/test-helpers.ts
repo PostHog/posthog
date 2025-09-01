@@ -2,7 +2,7 @@ import fs from 'fs'
 import { DateTime } from 'luxon'
 import path from 'path'
 
-import { Hub, Team } from '~/types'
+import { Hub, InternalPerson, PersonDistinctId, RawPerson, Team } from '~/types'
 import { PostgresRouter, PostgresUse } from '~/utils/db/postgres'
 
 import { CreatePersonResult } from '../../../../utils/db/db'
@@ -180,5 +180,40 @@ export function assertCreatePersonConflictContractParity(
     if (!singleResult.success && !dualResult.success) {
         expect(singleResult.error).toBe(dualResult.error)
         expect(singleResult.distinctIds).toEqual(dualResult.distinctIds)
+    }
+}
+
+/**
+ * Testing utilities for person-related database operations.
+ * These methods are only used in tests and should not be used in production code.
+ */
+
+export async function fetchPersons(postgres: PostgresRouter): Promise<InternalPerson[]> {
+    return await postgres
+        .query<RawPerson>(PostgresUse.PERSONS_WRITE, 'SELECT * FROM posthog_person', undefined, 'fetchPersons')
+        .then(({ rows }) => rows.map(toPerson))
+}
+
+export async function fetchDistinctIds(postgres: PostgresRouter, person: InternalPerson): Promise<PersonDistinctId[]> {
+    const result = await postgres.query(
+        PostgresUse.PERSONS_WRITE, // used in tests only
+        'SELECT * FROM posthog_persondistinctid WHERE person_id=$1 AND team_id=$2 ORDER BY id',
+        [person.id, person.team_id],
+        'fetchDistinctIds'
+    )
+    return result.rows as PersonDistinctId[]
+}
+
+export async function fetchDistinctIdValues(postgres: PostgresRouter, person: InternalPerson): Promise<string[]> {
+    const personDistinctIds = await fetchDistinctIds(postgres, person)
+    return personDistinctIds.map((pdi) => pdi.distinct_id)
+}
+
+function toPerson(row: RawPerson): InternalPerson {
+    return {
+        ...row,
+        id: String(row.id),
+        created_at: DateTime.fromISO(row.created_at).toUTC(),
+        version: Number(row.version || 0),
     }
 }

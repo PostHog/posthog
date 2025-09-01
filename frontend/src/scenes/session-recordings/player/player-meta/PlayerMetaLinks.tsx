@@ -178,6 +178,7 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
                 onClick: () => exportRecordingToFile(),
                 tooltip:
                     'Export PostHog recording data to a JSON file. This can be loaded later into PostHog for playback.',
+                'data-attr': 'replay-export-posthog-json',
             },
             isStandardMode && featureFlags[FEATURE_FLAGS.REPLAY_EXPORT_FULL_VIDEO]
                 ? {
@@ -193,6 +194,7 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
                       icon: <IconDownload />,
                       onClick: () => exportRecordingToVideoFile(),
                       tooltip: 'Export PostHog recording data to MP4 video file.',
+                      'data-attr': 'replay-export-mp4',
                   }
                 : null,
         ]
@@ -204,6 +206,8 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
                     status: 'danger',
                     onClick: onDelete,
                     icon: <IconTrash />,
+                    tooltip: 'Delete recording',
+                    'data-attr': 'replay-delete-recording',
                 })
         }
         return itemsArray
