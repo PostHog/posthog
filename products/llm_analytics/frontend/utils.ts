@@ -485,10 +485,10 @@ export function looksLikeXml(input: unknown): boolean {
 /**
  * Formats an ID for display by truncating it to the first and last 4 characters:
  * `1234567890` -> `1234...7890`
- * @param id - The string to format.
+ * @param value - The string to format.
  * @returns The formatted string.
  */
-export function truncateValue(value: string): string {
+export function truncateValue(value: string | null | undefined): string {
     if (value === null || value === undefined) {
         return '-'
     }
