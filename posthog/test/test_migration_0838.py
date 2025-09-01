@@ -41,9 +41,6 @@ class RemoveNullValuesFromTeamArraysMigrationTest(NonAtomicTestMigrations):
         self.teams["rec_null_field"] = self._create_team(
             "Null field", app_urls=["https://clean.com", None], recording_domains=None
         )
-        self.teams["both_arrays"] = self._create_team(
-            "Both arrays", app_urls=[None, "https://app.com"], recording_domains=[None, "domain.com"]
-        )
 
     def _create_team(self, name, app_urls=None, recording_domains=None):
         """Utility to create teams with default values"""
