@@ -30,6 +30,7 @@ QUERY_LOG_ARCHIVE_FIELDS: dict[str, FieldOrTable] = {
     "result_bytes": IntegerDatabaseField(name="result_bytes", nullable=False),
     "memory_usage": IntegerDatabaseField(name="memory_usage", nullable=False),
     "status": StringDatabaseField(name="type", nullable=False),
+    "exception_code": IntegerDatabaseField(name="exception_code", nullable=False),
     "is_personal_api_key_request": BooleanDatabaseField(name="is_personal_api_key_request", nullable=False),
     "cpu_microseconds": IntegerDatabaseField(name="ProfileEvents_OSCPUVirtualTimeMicroseconds", nullable=False),
     "RealTimeMicroseconds": IntegerDatabaseField(name="ProfileEvents_RealTimeMicroseconds", nullable=False),
@@ -128,6 +129,7 @@ class RawQueryLogArchiveTable(Table):
         "result_bytes": IntegerDatabaseField(name="result_bytes", nullable=False),
         "memory_usage": IntegerDatabaseField(name="memory_usage", nullable=False),
         "type": StringDatabaseField(name="type", nullable=False),
+        "exception_code": IntegerDatabaseField(name="exception_code", nullable=False),
         "lc_access_method": StringDatabaseField(name="lc_access_method", nullable=False),
         "lc_query__kind": StringDatabaseField(name="lc_query__kind", nullable=False),
         "ProfileEvents_OSCPUVirtualTimeMicroseconds": IntegerDatabaseField(
