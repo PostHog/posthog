@@ -33,6 +33,8 @@ from .types import (
 )
 from .utils import (
     CIRCUIT_BREAKER_TIMEOUT,
+    _failure_counts,
+    _last_failure_time,
     check_circuit_breaker,
     determine_primary_keys,
     flatten_data_item,
@@ -62,14 +64,12 @@ __all__ = [
     "DateRange",
     "LinkedinApiMethod",
     "ResourceMethodTuple",
-
     # Schemas
     "LinkedinAdsResource",
     "ENDPOINTS",
     "INCREMENTAL_FIELDS",
     "LINKEDIN_ADS_ENDPOINTS",
     "LINKEDIN_ADS_FIELDS",
-
     # Constants
     "API_BASE_URL",
     "API_VERSION",
@@ -80,10 +80,11 @@ __all__ = [
     "DEFAULT_PAGE_SIZE",
     "MAX_PAGES_SAFETY_LIMIT",
     "MAX_DATE_RANGE_DAYS",
-
     # Utils
     "LinkedinAdsDateHandler",
     "CIRCUIT_BREAKER_TIMEOUT",
+    "_failure_counts",
+    "_last_failure_time",
     "validate_account_id",
     "validate_date_format",
     "validate_pivot_value",
