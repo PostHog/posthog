@@ -11,6 +11,13 @@ if [ -d "$SCRIPT_DIR/../rust/bin" ]; then
         echo "Error in rust/bin/migrate-cyclotron, exiting."
         exit 1
     fi
+    
+		echo "Running persons migrations via external non-django migrator..."
+		bash $SCRIPT_DIR/../rust/bin/migrate-persons
+		if [ $? -ne 0 ]; then
+				echo "Error in rust/bin/migrate-persons, exiting."
+				exit 1
+		fi
 fi
 
 # Create a temporary file for background process status

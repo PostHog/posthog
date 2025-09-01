@@ -102,6 +102,16 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
+            - name: Install Rust
+              uses: actions-rust-lang/setup-rust-toolchain@v1
+              with:
+                  toolchain: stable
+                  components: cargo
+
+            - name: Install sqlx-cli
+              run: |
+                  cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+
             - name: Add Kafka and ClickHouse to /etc/hosts
               run: sudo echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
@@ -110,6 +120,12 @@ jobs:
 
             - name: Run migrations
               run: |
+                  # Run persons migrations using sqlx
+                  PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
+                    sqlx database create 2>/dev/null || true
+                  PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
+                    sqlx migrate run --source rust/persons-migrator/persons_migrations/
+                  # Run Django migrations
                   python manage.py migrate
 
             - name: Run clickhouse migrations

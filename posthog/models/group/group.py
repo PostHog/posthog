@@ -19,6 +19,7 @@ class Group(models.Model):
     version = models.BigIntegerField(null=False)
 
     class Meta:
+        managed = False
         constraints = [
             models.UniqueConstraint(
                 fields=["team_id", "group_key", "group_type_index"],

@@ -33,6 +33,7 @@ class GroupTypeMapping(RootTeamMixin, models.Model):
     created_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
+        managed = False
         indexes = [
             models.Index(
                 fields=("project", "group_type"),

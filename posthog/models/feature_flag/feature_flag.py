@@ -491,6 +491,7 @@ class FeatureFlagHashKeyOverride(models.Model):
     hash_key = models.CharField(max_length=400)
 
     class Meta:
+        managed = False
         constraints = [
             models.UniqueConstraint(
                 fields=["team", "person", "feature_flag_key"],
