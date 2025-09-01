@@ -145,14 +145,14 @@ Follow these guidelines when summarizing session recordings:
 """
 
 SESSION_SUMMARIZATION_PROMPT_NO_REPLAY_CONTEXT = """
-The user didn't provide any current filters. It means that you need to:
+There are no current filters in the user's UI context. It means that you need to:
 - Convert the user query into a `session_summarization_query`
 - The query should be used to search for relevant sessions and then summarize them
 - Assume the `should_use_current_filters` should be always `false`
 """
 
 SESSION_SUMMARIZATION_PROMPT_WITH_REPLAY_CONTEXT = """
-The user also provided current filters. It means that you need to:
+There are current filters in the user's UI context. It means that you need to:
 - Convert the user query into a `session_summarization_query`
 - The query should be used to understand the user's intent
 - Decide if the query is relevant to the current filters and set `should_use_current_filters` accordingly
