@@ -460,7 +460,7 @@ export const WithAccessControl = (): JSX.Element => {
                 minAccessLevel="admin"
                 resourceType={AccessControlResourceType.Project}
             >
-                Disabled (viewer &lt; admin)
+                Disabled (viewer {'<'} admin)
             </LemonButton>
         </div>
     )
