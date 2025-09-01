@@ -28,7 +28,7 @@ import type { logsViewerLogicType } from './logsViewerLogicType'
 export const ALL_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARNING', 'ERROR']
 export const DEFAULT_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARNING', 'ERROR']
 export const POLLING_INTERVAL = 5000
-export const LOG_VIEWER_LIMIT = 10
+export const LOG_VIEWER_LIMIT = 100
 
 export type LogsViewerLogicProps = {
     logicKey?: string
@@ -116,23 +116,19 @@ const loadLogs = async (request: LogEntryParams): Promise<LogEntry[]> => {
         },
     })
 
-    return response.results.map((result) => ({
-        instanceId: result[0],
-        timestamp: dayjs(result[1]),
-        level: result[2].toUpperCase(),
-        message: result[3],
-    })) as LogEntry[]
+    return response.results.map(
+        (result): LogEntry => ({
+            instanceId: result[0],
+            timestamp: dayjs(result[1]),
+            level: result[2].toUpperCase(),
+            message: result[3],
+        })
+    )
 }
 
-const loadGroupedLogs = async (request: LogEntryParams): Promise<GroupedLogEntry[]> => {
+const loadGroupedLogs = async (request: LogEntryParams): Promise<LogEntry[]> => {
     const query = hogql`
-        SELECT
-            instance_id,
-            max(timestamp) AS latest_timestamp,
-            min(timestamp) AS earliest_timestamp,
-            arraySort(
-                groupArray((timestamp, level, message))
-            ) AS messages
+        SELECT instance_id, timestamp, level, message
         FROM log_entries
         WHERE 1=1 
         ${hogql.raw(buildBoundaryFilters(request))}
@@ -145,8 +141,7 @@ const loadGroupedLogs = async (request: LogEntryParams): Promise<GroupedLogEntry
             ORDER BY timestamp ${hogql.raw(request.order)}
             LIMIT ${LOG_VIEWER_LIMIT}
         )
-        GROUP BY instance_id
-        ORDER BY latest_timestamp DESC`
+        ORDER BY timestamp DESC`
 
     const response = await api.queryHogQL(query, {
         refresh: 'force_blocking',
@@ -156,47 +151,46 @@ const loadGroupedLogs = async (request: LogEntryParams): Promise<GroupedLogEntry
         },
     })
 
-    return response.results.map((result) => ({
-        instanceId: result[0],
-        maxTimestamp: dayjs(result[1]),
-        minTimestamp: dayjs(result[2]),
-        entries: result[3].map((entry: any) => ({
-            timestamp: dayjs(entry[0]),
-            level: entry[1].toUpperCase(),
-            message: entry[2],
+    return response.results.map(
+        (result): LogEntry => ({
             instanceId: result[0],
-        })),
-    })) as GroupedLogEntry[]
+            timestamp: dayjs(result[1]),
+            level: result[2].toUpperCase(),
+            message: result[3],
+        })
+    )
 }
 
-const sanitizeGroupedLogs = (groups: GroupedLogEntry[]): GroupedLogEntry[] => {
+const groupLogs = (logs: LogEntry[]): GroupedLogEntry[] => {
     const byId: Record<string, GroupedLogEntry> = {}
+    const dedupeCache = new Set<string>()
 
-    for (const group of groups) {
-        // Set the group if not already set
-        if (!byId[group.instanceId]) {
-            byId[group.instanceId] = group
-        } else {
-            // If the group already exists, we need to merge the entries
-            for (const entry of group.entries) {
-                if (!byId[group.instanceId].entries.find((e) => e.timestamp.isSame(entry.timestamp))) {
-                    byId[group.instanceId].entries.push(entry)
-                }
-            }
+    for (const log of logs) {
+        const key = toKey(log)
+        if (dedupeCache.has(key)) {
+            continue
         }
-
-        // Sort the entries by timestamp
-        byId[group.instanceId].entries.sort((a, b) => a.timestamp.diff(b.timestamp))
-
-        // Go in reverse and find the highest level message
-
-        const highestLogLevel = group.entries.reduce((max, entry) => {
-            return Math.max(max, ALL_LOG_LEVELS.indexOf(entry.level))
-        }, 0)
-        byId[group.instanceId].logLevel = ALL_LOG_LEVELS[highestLogLevel]
+        dedupeCache.add(key)
+        const group = byId[log.instanceId] ?? {
+            instanceId: log.instanceId,
+            maxTimestamp: log.timestamp,
+            minTimestamp: log.timestamp,
+            logLevel: log.level,
+            entries: [],
+        }
+        byId[log.instanceId] = group
+        group.entries.push(log)
+        group.maxTimestamp = log.timestamp.isAfter(group.maxTimestamp) ? log.timestamp : group.maxTimestamp
+        group.minTimestamp = log.timestamp.isBefore(group.minTimestamp) ? log.timestamp : group.minTimestamp
+        if (ALL_LOG_LEVELS.indexOf(log.level) > ALL_LOG_LEVELS.indexOf(group.logLevel)) {
+            group.logLevel = log.level
+        }
     }
 
-    return Object.values(byId).sort((a, b) => b.maxTimestamp.diff(a.maxTimestamp))
+    return Object.values(byId).map((group) => ({
+        ...group,
+        entries: group.entries.sort((a, b) => a.timestamp.diff(b.timestamp)),
+    }))
 }
 
 export const logsViewerLogic = kea<logsViewerLogicType>([
@@ -314,7 +308,9 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     })
                     await breakpoint(10)
 
-                    return sanitizeGroupedLogs(results)
+                    console.log('results', results)
+
+                    return groupLogs(results)
                 },
                 loadMoreGroupedLogs: async () => {
                     if (!values.oldestLogTimestamp) {
@@ -330,11 +326,14 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     if (!results.length) {
                         actions.markLogsEnd()
                     }
-                    return sanitizeGroupedLogs([...results, ...values.groupedLogs])
+                    return groupLogs([...results, ...values.groupedLogs.flatMap((group) => group.entries)])
                 },
 
                 addLogGroups: ({ logGroups }) => {
-                    return sanitizeGroupedLogs([...logGroups, ...values.groupedLogs])
+                    return groupLogs([
+                        ...logGroups.flatMap((group) => group.entries),
+                        ...values.groupedLogs.flatMap((group) => group.entries),
+                    ])
                 },
             },
         ],
