@@ -2,7 +2,7 @@ import { HogFunctionTemplate } from '~/cdp/types'
 
 export const template: HogFunctionTemplate = {
     status: 'stable',
-    free: false,
+    free: true,
     type: 'destination',
     id: 'template-linear',
     name: 'Linear',
