@@ -21,7 +21,7 @@ function ChartFilterOptionLabel(props: { label: string; description?: string }):
 }
 
 export function ChartFilter(): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, editingDisabledReason } = useValues(insightLogic)
     const { display } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
@@ -177,6 +177,7 @@ export function ChartFilter(): JSX.Element {
             data-attr="chart-filter"
             options={options}
             size="small"
+            disabledReason={editingDisabledReason}
         />
     )
 }

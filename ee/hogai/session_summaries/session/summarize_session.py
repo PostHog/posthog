@@ -15,13 +15,9 @@ from ee.hogai.session_summaries.session.input_data import (
 )
 from ee.hogai.session_summaries.session.prompt_data import SessionSummaryPromptData
 from ee.hogai.session_summaries.utils import load_custom_template, shorten_url
+from ee.models.session_summaries import ExtraSummaryContext
 
 logger = structlog.get_logger(__name__)
-
-
-@dataclass(frozen=True)
-class ExtraSummaryContext:
-    focus_area: str | None = None
 
 
 @dataclass(frozen=True)

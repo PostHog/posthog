@@ -15,7 +15,7 @@ interface StepOption {
 }
 
 export function PathStepPicker(): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, editingDisabledReason } = useValues(insightLogic)
     const { pathsFilter } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
     const { hasAvailableFeature } = useValues(userLogic)
@@ -36,6 +36,7 @@ export function PathStepPicker(): JSX.Element {
             value={stepLimit || DEFAULT_STEP_LIMIT}
             onChange={(count) => updateInsightFilter({ stepLimit: count })}
             options={options}
+            disabledReason={editingDisabledReason}
         />
     )
 }
