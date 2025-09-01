@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
+import { useEffect } from 'react'
 
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonTab, LemonTabs } from '@posthog/lemon-ui'
@@ -44,10 +45,15 @@ export function LLMAnalyticsDatasetScene(): JSX.Element {
         datasetForm,
         dataset,
     } = useValues(llmAnalyticsDatasetLogic)
-    const { submitDatasetForm, loadDataset, editDataset, deleteDataset, setDatasetFormValue } =
+    const { submitDatasetForm, loadDataset, editDataset, deleteDataset, setDatasetFormValue, onUnmount } =
         useActions(llmAnalyticsDatasetLogic)
 
     const displayEditForm = isNewDataset || isEditingDataset
+
+    // TRICKY: Scene logic is not unmounted. Workaround.
+    useEffect(() => {
+        return () => onUnmount()
+    }, [onUnmount])
 
     if (isDatasetMissing) {
         return <NotFound object="dataset" />

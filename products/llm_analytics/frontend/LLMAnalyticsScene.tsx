@@ -312,6 +312,7 @@ export function LLMAnalyticsScene(): JSX.Element {
             ),
             content: <LLMAnalyticsDatasetsScene />,
             link: combineUrl(urls.llmAnalyticsDatasets(), searchParams).url,
+            'data-attr': 'datasets-tab',
         })
     }
 

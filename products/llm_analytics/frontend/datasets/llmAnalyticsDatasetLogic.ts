@@ -45,6 +45,8 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
         editDataset: (editing: boolean) => ({ editing }),
         deleteDataset: true,
         setActiveTab: (tab: DatasetTab) => ({ tab }),
+        // beforeUnmount doesn't work as expected for scenes.
+        onUnmount: true,
     }),
 
     reducers({
@@ -169,9 +171,19 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
             }
         },
 
-        loadDatasetSuccess: ({ dataset }) => {
-            // Set form defaults when dataset is loaded
-            actions.setDatasetFormValues(getDatasetFormDefaults(dataset))
+        onUnmount: () => {
+            if (props.datasetId === 'new') {
+                // Reset form values when creating a new dataset
+                actions.setDatasetFormValues(DEFAULT_DATASET_FORM_VALUES)
+            } else {
+                // Set form values when editing an existing dataset
+                const existingDataset = findExistingDataset(props.datasetId)
+                if (existingDataset) {
+                    actions.setDatasetFormValues(getDatasetFormDefaults(existingDataset))
+                } else {
+                    actions.setDatasetFormValues(DEFAULT_DATASET_FORM_VALUES)
+                }
+            }
         },
     })),
 
@@ -183,24 +195,15 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
             dataset: DatasetFormValues | Dataset | null
             datasetForm: DatasetFormValues
         } => {
-            const defaultDataset: DatasetFormValues = {
-                name: '',
-                description: '',
-                metadata: '{\n  \n}',
-            }
-
             if (props.datasetId === 'new') {
                 return {
-                    dataset: defaultDataset,
-                    datasetForm: defaultDataset,
+                    dataset: DEFAULT_DATASET_FORM_VALUES,
+                    datasetForm: DEFAULT_DATASET_FORM_VALUES,
                 }
             }
 
             // Don't show a loader if the dataset has already been loaded.
-            const existingDataset = llmAnalyticsDatasetsLogic
-                .findMounted()
-                ?.values.datasets.results.find((dataset) => dataset.id === props.datasetId)
-
+            const existingDataset = findExistingDataset(props.datasetId)
             if (existingDataset) {
                 return {
                     dataset: existingDataset,
@@ -210,7 +213,7 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
 
             return {
                 dataset: null,
-                datasetForm: defaultDataset,
+                datasetForm: DEFAULT_DATASET_FORM_VALUES,
             }
         }
     ),
@@ -224,6 +227,12 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
     }),
 ])
 
+const DEFAULT_DATASET_FORM_VALUES: DatasetFormValues = {
+    name: '',
+    description: '',
+    metadata: '{\n  \n}',
+}
+
 /**
  * Get default form values for a dataset.
  * @param dataset - The dataset to get the default form values for
@@ -235,4 +244,13 @@ function getDatasetFormDefaults(dataset: Dataset): DatasetFormValues {
         description: dataset.description || '',
         metadata: prettifyJson(dataset.metadata) || EMPTY_JSON,
     }
+}
+
+/**
+ * Find an existing dataset in the datasets logic.
+ * @param datasetId - The ID of the dataset to find
+ * @returns The dataset if found, undefined otherwise
+ */
+function findExistingDataset(datasetId: string): Dataset | undefined {
+    return llmAnalyticsDatasetsLogic.findMounted()?.values.datasets.results.find((dataset) => dataset.id === datasetId)
 }
