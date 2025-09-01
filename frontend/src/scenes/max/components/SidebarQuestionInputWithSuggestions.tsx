@@ -20,7 +20,7 @@ export function SidebarQuestionInputWithSuggestions(): JSX.Element {
 
     const tip =
         !coreMemoryLoading && !coreMemory?.text
-            ? "Tip: Run /init to intialize Max's project knowledge"
+            ? "Tip: Run /init to initialize Max's project knowledge"
             : 'Ask Max about…'
 
     return (
