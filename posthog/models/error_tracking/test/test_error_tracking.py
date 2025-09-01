@@ -115,7 +115,7 @@ class TestErrorTracking(BaseTest):
         assert not hasattr(issue, "first_seen")
 
         issue = ErrorTrackingIssue.objects.with_first_seen().get(id=issue.id)
-        assert issue.first_seen == fingerprint.first_seen  # type: ignore[attr-defined]
+        assert issue.first_seen == fingerprint.first_seen
 
     def test_symbol_set_delete_calls_object_storage_delete(self):
         # Create a symbol set with a storage pointer

@@ -409,6 +409,43 @@ class TestErrorTracking(APIBaseTest):
             len(ErrorTrackingIssueAssignment.objects.filter(issue__in=[issue_one, issue_two], role=role)), 2
         )
 
+    def test_can_start_bulk_symbol_set_upload(self) -> None:
+        chunk_id_one = uuid7()
+        chunk_id_two = uuid7()
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+            data={"chunk_ids": [chunk_id_one, chunk_id_two]},
+        )
+        response_json = response.json()
+        id_map = response_json["id_map"]
+
+        assert len(id_map.keys()) == 2
+
+        symbol_set = ErrorTrackingSymbolSet.objects.get(ref=chunk_id_one)
+        symbol_set_upload_response = id_map[str(chunk_id_one)]
+
+        assert str(symbol_set.id) == symbol_set_upload_response["symbol_set_id"]
+        assert symbol_set_upload_response["presigned_url"]["fields"]["key"] == symbol_set.storage_ptr
+
+    @patch("posthog.storage.object_storage.head_object")
+    def test_can_finish_bulk_symbol_set_upload(self, patched_object_storage) -> None:
+        symbol_set_one = ErrorTrackingSymbolSet.objects.create(
+            team=self.team, ref=str(uuid7()), storage_ptr="file/name1"
+        )
+        symbol_set_two = ErrorTrackingSymbolSet.objects.create(
+            team=self.team, ref=str(uuid7()), storage_ptr="file/name2"
+        )
+
+        patched_object_storage.return_value = {"ContentLength": 1000}  # 1KB
+
+        self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_finish_upload",
+            data={"content_hashes": {str(symbol_set_one.id): "hash_one", str(symbol_set_two.id): "hash_two"}},
+        )
+
+        assert ErrorTrackingSymbolSet.objects.get(id=symbol_set_one.id).content_hash == "hash_one"
+        assert ErrorTrackingSymbolSet.objects.get(id=symbol_set_two.id).content_hash == "hash_two"
+
     def _assert_logs_the_activity(self, error_tracking_issue_id: int, expected: list[dict]) -> None:
         activity_response = self._get_error_tracking_issue_activity(error_tracking_issue_id)
         activity: list[dict] = activity_response["results"]
