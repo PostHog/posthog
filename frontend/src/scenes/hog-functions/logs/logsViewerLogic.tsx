@@ -457,11 +457,12 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             actions.clearLogs()
             actions.loadLogs()
         },
-
-        loadLogsSuccess: () => {
+        loadGroupedLogsSuccess: () => {
             actions.scheduleLoadNewerLogs()
         },
-
+        loadUngroupedLogsSuccess: () => {
+            actions.scheduleLoadNewerLogs()
+        },
         scheduleLoadNewerLogs: () => {
             if (cache.pollingTimeout) {
                 clearTimeout(cache.pollingTimeout)
