@@ -12,6 +12,7 @@ import {
     Link,
 } from '@posthog/lemon-ui'
 
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconRefresh, IconWithCount } from 'lib/lemon-ui/icons'
@@ -39,7 +40,16 @@ export const tagTypeForLevel = (level: LogEntryLevel): LemonTagProps['type'] => 
     }
 }
 
+const shortInstanceId = (instanceId: string): string => {
+    // first two letters of each
+    return instanceId
+        .split('-')
+        .map((part) => part.slice(0, 2))
+        .join('')
+}
+
 export type LogsViewerProps = LogsViewerLogicProps & {
+    instanceLabel?: string
     renderColumns?: (
         columns: LemonTableColumn<GroupedLogEntry, keyof GroupedLogEntry | undefined>[]
     ) => LemonTableColumn<GroupedLogEntry, keyof GroupedLogEntry | undefined>[]
@@ -52,6 +62,7 @@ export type LogsViewerProps = LogsViewerLogicProps & {
 export function LogsViewer({
     renderColumns = (c) => c,
     renderMessage = (m) => m,
+    instanceLabel = 'invocation',
     ...props
 }: LogsViewerProps): JSX.Element {
     const logic = logsViewerLogic(props)
@@ -92,20 +103,21 @@ export function LogsViewer({
         },
         {
             width: 0,
-            title: 'Invocation',
+            title: instanceLabel,
             dataIndex: 'instanceId',
             key: 'instanceId',
             render: (_, { instanceId }) => (
                 <code className="whitespace-nowrap">
-                    <Link
-                        className="font-semibold"
-                        subtle
-                        onClick={() => {
-                            setRowExpanded(instanceId, !expandedRows[instanceId])
-                        }}
-                    >
-                        {instanceId}
-                    </Link>
+                    <CopyToClipboardInline explicitValue={instanceId} selectable>
+                        <Link
+                            className="font-semibold"
+                            subtle
+                            onClick={() => setRowExpanded(instanceId, !expandedRows[instanceId])}
+                            title={instanceId}
+                        >
+                            {shortInstanceId(instanceId)}
+                        </Link>
+                    </CopyToClipboardInline>
                 </code>
             ),
         },
@@ -226,7 +238,7 @@ export function LogsViewer({
                                     value: true,
                                     labelInMenu: (
                                         <>
-                                            <IconTableOfContents className="mr-1" /> Group logs by invocation
+                                            <IconTableOfContents className="mr-1" /> Group logs by {instanceLabel}
                                         </>
                                     ),
                                 },

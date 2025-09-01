@@ -51,6 +51,7 @@ export function CampaignScene(props: CampaignSceneLogicProps): JSX.Element {
                       <LogsViewer
                           sourceType="hog_flow"
                           sourceId={props.id}
+                          instanceLabel="workflow run"
                           renderMessage={(m) => renderWorkflowLogMessage(campaign, m)}
                       />
                   ),

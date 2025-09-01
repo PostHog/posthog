@@ -28,6 +28,7 @@ export function HogFlowEditorPanelLogs(): JSX.Element | null {
             <div className="p-2 flex flex-col gap-2 overflow-y-auto">
                 <LogsViewer
                     logicKey={`hog-flow-editor-panel-${actionId || 'all'}`}
+                    instanceLabel="workflow run"
                     sourceType="hog_flow"
                     sourceId={campaign.id}
                     groupByInstanceId={!selectedNode}
