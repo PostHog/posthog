@@ -27,17 +27,17 @@ class TestNegativeEventPredicates:
             (
                 "empty_entities_list",
                 [],
-                [],
+                None,
             ),
             (
                 "entity_with_no_properties",
                 [EventsNode(event="click", properties=None)],
-                [],
+                None,
             ),
             (
                 "entity_with_empty_properties_list",
                 [EventsNode(event="click", properties=[])],
-                [],
+                None,
             ),
             (
                 "entity_with_positive_operator_only",
@@ -49,7 +49,7 @@ class TestNegativeEventPredicates:
                         ],
                     )
                 ],
-                [],
+                None,
             ),
             (
                 "entity_with_multiple_positive_operators",
@@ -62,7 +62,7 @@ class TestNegativeEventPredicates:
                         ],
                     )
                 ],
-                [],
+                None,
             ),
             (
                 "entity_with_one_negative_operator_is_not_set",
@@ -72,7 +72,7 @@ class TestNegativeEventPredicates:
                         properties=[EventPropertyFilter(key="user_id", operator=PropertyOperator.IS_NOT_SET)],
                     )
                 ],
-                1,
+                "sql(or(equals(events.properties.user_id, NULL), not(JSONHas(events.properties, 'user_id'))))",
             ),
             (
                 "entity_with_one_negative_operator_is_not",
@@ -84,7 +84,7 @@ class TestNegativeEventPredicates:
                         ],
                     )
                 ],
-                1,
+                "sql(notEquals(events.properties.browser, 'safari'))",
             ),
             (
                 "entity_with_one_negative_operator_not_regex",
@@ -96,7 +96,7 @@ class TestNegativeEventPredicates:
                         ],
                     )
                 ],
-                1,
+                "sql(ifNull(not(match(toString(events.properties.url), '.*\\\\.pdf$')), 1))",
             ),
             (
                 "entity_with_mixed_positive_and_negative_operators",
@@ -110,7 +110,7 @@ class TestNegativeEventPredicates:
                         ],
                     )
                 ],
-                1,
+                "sql(and(equals(events.properties.url, 'example.com'), or(equals(events.properties.user_id, NULL), not(JSONHas(events.properties, 'user_id'))), ilike(toString(events.properties.browser), '%chrome%')))",
             ),
             (
                 "multiple_entities_with_negative_operators",
@@ -126,7 +126,10 @@ class TestNegativeEventPredicates:
                         ],
                     ),
                 ],
-                2,
+                [
+                    "sql(or(equals(events.properties.user_id, NULL), not(JSONHas(events.properties, 'user_id'))))",
+                    "sql(notEquals(events.properties.browser, 'safari'))",
+                ],
             ),
             (
                 "entity_with_multiple_negative_operators",
@@ -140,7 +143,7 @@ class TestNegativeEventPredicates:
                         ],
                     )
                 ],
-                1,
+                "sql(and(or(equals(events.properties.user_id, NULL), not(JSONHas(events.properties, 'user_id'))), notEquals(events.properties.browser, 'safari'), ifNull(not(match(toString(events.properties.url), '.*\\\\.pdf$')), 1)))",
             ),
             (
                 "actions_node_with_negative_operators",
@@ -149,7 +152,7 @@ class TestNegativeEventPredicates:
                         id=1, properties=[EventPropertyFilter(key="user_id", operator=PropertyOperator.IS_NOT_SET)]
                     )
                 ],
-                1,
+                "sql(or(equals(events.properties.user_id, NULL), not(JSONHas(events.properties, 'user_id'))))",
             ),
             (
                 "person_property_with_negative_operator",
@@ -161,7 +164,7 @@ class TestNegativeEventPredicates:
                         ],
                     )
                 ],
-                1,
+                "sql(or(equals(person.properties.email, NULL), not(JSONHas(person.properties, 'email'))))",
             ),
             (
                 "multiple_property_types_with_negative_operators",
@@ -174,29 +177,30 @@ class TestNegativeEventPredicates:
                         ],
                     )
                 ],
-                1,
+                "sql(and(notEquals(events.properties.browser, 'safari'), or(equals(person.properties.email, NULL), not(JSONHas(person.properties, 'email')))))",
             ),
             (
                 "string_entity_support",
                 ["some_event_string"],
-                [],
+                None,
             ),
         ]
     )
-    def test_negative_event_predicates_with_various_inputs(self, name, entities, expected_expr_count):
+    def test_negative_event_predicates_with_various_inputs(
+        self,
+        _name: str,
+        entities: list[EventsNode | ActionsNode | DataWarehouseNode | str],
+        expected_sql: str | list[str] | None,
+    ):
         from posthog.test.base import BaseTest
 
         team = BaseTest().team
 
         result = negative_event_predicates(team, entities)
-
-        if isinstance(expected_expr_count, int):
-            assert len(result) == expected_expr_count
-            # Verify results are ast.Expr instances when we expect expressions
-            if expected_expr_count > 0:
-                assert all(isinstance(expr, ast.Expr) for expr in result)
+        if expected_sql:
+            self._compare_with_snapshot(result, expected_sql)
         else:
-            assert result == expected_expr_count
+            assert result == []
 
     def test_negative_event_predicates_with_datawarehouse_node_raises_error(self):
         team = MagicMock(spec=Team)
@@ -232,10 +236,10 @@ class TestNegativeEventPredicates:
 
         result = negative_event_predicates(team, entities)
 
-        # Should create exactly one expression for the entity that has negative operators
-        assert len(result) == 1
-        # The result should be an ast.Expr (And expression combining all the properties)
-        assert isinstance(result[0], ast.Expr)
+        self._compare_with_snapshot(
+            result,
+            "sql(and(equals(events.properties.url, 'example.com'), or(equals(events.properties.user_id, NULL), not(JSONHas(events.properties, 'user_id'))), notEquals(events.properties.browser, 'safari')))",
+        )
 
     def test_multiple_negative_operators_create_single_expression_per_entity(self):
         from posthog.test.base import BaseTest
@@ -380,7 +384,11 @@ class TestNegativeEventPredicates:
         )
 
     @staticmethod
-    def _compare_with_snapshot(result: list[ast.Expr], expected: str) -> None:
-        assert len(result) == 1
-        expr_sql = str(result[0])
-        assert expr_sql == expected
+    def _compare_with_snapshot(result: list[ast.Expr], expected: list[str] | str) -> None:
+        if isinstance(expected, str):
+            expected = [expected]
+
+        assert len(result) == len(expected)
+        for expr, expected_sql in zip(result, expected):
+            expr_sql = str(expr)
+            assert expr_sql == expected_sql
