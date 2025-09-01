@@ -5,6 +5,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { HogQLQueryString, hogql } from '~/queries/utils'
 import { LogEntryLevel } from '~/types'
@@ -13,6 +14,8 @@ import type { logsViewerLogicType } from './logsViewerLogicType'
 
 export const ALL_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARNING', 'ERROR']
 export const DEFAULT_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARNING', 'ERROR']
+export const POLLING_INTERVAL = 5000
+export const LOG_VIEWER_LIMIT = 10
 
 export type LogsViewerLogicProps = {
     logicKey?: string
@@ -29,8 +32,6 @@ export type LogsViewerFilters = {
     date_from?: string
     date_to?: string
 }
-
-export const LOG_VIEWER_LIMIT = 500
 
 export type LogEntry = {
     message: string
@@ -56,6 +57,15 @@ type LogEntryParams = {
     date_to?: string
     order: 'ASC' | 'DESC'
     groupByInstanceId: boolean
+}
+
+const toKey = (log: LogEntry): string => {
+    return `${log.instanceId}-${log.level}-${log.timestamp.toISOString()}`
+}
+
+const toAbsoluteClickhouseTimestamp = (timestamp: Dayjs): string => {
+    // We need to include milliseconds for accuracy
+    return timestamp.format('YYYY-MM-DD HH:mm:ss.SSS')
 }
 
 const buildBoundaryFilters = (request: LogEntryParams): string => {
@@ -200,7 +210,6 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
     actions({
         setFilters: (filters: Partial<LogsViewerFilters>) => ({ filters }),
         addLogGroups: (logGroups: GroupedLogEntry[]) => ({ logGroups }),
-        setHiddenLogs: (logGroups: GroupedLogEntry[]) => ({ logGroups }),
         clearHiddenLogs: true,
         markLogsEnd: true,
         revealHiddenLogs: true,
@@ -208,6 +217,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         scheduleLoadNewerLogs: true,
         loadLogs: true,
         loadNewerLogs: true,
+        loadOlderLogs: true,
         clearLogs: true,
         loadGroupedLogs: true,
         loadUngroupedLogs: true,
@@ -276,7 +286,20 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     return results
                 },
                 loadMoreUngroupedLogs: async () => {
-                    return await loadLogs(values.logEntryParams)
+                    if (!values.oldestLogTimestamp) {
+                        return values.unGroupedLogs
+                    }
+                    const logParams: LogEntryParams = {
+                        ...values.logEntryParams,
+                        date_to: toAbsoluteClickhouseTimestamp(values.oldestLogTimestamp),
+                    }
+
+                    const results = await loadLogs(logParams)
+
+                    if (!results.length) {
+                        actions.markLogsEnd()
+                    }
+                    return results
                 },
             },
         ],
@@ -301,7 +324,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     }
                     const logParams: LogEntryParams = {
                         ...values.logEntryParams,
-                        date_to: values.oldestLogTimestamp.toISOString(),
+                        date_to: toAbsoluteClickhouseTimestamp(values.oldestLogTimestamp),
                     }
 
                     const results = await loadGroupedLogs(logParams)
@@ -312,13 +335,6 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     return sanitizeGroupedLogs([...results, ...values.groupedLogs])
                 },
 
-                revealHiddenLogs: () => {
-                    // We pull out the hidden log groups and add them to the main logs
-                    const hiddenLogs = [...values.hiddenLogs]
-
-                    actions.clearHiddenLogs()
-                    return sanitizeGroupedLogs([...hiddenLogs, ...values.groupedLogs])
-                },
                 addLogGroups: ({ logGroups }) => {
                     return sanitizeGroupedLogs([...logGroups, ...values.groupedLogs])
                 },
@@ -326,7 +342,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         ],
 
         hiddenLogs: [
-            [] as GroupedLogEntry[],
+            [] as LogEntry[],
             {
                 loadNewerLogs: async (_, breakpoint) => {
                     await breakpoint(10)
@@ -336,46 +352,58 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     if (!values.newestLogTimestamp) {
                         return values.hiddenLogs
                     }
+
                     const logParams: LogEntryParams = {
                         ...values.logEntryParams,
-                        date_from: values.newestLogTimestamp.toISOString(),
+                        date_from: toAbsoluteClickhouseTimestamp(values.newestLogTimestamp),
                         order: 'ASC',
                     }
 
-                    const results = await loadGroupedLogs(logParams)
+                    let newLogs: LogEntry[] = []
 
-                    await breakpoint(10)
+                    if (values.isGrouped) {
+                        const results = await loadGroupedLogs(logParams)
 
-                    const newLogs: GroupedLogEntry[] = []
-                    const existingLogsToUpdate: GroupedLogEntry[] = []
-                    const existingLogIds = values.groupedLogs.map((log) => log.instanceId)
+                        await breakpoint(10)
 
-                    if (values.logsLoading) {
-                        // TRICKY: Something changed whilst we were doing this query - we don't want to mess with things
-                        // so we just exit
-                        return values.hiddenLogs
-                    }
+                        const newLogs: LogEntry[] = []
+                        const existingLogsToUpdate: GroupedLogEntry[] = []
+                        const existingLogIds = values.groupedLogs.map((log) => log.instanceId)
 
-                    for (const log of results) {
-                        if (existingLogIds.includes(log.instanceId)) {
-                            // If we already have this log group showing then we can just update it
-                            existingLogsToUpdate.push(log)
-                        } else {
-                            // Otherwise we add it to the list of hidden logs
-                            newLogs.push(log)
+                        if (values.logsLoading) {
+                            // TRICKY: Something changed whilst we were doing this query - we don't want to mess with things
+                            // so we just exit
+                            return values.hiddenLogs
                         }
-                    }
 
-                    if (existingLogsToUpdate.length) {
-                        // Update the existing logs with the new data
-                        actions.loadGroupedLogsSuccess(
-                            sanitizeGroupedLogs([...existingLogsToUpdate, ...values.groupedLogs])
-                        )
+                        for (const log of results) {
+                            if (existingLogIds.includes(log.instanceId)) {
+                                // If we already have this log group showing then we can just update it
+                                existingLogsToUpdate.push(log)
+                            } else {
+                                // Otherwise we add it to the list of hidden logs
+                                newLogs.push(...log.entries)
+                            }
+                        }
+
+                        if (existingLogsToUpdate.length) {
+                            // Update the existing logs with the new data
+                            actions.loadGroupedLogsSuccess(
+                                sanitizeGroupedLogs([...existingLogsToUpdate, ...values.groupedLogs])
+                            )
+                        }
+                    } else {
+                        const results = await loadLogs(logParams)
+                        await breakpoint(10)
+                        newLogs = results
                     }
 
                     actions.scheduleLoadNewerLogs()
 
-                    return sanitizeGroupedLogs([...newLogs, ...values.hiddenLogs])
+                    // Filter out any duplicates as the time ranges are never perfectly accurate
+                    newLogs = newLogs.filter((log) => !values.allLogEntryKeys.has(toKey(log)))
+
+                    return [...newLogs, ...values.hiddenLogs]
                 },
                 clearHiddenLogs: () => [],
             },
@@ -388,36 +416,6 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                 return groupedLogsLoading || unGroupedLogsLoading
             },
         ],
-        newestLogTimestamp: [
-            (s) => [s.groupedLogs, s.hiddenLogs],
-            (groupedLogs, hiddenLogs): Dayjs | null => {
-                return groupedLogs.concat(hiddenLogs).reduce(
-                    (max, log) => {
-                        if (!max) {
-                            return log.maxTimestamp
-                        }
-                        return log.maxTimestamp.isAfter(max) ? log.maxTimestamp : max
-                    },
-                    null as Dayjs | null
-                )
-            },
-        ],
-
-        oldestLogTimestamp: [
-            (s) => [s.groupedLogs, s.hiddenLogs],
-            (groupedLogs, hiddenLogs): Dayjs | null => {
-                return groupedLogs.concat(hiddenLogs).reduce(
-                    (min, log) => {
-                        if (!min) {
-                            return log.minTimestamp
-                        }
-                        return log.minTimestamp.isBefore(min) ? log.minTimestamp : min
-                    },
-                    null as Dayjs | null
-                )
-            },
-        ],
-
         logEntryParams: [
             (s) => [(_, p) => p, s.filters, s.isGrouped],
             (props, filters, isGrouped): LogEntryParams => {
@@ -434,6 +432,52 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                 }
             },
         ],
+
+        allLogEntries: [
+            (s) => [s.groupedLogs, s.unGroupedLogs, s.hiddenLogs],
+            (groupedLogs, unGroupedLogs, hiddenLogs): LogEntry[] => {
+                return [...groupedLogs.flatMap((log) => log.entries), ...unGroupedLogs, ...hiddenLogs]
+            },
+        ],
+
+        allLogEntryKeys: [
+            (s) => [s.allLogEntries],
+            (allLogEntries): Set<string> => {
+                return new Set(allLogEntries.map(toKey))
+            },
+        ],
+
+        newestLogTimestamp: [
+            (s) => [s.allLogEntries],
+            (allLogEntries): Dayjs | null => {
+                const item = allLogEntries.reduce(
+                    (max, log) => {
+                        if (!max) {
+                            return log.timestamp
+                        }
+                        return log.timestamp.isAfter(max) ? log.timestamp : max
+                    },
+                    null as Dayjs | null
+                )
+
+                return item ? item.tz(teamLogic.findMounted()?.values.currentTeam?.timezone!) : null
+            },
+        ],
+
+        oldestLogTimestamp: [
+            (s) => [s.allLogEntries],
+            (allLogEntries): Dayjs | null => {
+                return allLogEntries.reduce(
+                    (min, log) => {
+                        if (!min) {
+                            return log.timestamp
+                        }
+                        return log.timestamp.isBefore(min) ? log.timestamp : min
+                    },
+                    null as Dayjs | null
+                )
+            },
+        ],
     })),
     propsChanged(({ props, actions }, oldProps) => {
         if (props.groupByInstanceId !== oldProps.groupByInstanceId) {
@@ -442,13 +486,15 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
     }),
     listeners(({ actions, cache, values }) => ({
         loadLogs: () => {
+            clearTimeout(cache.pollingTimeout)
+
             if (values.isGrouped) {
                 actions.loadGroupedLogs()
             } else {
                 actions.loadUngroupedLogs()
             }
         },
-        loadMoreLogs: () => {
+        loadOlderLogs: () => {
             if (values.isGrouped) {
                 actions.loadMoreGroupedLogs()
             } else {
@@ -465,12 +511,26 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         },
         loadGroupedLogsSuccess: () => actions.scheduleLoadNewerLogs(),
         loadUngroupedLogsSuccess: () => actions.scheduleLoadNewerLogs(),
-        clearHiddenLogs: () => {
-            clearTimeout(cache.pollingTimeout)
-        },
         scheduleLoadNewerLogs: () => {
             clearTimeout(cache.pollingTimeout)
-            cache.pollingTimeout = setTimeout(() => actions.loadNewerLogs(), 5000)
+            cache.pollingTimeout = setTimeout(() => actions.loadNewerLogs(), POLLING_INTERVAL)
+        },
+
+        revealHiddenLogs: () => {
+            if (!values.hiddenLogs.length) {
+                return
+            }
+
+            // TODO: Add the logs to the right reducer
+            if (values.isGrouped) {
+                // TODO
+            } else {
+                actions.loadMoreUngroupedLogsSuccess(
+                    [...values.unGroupedLogs, ...values.hiddenLogs].sort((a, b) => b.timestamp.diff(a.timestamp))
+                )
+            }
+
+            actions.clearHiddenLogs()
         },
     })),
     events(({ actions, cache }) => ({

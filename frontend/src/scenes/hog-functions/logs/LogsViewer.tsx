@@ -78,7 +78,7 @@ export function LogsViewer({
         filters,
         isGrouped,
     } = useValues(logic)
-    const { revealHiddenLogs, loadMoreLogs, setFilters, setRowExpanded, setIsGrouped } = useActions(logic)
+    const { revealHiddenLogs, loadOlderLogs, setFilters, setRowExpanded, setIsGrouped } = useActions(logic)
 
     const logColumns: LemonTableColumn<LogEntry, keyof LogEntry | undefined>[] = [
         {
@@ -92,6 +92,26 @@ export function LogsViewer({
             key: 'level',
             dataIndex: 'level',
             render: (_, { level }) => <LemonTag type={tagTypeForLevel(level)}>{level.toUpperCase()}</LemonTag>,
+        },
+        {
+            width: 0,
+            title: instanceLabel,
+            dataIndex: 'instanceId',
+            key: 'instanceId',
+            render: (_, { instanceId }) => (
+                <code className="whitespace-nowrap">
+                    <CopyToClipboardInline explicitValue={instanceId} selectable>
+                        <Link
+                            className="font-semibold"
+                            subtle
+                            onClick={() => setRowExpanded(instanceId, !expandedRows[instanceId])}
+                            title={instanceId}
+                        >
+                            {shortInstanceId(instanceId)}
+                        </Link>
+                    </CopyToClipboardInline>
+                </code>
+            ),
         },
         {
             title: 'Message',
@@ -178,7 +198,7 @@ export function LogsViewer({
 
     const footer = (
         <LemonButton
-            onClick={loadMoreLogs}
+            onClick={loadOlderLogs}
             loading={logsLoading}
             fullWidth
             center
