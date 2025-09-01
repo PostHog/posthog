@@ -6,6 +6,7 @@ use tracing::info;
 
 use crate::deduplication_processor::DeduplicationProcessor;
 use crate::kafka::rebalance_handler::RebalanceHandler;
+use crate::kafka::types::Partition;
 
 /// Rebalance handler that coordinates with DeduplicationProcessor
 /// This handler cleans up stores for revoked partitions
@@ -33,10 +34,10 @@ impl RebalanceHandler for ProcessorRebalanceHandler {
         info!("Partitions revoked: {} partitions", partitions.count());
 
         // Extract partition info for cleanup
-        let partition_infos: Vec<(String, i32)> = partitions
+        let partition_infos: Vec<Partition> = partitions
             .elements()
             .into_iter()
-            .map(|elem| (elem.topic().to_string(), elem.partition()))
+            .map(Partition::from)
             .collect();
 
         // Clean up stores for revoked partitions
@@ -84,6 +85,7 @@ mod tests {
             producer_config,
             store_config,
             producer_send_timeout: Duration::from_secs(5),
+            flush_interval: Duration::from_secs(120),
         };
 
         (config, temp_dir)

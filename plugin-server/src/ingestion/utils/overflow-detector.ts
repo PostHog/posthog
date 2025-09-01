@@ -1,19 +1,31 @@
 type Bucket = [tokens: number, lastReplenishedTimestamp: number]
 
+// Max entries in a javascript Map is 2^24 or 16777216
+const DEFAULT_MAX_BUCKETS = 10000000
+
 export class MemoryRateLimiter {
     public buckets: Map<string, Bucket>
     public replenishRate: number
     public bucketCapacity: number
+    public maxBuckets: number
 
-    constructor(bucketCapacity: number, replenishRate: number) {
+    constructor(bucketCapacity: number, replenishRate: number, maxBuckets: number = DEFAULT_MAX_BUCKETS) {
         this.buckets = new Map()
         this.bucketCapacity = bucketCapacity
         this.replenishRate = replenishRate
+        this.maxBuckets = maxBuckets
     }
 
     private getBucket(key: string): Bucket {
         let bucket = this.buckets.get(key)
         if (bucket === undefined) {
+            // If we're at capacity, just remove the first key (oldest insertion)
+            if (this.buckets.size >= this.maxBuckets) {
+                const firstKey = this.buckets.keys().next().value
+                if (firstKey) {
+                    this.buckets.delete(firstKey)
+                }
+            }
             bucket = [this.bucketCapacity, Date.now()]
             this.buckets.set(key, bucket)
         }

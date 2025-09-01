@@ -28,19 +28,23 @@ import {
 
 export function FunnelsMetricForm({ isSecondary = false }: { isSecondary?: boolean }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { experiment, isExperimentRunning, editingPrimaryMetricIndex, editingSecondaryMetricIndex } =
+    const { experiment, isExperimentRunning, editingPrimaryMetricUuid, editingSecondaryMetricUuid } =
         useValues(experimentLogic)
     const { setFunnelsMetric } = useActions(experimentLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
 
     const metrics = isSecondary ? experiment.metrics_secondary : experiment.metrics
-    const metricIdx = isSecondary ? editingSecondaryMetricIndex : editingPrimaryMetricIndex
+    const metricUuid = isSecondary ? editingSecondaryMetricUuid : editingPrimaryMetricUuid
 
-    if (!metricIdx && metricIdx !== 0) {
+    if (!metricUuid) {
         return <></>
     }
 
-    const currentMetric = metrics[metricIdx] as ExperimentFunnelsQuery
+    const currentMetric = metrics.find((m) => m.uuid === metricUuid) as ExperimentFunnelsQuery
+
+    if (!currentMetric) {
+        return <></>
+    }
 
     const actionFilterProps = {
         ...commonActionFilterProps,
@@ -54,8 +58,11 @@ export function FunnelsMetricForm({ isSecondary = false }: { isSecondary?: boole
                 <LemonInput
                     value={currentMetric.name}
                     onChange={(newName) => {
+                        if (!currentMetric.uuid) {
+                            return
+                        }
                         setFunnelsMetric({
-                            metricIdx,
+                            uuid: currentMetric.uuid,
                             name: newName,
                             isSecondary,
                         })
@@ -72,8 +79,11 @@ export function FunnelsMetricForm({ isSecondary = false }: { isSecondary?: boole
                         MathAvailability.None
                     )
 
+                    if (!currentMetric.uuid) {
+                        return
+                    }
                     setFunnelsMetric({
-                        metricIdx,
+                        uuid: currentMetric.uuid,
                         series,
                         isSecondary,
                     })
@@ -94,8 +104,11 @@ export function FunnelsMetricForm({ isSecondary = false }: { isSecondary?: boole
                         currentMetric.funnels_query.funnelsFilter?.funnelAggregateByHogQL ?? undefined
                     )}
                     onChange={(value) => {
+                        if (!currentMetric.uuid) {
+                            return
+                        }
                         setFunnelsMetric({
-                            metricIdx,
+                            uuid: currentMetric.uuid,
                             funnelAggregateByHogQL: value,
                             isSecondary,
                         })
@@ -105,15 +118,21 @@ export function FunnelsMetricForm({ isSecondary = false }: { isSecondary?: boole
                     funnelWindowInterval={currentMetric.funnels_query?.funnelsFilter?.funnelWindowInterval}
                     funnelWindowIntervalUnit={currentMetric.funnels_query?.funnelsFilter?.funnelWindowIntervalUnit}
                     onFunnelWindowIntervalChange={(funnelWindowInterval) => {
+                        if (!currentMetric.uuid) {
+                            return
+                        }
                         setFunnelsMetric({
-                            metricIdx,
+                            uuid: currentMetric.uuid,
                             funnelWindowInterval: funnelWindowInterval,
                             isSecondary,
                         })
                     }}
                     onFunnelWindowIntervalUnitChange={(funnelWindowIntervalUnit) => {
+                        if (!currentMetric.uuid) {
+                            return
+                        }
                         setFunnelsMetric({
-                            metricIdx,
+                            uuid: currentMetric.uuid,
                             funnelWindowIntervalUnit: funnelWindowIntervalUnit || undefined,
                             isSecondary,
                         })
@@ -136,9 +155,12 @@ export function FunnelsMetricForm({ isSecondary = false }: { isSecondary?: boole
                         return currentValue
                     })()}
                     onChange={(value) => {
+                        if (!currentMetric.uuid) {
+                            return
+                        }
                         const [breakdownAttributionType, breakdownAttributionValue] = (value || '').split('/')
                         setFunnelsMetric({
-                            metricIdx,
+                            uuid: currentMetric.uuid,
                             breakdownAttributionType: breakdownAttributionType as BreakdownAttributionType,
                             breakdownAttributionValue: breakdownAttributionValue
                                 ? parseInt(breakdownAttributionValue)
@@ -154,8 +176,11 @@ export function FunnelsMetricForm({ isSecondary = false }: { isSecondary?: boole
                         return hasFilters ? !!val : false
                     })()}
                     onChange={(checked: boolean) => {
+                        if (!currentMetric.uuid) {
+                            return
+                        }
                         setFunnelsMetric({
-                            metricIdx,
+                            uuid: currentMetric.uuid,
                             filterTestAccounts: checked,
                             isSecondary,
                         })

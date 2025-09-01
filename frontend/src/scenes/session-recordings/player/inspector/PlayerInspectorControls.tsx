@@ -326,6 +326,7 @@ export function PlayerInspectorControls(): JSX.Element {
                     <LemonInput
                         data-attr="player-inspector-search-input"
                         size="xsmall"
+                        autoFocus={true}
                         onChange={(e) => setSearchQuery(e)}
                         placeholder="Search..."
                         type="search"

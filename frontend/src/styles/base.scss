@@ -1223,27 +1223,6 @@
         }
     }
 
-    .page-title-row {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.5rem 1rem;
-        align-items: center;
-        min-height: 2.5rem;
-        margin: 1rem 0 0.25rem;
-
-        @include screen($md) {
-            flex-wrap: nowrap;
-        }
-    }
-
-    .page-title {
-        min-width: 0;
-        margin: 0;
-        font-size: 28px;
-        font-weight: 600;
-        line-height: 34px;
-    }
-
     .page-caption {
         max-width: 48rem;
         margin-bottom: 1rem;

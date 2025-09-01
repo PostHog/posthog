@@ -28,7 +28,7 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
     cached_response: CachedWebOverviewQueryResponse
     preaggregated_query_builder: WebOverviewPreAggregatedQueryBuilder
 
-    def __init__(self, *args, use_v2_tables: bool = False, **kwargs):
+    def __init__(self, *args, use_v2_tables: bool = True, **kwargs):
         super().__init__(*args, **kwargs)
         self.use_v2_tables = use_v2_tables
         self.preaggregated_query_builder = WebOverviewPreAggregatedQueryBuilder(self)
