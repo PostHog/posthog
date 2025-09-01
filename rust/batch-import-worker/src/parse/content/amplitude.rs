@@ -362,6 +362,7 @@ impl AmplitudeEvent {
                                     user_id,
                                     device_id,
                                     identify_uuid,
+                                    timestamp,
                                 )?;
 
                                 events.push(identify_event);
@@ -852,6 +853,9 @@ mod tests {
         );
         assert_eq!(identify_data["properties"]["historical_migration"], true);
         assert_eq!(identify_data["properties"]["analytics_source"], "amplitude");
+
+        // Verify identify event uses the same timestamp as the original event
+        assert_eq!(identify_data["timestamp"], "2023-10-15T14:30:00+00:00");
 
         // Second event should be original event
         let original_event = &result[1];
