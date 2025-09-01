@@ -140,7 +140,8 @@ where
 
     // add new "scoped" quota limiters here as new quota tracking buckets are added
     // to PostHog! Here a "scoped" limiter is one that should be INDEPENDENT of the
-    // global billing limiter applied here to every event batch
+    // global billing limiter applied here to every event batch. You must supply the
+    // QuotaResource type and a predicate function that will match events to be limited
     let quota_limiter =
         CaptureQuotaLimiter::new(&config, redis_client.clone(), Duration::from_secs(5))
             .add_scoped_limiter(

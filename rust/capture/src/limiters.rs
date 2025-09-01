@@ -46,24 +46,6 @@ where
             event_matcher,
         }
     }
-
-    #[allow(dead_code)]
-    async fn is_limited(&self, token: &str) -> bool {
-        self.limiter.is_limited(token).await
-    }
-
-    // partition indices in the event map instead of cloning/copying events
-    #[allow(dead_code)]
-    async fn partition_event_indices(
-        &self,
-        indices_to_events: &HashMap<usize, RawEvent>,
-        indices: &[usize],
-    ) -> (Vec<usize>, Vec<usize>) {
-        indices.iter().partition(|&i| {
-            let e: &RawEvent = indices_to_events.get(i).unwrap();
-            (self.event_matcher)(e)
-        })
-    }
 }
 
 #[async_trait::async_trait]
@@ -252,4 +234,20 @@ impl CaptureQuotaLimiter {
             CaptureMode::Recordings => QuotaResource::Recordings,
         }
     }
+}
+
+// Add these predicate functions at the module level
+pub fn is_exception_event(event: &RawEvent) -> bool {
+    event.event.as_str() == "$exception"
+}
+
+pub fn is_survey_event(event: &RawEvent) -> bool {
+    matches!(
+        event.event.as_str(),
+        "survey sent" | "survey shown" | "survey dismissed"
+    )
+}
+
+pub fn is_llm_event(event: &RawEvent) -> bool {
+    event.event.starts_with("$ai_")
 }
