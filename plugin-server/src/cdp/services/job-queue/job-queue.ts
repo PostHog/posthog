@@ -191,6 +191,15 @@ export class CyclotronJobQueue {
             return 'postgres'
         }
 
+        if (
+            invocation.queueScheduledAt &&
+            invocation.queueScheduledAt > DateTime.now().plus({ milliseconds: JOB_SCHEDULED_AT_FUTURE_THRESHOLD_MS }) &&
+            invocation.state
+        ) {
+            invocation.state.returnTopic = invocation.queue
+            invocation.queue = getDelayQueue(invocation.queueScheduledAt)
+        }
+
         const teamId = invocation.teamId
         const mapping = this.producerTeamMapping[teamId] ?? this.producerMapping
         const producerConfig = mapping[invocation.queue] ?? mapping['*']
