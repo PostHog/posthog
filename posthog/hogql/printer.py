@@ -451,12 +451,10 @@ class _Printer(Visitor[str]):
         comma = f",\n{self.indent(1)}" if self.pretty else ", "
 
         # Build WITH clause if CTEs exist
-        with_clause = None
         clauses = []
         if node.ctes and self.context.readable_print:
             cte_strings = [self.visit(cte) for cte in node.ctes.values()]
-            with_clause = f"WITH{space}{comma.join(cte_strings)}"
-            clauses.append(with_clause)
+            clauses.append(f"WITH{space}{comma.join(cte_strings)}")
 
         clauses = [
             *clauses,
