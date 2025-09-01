@@ -32,7 +32,7 @@ from products.llm_analytics.backend.api import LLMProxyViewSet
 from products.messaging.backend.api import MessageCategoryViewSet, MessagePreferencesViewSet, MessageTemplatesViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
 
-from ee.api.vercel import vercel_installation, vercel_product
+from ee.api.vercel import vercel_installation, vercel_product, vercel_resource
 
 from ..heatmaps.heatmaps_api import HeatmapViewSet, LegacyHeatmapViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
@@ -546,10 +546,16 @@ if EE_AVAILABLE:
         r"persons", EnterprisePersonViewSet, "environment_persons", ["team_id"]
     )
     router.register(r"person", LegacyEnterprisePersonViewSet, "persons")
-    router.register(
+    vercel_installations_router = router.register(
         r"vercel/v1/installations",
         vercel_installation.VercelInstallationViewSet,
         "vercel_installations",
+    )
+    vercel_installations_router.register(
+        r"resources",
+        vercel_resource.VercelResourceViewSet,
+        "vercel_installation_resources",
+        ["installation_id"],
     )
     router.register(
         r"vercel/v1/products",

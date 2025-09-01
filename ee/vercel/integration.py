@@ -8,8 +8,11 @@ from rest_framework import exceptions
 
 from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
+from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
+from posthog.models.product_intent import ProductIntent
+from posthog.models.team import Team
 from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
@@ -24,6 +27,13 @@ class VercelIntegration:
             )
         except OrganizationIntegration.DoesNotExist:
             raise exceptions.NotFound("Installation not found")
+
+    @staticmethod
+    def _get_resource(resource_id: str) -> Integration:
+        try:
+            return Integration.objects.get(pk=resource_id, kind=Integration.IntegrationKind.VERCEL)
+        except Integration.DoesNotExist:
+            raise exceptions.NotFound("Resource not found")
 
     @staticmethod
     def get_vercel_plans() -> list[dict[str, Any]]:
@@ -197,3 +207,107 @@ class VercelIntegration:
             raise exceptions.NotFound("Product not found")
 
         return {"plans": VercelIntegration.get_vercel_plans()}
+
+    @staticmethod
+    def create_resource(installation_id: str, resource_data: dict[str, Any]) -> dict[str, Any]:
+        logger.info(
+            "Starting Vercel resource creation",
+            installation_id=installation_id,
+            resource_name=resource_data.get("name"),
+        )
+        installation = VercelIntegration._get_installation(installation_id)
+        organization: Organization = installation.organization
+
+        team = Team.objects.create_with_data(
+            initiating_user=None,
+            organization=organization,
+            name=resource_data["name"],
+            has_completed_onboarding_for={
+                "product_analytics": True
+            },  # Mark one product as onboarded to show quick start sidebar
+        )
+
+        ProductIntent.objects.create(
+            team=team,
+            product_type="feature_flags",
+            contexts={"vercel integration": 1},
+        )
+
+        ProductIntent.objects.create(
+            team=team,
+            product_type="experiments",
+            contexts={"vercel integration": 1},
+        )
+
+        resource = Integration.objects.create(
+            team=team,
+            kind=Integration.IntegrationKind.VERCEL,
+            integration_id=str(team.pk),
+            config=resource_data,
+            created_by=installation.created_by,
+        )
+
+        logger.info(
+            "Successfully created Vercel resource",
+            installation_id=installation_id,
+            resource_id=resource.pk,
+            team_id=team.pk,
+        )
+
+        return VercelIntegration._build_resource_response(resource, installation)
+
+    @staticmethod
+    def get_resource(resource_id: str, installation_id: str) -> dict[str, Any]:
+        resource = VercelIntegration._get_resource(resource_id)
+        installation = VercelIntegration._get_installation(installation_id)
+        return VercelIntegration._build_resource_response(resource, installation)
+
+    @staticmethod
+    def update_resource(resource_id: str, installation_id: str, resource_data: dict[str, Any]) -> dict[str, Any]:
+        logger.info("Starting Vercel resource update", resource_id=resource_id, installation_id=installation_id)
+        resource = VercelIntegration._get_resource(resource_id)
+        installation = VercelIntegration._get_installation(installation_id)
+
+        updated_config = resource.config.copy()
+        updated_config.update(resource_data)
+        resource.config = updated_config
+        resource.save(update_fields=["config"])
+
+        logger.info("Successfully updated Vercel resource", resource_id=resource_id)
+        return VercelIntegration._build_resource_response(resource, installation)
+
+    @staticmethod
+    def delete_resource(resource_id: str) -> None:
+        logger.info("Starting Vercel resource deletion", resource_id=resource_id)
+        resource = VercelIntegration._get_resource(resource_id)
+        resource.delete()
+        logger.info("Successfully deleted Vercel resource", resource_id=resource_id)
+
+    @staticmethod
+    def _build_resource_response(resource: Integration, installation: OrganizationIntegration) -> dict[str, Any]:
+        billing_plans = VercelIntegration.get_vercel_plans()
+        current_plan_id = installation.config.get("billing_plan_id", "free")
+        current_plan = next((plan for plan in billing_plans if plan["id"] == current_plan_id), None)
+
+        return {
+            "id": str(resource.pk),
+            "productId": resource.config.get("productId", ""),
+            "name": resource.config.get("name", resource.team.name),
+            "metadata": resource.config.get("metadata", {}),
+            "status": "ready",
+            "secrets": VercelIntegration._build_secrets(resource.team),
+            "billingPlan": current_plan,
+        }
+
+    @staticmethod
+    def _build_secrets(team: Team) -> list[dict[str, str]]:
+        return [
+            {
+                "name": "POSTHOG_PROJECT_API_KEY",
+                "value": team.api_token,
+            },
+            {
+                "name": "POSTHOG_HOST",
+                "value": "https://us.posthog.com",
+            },
+        ]

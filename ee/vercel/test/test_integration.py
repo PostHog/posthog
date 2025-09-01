@@ -7,8 +7,10 @@ from django.test import TestCase
 
 from rest_framework.exceptions import NotFound, ValidationError
 
+from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
+from posthog.models.team import Team
 from posthog.models.user import User
 
 from ee.vercel.integration import VercelIntegration
@@ -186,3 +188,110 @@ class TestVercelIntegration(TestCase):
 
         new_user = User.objects.get(email=payload_without_name["account"]["contact"]["email"])
         assert new_user.first_name == ""
+
+    def test_get_resource_exists(self):
+        team = Team.objects.create(organization=self.organization, name="Test Team")
+        resource = Integration.objects.create(
+            team=team,
+            kind=Integration.IntegrationKind.VERCEL,
+            integration_id=str(team.pk),
+            config={"productId": "posthog", "name": "Test Resource"},
+            created_by=self.user,
+        )
+
+        result = VercelIntegration._get_resource(str(resource.pk))
+        assert result.pk == resource.pk
+        assert result.team == team
+
+    def test_get_resource_not_found(self):
+        with self.assertRaises(NotFound):
+            VercelIntegration._get_resource("123123")
+
+    def test_create_resource(self):
+        resource_data = {
+            "productId": "posthog",
+            "name": "New Resource",
+            "metadata": {"key": "value"},
+            "billingPlanId": "free",
+        }
+
+        result = VercelIntegration.create_resource(self.installation_id, resource_data)
+
+        assert "id" in result
+        assert result["productId"] == "posthog"
+        assert result["name"] == "New Resource"
+        assert result["metadata"] == {"key": "value"}
+        assert result["status"] == "ready"
+        assert "secrets" in result
+        assert "billingPlan" in result
+
+        resource = Integration.objects.get(pk=result["id"])
+        assert resource.config == resource_data
+
+    def test_get_resource_with_installation(self):
+        team = Team.objects.create(organization=self.organization, name="Test Team")
+        resource = Integration.objects.create(
+            team=team,
+            kind=Integration.IntegrationKind.VERCEL,
+            integration_id=str(team.pk),
+            config={"productId": "posthog", "name": "Test Resource", "metadata": {}},
+            created_by=self.user,
+        )
+
+        result = VercelIntegration.get_resource(str(resource.pk), self.installation_id)
+
+        assert result["id"] == str(resource.pk)
+        assert result["productId"] == "posthog"
+        assert result["name"] == "Test Resource"
+        assert result["status"] == "ready"
+        assert "secrets" in result
+        assert "billingPlan" in result
+
+    def test_update_resource(self):
+        team = Team.objects.create(organization=self.organization, name="Test Team")
+        resource = Integration.objects.create(
+            team=team,
+            kind=Integration.IntegrationKind.VERCEL,
+            integration_id=str(team.pk),
+            config={"productId": "posthog", "name": "Original Name", "metadata": {"old": "value"}},
+            created_by=self.user,
+        )
+
+        update_data = {"name": "Updated Name", "metadata": {"new": "value"}}
+        result = VercelIntegration.update_resource(str(resource.pk), self.installation_id, update_data)
+
+        resource.refresh_from_db()
+        assert resource.config["name"] == "Updated Name"
+        assert resource.config["metadata"] == {"new": "value"}
+        assert resource.config["productId"] == "posthog"
+        assert result["name"] == "Updated Name"
+        assert result["metadata"] == {"new": "value"}
+
+    def test_delete_resource(self):
+        team = Team.objects.create(organization=self.organization, name="Test Team")
+        resource = Integration.objects.create(
+            team=team,
+            kind=Integration.IntegrationKind.VERCEL,
+            integration_id=str(team.pk),
+            config={"productId": "posthog", "name": "Test Resource"},
+            created_by=self.user,
+        )
+        resource_id = str(resource.pk)
+        VercelIntegration.delete_resource(resource_id)
+        assert not Integration.objects.filter(pk=resource_id).exists()
+
+    def test_delete_resource_not_found(self):
+        with self.assertRaises(NotFound):
+            VercelIntegration.delete_resource("999999")
+
+    def test_build_secrets(self):
+        team = Team.objects.create(organization=self.organization, name="Test Team", api_token="test_api_token")
+        secrets = VercelIntegration._build_secrets(team)
+
+        assert len(secrets) == 2
+        assert secrets[0]["name"] == "POSTHOG_PROJECT_API_KEY"
+        assert secrets[0]["value"] == "test_api_token"
+        assert secrets[1]["name"] == "POSTHOG_HOST"
+        assert (
+            secrets[1]["value"] == "https://us.posthog.com"
+        )  # TODO: Make region dependent when we have region support
