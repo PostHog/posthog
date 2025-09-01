@@ -2,7 +2,8 @@ import { useValues } from 'kea'
 
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
-import { humanTzOffset } from 'lib/utils'
+import { dayjs } from 'lib/dayjs'
+import { timeZoneLabel } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -25,6 +26,7 @@ export function TrendsCalendarHeatMap(_props: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { processedData, rowLabels, columnLabels } = useValues(calendarHeatMapLogic(insightProps))
     const { timezone } = useValues(teamLogic)
+    const offset = dayjs().tz(timezone).utcOffset() / 60
 
     return (
         <>
@@ -52,10 +54,7 @@ export function TrendsCalendarHeatMap(_props: ChartParams): JSX.Element {
                 showRowAggregations={true}
             />
             <div className="flex items-center justify-center gap-2 text-muted text-xs mt-2">
-                <span>
-                    Data shown in timezone: {timezone.replace(/\//g, ' / ').replace(/_/g, ' ')} (
-                    {humanTzOffset(timezone)})
-                </span>
+                <span>Data shown in timezone: {timeZoneLabel(timezone, offset)}</span>
                 <LemonButton
                     size="xsmall"
                     type="tertiary"
