@@ -1375,8 +1375,10 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             destination_default_fields=snowflake_default_fields(),
         )
 
-        # Use stage consumer for specific team IDs, otherwise use the original activity
-        if str(inputs.team_id) in settings.BATCH_EXPORT_SNOWFLAKE_USE_STAGE_TEAM_IDS:
+        if (
+            str(inputs.team_id) in settings.BATCH_EXPORT_SNOWFLAKE_USE_STAGE_TEAM_IDS
+            or inputs.team_id % 100 < settings.BATCH_EXPORT_SNOWFLAKE_USE_INTERNAL_STAGE_ROLLOUT_PERCENTAGE
+        ):
             await execute_batch_export_using_internal_stage(
                 insert_into_snowflake_activity_from_stage,
                 insert_inputs,

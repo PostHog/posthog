@@ -1165,16 +1165,19 @@ def cache_requested_by_client(request: Request) -> bool | str:
 
 
 def filters_override_requested_by_client(request: Request, dashboard: Optional["Dashboard"]) -> dict:
-    raw_filters_override_param = request.query_params.get("filters_override")
+    from posthog.auth import SharingAccessTokenAuthentication
 
-    request_filters = {}
     dashboard_filters = dashboard.filters if dashboard else {}
+    raw_override = request.query_params.get("filters_override")
 
-    if raw_filters_override_param is not None:
-        try:
-            request_filters = json.loads(raw_filters_override_param)
-        except Exception:
-            raise serializers.ValidationError({"filters_override": "Invalid JSON passed in filters_override parameter"})
+    # Security: Don't allow overrides when accessing via sharing tokens
+    if not raw_override or isinstance(request.successful_authenticator, SharingAccessTokenAuthentication):
+        return dashboard_filters
+
+    try:
+        request_filters = json.loads(raw_override)
+    except Exception:
+        raise serializers.ValidationError({"filters_override": "Invalid JSON passed in filters_override parameter"})
 
     return {**dashboard_filters, **request_filters}
 
@@ -1183,19 +1186,19 @@ def variables_override_requested_by_client(
     request: Optional[Request], dashboard: Optional["Dashboard"], variables: list["InsightVariable"]
 ) -> Optional[dict[str, dict]]:
     from posthog.api.insight_variable import map_stale_to_latest
+    from posthog.auth import SharingAccessTokenAuthentication
 
-    raw_variables_override_param = request.query_params.get("variables_override") if request else None
+    dashboard_variables = (dashboard and dashboard.variables) or {}
+    raw_override = request.query_params.get("variables_override") if request else None
 
-    request_variables = {}
-    dashboard_variables = dashboard.variables if dashboard else {}
+    # Security: Don't allow overrides when accessing via sharing tokens
+    if not raw_override or (request and isinstance(request.successful_authenticator, SharingAccessTokenAuthentication)):
+        return map_stale_to_latest(dashboard_variables, variables)
 
-    if raw_variables_override_param is not None:
-        try:
-            request_variables = json.loads(raw_variables_override_param)
-        except Exception:
-            raise serializers.ValidationError(
-                {"variables_override": "Invalid JSON passed in variables_override parameter"}
-            )
+    try:
+        request_variables = json.loads(raw_override)
+    except Exception:
+        raise serializers.ValidationError({"variables_override": "Invalid JSON passed in variables_override parameter"})
 
     return map_stale_to_latest({**dashboard_variables, **request_variables}, variables)
 

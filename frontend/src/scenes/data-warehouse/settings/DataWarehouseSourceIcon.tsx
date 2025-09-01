@@ -103,6 +103,7 @@ export const DATA_WAREHOUSE_SOURCE_ICON_MAP: Record<string, string> = {
     MongoDB: IconMongodb,
     TemporalIO: IconTemporalIO,
     DoIt: IconDoIt,
+    LinkedinAds: IconLinkedIn,
 }
 
 export function DataWarehouseSourceIcon({

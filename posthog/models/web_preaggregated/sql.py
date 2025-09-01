@@ -290,12 +290,13 @@ def get_mat_custom_fields_expressions() -> dict[str, str]:
     if is_eu_cluster():
         return {
             "mat_metadata_loggedIn_expr": "mat_metadata_loggedIn",
-            "mat_metadata_loggedIn_inner_expr": "any(e.mat_metadata_loggedIn) AS mat_metadata_loggedIn",
+            "mat_metadata_loggedIn_inner_expr": "any(IF(e.mat_metadata_loggedIn IS NULL, NULL, e.mat_metadata_loggedIn = 'true')) AS mat_metadata_loggedIn",
             "mat_metadata_backend_expr": "mat_metadata_backend",
             "mat_metadata_backend_inner_expr": "any(e.mat_metadata_backend) AS mat_metadata_backend",
             "mat_custom_fields_group_by": "mat_metadata_loggedIn, mat_metadata_backend",
         }
     else:
+        # Those are no-ops to keep the same query structure on US
         return {
             "mat_metadata_loggedIn_expr": "mat_metadata_loggedIn",
             "mat_metadata_loggedIn_inner_expr": "CAST(NULL AS Nullable(Bool)) AS mat_metadata_loggedIn",
@@ -331,11 +332,6 @@ def get_all_filters(
         "date_end": date_end,
         **date_filters,
         **mat_custom_fields_expressions,
-        "mat_custom_fields_inner_group_by_placeholder": (
-            f",\n            {mat_custom_fields_expressions['mat_custom_fields_group_by']}"
-            if mat_custom_fields_expressions["mat_custom_fields_group_by"]
-            else ""
-        ),
         "mat_custom_fields_outer_group_by_placeholder": (
             f",\n        {mat_custom_fields_expressions['mat_custom_fields_group_by']}"
             if mat_custom_fields_expressions["mat_custom_fields_group_by"]
@@ -489,7 +485,7 @@ def WEB_STATS_INSERT_SQL(
             region_name,
             has_gclid,
             has_gad_source_paid_search,
-            has_fbclid{mat_custom_fields_inner_group_by_placeholder}
+            has_fbclid
         {settings_clause}
     )
     WHERE
@@ -666,7 +662,7 @@ def WEB_BOUNCES_INSERT_SQL(
             AND toTimeZone(e.timestamp, '{timezone}') < {event_end_filter}
         GROUP BY
             session_id,
-            team_id{mat_custom_fields_inner_group_by_placeholder}
+            team_id
     )
     WHERE
         period_bucket >= {target_period_start}

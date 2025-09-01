@@ -12,7 +12,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
-from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
@@ -32,7 +31,7 @@ from posthog.warehouse.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class LinkedinAdsSource(BaseSource[LinkedinAdsSourceConfig], OAuthMixin):
+class LinkedinAdsSource(BaseSource[LinkedinAdsSourceConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.LINKEDINADS
@@ -66,7 +65,6 @@ class LinkedinAdsSource(BaseSource[LinkedinAdsSourceConfig], OAuthMixin):
 
     def validate_credentials(self, config: LinkedinAdsSourceConfig, team_id: int) -> tuple[bool, str | None]:
         try:
-
             # Validate config structure
             if not config.account_id:
                 return False, "Account ID is required"
@@ -81,7 +79,10 @@ class LinkedinAdsSource(BaseSource[LinkedinAdsSourceConfig], OAuthMixin):
             try:
                 integration = Integration.objects.get(id=config.linkedin_ads_integration_id, team_id=team_id)
             except Integration.DoesNotExist:
-                return False, "LinkedIn Ads integration not found. Please re-authenticate or check your integration setup."
+                return (
+                    False,
+                    "LinkedIn Ads integration not found. Please re-authenticate or check your integration setup.",
+                )
 
             if not integration.access_token:
                 return False, "LinkedIn Ads access token not found. Please re-authenticate."
@@ -106,10 +107,13 @@ class LinkedinAdsSource(BaseSource[LinkedinAdsSourceConfig], OAuthMixin):
             accounts = client.get_accounts()
 
             # Verify the specified account exists
-            account_ids = [str(acc.get('id')) for acc in accounts if acc.get('id')]
+            account_ids = [str(acc.get("id")) for acc in accounts if acc.get("id")]
             if config.account_id not in account_ids:
                 available_accounts = account_ids[:5]  # Show first 5 for debugging
-                return False, f"Account ID '{config.account_id}' not found in accessible accounts. Available: {available_accounts}"
+                return (
+                    False,
+                    f"Account ID '{config.account_id}' not found in accessible accounts. Available: {available_accounts}",
+                )
 
             return True, None
 

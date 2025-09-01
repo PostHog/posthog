@@ -47,7 +47,6 @@ class ExternalDataSourceType(models.TextChoices):
     BIGQUERY = "BigQuery", "BigQuery"
     CHARGEBEE = "Chargebee", "Chargebee"
     GOOGLEADS = "GoogleAds", "GoogleAds"
-    LINKEDINADS = "LinkedinAds", "LinkedinAds"
     TEMPORALIO = "TemporalIO", "TemporalIO"
     DOIT = "DoIt", "DoIt"
     GOOGLESHEETS = "GoogleSheets", "GoogleSheets"
@@ -59,3 +58,4 @@ class ExternalDataSourceType(models.TextChoices):
     REDSHIFT = "Redshift", "Redshift"
     POLAR = "Polar", "Polar"
     REVENUECAT = "RevenueCat", "RevenueCat"
+    LINKEDINADS = "LinkedinAds", "LinkedinAds"
