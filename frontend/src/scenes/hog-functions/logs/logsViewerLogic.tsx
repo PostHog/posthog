@@ -364,7 +364,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                         await breakpoint(10)
 
                         const newLogs: LogEntry[] = []
-                        const existingLogsToUpdate: GroupedLogEntry[] = []
+                        const newLogsToImmediateAdd: LogEntry[] = []
                         const existingLogIds = values.groupedLogs.map((log) => log.instanceId)
 
                         if (values.logsLoading) {
@@ -376,10 +376,10 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                         for (const log of results) {
                             if (existingLogIds.includes(log.instanceId)) {
                                 // If we already have this log group showing then we can just update it
-                                existingLogsToUpdate.push(log)
+                                newLogsToImmediateAdd.push(log)
                             } else {
                                 // Otherwise we add it to the list of hidden logs
-                                newLogs.push(...log.entries)
+                                newLogs.push(log)
                             }
                         }
 
