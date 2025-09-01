@@ -3,13 +3,15 @@ import { router } from 'kea-router'
 
 import { IconBook, IconCompass, IconGraph, IconRewindPlay } from '@posthog/icons'
 
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { routes } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
+import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { AssistantNavigateUrls } from '~/queries/schema/schema-assistant-messages'
 import { SidePanelTab } from '~/types'
 
@@ -81,6 +83,8 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             ['sceneId', 'sceneConfig'],
             featureFlagLogic,
             ['featureFlags'],
+            lemonBannerLogic({ dismissKey: FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG_ACKED }),
+            ['isDismissed as isFloatingMaxDismissed'],
         ],
         actions: [router, ['locationChanged']],
     })),
@@ -88,6 +92,8 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         acceptDataProcessing: (testOnlyOverride?: boolean) => ({ testOnlyOverride }),
         registerTool: (tool: ToolRegistration) => ({ tool }),
         deregisterTool: (key: string) => ({ key }),
+        setFloatingMaxPosition: (position: { x: number; y: number; side: 'left' | 'right' }) => ({ position }),
+        setFloatingMaxDragState: (dragState: { isDragging: boolean; isAnimating: boolean }) => ({ dragState }),
     }),
     reducers({
         registeredToolMap: [
@@ -102,6 +108,21 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                     delete newState[key]
                     return newState
                 },
+            },
+        ],
+        floatingMaxPosition: [
+            null as { x: number; y: number; side: 'left' | 'right' } | null,
+            {
+                persist: true,
+            },
+            {
+                setFloatingMaxPosition: (_, { position }) => position,
+            },
+        ],
+        floatingMaxDragState: [
+            { isDragging: false, isAnimating: false } as { isDragging: boolean; isAnimating: boolean },
+            {
+                setFloatingMaxDragState: (_, { dragState }) => dragState,
             },
         ],
     }),
@@ -120,6 +141,24 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         },
     })),
     selectors({
+        showFloatingMax: [
+            (s) => [
+                s.sceneConfig,
+                sidePanelLogic.selectors.sidePanelOpen,
+                sidePanelLogic.selectors.selectedTab,
+                s.featureFlags,
+                s.isFloatingMaxDismissed,
+            ],
+            (sceneConfig, sidePanelOpen, selectedTab, featureFlags, isFloatingMaxDismissed) =>
+                sceneConfig &&
+                !sceneConfig.onlyUnauthenticated &&
+                sceneConfig.layout !== 'plain' &&
+                !(sidePanelOpen && selectedTab === SidePanelTab.Max) && // The Max side panel is open
+                featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] &&
+                featureFlags[FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG] &&
+                !featureFlags[FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG_ACKED] &&
+                !isFloatingMaxDismissed,
+        ],
         dataProcessingAccepted: [
             (s) => [s.currentOrganization],
             (currentOrganization): boolean => !!currentOrganization?.is_ai_data_processing_approved,
