@@ -119,6 +119,22 @@
      GROUP BY referring_domain)
   '''
 # ---
+# name: TestPreaggregatedTableTransformation.test_all_event_properties_on_events_supported_14_metadata_loggedIn
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
+     FROM web_stats_daily
+     GROUP BY mat_metadata_loggedIn)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_all_event_properties_on_events_supported_15_metadata_backend
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
+     FROM web_stats_daily
+     GROUP BY mat_metadata_backend)
+  '''
+# ---
 # name: TestPreaggregatedTableTransformation.test_all_session_properties_on_sessions_supported_0__entry_pathname
   '''
   sql
