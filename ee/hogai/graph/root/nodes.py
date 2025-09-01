@@ -220,7 +220,7 @@ class RootNodeUIContextMixin(AssistantNode):
                     )
                 if insight.variablesOverride:
                     query_dict = apply_dashboard_variables_to_dict(
-                        query_dict, insight.variablesOverride.model_dump(mode="json"), self._team
+                        query_dict, {k: v.model_dump(mode="json") for k, v in insight.variablesOverride}, self._team
                     )
 
                 QueryModel = MAX_SUPPORTED_QUERY_KIND_TO_MODEL[query_kind]
