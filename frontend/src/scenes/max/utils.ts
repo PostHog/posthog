@@ -21,7 +21,6 @@ import { isFunnelsQuery, isHogQLQuery, isRetentionQuery, isTrendsQuery } from '~
 import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel, SidePanelTab } from '~/types'
 
 import { SuggestionGroup } from './maxLogic'
-import { maxLogicType } from './maxLogicType'
 import { MaxActionContext, MaxContextType, MaxDashboardContext, MaxEventContext, MaxInsightContext } from './maxTypes'
 
 export function isReasoningMessage(message: RootAssistantMessage | undefined | null): message is ReasoningMessage {
@@ -159,16 +158,6 @@ export function generateBurstPoints(spikeCount: number, spikiness: number): stri
     }
 
     return points.trim()
-}
-
-export function handleCommandString(options: string, actions: maxLogicType['actions']): void {
-    if (options.startsWith('!')) {
-        actions.setAutoRun(true)
-    }
-    const cleanedQuestion = options.replace(/^!/, '')
-    if (cleanedQuestion.trim() !== '') {
-        actions.setQuestion(cleanedQuestion)
-    }
 }
 
 // Utility functions for transforming data to max context

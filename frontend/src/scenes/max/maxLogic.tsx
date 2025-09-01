@@ -22,7 +22,6 @@ import { Conversation, ConversationDetail, ConversationStatus, SidePanelTab } fr
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import type { maxLogicType } from './maxLogicType'
-import { handleCommandString } from './utils'
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
@@ -48,6 +47,16 @@ const HEADLINES = [
     'How can I help you understand users?',
     'What do you want to know today?',
 ]
+
+function handleCommandString(options: string, actions: maxLogicType['actions']): void {
+    if (options.startsWith('!')) {
+        actions.setAutoRun(true)
+    }
+    const cleanedQuestion = options.replace(/^!/, '')
+    if (cleanedQuestion.trim() !== '') {
+        actions.setQuestion(cleanedQuestion)
+    }
+}
 
 export const maxLogic = kea<maxLogicType>([
     path(['scenes', 'max', 'maxLogic']),
