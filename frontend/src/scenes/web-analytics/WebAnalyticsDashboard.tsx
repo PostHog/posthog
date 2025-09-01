@@ -19,6 +19,7 @@ import { IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
 import { ProductIntentContext, addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { urls } from 'scenes/urls'
 import { PageReports, PageReportsFilters } from 'scenes/web-analytics/PageReports'
 import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
 import { WebAnalyticsModal } from 'scenes/web-analytics/WebAnalyticsModal'
@@ -45,6 +46,7 @@ import { ProductKey } from '~/types'
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'
 import { WebAnalyticsPageReportsCTA } from './WebAnalyticsPageReportsCTA'
 import { MarketingAnalyticsFilters } from './tabs/marketing-analytics/frontend/components/MarketingAnalyticsFilters/MarketingAnalyticsFilters'
+import { marketingAnalyticsLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
 
 export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }): JSX.Element => {
@@ -404,28 +406,48 @@ const MainContent = (): JSX.Element => {
 
 const MarketingDashboard = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
+    const { createMarketingDataWarehouseNodes } = useValues(marketingAnalyticsLogic)
+
+    const feedbackBanner = (
+        <LemonBanner
+            type="info"
+            dismissKey="marketing-analytics-beta-banner"
+            className="mb-2 mt-4"
+            action={{ children: 'Send feedback', id: 'marketing-analytics-feedback-button' }}
+        >
+            Marketing analytics is in beta. Please let us know what you'd like to see here and/or report any issues
+            directly to us!
+        </LemonBanner>
+    )
+
+    if (createMarketingDataWarehouseNodes.length === 0) {
+        return (
+            <>
+                {feedbackBanner}
+                <LemonBanner type="info">
+                    You need to configure your marketing data sources in the settings{' '}
+                    <Link to={urls.settings('environment-marketing-analytics')}>here</Link>.
+                </LemonBanner>
+            </>
+        )
+    }
 
     if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_MARKETING]) {
         // fallback in case the user is able to access the page but the feature flag is not enabled
         return (
-            <LemonBanner type="info">
-                You can enable marketing analytics in the feature preview settings{' '}
-                <Link to="https://app.posthog.com/settings/user-feature-previews#marketing-analytics">here</Link>.
-            </LemonBanner>
+            <>
+                {feedbackBanner}
+                <LemonBanner type="info">
+                    You can enable marketing analytics in the feature preview settings{' '}
+                    <Link to="https://app.posthog.com/settings/user-feature-previews#marketing-analytics">here</Link>.
+                </LemonBanner>
+            </>
         )
     }
 
     return (
         <>
-            <LemonBanner
-                type="info"
-                dismissKey="marketing-analytics-beta-banner"
-                className="mb-2 mt-4"
-                action={{ children: 'Send feedback', id: 'marketing-analytics-feedback-button' }}
-            >
-                Marketing analytics is in beta. Please let us know what you'd like to see here and/or report any issues
-                directly to us!
-            </LemonBanner>
+            {feedbackBanner}
             <Tiles />
         </>
     )
