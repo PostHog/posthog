@@ -90,11 +90,11 @@ class TestFieldAccessControlDecorator(BaseTest):
             exc_info.value.detail["session_recording_opt_in"][0]
         )
 
-    def test_decorator_on_test_model(self):
-        """Test decorator on a simple test model to ensure it works correctly"""
+    def test_field_access_control_helper(self):
+        """Test the field_access_control helper function"""
 
         class TestModel(models.Model):
-            test_field = field_access_control("test_resource", "viewer")(models.CharField(max_length=100))
+            test_field = field_access_control(models.CharField(max_length=100), "test_resource", "viewer")
 
             class Meta:
                 app_label = "test"
@@ -104,3 +104,8 @@ class TestFieldAccessControlDecorator(BaseTest):
 
         assert "test_field" in field_map
         assert field_map["test_field"] == ("test_resource", "viewer")
+
+        # Also check that the field has the metadata directly
+        field = TestModel._meta.get_field("test_field")
+        assert field._access_control_resource == "test_resource"
+        assert field._access_control_level == "viewer"

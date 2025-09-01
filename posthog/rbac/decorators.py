@@ -2,21 +2,18 @@ from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
 
 
-def field_access_control(resource: "APIScopeObject", level: "AccessControlLevel"):
+def field_access_control(field, resource: "APIScopeObject", level: "AccessControlLevel"):
     """
-    Decorator to specify field-level access control requirements.
+    Helper function for creating access-controlled fields.
 
     Usage:
         class MyModel(models.Model):
-            session_recording_opt_in = field_access_control("session_recording", "editor")(
-                models.BooleanField(default=False)
+            session_recording_opt_in = field_access_control(
+                models.BooleanField(default=False),
+                "session_recording",
+                "editor"
             )
     """
-
-    def decorator(field):
-        # Add access control metadata to the field
-        field._access_control_resource = resource
-        field._access_control_level = level
-        return field
-
-    return decorator
+    field._access_control_resource = resource
+    field._access_control_level = level
+    return field

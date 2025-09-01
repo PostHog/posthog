@@ -302,8 +302,8 @@ class Team(UUIDTClassicModel):
         null=True,
         blank=True,
     )
-    session_recording_opt_in = field_access_control("session_recording", "editor")(models.BooleanField(default=False))
-    session_recording_sample_rate = field_access_control("session_recording", "editor")(
+    session_recording_opt_in = field_access_control(models.BooleanField(default=False), "session_recording", "editor")
+    session_recording_sample_rate = field_access_control(
         models.DecimalField(
             # will store a decimal between 0 and 1 allowing up to 2 decimal places
             null=True,
@@ -311,37 +311,47 @@ class Team(UUIDTClassicModel):
             max_digits=3,
             decimal_places=2,
             validators=[MinValueValidator(Decimal(0)), MaxValueValidator(Decimal(1))],
-        )
+        ),
+        "session_recording",
+        "editor",
     )
-    session_recording_minimum_duration_milliseconds = field_access_control("session_recording", "editor")(
+    session_recording_minimum_duration_milliseconds = field_access_control(
         models.IntegerField(
             null=True,
             blank=True,
             validators=[MinValueValidator(0), MaxValueValidator(30000)],
-        )
+        ),
+        "session_recording",
+        "editor",
     )
-    session_recording_linked_flag = field_access_control("session_recording", "editor")(
-        models.JSONField(null=True, blank=True)
+    session_recording_linked_flag = field_access_control(
+        models.JSONField(null=True, blank=True), "session_recording", "editor"
     )
-    session_recording_network_payload_capture_config = field_access_control("session_recording", "editor")(
-        models.JSONField(null=True, blank=True)
+    session_recording_network_payload_capture_config = field_access_control(
+        models.JSONField(null=True, blank=True), "session_recording", "editor"
     )
-    session_recording_masking_config = field_access_control("session_recording", "editor")(
-        models.JSONField(null=True, blank=True)
+    session_recording_masking_config = field_access_control(
+        models.JSONField(null=True, blank=True), "session_recording", "editor"
     )
-    session_recording_url_trigger_config = field_access_control("session_recording", "editor")(
-        ArrayField(models.JSONField(null=True, blank=True), default=list, blank=True, null=True)
+    session_recording_url_trigger_config = field_access_control(
+        ArrayField(models.JSONField(null=True, blank=True), default=list, blank=True, null=True),
+        "session_recording",
+        "editor",
     )
-    session_recording_url_blocklist_config = field_access_control("session_recording", "editor")(
-        ArrayField(models.JSONField(null=True, blank=True), default=list, blank=True, null=True)
+    session_recording_url_blocklist_config = field_access_control(
+        ArrayField(models.JSONField(null=True, blank=True), default=list, blank=True, null=True),
+        "session_recording",
+        "editor",
     )
-    session_recording_event_trigger_config = field_access_control("session_recording", "editor")(
-        ArrayField(models.TextField(null=True, blank=True), default=list, blank=True, null=True)
+    session_recording_event_trigger_config = field_access_control(
+        ArrayField(models.TextField(null=True, blank=True), default=list, blank=True, null=True),
+        "session_recording",
+        "editor",
     )
-    session_recording_trigger_match_type_config = field_access_control("session_recording", "editor")(
-        models.CharField(null=True, blank=True, max_length=24)
+    session_recording_trigger_match_type_config = field_access_control(
+        models.CharField(null=True, blank=True, max_length=24), "session_recording", "editor"
     )
-    session_replay_config = field_access_control("session_recording", "editor")(models.JSONField(null=True, blank=True))
+    session_replay_config = field_access_control(models.JSONField(null=True, blank=True), "session_recording", "editor")
     session_recording_retention_period = models.CharField(
         max_length=6,
         choices=SessionRecordingRetentionPeriod.choices,
