@@ -199,7 +199,13 @@ class UserSerializer(serializers.ModelSerializer):
     def get_has_sso_enforcement(self, instance: User) -> bool:
         from posthog.models.organization_domain import OrganizationDomain
 
-        return bool(OrganizationDomain.objects.get_sso_enforcement_for_email_address(instance.email))
+        organization = instance.current_organization
+        if not organization:
+            return False
+
+        return bool(
+            OrganizationDomain.objects.get_sso_enforcement_for_email_address(instance.email, organization=organization)
+        )
 
     def validate_set_current_organization(self, value: str) -> Organization:
         try:
