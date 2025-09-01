@@ -327,7 +327,7 @@ describe('summarizing insights', () => {
             )
 
             expect(result).toEqual(
-                'Retention of users based on doing Autocapture for the first time and returning with the same event'
+                'Retention of users based on doing Autocapture first occurrence matching filters and returning with the same event'
             )
         })
 
