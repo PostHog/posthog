@@ -265,7 +265,7 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
 
                 // If the diff is less than 2 days (ish), we can show the minute interval but not day
                 if (diffMs <= 1000 * 60 * 60 * 49) {
-                    return ['hour', 'minute']
+                    return ['hour']
                 }
 
                 // If the diff is less than 8 days, we can show the hour interval but not minute
