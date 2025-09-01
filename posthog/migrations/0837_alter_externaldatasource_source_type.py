@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0835_alter_externaldatasource_source_type"),
+        ("posthog", "0836_sessionrecording_retention_period_days"),
     ]
 
     operations = [

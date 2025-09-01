@@ -2,7 +2,14 @@ import { DateTime } from 'luxon'
 
 import { Properties } from '@posthog/plugin-scaffold'
 
-import { Group, GroupTypeIndex, PropertiesLastOperation, PropertiesLastUpdatedAt, TeamId } from '../../../../types'
+import {
+    Group,
+    GroupTypeIndex,
+    ProjectId,
+    PropertiesLastOperation,
+    PropertiesLastUpdatedAt,
+    TeamId,
+} from '../../../../types'
 import { TransactionClient } from '../../../../utils/db/postgres'
 import { dualWriteComparisonCounter, dualWriteDataMismatchCounter } from '../../persons/metrics'
 import { GroupRepositoryTransaction } from './group-repository-transaction.interface'
@@ -24,6 +31,22 @@ export class DualWriteGroupRepositoryTransaction implements GroupRepositoryTrans
         options?: { forUpdate?: boolean; useReadReplica?: boolean }
     ): Promise<Group | undefined> {
         return await this.primaryRepo.fetchGroup(teamId, groupTypeIndex, groupKey, options, this.lTx)
+    }
+
+    async fetchGroupsByKeys(
+        teamIds: TeamId[],
+        groupTypeIndexes: GroupTypeIndex[],
+        groupKeys: string[]
+    ): Promise<
+        {
+            team_id: TeamId
+            group_type_index: GroupTypeIndex
+            group_key: string
+            group_properties: Record<string, any>
+        }[]
+    > {
+        // For read operations, only query the primary repository
+        return await this.primaryRepo.fetchGroupsByKeys(teamIds, groupTypeIndexes, groupKeys, this.lTx)
     }
 
     async insertGroup(
@@ -148,5 +171,46 @@ export class DualWriteGroupRepositoryTransaction implements GroupRepositoryTrans
                 result: 'match',
             })
         }
+    }
+
+    async fetchGroupTypesByProjectIds(
+        projectIds: ProjectId[]
+    ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>> {
+        // For read operations, only query the primary repository
+        return await this.primaryRepo.fetchGroupTypesByProjectIds(projectIds, this.lTx)
+    }
+
+    async fetchGroupTypesByTeamIds(
+        teamIds: TeamId[]
+    ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>> {
+        // For read operations, only query the primary repository
+        return await this.primaryRepo.fetchGroupTypesByTeamIds(teamIds, this.lTx)
+    }
+
+    async insertGroupType(
+        teamId: TeamId,
+        projectId: ProjectId,
+        groupType: string,
+        index: number
+    ): Promise<[GroupTypeIndex | null, boolean]> {
+        const [primaryResult, secondaryResult] = await Promise.all([
+            this.primaryRepo.insertGroupType(teamId, projectId, groupType, index, this.lTx),
+            this.secondaryRepo.insertGroupType(teamId, projectId, groupType, index, this.rTx),
+        ])
+
+        const [primaryIndex, primaryIsInsert] = primaryResult
+        const [secondaryIndex, secondaryIsInsert] = secondaryResult
+
+        if (primaryIndex !== secondaryIndex || primaryIsInsert !== secondaryIsInsert) {
+            dualWriteDataMismatchCounter.inc({ operation: 'insertGroupType_tx', field: 'result' })
+        } else {
+            dualWriteComparisonCounter.inc({
+                operation: 'insertGroupType_tx',
+                comparison_type: 'result_match',
+                result: 'match',
+            })
+        }
+
+        return primaryResult
     }
 }
