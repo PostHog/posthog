@@ -209,6 +209,8 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         loadLogs: true,
         loadNewerLogs: true,
         clearLogs: true,
+        loadGroupedLogs: true,
+        loadUngroupedLogs: true,
         setIsGrouped: (isGrouped: boolean) => ({ isGrouped }),
     }),
     reducers(({ props }) => ({
@@ -266,8 +268,12 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         unGroupedLogs: [
             [] as LogEntry[],
             {
-                loadUngroupedLogs: async () => {
-                    return await loadLogs(values.logEntryParams)
+                loadUngroupedLogs: async (_, breakpoint) => {
+                    await breakpoint(10)
+                    actions.clearHiddenLogs()
+                    const results = await loadLogs(values.logEntryParams)
+                    await breakpoint(10)
+                    return results
                 },
                 loadMoreUngroupedLogs: async () => {
                     return await loadLogs(values.logEntryParams)
