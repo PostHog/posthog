@@ -1279,7 +1279,6 @@ posthog/user_permissions.py:0: error: Incompatible return value type (got "int",
 posthog/user_permissions.py:0: error: Incompatible return value type (got "int", expected "Level | None")  [return-value]
 posthog/user_permissions.py:0: error: Incompatible return value type (got "int", expected "RestrictionLevel")  [return-value]
 posthog/utils.py:0: error: Argument 1 to "asdict" has incompatible type "DataclassInstance | type[DataclassInstance]"; expected "DataclassInstance"  [arg-type]
-posthog/utils.py:0: error: Unpacked dict entry 0 has incompatible type "Any | dict[Any, Any] | None"; expected "SupportsKeysAndGetItem[Any, Any]"  [dict-item]
 posthog/warehouse/api/external_data_schema.py:0: error: Argument "should_sync" to "sync_external_data_job_workflow" has incompatible type "Any | None"; expected "bool"  [arg-type]
 posthog/warehouse/api/external_data_schema.py:0: error: Incompatible return value type (got "str | None", expected "SyncType | None")  [return-value]
 posthog/warehouse/api/external_data_source.py:0: error: Incompatible return value type (got "Any | None", expected "str")  [return-value]

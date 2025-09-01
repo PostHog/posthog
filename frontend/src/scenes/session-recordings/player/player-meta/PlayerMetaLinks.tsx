@@ -2,8 +2,10 @@ import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconDownload, IconEllipsis, IconMinusSmall, IconNotebook, IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems, LemonTag } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
@@ -138,7 +140,9 @@ const AddToNotebookButton = ({ fullWidth = false }: Pick<LemonButtonProps, 'full
 
 const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { deleteRecording, setIsFullScreen, exportRecordingToFile } = useActions(sessionRecordingPlayerLogic)
+    const { deleteRecording, setIsFullScreen, exportRecordingToFile, exportRecordingToVideoFile } =
+        useActions(sessionRecordingPlayerLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const isStandardMode =
         (logicProps.mode ?? SessionRecordingPlayerMode.Standard) === SessionRecordingPlayerMode.Standard
@@ -168,13 +172,29 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
                 label: () => <AddToNotebookButton fullWidth={true} />,
             },
             isStandardMode && {
-                label: 'posthog .json',
+                label: 'PostHog .json',
                 status: 'default',
                 icon: <IconDownload />,
                 onClick: () => exportRecordingToFile(),
                 tooltip:
                     'Export PostHog recording data to a JSON file. This can be loaded later into PostHog for playback.',
             },
+            isStandardMode && featureFlags[FEATURE_FLAGS.REPLAY_EXPORT_FULL_VIDEO]
+                ? {
+                      label: (
+                          <div className="flex w-full gap-x-2 justify-between items-center">
+                              Export to MP4{' '}
+                              <LemonTag type="warning" size="small">
+                                  BETA
+                              </LemonTag>
+                          </div>
+                      ),
+                      status: 'default',
+                      icon: <IconDownload />,
+                      onClick: () => exportRecordingToVideoFile(),
+                      tooltip: 'Export PostHog recording data to MP4 video file.',
+                  }
+                : null,
         ]
 
         if (logicProps.playerKey !== 'modal') {
