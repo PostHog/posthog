@@ -555,6 +555,9 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
 
         response_data = response.json()
         result = response_data["result"]
+        
+        # Sort results by breakdown value to ensure consistent test ordering
+        result = sorted(result, key=lambda r: r[0]["breakdown_value"])
 
         self.assertEqual(result[0][0]["name"], "$pageview")
         self.assertEqual(result[0][0]["count"], 1)

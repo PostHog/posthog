@@ -19,6 +19,7 @@ from posthog.queries.funnels.test.breakdown_cases import (
     FunnelStepResult,
     assert_funnel_results_equal,
     funnel_breakdown_test_factory,
+    sort_breakdown_funnel_results,
 )
 from posthog.queries.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
 from posthog.test.test_journeys import journeys_for
@@ -88,6 +89,7 @@ class TestFunnelUnorderedStepsBreakdown(
         )
 
         result = funnel.run()
+        result = sort_breakdown_funnel_results(result)
         assert_funnel_results_equal(
             result[0],
             [

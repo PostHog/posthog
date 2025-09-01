@@ -168,12 +168,16 @@ class TestBreakdownsByCurrentURL(ClickhouseTestMixin, APIBaseTest):
                         funnel_step["breakdown"],
                     )
                 )
-        assert actual == [
+        # Sort results to ensure consistent ordering across ClickHouse versions
+        actual_sorted = sorted(actual, key=lambda x: (x[0], x[2][0] if x[2] else ''))
+        expected = [
             ("watched movie", 2, ["/"]),
             ("terminate funnel", 2, ["/"]),
             ("watched movie", 2, ["/home"]),
             ("terminate funnel", 2, ["/home"]),
         ]
+        expected_sorted = sorted(expected, key=lambda x: (x[0], x[2][0] if x[2] else ''))
+        assert actual_sorted == expected_sorted
 
     @snapshot_clickhouse_queries
     def test_breakdown_by_current_url(self) -> None:
@@ -196,9 +200,13 @@ class TestBreakdownsByCurrentURL(ClickhouseTestMixin, APIBaseTest):
                     )
                 )
 
-        assert actual == [
+        # Sort results to ensure consistent ordering across ClickHouse versions
+        actual_sorted = sorted(actual, key=lambda x: (x[0], x[2][0] if x[2] else ''))
+        expected = [
             ("watched movie", 2, ["https://example.com/home"]),
             ("terminate funnel", 2, ["https://example.com/home"]),
             ("watched movie", 2, ["https://example.com"]),
             ("terminate funnel", 2, ["https://example.com"]),
         ]
+        expected_sorted = sorted(expected, key=lambda x: (x[0], x[2][0] if x[2] else ''))
+        assert actual_sorted == expected_sorted

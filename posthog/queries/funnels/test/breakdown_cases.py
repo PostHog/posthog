@@ -148,6 +148,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             people = journeys_for(events_by_person=journey, team=self.team)
 
             result = funnel.run()
+            result = sort_breakdown_funnel_results(result)
 
             self._assert_funnel_breakdown_result_is_correct(
                 result[0],
@@ -277,6 +278,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             people = journeys_for(events_by_person=journey, team=self.team)
 
             result = funnel.run()
+            result = sort_breakdown_funnel_results(result)
 
             self._assert_funnel_breakdown_result_is_correct(
                 result[0],
@@ -391,6 +393,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             people = journeys_for(events_by_person=journey, team=self.team)
 
             result = funnel.run()
+            result = sort_breakdown_funnel_results(result)
 
             self._assert_funnel_breakdown_result_is_correct(
                 result[0],
@@ -641,6 +644,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             people = journeys_for(events_by_person, self.team)
 
             result = funnel.run()
+            result = sort_breakdown_funnel_results(result)
 
             self._assert_funnel_breakdown_result_is_correct(
                 result[0],
@@ -740,6 +744,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             journeys_for(peoples_journeys, self.team, create_people=False)
 
             result = funnel.run()
+            result = sort_breakdown_funnel_results(result)
 
             self._assert_funnel_breakdown_result_is_correct(
                 result[0],
@@ -1078,6 +1083,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 self.team,
             )
             result = funnel.run()
+            result = sort_breakdown_funnel_results(result)
 
             self.assertEqual(len(result), 2)
 
