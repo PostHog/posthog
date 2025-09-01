@@ -1,17 +1,16 @@
 from typing import Literal, Optional
+
+from posthog.models.team.team import Team
+from posthog.models.user import User
+
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.deep_research.notebook.nodes import DeepResearchNotebookPlanningNode
 from ee.hogai.graph.deep_research.onboarding.nodes import DeepResearchOnboardingNode
-from ee.hogai.graph.deep_research.planner.nodes import (
-    DeepResearchPlannerNode,
-    DeepResearchPlannerToolsNode,
-)
+from ee.hogai.graph.deep_research.planner.nodes import DeepResearchPlannerNode, DeepResearchPlannerToolsNode
 from ee.hogai.graph.deep_research.report.nodes import DeepResearchReportNode
 from ee.hogai.graph.deep_research.task_executor.nodes import TaskExecutorNode
-from ee.hogai.graph.graph import BaseAssistantGraph, InsightsAssistantGraph
 from ee.hogai.graph.deep_research.types import DeepResearchNodeName, DeepResearchState
-from posthog.models.team.team import Team
-from posthog.models.user import User
+from ee.hogai.graph.graph import BaseAssistantGraph, InsightsAssistantGraph
 
 
 class DeepResearchAssistantGraph(BaseAssistantGraph[DeepResearchState]):
@@ -29,11 +28,6 @@ class DeepResearchAssistantGraph(BaseAssistantGraph[DeepResearchState]):
             DeepResearchNodeName.START,
             deep_research_onboarding.should_run_onboarding_at_start,
             node_map  # type: ignore
-            # or {
-            #     "onboarding": DeepResearchNodeName.PLANNER,  # TODO(DEEP_RESEARCH): this is to skip the notebook planning, remove this
-            #     "planning": DeepResearchNodeName.PLANNER,
-            #     "continue": DeepResearchNodeName.PLANNER,
-            # },
             or {
                 "onboarding": DeepResearchNodeName.ONBOARDING,
                 "planning": DeepResearchNodeName.NOTEBOOK_PLANNING,

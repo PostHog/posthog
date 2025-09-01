@@ -1,4 +1,3 @@
-import traceback  # TODO(DEEP_RESEARCH): Remove this
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any, Literal, Optional, cast
@@ -316,9 +315,7 @@ class Assistant:
                     state_snapshot = validate_state_update(snapshot.values, self._state_class)
                     # Some nodes might have already sent a failure message, so we don't want to send another one.
                     if not state_snapshot.messages or not isinstance(state_snapshot.messages[-1], FailureMessage):
-                        # TODO(DEEP_RESEARCH): Remove the version with traceback, it's just for debugging
-                        # yield AssistantEventType.MESSAGE, FailureMessage()
-                        yield AssistantEventType.MESSAGE, FailureMessage(content=str(traceback.format_exc()))
+                        yield AssistantEventType.MESSAGE, FailureMessage()
             finally:
                 await self._report_conversation_state(
                     last_assistant_message=last_ai_message, last_visualization_message=last_viz_message

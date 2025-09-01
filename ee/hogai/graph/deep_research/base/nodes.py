@@ -1,17 +1,20 @@
 from typing import Optional
 from uuid import uuid4
 
+from langchain_core.messages import AIMessageChunk
 from langchain_core.runnables import Runnable, RunnableConfig
 from langgraph.config import get_stream_writer
+
+from posthog.schema import NotebookUpdateMessage, ProsemirrorJSONContent
+
+from posthog.models.notebook.notebook import Notebook
+
+from ee.hogai.graph.base import BaseAssistantNode
 from ee.hogai.graph.deep_research.types import DeepResearchNodeName, DeepResearchState, PartialDeepResearchState
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.notebook.notebook_serializer import NotebookContext, NotebookSerializer
 from ee.hogai.utils.helpers import extract_content_from_ai_message
 from ee.hogai.utils.state import merge_message_chunk
-from posthog.models.notebook.notebook import Notebook
-from posthog.schema import NotebookUpdateMessage, ProsemirrorJSONContent
-from langchain_core.messages import AIMessageChunk
-from ee.hogai.graph.base import BaseAssistantNode
 
 
 class DeepResearchNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchState]):
@@ -31,7 +34,7 @@ class DeepResearchNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchS
                 "previous_response_id": previous_response_id,
             },
             reasoning={
-                "effort": "low",  # TODO(DEEP_RESEARCH): test on "medium" and "high"
+                "effort": "medium",
                 "summary": "auto",
             },
         )
@@ -99,12 +102,6 @@ class DeepResearchNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchS
                     title = next_heading.content[0].text if next_heading.content else None
             except StopIteration:
                 title = None
-
-        # TODO(DEEP_RESEARCH): this is for debugging, remove this before merging to prod
-        # with open("notebook_content.md", "w") as f:
-        #     f.write(content)
-        # with open("notebook_content.json", "w") as f:
-        #     f.write(json_content.model_dump_json(exclude_none=True))
 
         self.notebook.title = title or "Deep Research Plan"
         self.notebook.content = json_content.model_dump(exclude_none=True)
