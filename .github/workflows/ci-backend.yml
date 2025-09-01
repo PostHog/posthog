@@ -689,18 +689,6 @@ jobs:
                   bin/check_kafka_clickhouse_up
                   bin/check_postgres_up
 
-            - name: Run Django and persons migrations
-              if: ${{ needs.changes.outputs.backend == 'true' }}
-              shell: bash
-              run: |
-                  # Run Django migrations first
-                  python manage.py migrate
-                  # Then run persons migrations using sqlx
-                  PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
-                    sqlx database create 2>/dev/null || true
-                  PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
-                    sqlx migrate run --source rust/persons_migrations/
-
             - name: Wait for Temporal
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
               shell: bash
@@ -924,17 +912,6 @@ jobs:
               run: |
                   bin/check_kafka_clickhouse_up
                   bin/check_postgres_up
-
-            - name: Run Django and persons migrations
-              shell: bash
-              run: |
-                  # Run Django migrations first
-                  python manage.py migrate
-                  # Then run persons migrations using sqlx
-                  PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
-                    sqlx database create 2>/dev/null || true
-                  PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
-                    sqlx migrate run --source rust/persons_migrations/
 
             - name: Run async migrations tests
               run: |
