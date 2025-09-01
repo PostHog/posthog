@@ -100,9 +100,17 @@ class SearchSessionRecordingsArgs(BaseModel):
 
 class SearchSessionRecordingsTool(MaxTool):
     name: str = "search_session_recordings"
-    description: str = (
-        "Update session recordings filters on this page, in order to search for session recordings by any criteria."
-    )
+    description: str = """
+    - Update session recordings filters on this page, in order to search for session recordings.
+    - When to use the tool:
+      * When the user asks to update session recordings filters
+        - "update" synonyms: "change", "modify", "adjust", and similar
+        - "session recordings" synonyms: "sessions", "recordings", "replays", "user sessions", and similar
+      * When the user asks to search for session recordings
+        - "search for" synonyms: "find", "look up", and similar
+    - When NOT to use the tool:
+      * When the user asks to summarize session recordings
+    """
     thinking_message: str = "Coming up with session recordings filters"
     root_system_prompt_template: str = "Current recordings filters are: {current_filters}"
     args_schema: type[BaseModel] = SearchSessionRecordingsArgs

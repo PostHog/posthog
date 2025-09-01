@@ -50,12 +50,37 @@ class search_insights(BaseModel):
 
 class session_summarization(BaseModel):
     """
-    Analyze sessions by finding relevant sessions based on user query and summarizing their events.
-    Use this tool for summarizing sessions, when users ask to summarize (e.g. watch, analyze) specific sessions (e.g. replays, recordings)
+    - Summarize session recordings to find patterns and issues by summarizing sessions' events.
+    - When to use the tool:
+      * When the user asks to summarize session recordings
+        - "summarize" synonyms: "watch", "analyze", "review", and similar
+        - "session recordings" synonyms: "sessions", "recordings", "replays", "user sessions", and similar
+    - When NOT to use the tool:
+      * When the user asks to find, search for, or look up session recordings, but doesn't ask to summarize them
+      * When users asks to update, change, or adjust session recordings filters
     """
 
     session_summarization_query: str = Field(
-        description="The user's complete query for session summarization. This will be used to find relevant sessions. Examples: 'summarize sessions from yesterday', 'watch what user X did on the checkout page', 'analyze mobile user sessions from last week'"
+        description="""
+        - The user's complete query for session recordings summarization.
+        - This will be used to find relevant session recordings.
+        - Always pass the user's complete, unmodified query.
+        - Examples:
+          * 'summarize all session recordings from yesterday'
+          * 'analyze mobile user session recordings from last week, even if 1 second'
+          * 'watch last 300 session recordings of MacOS users from US'
+          * and similar
+        """
+    )
+    use_current_filters: bool = Field(
+        description="""
+        - Whether to use current filters from user's UI to find relevant session recordings.
+        - Examples:
+          * If the user says to use "current/selected/opened/my/all/these" filters or session recordings - set to `true`
+          * If the query is highly related to the current filters - set to `true`
+          * If the query is explicitly unrelated to current filters, set to `false`
+          * If the query has highly specific requirements not present in the current filters, set to `false`
+        """
     )
 
 

@@ -198,6 +198,10 @@ class _SharedAssistantState(BaseState):
     """
     The user's query for summarizing sessions.
     """
+    use_current_filters: Optional[bool] = Field(default=None)
+    """
+    Whether to use current filters from user's UI to find relevant sessions.
+    """
     notebook_id: Optional[str] = Field(default=None)
     """
     The ID of the notebook being used.

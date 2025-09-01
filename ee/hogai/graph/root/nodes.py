@@ -1,4 +1,5 @@
 import re
+import json
 import math
 from typing import Literal, Optional, TypeVar, cast
 from uuid import uuid4
@@ -57,6 +58,9 @@ from .prompts import (
     ROOT_INSIGHTS_CONTEXT_PROMPT,
     ROOT_SYSTEM_PROMPT,
     ROOT_UI_CONTEXT_PROMPT,
+    SESSION_SUMMARIZATION_PROMPT__WITH_REPLAY_CONTEXT,
+    SESSION_SUMMARIZATION_PROMPT_BASE,
+    SESSION_SUMMARIZATION_PROMPT_NO_REPLAY_CONTEXT,
 )
 
 # Map query kinds to their respective full UI query classes
@@ -306,13 +310,14 @@ class RootNode(RootNodeUIContextMixin):
         """
         Check if the user has the session summarization feature flag enabled.
         """
-        return posthoganalytics.feature_enabled(
-            "max-session-summarization",
-            str(self._user.distinct_id),
-            groups={"organization": str(self._team.organization_id)},
-            group_properties={"organization": {"id": str(self._team.organization_id)}},
-            send_feature_flag_events=False,
-        )
+        return True
+        # return posthoganalytics.feature_enabled(
+        #     "max-session-summarization",
+        #     str(self._user.distinct_id),
+        #     groups={"organization": str(self._team.organization_id)},
+        #     group_properties={"organization": {"id": str(self._team.organization_id)}},
+        #     send_feature_flag_events=False,
+        # )
 
     def _has_insight_search_feature_flag(self) -> bool:
         """
@@ -337,14 +342,12 @@ class RootNode(RootNodeUIContextMixin):
         # Build system prompt with conditional session summarization and insight search sections
         system_prompt_template = ROOT_SYSTEM_PROMPT
         # Check if session summarization is enabled for the user
-        if not self._has_session_summarization_feature_flag():
-            # Remove session summarization section from prompt using regex
+        if self._has_session_summarization_feature_flag():
+            context = self._render_session_summarization_context(config)
+            # Inject session summarization context
             system_prompt_template = re.sub(
-                r"\n?<session_summarization>.*?</session_summarization>", "", system_prompt_template, flags=re.DOTALL
+                r"\n?<session_summarization></session_summarization>", context, system_prompt_template, flags=re.DOTALL
             )
-            # Also remove the reference to session_summarization in basic_functionality
-            system_prompt_template = re.sub(r"\n?\d+\. `session_summarization`.*?[^\n]*", "", system_prompt_template)
-
         # Check if insight search is enabled for the user
         if not self._has_insight_search_feature_flag():
             # Remove the reference to search_insights in basic_functionality
@@ -395,20 +398,30 @@ class RootNode(RootNodeUIContextMixin):
             state, config, extra_tools=["retrieve_billing_information"] if should_add_billing_tool else []
         )
 
-        message = chain.invoke(
-            {
-                "core_memory": self.core_memory_text,
-                "project_datetime": self.project_now,
-                "project_timezone": self.project_timezone,
-                "project_name": self._team.name,
-                "organization_name": self._team.organization.name,
-                "user_full_name": self._user.get_full_name(),
-                "user_email": self._user.email,
-                "ui_context": ui_context,
-                "billing_context": billing_context_prompt,
-            },
-            config,
-        )
+        # Capture the rendered prompt before sending to LLM
+        prompt_values = {
+            "core_memory": self.core_memory_text,
+            "project_datetime": self.project_now,
+            "project_timezone": self.project_timezone,
+            "project_name": self._team.name,
+            "organization_name": self._team.organization.name,
+            "user_full_name": self._user.get_full_name(),
+            "user_email": self._user.email,
+            "ui_context": ui_context,
+            "billing_context": billing_context_prompt,
+        }
+
+        # Format the prompt to see what's being sent to the LLM
+        rendered_messages = prompt.format_messages(**prompt_values)
+        rendered_prompt = "\n\n".join([f"[{msg.__class__.__name__}]\n{msg.content}" for msg in rendered_messages])
+
+        # Save to wakawaka.txt
+        with open("wakawaka.txt", "w") as f:
+            f.write("=== RENDERED PROMPT SENT TO LLM ===\n\n")
+            f.write(rendered_prompt)
+            f.write("\n\n=== END OF PROMPT ===\n")
+
+        message = chain.invoke(prompt_values, config)
         message = cast(LangchainAIMessage, message)
 
         return PartialAssistantState(
@@ -502,6 +515,38 @@ class RootNode(RootNodeUIContextMixin):
             from ee.hogai.tool import retrieve_billing_information
 
             available_tools.append(retrieve_billing_information)
+
+        # Capture tool definitions being sent to the model
+        import json
+
+        tool_definitions = []
+        for tool in available_tools:
+            if hasattr(tool, "__name__"):
+                # It's a class/function
+                tool_name = getattr(tool, "__name__", str(tool))
+                tool_doc = getattr(tool, "__doc__", "")
+                if hasattr(tool, "model_json_schema"):
+                    # Pydantic model
+                    schema = tool.model_json_schema()
+                else:
+                    schema = {}
+            else:
+                # It's an instance of MaxTool
+                tool_name = tool.name
+                tool_doc = tool.description
+                schema = tool.args_schema.model_json_schema() if hasattr(tool, "args_schema") else {}
+
+            tool_definitions.append({"name": tool_name, "description": tool_doc, "schema": schema})
+
+        # Save to yokoyoko.txt
+        with open("yokoyoko.txt", "w") as f:
+            f.write("=== TOOL DEFINITIONS BOUND TO MODEL ===\n\n")
+            f.write(f"Total tools: {len(available_tools)}\n\n")
+            for i, tool_def in enumerate(tool_definitions, 1):
+                f.write(f"--- Tool {i}: {tool_def['name']} ---\n")
+                f.write(f"Description: {tool_def['description']}\n")
+                f.write(f"Schema: {json.dumps(tool_def['schema'], indent=2)}\n\n")
+            f.write("=== END OF TOOL DEFINITIONS ===\n")
 
         return base_model.bind_tools(available_tools, strict=True, parallel_tool_calls=False)
 
@@ -611,6 +656,27 @@ class RootNode(RootNodeUIContextMixin):
                 return messages[idx:]
         return messages
 
+    def _render_session_summarization_context(self, config: RunnableConfig) -> str:
+        """Render the user context template with the provided context strings."""
+        search_session_recordings_context = self._get_contextual_tools(config).get("search_session_recordings")
+        if (
+            not search_session_recordings_context
+            or not isinstance(search_session_recordings_context, dict)
+            or not search_session_recordings_context.get("current_filters")
+            or not isinstance(search_session_recordings_context["current_filters"], dict)
+        ):
+            conditional_context = SESSION_SUMMARIZATION_PROMPT_NO_REPLAY_CONTEXT
+        else:
+            current_filters = search_session_recordings_context["current_filters"]
+            conditional_template = PromptTemplate.from_template(
+                SESSION_SUMMARIZATION_PROMPT__WITH_REPLAY_CONTEXT, template_format="mustache"
+            )
+            conditional_context = conditional_template.format_prompt(
+                current_filters=json.dumps(current_filters)
+            ).to_string()
+        template = PromptTemplate.from_template(SESSION_SUMMARIZATION_PROMPT_BASE, template_format="mustache")
+        return template.format_prompt(conditional_context=conditional_context).to_string()
+
 
 class RootNodeTools(AssistantNode):
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
@@ -652,6 +718,7 @@ class RootNodeTools(AssistantNode):
             return PartialAssistantState(
                 root_tool_call_id=tool_call.id,
                 session_summarization_query=tool_call.args["session_summarization_query"],
+                use_current_filters=tool_call.args["use_current_filters"],
                 root_tool_calls_count=tool_call_count + 1,
             )
         elif ToolClass := get_contextual_tool_class(tool_call.name):
@@ -698,15 +765,17 @@ class RootNodeTools(AssistantNode):
 
             return PartialAssistantState(
                 messages=[
-                    AssistantToolCallMessage(
-                        content=str(result.content) if result.content else "",
-                        ui_payload={tool_call.name: result.artifact},
-                        id=str(uuid4()),
-                        tool_call_id=tool_call.id,
-                        visible=tool_class.show_tool_call_message,
+                    (
+                        AssistantToolCallMessage(
+                            content=str(result.content) if result.content else "",
+                            ui_payload={tool_call.name: result.artifact},
+                            id=str(uuid4()),
+                            tool_call_id=tool_call.id,
+                            visible=tool_class.show_tool_call_message,
+                        )
+                        if not isinstance(result, AssistantToolCallMessage)
+                        else result
                     )
-                    if not isinstance(result, AssistantToolCallMessage)
-                    else result
                 ],
                 root_tool_calls_count=tool_call_count + 1,
             )
