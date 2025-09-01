@@ -7,9 +7,11 @@ import {
     IconChevronLeft,
     IconClockRewind,
     IconCornerDownRight,
-    IconExternal,
+    IconExpand45,
+    IconLock,
     IconMinus,
     IconPlus,
+    IconShare,
     IconSidePanel,
 } from '@posthog/icons'
 import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
@@ -18,7 +20,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconArrowUp, IconLink } from 'lib/lemon-ui/icons'
+import { IconArrowUp } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -135,8 +137,16 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
             {conversationId && (
                 <LemonButton
                     size="small"
-                    icon={<IconLink />}
-                    tooltip="Copy conversation sharing link – only for other organization members"
+                    icon={<IconShare />}
+                    tooltip={
+                        <>
+                            Copy conversation sharing link
+                            <br />
+                            <em>
+                                <IconLock /> Access is behind organization login
+                            </em>
+                        </>
+                    }
                     onClick={() => {
                         copyToClipboard(
                             urls.absolute(urls.currentProject(urls.max(conversationId))),
@@ -214,8 +224,16 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                         {conversationId && (
                             <LemonButton
                                 size="small"
-                                icon={<IconLink />}
-                                tooltip="Copy conversation sharing link – only for other organization members"
+                                icon={<IconShare />}
+                                tooltip={
+                                    <>
+                                        Copy conversation sharing link
+                                        <br />
+                                        <em>
+                                            <IconLock /> Access is behind organization login
+                                        </em>
+                                    </>
+                                }
                                 onClick={() => {
                                     copyToClipboard(
                                         urls.absolute(urls.currentProject(urls.max(conversationId))),
@@ -227,7 +245,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                         )}
                         <LemonButton
                             size="small"
-                            sideIcon={<IconExternal />}
+                            sideIcon={<IconExpand45 />}
                             to={urls.max()}
                             onClick={() => closeSidePanel()}
                             tooltip="Open as main focus"
