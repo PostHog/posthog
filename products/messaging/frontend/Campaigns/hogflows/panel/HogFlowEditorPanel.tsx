@@ -40,7 +40,6 @@ export function HogFlowEditorPanel(): JSX.Element | null {
                 style={{
                     border: '1px solid var(--border)',
                     boxShadow: '0 3px 0 var(--border)',
-                    zIndex: 0,
                 }}
             >
                 <div className="flex gap-2 border-b items-center">
