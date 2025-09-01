@@ -80,14 +80,14 @@ class session_summarization(BaseModel):
           * Set to `true` if one of the conditions is met:
             - the user wants to summarize "current/selected/opened/my/all/these" session recordings
             - the user wants to use "current/these" filters
-            - if the query is highly related to the current filters
-            - if the query doesn't specify any filters/conditions
+            - the user's query specifies filters identical to the current filters
+            - if the user's query doesn't specify any filters/conditions
             - the user refers to what they're "looking at" or "viewing"
           * Set to `false` if one of the conditions is met:
             - no current filters or `search_session_recordings` tool are present in the conversation
             - the user specifies date/time period different from the current filters
             - the user specifies specific conditions (user, device, id, URL, etc.) not present in the current filters
-            - the query is highly specific and not related to the current filters
+            - the user's query is highly specific and not related to the current filters
         """
     )
 
