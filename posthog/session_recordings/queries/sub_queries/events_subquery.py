@@ -34,18 +34,17 @@ def negative_event_predicates(
         if isinstance(entity, str):
             continue
 
+        if not entity.properties:
+            continue
+
         # the entity itself is always a positive expression,
         # so we don't need to check it here where we're looking only
         # for negative items to check across the session in its properties
-        has_negative_operator = False
+        has_negative_operator = any(
+            hasattr(prop, "operator") and prop.operator in NEGATIVE_OPERATORS for prop in entity.properties
+        )
 
-        for prop in entity.properties or []:
-            if hasattr(prop, "operator") and prop.operator in NEGATIVE_OPERATORS:
-                has_negative_operator = True
-                break
-
-        # got to check entity properties exist to help mypy
-        if has_negative_operator and entity.properties:
+        if has_negative_operator:
             event_exprs.append(property_to_expr(entity.properties, team=team, scope="replay_entity"))
 
     return event_exprs
