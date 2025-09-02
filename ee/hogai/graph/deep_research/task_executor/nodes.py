@@ -66,10 +66,6 @@ class TaskExecutorNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchS
             for task_result in state.task_results:
                 artifacts.extend(task_result.artifacts)
 
-            # Create initial TaskExecutionMessage with all tasks as pending
-            if not state.tasks:
-                raise ValueError("No tasks to execute")
-
             tasks = state.tasks.copy()
             input_tuples = []
             for task in tasks:
