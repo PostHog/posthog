@@ -56,14 +56,9 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.pk, fingerprint=fingerprint, issue_id=issue_id, version=version
         )
 
-    def create_issue(self, issue_id, fingerprint, name=None, status=ErrorTrackingIssue.Status.ACTIVE, timestamp=None):
-        if timestamp:
-            with freeze_time(timestamp):
-                issue = ErrorTrackingIssue.objects.create(id=issue_id, team=self.team, status=status, name=name)
-                ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
-        else:
-            issue = ErrorTrackingIssue.objects.create(id=issue_id, team=self.team, status=status, name=name)
-            ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
+    def create_issue(self, issue_id, fingerprint, name=None, status=ErrorTrackingIssue.Status.ACTIVE):
+        issue = ErrorTrackingIssue.objects.create(id=issue_id, team=self.team, status=status, name=name)
+        ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
 
         return issue
 
@@ -77,7 +72,11 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         additional_properties=None,
         issue_name=None,
     ):
-        self.create_issue(issue_id, fingerprint, name=issue_name, timestamp=timestamp)
+        if timestamp:
+            with freeze_time(timestamp):
+                self.create_issue(issue_id, fingerprint, name=issue_name)
+        else:
+            self.create_issue(issue_id, fingerprint, name=issue_name)
 
         event_properties = {"$exception_issue_id": issue_id, "$exception_fingerprint": fingerprint}
         if exception_list:
