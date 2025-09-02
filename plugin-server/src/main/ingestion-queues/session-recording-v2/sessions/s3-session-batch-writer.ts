@@ -125,7 +125,7 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
             return {
                 bytesWritten: buffer.length,
                 url: `s3://${this.bucket}/${this.key}?range=bytes=${startOffset}-${this.currentOffset - 1}`,
-                retentionPeriod: null,
+                retentionPeriodDays: null,
             }
         })
     }

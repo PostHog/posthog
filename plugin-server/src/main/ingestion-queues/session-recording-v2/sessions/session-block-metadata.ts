@@ -46,5 +46,5 @@ export interface SessionBlockMetadata {
     /** Library used for the snapshot */
     snapshotLibrary: string | null
     /** Retention period for this session block */
-    retentionPeriod: string | null
+    retentionPeriodDays: number | null
 }

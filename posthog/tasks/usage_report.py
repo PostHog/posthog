@@ -25,6 +25,7 @@ from retry import retry
 from posthog.schema import AIEventType
 
 from posthog import version_requirement
+from posthog.batch_exports.models import BatchExportRun
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import tags_context
@@ -141,6 +142,7 @@ class UsageReportCounters:
     active_external_data_schemas_in_period: int
 
     # Batch Exports metadata
+    rows_exported_in_period: int
     active_batch_exports_in_period: int
 
     dwh_total_storage_in_s3_in_mib: float
@@ -932,6 +934,22 @@ def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_rows_exported_in_period(begin: datetime, end: datetime) -> list:
+    return list(
+        BatchExportRun.objects.filter(
+            finished_at__gte=begin,
+            finished_at__lte=end,
+            status=BatchExportRun.Status.COMPLETED,
+            batch_export__model=BatchExport.Model.EVENTS,
+            batch_export__deleted=False,
+        )
+        .values("batch_export__team_id")
+        .annotate(total=Sum("records_completed"))
+    )
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_active_external_data_schemas_in_period() -> list:
     # get all external data schemas that are running or completed at run time
     return list(
@@ -1178,6 +1196,7 @@ def has_non_zero_usage(report: FullUsageReport) -> bool:
         or report.local_evaluation_requests_count_in_period > 0
         or report.survey_responses_count_in_period > 0
         or report.rows_synced_in_period > 0
+        or report.rows_exported_in_period > 0
         or report.exceptions_captured_in_period > 0
     )
 
@@ -1381,6 +1400,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             period_start, period_end
         ),
         "teams_with_rows_synced_in_period": get_teams_with_rows_synced_in_period(period_start, period_end),
+        "teams_with_rows_exported_in_period": get_teams_with_rows_exported_in_period(period_start, period_end),
         "teams_with_active_external_data_schemas_in_period": get_teams_with_active_external_data_schemas_in_period(),
         "teams_with_active_batch_exports_in_period": get_teams_with_active_batch_exports_in_period(),
         "teams_with_dwh_tables_storage_in_s3_in_mib": get_teams_with_dwh_tables_storage_in_s3(),
@@ -1480,6 +1500,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         event_explorer_api_duration_ms=all_data["teams_with_event_explorer_api_duration_ms"].get(team.id, 0),
         survey_responses_count_in_period=all_data["teams_with_survey_responses_count_in_period"].get(team.id, 0),
         rows_synced_in_period=all_data["teams_with_rows_synced_in_period"].get(team.id, 0),
+        rows_exported_in_period=all_data["teams_with_rows_exported_in_period"].get(team.id, 0),
         active_external_data_schemas_in_period=all_data["teams_with_active_external_data_schemas_in_period"].get(
             team.id, 0
         ),

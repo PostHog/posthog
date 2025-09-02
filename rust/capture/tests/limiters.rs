@@ -186,12 +186,18 @@ fn create_batch_payload_with_token(events: &[&str], token: &str) -> String {
 }
 
 #[tokio::test]
-async fn test_billing_limit_retains_exception_events() {
+async fn test_billing_limit_retains_only_exception_events() {
     let token = "test_token_exception";
     let (router, sink) = setup_billing_limited_router(token, true).await;
     let client = TestClient::new(router);
 
-    let events = ["$exception", "pageview", "click"];
+    let events = [
+        "$exception",
+        "pageview",
+        "$exception",
+        "$something_else",
+        "pageleave",
+    ];
     let payload = create_batch_payload_with_token(&events, token);
 
     let response = client
@@ -207,105 +213,11 @@ async fn test_billing_limit_retains_exception_events() {
 
     // Check that only exception events were retained
     let captured_events = sink.events();
-    assert_eq!(captured_events.len(), 1);
+    assert_eq!(captured_events.len(), 2);
 
     // Parse the event data to check the event name
     let event_data: Value = serde_json::from_str(&captured_events[0].event.data).unwrap();
     assert_eq!(event_data["event"], "$exception");
-}
-
-#[tokio::test]
-async fn test_billing_limit_retains_survey_events() {
-    let token = "test_token_survey";
-    let (router, sink) = setup_billing_limited_router(token, true).await;
-    let client = TestClient::new(router);
-
-    let events = [
-        "survey sent",
-        "pageview",
-        "survey shown",
-        "click",
-        "survey dismissed",
-    ];
-    let payload = create_batch_payload_with_token(&events, token);
-
-    let response = client
-        .post("/e")
-        .body(payload)
-        .header("Content-Type", "application/json")
-        .header("X-Forwarded-For", "127.0.0.1")
-        .send()
-        .await;
-
-    // Should return OK even when billing limited (legacy behavior)
-    assert_eq!(response.status(), StatusCode::OK);
-
-    // Check that only survey events were retained
-    let captured_events = sink.events();
-    assert_eq!(captured_events.len(), 3);
-
-    // Parse the event data to check the event names
-    let event_names: Vec<String> = captured_events
-        .iter()
-        .map(|e| {
-            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
-            event_data["event"].as_str().unwrap().to_string()
-        })
-        .collect();
-
-    assert!(event_names.contains(&"survey sent".to_string()));
-    assert!(event_names.contains(&"survey shown".to_string()));
-    assert!(event_names.contains(&"survey dismissed".to_string()));
-    // These should NOT be present
-    assert!(!event_names.contains(&"pageview".to_string()));
-    assert!(!event_names.contains(&"click".to_string()));
-}
-
-#[tokio::test]
-async fn test_billing_limit_retains_both_exception_and_survey_events() {
-    let token = "test_token_mixed";
-    let (router, sink) = setup_billing_limited_router(token, true).await;
-    let client = TestClient::new(router);
-
-    let events = [
-        "$exception",
-        "pageview",
-        "survey sent",
-        "click",
-        "survey shown",
-    ];
-    let payload = create_batch_payload_with_token(&events, token);
-
-    let response = client
-        .post("/e")
-        .body(payload)
-        .header("Content-Type", "application/json")
-        .header("X-Forwarded-For", "127.0.0.1")
-        .send()
-        .await;
-
-    // Should return OK even when billing limited (legacy behavior)
-    assert_eq!(response.status(), StatusCode::OK);
-
-    // Check that exception and survey events were retained
-    let captured_events = sink.events();
-    assert_eq!(captured_events.len(), 3);
-
-    // Parse the event data to check the event names
-    let event_names: Vec<String> = captured_events
-        .iter()
-        .map(|e| {
-            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
-            event_data["event"].as_str().unwrap().to_string()
-        })
-        .collect();
-
-    assert!(event_names.contains(&"$exception".to_string()));
-    assert!(event_names.contains(&"survey sent".to_string()));
-    assert!(event_names.contains(&"survey shown".to_string()));
-    // These should NOT be present
-    assert!(!event_names.contains(&"pageview".to_string()));
-    assert!(!event_names.contains(&"click".to_string()));
 }
 
 #[tokio::test]
@@ -375,56 +287,20 @@ async fn test_no_billing_limit_retains_all_events() {
 
 // Test with /i/v0/e endpoint
 #[tokio::test]
-async fn test_billing_limit_retains_survey_events_on_i_endpoint() {
+async fn test_billing_limit_on_i_endpoint() {
     let token = "test_token_i_endpoint";
     let (router, sink) = setup_billing_limited_router(token, true).await;
     let client = TestClient::new(router);
 
-    let events = ["survey sent", "pageview", "survey dismissed"];
-    let payload = create_batch_payload_with_token(&events, token);
-
-    let response = client
-        .post("/i/v0/e")
-        .body(payload)
-        .header("Content-Type", "application/json")
-        .header("X-Forwarded-For", "127.0.0.1")
-        .send()
-        .await;
-
-    // Should return OK even when billing limited
-    assert_eq!(response.status(), StatusCode::OK);
-
-    // Check that only survey events were retained
-    let captured_events = sink.events();
-    assert_eq!(captured_events.len(), 2);
-
-    // Parse the event data to check the event names
-    let event_names: Vec<String> = captured_events
-        .iter()
-        .map(|e| {
-            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
-            event_data["event"].as_str().unwrap().to_string()
-        })
-        .collect();
-
-    assert!(event_names.contains(&"survey sent".to_string()));
-    assert!(event_names.contains(&"survey dismissed".to_string()));
-    assert!(!event_names.contains(&"pageview".to_string()));
-}
-
-// Test with /i/v0/e endpoint for AI events
-#[tokio::test]
-async fn test_billing_limit_retains_ai_events_on_i_endpoint() {
-    let token = "test_token_i_endpoint_ai";
-    let (router, sink) = setup_billing_limited_router(token, true).await; // Only billing limited, not AI limited
-    let client = TestClient::new(router);
-
     let events = [
-        "$ai_generation",
+        "survey sent",
+        "$ai_foobar",
+        "$exception",
         "pageview",
-        "$ai_span",
-        "click",
-        "$ai_trace",
+        "survey dismissed",
+        "$exception",
+        "pageleave",
+        "some_other_event",
     ];
     let payload = create_batch_payload_with_token(&events, token);
 
@@ -439,9 +315,11 @@ async fn test_billing_limit_retains_ai_events_on_i_endpoint() {
     // Should return OK even when billing limited
     assert_eq!(response.status(), StatusCode::OK);
 
-    // Check that only AI events were retained when billing limited
+    // Check that only $exception events were retained
     let captured_events = sink.events();
-    assert_eq!(captured_events.len(), 3); // Only AI events should be retained
+
+    // all but the exception, AI, and survey events should be dropped from the input batch
+    assert_eq!(captured_events.len(), 5);
 
     // Parse the event data to check the event names
     let event_names: Vec<String> = captured_events
@@ -452,12 +330,7 @@ async fn test_billing_limit_retains_ai_events_on_i_endpoint() {
         })
         .collect();
 
-    assert!(event_names.contains(&"$ai_generation".to_string()));
-    assert!(event_names.contains(&"$ai_span".to_string()));
-    assert!(event_names.contains(&"$ai_trace".to_string()));
-    // Regular events should NOT be present when billing limited
-    assert!(!event_names.contains(&"pageview".to_string()));
-    assert!(!event_names.contains(&"click".to_string()));
+    assert!(event_names.contains(&"$exception".to_string()));
 }
 
 // Tests for check_survey_quota_and_filter function
