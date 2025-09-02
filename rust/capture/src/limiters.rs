@@ -171,7 +171,7 @@ impl CaptureQuotaLimiter {
             let dropped_count = filtered_indices.len() as u64;
             let global_resource_tag = Self::get_resource_for_mode(self.capture_mode.clone());
             report_quota_limit_exceeded(&global_resource_tag, dropped_count);
-            let dropped_events_tag = format!("{:?}_over_quota", global_resource_tag.as_str());
+            let dropped_events_tag = format!("{}_over_quota", global_resource_tag.as_str());
             counter!(CAPTURE_EVENTS_DROPPED_TOTAL, "cause" => dropped_events_tag)
                 .increment(dropped_count);
 
