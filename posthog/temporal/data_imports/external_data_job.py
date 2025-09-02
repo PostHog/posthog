@@ -83,6 +83,7 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSourceType, list[str]] = {
         "Name or service not known",
         "Network is unreachable Is the server running on that host and accepting TCP/IP connections",
         "InsufficientPrivilege",
+        "OperationalError: connection failed: connection to server at",
     ],
     ExternalDataSourceType.ZENDESK: ["404 Client Error: Not Found for url", "403 Client Error: Forbidden for url"],
     ExternalDataSourceType.MYSQL: [

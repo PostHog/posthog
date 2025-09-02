@@ -136,9 +136,9 @@ class ErrorTrackingIssueCorrelationQueryRunner(AnalyticsQueryRunner[ErrorTrackin
 
         results = []
         for issue in issues:
-            issue_correlations = correlations.get(issue["id"], {})
+            issue_correlations = correlations.get(issue["id"], {})  # type: ignore
             for event, correlation in issue_correlations.items():
-                results.append({**issue, **correlation, "event": event})
+                results.append({**issue, **correlation, "event": event})  # type: ignore
 
         return sorted(results, key=lambda r: r["odds_ratio"], reverse=True)
 

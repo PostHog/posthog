@@ -26,6 +26,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_exceptions_captured_in_period,
     get_teams_with_feature_flag_requests_count_in_period,
     get_teams_with_recording_count_in_period,
+    get_teams_with_rows_exported_in_period,
     get_teams_with_rows_synced_in_period,
     get_teams_with_survey_responses_count_in_period,
 )
@@ -64,6 +65,7 @@ class QuotaResource(Enum):
     SURVEYS = "surveys"
     LLM_EVENTS = "llm_events"
     CDP_INVOCATIONS = "cdp_invocations"
+    ROWS_EXPORTED = "rows_exported"
 
 
 class QuotaLimitingCaches(Enum):
@@ -81,6 +83,7 @@ OVERAGE_BUFFER = {
     QuotaResource.SURVEYS: 0,
     QuotaResource.LLM_EVENTS: 0,
     QuotaResource.CDP_INVOCATIONS: 0,
+    QuotaResource.ROWS_EXPORTED: 0,
 }
 
 TRUST_SCORE_KEYS = {
@@ -93,6 +96,7 @@ TRUST_SCORE_KEYS = {
     QuotaResource.SURVEYS: "surveys",
     QuotaResource.LLM_EVENTS: "llm_events",
     QuotaResource.CDP_INVOCATIONS: "cdp_invocations",
+    QuotaResource.ROWS_EXPORTED: "rows_exported",
 }
 
 
@@ -106,6 +110,7 @@ class UsageCounters(TypedDict):
     surveys: int
     llm_events: int
     cdp_invocations: int
+    rows_exported: int
 
 
 # -------------------------------------------------------------------------------------------------
@@ -608,6 +613,9 @@ def update_all_orgs_billing_quotas(
         "teams_with_cdp_invocations_metrics": convert_team_usage_rows_to_dict(
             get_teams_with_cdp_billable_invocations_in_period(period_start, period_end)
         ),
+        "teams_with_rows_exported_in_period": convert_team_usage_rows_to_dict(
+            get_teams_with_rows_exported_in_period(period_start, period_end)
+        ),
         "teams_with_survey_responses_count_in_period": convert_team_usage_rows_to_dict(
             get_teams_with_survey_responses_count_in_period(period_start, period_end)
         ),
@@ -647,6 +655,7 @@ def update_all_orgs_billing_quotas(
             surveys=all_data["teams_with_survey_responses_count_in_period"].get(team.id, 0),
             llm_events=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
             cdp_invocations=all_data["teams_with_cdp_invocations_metrics"].get(team.id, 0),
+            rows_exported=all_data["teams_with_rows_exported_in_period"].get(team.id, 0),
         )
 
         org_id = str(team.organization.id)
@@ -742,6 +751,7 @@ def update_all_orgs_billing_quotas(
             "quota_limited_surveys": quota_limited_orgs["surveys"].get(org_id, None),
             "quota_limited_llm_events": quota_limited_orgs["llm_events"].get(org_id, None),
             "quota_limited_cdp_invocations": quota_limited_orgs["cdp_invocations"].get(org_id, None),
+            "quota_limited_rows_exported": quota_limited_orgs["rows_exported"].get(org_id, None),
         }
 
         report_organization_action(

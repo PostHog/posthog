@@ -134,7 +134,9 @@ export enum ShownAsValue {
 
 // Retention constants
 export const RETENTION_RECURRING = 'retention_recurring'
-export const RETENTION_FIRST_TIME = 'retention_first_time'
+// hasn't been renamed to 'retention_first_occurrence_matching_filters' until schema migration
+export const RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS = 'retention_first_time'
+export const RETENTION_FIRST_EVER_OCCURRENCE = 'retention_first_ever_occurrence'
 
 export const WEBHOOK_SERVICES: Record<string, string> = {
     Slack: 'slack.com',
@@ -167,8 +169,8 @@ export const FEATURE_FLAGS = {
     PRODUCT_SPECIFIC_ONBOARDING: 'product-specific-onboarding', // owner: @raquelmsmith
     REDIRECT_SIGNUPS_TO_INSTANCE: 'redirect-signups-to-instance', // owner: @raquelmsmith
     HOGQL_DASHBOARD_ASYNC: 'hogql-dashboard-async', // owner: @webjunkie
-    WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-pipeline
-    PIPELINE_UI: 'pipeline-ui', // owner: #team-pipeline
+    WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-ingestion
+    PIPELINE_UI: 'pipeline-ui', // owner: #team-ingestion
     PERSON_FEED_CANVAS: 'person-feed-canvas', // owner: #project-canvas
     FEATURE_FLAG_COHORT_CREATION: 'feature-flag-cohort-creation', // owner: @neilkakkar #team-feature-success
     INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: #team-product-analytics
@@ -296,6 +298,7 @@ export const FEATURE_FLAGS = {
     IMPROVED_COOKIELESS_MODE: 'improved-cookieless-mode', // owner: @robbie-c #team-web-analytics
     REPLAY_EXPORT_SHORT_VIDEO: 'replay-export-short-video', // owner: @veryayskiy #team-replay
     REPLAY_EXPORT_FULL_VIDEO: 'replay-export-full-video', // owner: @veryayskiy #team-replay
+    AMPLITUDE_BATCH_IMPORT_OPTIONS: 'amplitude-batch-import-options', // owner: #team-ingestion
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
