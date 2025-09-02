@@ -36,6 +36,9 @@ INSIGHT_SUBGRAPH_REASONING_MESSAGES = {
     "insight_rag_context": "🔍 Searching relevant context...",
 }
 
+TASK_COMPLETED_MESSAGE = "✅ Task completed"
+TASK_FAILED_MESSAGE = "❌ Task failed"
+
 
 class ExecuteTasksTool:
     """Tool for executing multiple tasks in parallel using the insights subgraph."""
@@ -70,10 +73,6 @@ class ExecuteTasksTool:
         task_executor = RunnableLambda(self._execute_task_with_insights).with_config(run_name="TaskExecutor")  # type: ignore
         batch_inputs = [{"task": task, "artifacts": artifacts, "config": config} for task, artifacts in input_tuples]
 
-        task_progress = {}
-        for i, (task, _) in enumerate(input_tuples, 1):
-            task_progress[task.id] = i
-
         async for _, output in task_executor.abatch_as_completed(batch_inputs, config=config):
             yield output
 
@@ -93,17 +92,6 @@ class ExecuteTasksTool:
 
         # This is needed by the InsightsAssistantGraph to return an AssistantToolCallMessage
         task_tool_call_id = f"task_{uuid.uuid4().hex[:8]}"
-
-        prompt = (
-            task.prompt
-            + """
-
-        Previous insights you can use as reference to start:
-        """
-        )
-        for artifact in artifacts:
-            prompt += f"- {artifact.id}: {artifact.description}\nQuery: {artifact.query}\n\n"
-        prompt = prompt.strip()
 
         formatted_instructions = AGENT_TASK_PROMPT_TEMPLATE.format(
             task_prompt=task.prompt, task_description=task.description
@@ -138,7 +126,7 @@ class ExecuteTasksTool:
             capture_exception(e)
             raise
 
-        last_message = subgraph_result_messages[-1]
+        last_message = subgraph_result_messages[-1] if subgraph_result_messages else None
         if not last_message:
             logger.warning("Task failed: no messages received from insights subgraph", task_id=task.id)
             return self._failed_result(task)
@@ -155,6 +143,7 @@ class ExecuteTasksTool:
         artifacts = self._extract_artifacts(subgraph_result_messages, task)
         if len(artifacts) == 0:
             logger.warning("Task failed: no artifacts extracted", task_id=task.id)
+            return self._failed_result(task)
 
         formatted_instructions = AGENT_TASK_PROMPT_TEMPLATE.format(
             task_prompt=task.prompt, task_description=task.description
@@ -174,6 +163,7 @@ class ExecuteTasksTool:
             config,
         )
         response = cast(LangchainAIMessage, response)
+        self._task_progress_callback(task.id, TASK_COMPLETED_MESSAGE)
 
         return DeepResearchSingleTaskResult(
             id=task.id,
@@ -184,6 +174,7 @@ class ExecuteTasksTool:
         )
 
     def _failed_result(self, task: TaskExecutionItem) -> DeepResearchSingleTaskResult:
+        self._task_progress_callback(task.id, TASK_FAILED_MESSAGE)
         return DeepResearchSingleTaskResult(
             id=task.id, description=task.description, result="", artifacts=[], status=TaskExecutionStatus.FAILED
         )
