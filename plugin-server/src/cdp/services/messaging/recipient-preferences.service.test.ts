@@ -40,7 +40,17 @@ describe('RecipientPreferencesService', () => {
         await closeHub(hub)
     })
 
-    const createRecipient = (identifier: string, preferences: Record<string, string> = {}) => ({
+    const createRecipient = (
+        identifier: string,
+        preferences: Record<string, string> = {}
+    ): {
+        id: string
+        team_id: number
+        identifier: string
+        preferences: Record<string, string>
+        created_at: string
+        updated_at: string
+    } => ({
         id: new UUIDT().toString(),
         team_id: team.id,
         identifier,
@@ -98,12 +108,11 @@ describe('RecipientPreferencesService', () => {
                                     email: to,
                                 },
                                 from: {
-                                    email: 'noreply@example.com',
-                                    name: 'Example Sender',
+                                    email: 'from@example.com',
                                 },
                                 subject: 'Test Subject',
-                                text: 'Test email body',
-                                html: '<p>Test email body</p>',
+                                text: 'Test Text',
+                                html: 'Test HTML',
                             },
                         },
                     },
@@ -211,7 +220,17 @@ describe('RecipientPreferencesService', () => {
                         template_id: 'template-email',
                         inputs: {
                             email: {
-                                value: {} as any,
+                                value: {
+                                    to: {
+                                        email: '',
+                                    },
+                                    from: {
+                                        email: '',
+                                    },
+                                    subject: '',
+                                    text: '',
+                                    html: '',
+                                },
                             },
                         },
                     },
@@ -325,7 +344,7 @@ describe('RecipientPreferencesService', () => {
                     template_id: 'template-twilio',
                     message_category_id: categoryId,
                     inputs: {
-                        to_number: toNumber,
+                        to_number: { value: toNumber },
                     } as any,
                 },
                 created_at: Date.now(),
@@ -377,7 +396,13 @@ describe('RecipientPreferencesService', () => {
                     config: {
                         template_id: 'template-twilio',
                         message_category_id: '123e4567-e89b-12d3-a456-426614174000',
-                        inputs: {} as any,
+                        inputs: {
+                            to_number: { value: '' },
+                            message: { value: '' },
+                            twilio_account: { value: '' },
+                            from_number: { value: '' },
+                            debug: { value: false },
+                        },
                     },
                     created_at: Date.now(),
                     updated_at: Date.now(),
@@ -456,7 +481,10 @@ describe('RecipientPreferencesService', () => {
                     type: 'function_slack',
                     config: {
                         template_id: 'template-slack',
-                        inputs: {} as any,
+                        inputs: {
+                            slack_channel: { value: 123 },
+                            slack_workspace: { value: 123 },
+                        },
                     },
                     created_at: Date.now(),
                     updated_at: Date.now(),
@@ -477,7 +505,9 @@ describe('RecipientPreferencesService', () => {
                     type: 'function_webhook',
                     config: {
                         template_id: 'template-webhook',
-                        inputs: {} as any,
+                        inputs: {
+                            url: { value: 'https://example.com/webhook' },
+                        },
                     },
                     created_at: Date.now(),
                     updated_at: Date.now(),
