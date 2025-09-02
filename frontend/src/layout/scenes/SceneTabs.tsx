@@ -41,7 +41,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
             )}
         >
             {/* rounded corner on the left to make scene curve into tab line */}
-            <div className="absolute left-0 -bottom-1 size-2 bg-primary">
+            <div className="absolute left-0 -bottom-1 size-2 bg-surface-tertiary">
                 <div className="relative -bottom-1 size-2 border-l border-t border-primary rounded-tl bg-primary" />
             </div>
 
