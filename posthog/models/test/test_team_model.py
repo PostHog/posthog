@@ -31,8 +31,6 @@ class TestTeam(BaseTest):
     def test_all_users_with_access_while_access_control_org_membership(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        self.team.access_control = True
-        self.team.save()
         User.objects.create_and_join(
             self.organization,
             email="test2@posthog.com",
@@ -48,8 +46,6 @@ class TestTeam(BaseTest):
     def test_all_users_with_access_while_access_control_explicit_team_membership(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-        self.team.access_control = True
-        self.team.save()
         User.objects.create_and_join(
             self.organization,
             email="test2@posthog.com",
@@ -66,8 +62,6 @@ class TestTeam(BaseTest):
     def test_all_users_with_access_while_access_control_org_membership_and_redundant_team_one(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        self.team.access_control = True
-        self.team.save()
         ExplicitTeamMembership.objects.create(team=self.team, parent_membership=self.organization_membership)
 
         all_user_with_access_ids = list(self.team.all_users_with_access().values_list("id", flat=True))
@@ -78,8 +72,6 @@ class TestTeam(BaseTest):
         """Test that all organization members have access to a non-private team with the new access control system"""
 
         # Set up team with new access control system
-        self.team.access_control = False
-        self.team.save()
 
         # Create another user as a member
         member_user = User.objects.create_and_join(
@@ -101,8 +93,6 @@ class TestTeam(BaseTest):
         from ee.models.rbac.access_control import AccessControl
 
         # Set up team with new access control system
-        self.team.access_control = False
-        self.team.save()
 
         # Make the team private
         AccessControl.objects.create(
@@ -138,8 +128,6 @@ class TestTeam(BaseTest):
         from ee.models.rbac.access_control import AccessControl
 
         # Set up team with new access control system
-        self.team.access_control = False
-        self.team.save()
 
         # Make the team private
         AccessControl.objects.create(
@@ -186,8 +174,6 @@ class TestTeam(BaseTest):
         from ee.models.rbac.role import Role, RoleMembership
 
         # Set up team with new access control system
-        self.team.access_control = False
-        self.team.save()
 
         # Make the team private
         AccessControl.objects.create(

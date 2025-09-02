@@ -16,8 +16,6 @@ from ee.models.license import License
 
 class TestDashboardEnterpriseAPI(APILicensedTest):
     def test_retrieve_dashboard_forbidden_for_project_outsider(self):
-        self.team.access_control = True
-        self.team.save()
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
@@ -25,8 +23,6 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_retrieve_dashboard_forbidden_for_org_admin(self):
-        self.team.access_control = True
-        self.team.save()
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
@@ -34,8 +30,6 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_retrieve_dashboard_allowed_for_project_member(self):
-        self.team.access_control = True
-        self.team.save()
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         ExplicitTeamMembership.objects.create(team=self.team, parent_membership=self.organization_membership)
@@ -44,8 +38,6 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_shared_dashboard_in_private_project(self):
-        self.team.access_control = True
-        self.team.save()
         self.client.logout()
         dashboard = Dashboard.objects.create(team=self.team, name="public dashboard")
         SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, access_token="testtoken", enabled=True)
@@ -279,8 +271,6 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
 
         self.organization.available_product_features = []
         self.organization.save()
-        self.team.access_control = True
-        self.team.save()
 
         user_without_collaboration = User.objects.create_and_join(
             self.organization, "no-collaboration-feature@posthog.com", None

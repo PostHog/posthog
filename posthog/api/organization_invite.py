@@ -182,23 +182,6 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
                 # User is not an org admin/owner
                 pass
 
-            # This path is deprecated, and will be removed soon
-            if team.access_control:
-                team_membership: ExplicitTeamMembership | None = None
-                try:
-                    team_membership = ExplicitTeamMembership.objects.get(
-                        team_id=item["id"],
-                        parent_membership__user=self.context["request"].user,
-                    )
-                except ExplicitTeamMembership.DoesNotExist:
-                    raise exceptions.ValidationError(team_error)
-                if team_membership.level < item["level"]:
-                    raise exceptions.ValidationError(
-                        "You cannot invite to a private project with a higher level than your own.",
-                    )
-                # Legacy private project and the current user has permission to invite to it
-                continue
-
             # New access control checks
             from ee.models.rbac.access_control import AccessControl
 

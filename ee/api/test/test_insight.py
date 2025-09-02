@@ -26,8 +26,6 @@ class TestInsightEnterpriseAPI(APILicensedTest):
     def test_insight_trends_forbidden_if_project_private_and_org_member(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-        self.team.access_control = True
-        self.team.save()
         response = self.client.get(
             f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}"
         )
@@ -277,8 +275,6 @@ class TestInsightEnterpriseAPI(APILicensedTest):
     ) -> None:
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-        self.team.access_control = True
-        self.team.save()
         ExplicitTeamMembership.objects.create(
             team=self.team,
             parent_membership=self.organization_membership,

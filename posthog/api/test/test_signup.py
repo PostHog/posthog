@@ -1306,8 +1306,6 @@ class TestInviteSignupAPI(APIBaseTest):
             {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
         ]
         self.organization.save()
-        self.team.access_control = True
-        self.team.save()
 
         response = self.client.post(
             f"/api/signup/{invite.id}/",
@@ -1325,9 +1323,7 @@ class TestInviteSignupAPI(APIBaseTest):
 
     def test_api_invite_sign_up_where_default_project_is_private(self):
         self.client.logout()
-        self.team.access_control = True
-        self.team.save()
-        team = Team.objects.create(name="Public project", organization=self.organization, access_control=False)
+        team = Team.objects.create(name="Public project", organization=self.organization)
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="test+privatepublic@posthog.com",
             organization=self.organization,

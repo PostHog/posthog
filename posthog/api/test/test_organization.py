@@ -536,7 +536,7 @@ class TestOrganizationRbacMigrations(APIBaseTest):
         )
         self.assertIsNotNone(member_access)
 
-        # Check that the team access control has been disabled
+        # Access control is now deprecated and always false
         team_with_access_control.refresh_from_db()
         self.assertFalse(team_with_access_control.access_control)
 

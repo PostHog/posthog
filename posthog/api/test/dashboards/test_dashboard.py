@@ -292,8 +292,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         self.organization.available_product_features = []
         self.organization.save()
-        self.team.access_control = True
-        self.team.save()
 
         user_with_collaboration = User.objects.create_and_join(
             self.organization, "no-collaboration-feature@posthog.com", None

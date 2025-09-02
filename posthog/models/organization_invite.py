@@ -140,26 +140,17 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
                 # if the team doesn't exist, it was probably deleted. We can still continue with the invite.
                 continue
 
-            # This path is deprecated, and will be removed soon
-            if team.access_control:
-                ExplicitTeamMembership.objects.create(
-                    team=team,
-                    parent_membership=parent_membership,
-                    # Supporting both the old ExplicitTeamMembership.Level int and the new AccessControlLevel str
-                    level=item["level"] if isinstance(item["level"], int) else (8 if item["level"] == "admin" else 1),
-                )
-            else:
-                # New access control
-                AccessControl.objects.create(
-                    team=team,
-                    resource="project",
-                    resource_id=str(team.id),
-                    organization_member=parent_membership,
-                    # Supporting both the old ExplicitTeamMembership.Level int and the new AccessControlLevel str
-                    access_level=item["level"]
-                    if isinstance(item["level"], str)
-                    else ("admin" if item["level"] == 8 else "member"),
-                )
+            # New access control
+            AccessControl.objects.create(
+                team=team,
+                resource="project",
+                resource_id=str(team.id),
+                organization_member=parent_membership,
+                # Supporting both the old ExplicitTeamMembership.Level int and the new AccessControlLevel str
+                access_level=item["level"]
+                if isinstance(item["level"], str)
+                else ("admin" if item["level"] == 8 else "member"),
+            )
 
         if is_email_available(with_absolute_urls=True) and self.organization.is_member_join_email_enabled:
             from posthog.tasks.email import send_member_join

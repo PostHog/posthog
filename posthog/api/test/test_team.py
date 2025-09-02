@@ -1475,8 +1475,6 @@ def team_api_test_factory():
 
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()
-            self.team.access_control = True
-            self.team.save()
             ExplicitTeamMembership.objects.create(
                 team=self.team,
                 parent_membership=self.organization_membership,

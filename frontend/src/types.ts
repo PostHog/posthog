@@ -563,7 +563,7 @@ export interface TeamBasicType extends WithAccessControl {
     ingested_event: boolean
     is_demo: boolean
     timezone: string
-    /** Whether the project is private. */
+    /** @deprecated Legacy field - always false. Use new RBAC system instead. */
     access_control: boolean
 }
 

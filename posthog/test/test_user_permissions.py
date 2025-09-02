@@ -51,8 +51,6 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
             assert permissions.team(self.team).effective_membership_level is None
 
     def test_team_effective_membership_level_membership_isolation(self):
-        self.team.access_control = True
-        self.team.save()
         ExplicitTeamMembership.objects.create(
             team=self.team,
             parent_membership=self.organization_membership,
@@ -60,15 +58,12 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         forbidden_team = Team.objects.create(
             organization=self.organization,
             name="FORBIDDEN",
-            access_control=True,
         )
         permissions = UserPermissions(user=self.user)
         with self.assertNumQueries(2):
             assert permissions.team(forbidden_team).effective_membership_level is None
 
     def test_team_effective_membership_level_with_explicit_membership_returns_current_level(self):
-        self.team.access_control = True
-        self.team.save()
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
@@ -76,7 +71,6 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
             assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
 
     def test_team_effective_membership_level_with_member(self):
-        self.team.access_control = True
         self.team.save()
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
@@ -85,8 +79,6 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
             assert self.permissions().current_team.effective_membership_level is None
 
     def test_team_effective_membership_level_with_explicit_membership_returns_explicit_membership(self):
-        self.team.access_control = True
-        self.team.save()
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
@@ -103,14 +95,10 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         assert self.team.id in self.permissions().team_ids_visible_for_user
 
     def test_team_ids_visible_for_user_no_explicit_permissions(self):
-        self.team.access_control = True
-        self.team.save()
 
         assert self.team.id not in self.permissions().team_ids_visible_for_user
 
     def test_team_ids_visible_for_user_explicit_permission(self):
-        self.team.access_control = True
-        self.team.save()
 
         ExplicitTeamMembership.objects.create(
             team=self.team,
@@ -124,8 +112,6 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         """Test that all organization members have access to a non-private team with the new access control system"""
 
         # Set up team with new access control system
-        self.team.access_control = False
-        self.team.save()
 
         # Set up user as a member
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -140,8 +126,6 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         from ee.models.rbac.access_control import AccessControl
 
         # Set up team with new access control system
-        self.team.access_control = False
-        self.team.save()
 
         # Make the team private
         AccessControl.objects.create(
@@ -166,8 +150,6 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         from ee.models.rbac.access_control import AccessControl
 
         # Set up team with new access control system
-        self.team.access_control = False
-        self.team.save()
 
         # Make the team private
         AccessControl.objects.create(
@@ -192,8 +174,6 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         from ee.models.rbac.access_control import AccessControl
 
         # Set up team with new access control system
-        self.team.access_control = False
-        self.team.save()
 
         # Make the team private
         AccessControl.objects.create(
@@ -228,8 +208,6 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         from ee.models.rbac.role import Role, RoleMembership
 
         # Set up team with new access control system
-        self.team.access_control = False
-        self.team.save()
 
         # Make the team private
         AccessControl.objects.create(

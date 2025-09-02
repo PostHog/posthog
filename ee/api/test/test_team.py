@@ -147,8 +147,6 @@ def team_enterprise_api_test_factory():  # type: ignore
         def test_delete_private_team_as_org_member_but_team_admin_allowed(self):
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()
-            self.team.access_control = True
-            self.team.save()
             ExplicitTeamMembership.objects.create(
                 team=self.team,
                 parent_membership=self.organization_membership,
@@ -243,8 +241,6 @@ def team_enterprise_api_test_factory():  # type: ignore
         def test_fetch_private_team_as_org_member(self):
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()
-            self.team.access_control = True
-            self.team.save()
 
             response = self.client.get(f"/api/environments/@current/")
             response_data = response.json()
@@ -258,8 +254,6 @@ def team_enterprise_api_test_factory():  # type: ignore
         def test_fetch_private_team_as_org_member_and_team_member(self):
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()
-            self.team.access_control = True
-            self.team.save()
             ExplicitTeamMembership.objects.create(
                 team=self.team,
                 parent_membership=self.organization_membership,
@@ -282,8 +276,6 @@ def team_enterprise_api_test_factory():  # type: ignore
         def test_fetch_private_team_as_org_member_and_team_admin(self):
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()
-            self.team.access_control = True
-            self.team.save()
             ExplicitTeamMembership.objects.create(
                 team=self.team,
                 parent_membership=self.organization_membership,
@@ -471,8 +463,6 @@ class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):
     def test_rename_private_team_as_org_member_forbidden(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-        self.team.access_control = True
-        self.team.save()
 
         response = self.client.patch(f"/api/environments/@current/", {"name": "Acherontia atropos"})
         self.team.refresh_from_db()
@@ -499,8 +489,6 @@ class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):
     def test_rename_private_team_as_org_member_and_team_member_allowed(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-        self.team.access_control = True
-        self.team.save()
         ExplicitTeamMembership.objects.create(
             team=self.team,
             parent_membership=self.organization_membership,
@@ -519,7 +507,6 @@ class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):
         Team.objects.create(
             organization=self.organization,
             name="Other",
-            access_control=True,
         )
 
         # The other team should not be returned as it's restricted for the logged-in user

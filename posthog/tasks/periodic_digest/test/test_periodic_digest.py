@@ -644,8 +644,6 @@ class TestPeriodicDigestReport(APIBaseTest):
     def test_periodic_digest_report_respects_team_access(self, mock_capture: MagicMock) -> None:
         # Create a second team in the same organization
         team_2 = Team.objects.create(organization=self.organization, name="Second Team")
-        team_2.access_control = True
-        team_2.save()
 
         # Create test data for both teams
         with freeze_time("2024-01-15T00:01:00Z"):
