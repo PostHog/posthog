@@ -584,7 +584,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         ],
         dashboardId: [() => [(_, props) => props.dashboardId], (dashboardId) => dashboardId ?? null],
         showEditingUI: [
-            (state, props) => [props.editMode, state.dashboardId],
+            (s) => [(_, props: DataVisualizationLogicProps) => props.editMode, s.dashboardId],
             (editMode, dashboardId) => {
                 if (dashboardId) {
                     return false
@@ -594,7 +594,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
         showResultControls: [
-            (state, props) => [props.editMode, state.dashboardId],
+            (s) => [(_, props: DataVisualizationLogicProps) => props.editMode, s.dashboardId],
             (editMode, dashboardId) => {
                 if (editMode) {
                     return true

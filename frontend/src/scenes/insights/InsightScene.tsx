@@ -13,11 +13,13 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { ItemMode } from '~/types'
 
 export interface InsightSceneProps {
-    tabId: string
+    tabId?: string
 }
 
-export function InsightScene({ tabId }: InsightSceneProps): JSX.Element {
-    const { insightId, insight, insightLogicRef, insightMode } = useValues(insightSceneLogic({ tabId }))
+export function InsightScene({ tabId }: InsightSceneProps = { tabId: 'insight-scene-empty' }): JSX.Element {
+    const { insightId, insight, insightLogicRef, insightMode } = useValues(
+        insightSceneLogic({ tabId: tabId || 'insight-scene-empty' })
+    )
 
     useEffect(() => {
         // Redirect data viz nodes to the sql editor
@@ -34,7 +36,13 @@ export function InsightScene({ tabId }: InsightSceneProps): JSX.Element {
             insight?.short_id &&
             (insight?.query?.kind !== NodeKind.DataVisualizationNode || insightMode !== ItemMode.Edit))
     ) {
-        return <Insight insightId={insightId} tabId={tabId} attachTo={insightSceneLogic({ tabId })} />
+        return (
+            <Insight
+                insightId={insightId}
+                tabId={tabId || 'insight-scene-empty'}
+                attachTo={insightSceneLogic({ tabId })}
+            />
+        )
     }
 
     if (insightLogicRef?.logic?.values?.insightLoading) {

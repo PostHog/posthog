@@ -170,19 +170,11 @@ export function InsightVizDisplay({
                     />
                 )
             case InsightType.FUNNELS:
-                return (
-                    <Funnel
-                        editMode={editMode}
-                        inCardView={embedded}
-                        inSharedMode={inSharedMode}
-                        showPersonsModal={!inSharedMode}
-                    />
-                )
+                return <Funnel inCardView={embedded} inSharedMode={inSharedMode} showPersonsModal={!inSharedMode} />
             case InsightType.RETENTION:
                 return (
                     <RetentionContainer
                         context={context}
-                        editMode={editMode}
                         vizSpecificOptions={vizSpecificOptions?.[InsightType.RETENTION]}
                         inCardView={embedded}
                         inSharedMode={inSharedMode}
