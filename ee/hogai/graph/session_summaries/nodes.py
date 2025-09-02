@@ -140,10 +140,10 @@ class SessionSummarizationNode(AssistantNode):
             properties=properties,
             filter_test_accounts=replay_filters.filter_test_accounts,
             order=replay_filters.order,
-            # Handle duration filters
+            # Handle duration filters - preserve the original key (e.g., "active_seconds" or "duration")
             having_predicates=(
                 [
-                    {"key": "duration", "type": "recording", "operator": dur.operator, "value": dur.value}
+                    {"key": dur.key, "type": "recording", "operator": dur.operator, "value": dur.value}
                     for dur in (replay_filters.duration or [])
                 ]
                 if replay_filters.duration
