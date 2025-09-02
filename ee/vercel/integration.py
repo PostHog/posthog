@@ -223,7 +223,7 @@ class VercelIntegration:
         organization: Organization = installation.organization
 
         team = Team.objects.create_with_data(
-            initiating_user=None,
+            initiating_user=installation.created_by,
             organization=organization,
             name=resource_data["name"],
             has_completed_onboarding_for={
