@@ -101,7 +101,7 @@ jobs:
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
             - name: Install Rust
-              uses: actions-rust-lang/setup-rust-toolchain@v1
+              uses: dtolnay/rust-toolchain@6691ebadcb18182cc1391d07c9f295f657c593cd # 1.88
               with:
                   toolchain: stable
                   components: cargo
