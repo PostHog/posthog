@@ -225,7 +225,7 @@ DROP_RETENTION_PERIOD_SESSION_REPLAY_EVENTS_TABLE_SQL = (
 # migration to add a TTL policy to the session replay tables
 ALTER_SESSION_REPLAY_ADD_TTL = """
     ALTER TABLE {table_name}
-        MODIFY TTL dateTrunc('day', min_first_timestamp) + toIntervalDay(coalesce(retention_period_days, 365))
+        MODIFY TTL addDays(dateTrunc('day', min_first_timestamp), 1) + toIntervalDay(coalesce(retention_period_days, 365))
 """
 
 ADD_TTL_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_TTL.format(
