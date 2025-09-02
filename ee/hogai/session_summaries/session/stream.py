@@ -1,9 +1,11 @@
 from collections.abc import Generator
-from ee.hogai.utils.asgi import SyncIterableToAsync
-from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
+
 from posthog.models.team.team import Team
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session_stream
+
+from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
+from ee.hogai.utils.asgi import SyncIterableToAsync
 
 
 def stream_recording_summary(

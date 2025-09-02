@@ -1,18 +1,21 @@
-from dataclasses import dataclass
-from datetime import datetime, UTC
 import re
 import time
-from typing import Any, Optional
 from collections.abc import Callable
-from clickhouse_driver import Client
-import dagster
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import Any, Optional
+
 from django.conf import settings
+
+import dagster
 import pydantic
-from dags.common import JobOwners
+from clickhouse_driver import Client
+from dagster_aws.s3 import S3Resource
+
 from posthog.clickhouse.client.connection import NodeRole, Workload
 from posthog.clickhouse.cluster import ClickhouseCluster
 
-from dagster_aws.s3 import S3Resource
+from dags.common import JobOwners
 
 NO_SHARD_PATH = "noshard"
 

@@ -5,12 +5,15 @@ from collections.abc import Iterable
 from django.db.models import Prefetch
 
 from posthog.schema import DatabaseSchemaManagedViewTableKind
+
 from posthog.hogql.timings import HogQLTimings
+
 from posthog.models.team.team import Team
-from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
+from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.types import ExternalDataSourceType
 
+from products.revenue_analytics.backend.views import KIND_TO_CLASS, RevenueAnalyticsBaseView
 from products.revenue_analytics.backend.views.core import (
     BuiltQuery,
     SourceHandle,
@@ -19,7 +22,6 @@ from products.revenue_analytics.backend.views.core import (
 )
 from products.revenue_analytics.backend.views.schemas import SCHEMAS
 from products.revenue_analytics.backend.views.sources.registry import BUILDERS
-from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView, KIND_TO_CLASS
 
 SUPPORTED_SOURCES: list[ExternalDataSourceType] = [ExternalDataSourceType.STRIPE]
 

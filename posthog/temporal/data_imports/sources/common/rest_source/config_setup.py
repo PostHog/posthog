@@ -1,53 +1,44 @@
-import warnings
-from copy import copy
-from typing import Any, Optional, NamedTuple, Union
-from collections.abc import Callable
-import graphlib  # type: ignore[import,unused-ignore]
 import string
+import graphlib  # type: ignore[import,unused-ignore]
+import warnings
+from collections.abc import Callable
+from copy import copy
+from typing import Any, NamedTuple, Optional, Union
 
 import dlt
-from dlt.common import logger
+from dlt.common import jsonpath, logger
 from dlt.common.configuration import resolve_configuration
 from dlt.common.schema.utils import merge_columns
 from dlt.common.utils import update_dict_nested
-from dlt.common import jsonpath
-
 from dlt.extract.incremental import Incremental
 from dlt.extract.utils import ensure_table_schema_columns
-
 from dlt.sources.helpers.requests import Response
-from dlt.sources.helpers.rest_client.paginators import (
-    BasePaginator,
-    SinglePagePaginator,
-    HeaderLinkPaginator,
-    JSONResponsePaginator,
-    JSONResponseCursorPaginator,
-    OffsetPaginator,
-    PageNumberPaginator,
-)
+from dlt.sources.helpers.rest_client.auth import APIKeyAuth, AuthConfigBase, BearerTokenAuth, HttpBasicAuth
 from dlt.sources.helpers.rest_client.detector import single_entity_path
 from dlt.sources.helpers.rest_client.exceptions import IgnoreResponseException
-from dlt.sources.helpers.rest_client.auth import (
-    AuthConfigBase,
-    HttpBasicAuth,
-    BearerTokenAuth,
-    APIKeyAuth,
+from dlt.sources.helpers.rest_client.paginators import (
+    BasePaginator,
+    HeaderLinkPaginator,
+    JSONResponseCursorPaginator,
+    JSONResponsePaginator,
+    OffsetPaginator,
+    PageNumberPaginator,
+    SinglePagePaginator,
 )
 
 from .typing import (
-    EndpointResourceBase,
-    PaginatorType,
-    AuthType,
     AuthConfig,
-    IncrementalConfig,
-    PaginatorConfig,
-    ResolvedParam,
-    ResponseAction,
+    AuthType,
     Endpoint,
     EndpointResource,
+    EndpointResourceBase,
+    IncrementalConfig,
+    PaginatorConfig,
+    PaginatorType,
+    ResolvedParam,
+    ResponseAction,
 )
 from .utils import exclude_keys
-
 
 PAGINATOR_MAP: dict[PaginatorType, type[BasePaginator]] = {
     "json_response": JSONResponsePaginator,

@@ -1,21 +1,22 @@
 from decimal import Decimal
 from functools import cached_property
 
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.utils.timestamp_utils import format_label_date
-from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
 from posthog.schema import (
     CachedRevenueAnalyticsMetricsQueryResponse,
     HogQLQueryResponse,
     RevenueAnalyticsMetricsQuery,
     RevenueAnalyticsMetricsQueryResponse,
 )
+
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.hogql_queries.utils.timestamp_utils import format_label_date
+from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
+
 from products.revenue_analytics.backend.views import RevenueAnalyticsRevenueItemView, RevenueAnalyticsSubscriptionView
 
-from .revenue_analytics_query_runner import (
-    RevenueAnalyticsQueryRunner,
-)
+from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
 
 KINDS = [
     "Subscription Count",

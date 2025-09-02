@@ -149,6 +149,7 @@ export function DataTable({
         cachedResults: cachedResults,
         dataNodeCollectionId: context?.insightProps?.dataNodeCollectionId || dataKey,
         refresh: context?.refresh,
+        maxPaginationLimit: context?.dataTableMaxPaginationLimit,
     }
     const {
         response,

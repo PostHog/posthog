@@ -346,6 +346,7 @@ type CyclotronJobInputProps = {
     schema: CyclotronJobInputSchemaType
     input: CyclotronJobInputType
     onChange?: (value: CyclotronJobInputType) => void
+    onInputChange?: (key: string, input: CyclotronJobInputType) => void
     disabled?: boolean
     configuration: CyclotronJobInputConfiguration
     parentConfiguration?: CyclotronJobInputConfiguration
@@ -354,6 +355,7 @@ type CyclotronJobInputProps = {
 
 function CyclotronJobInputRenderer({
     onChange,
+    onInputChange,
     schema,
     disabled,
     input,
@@ -412,7 +414,24 @@ function CyclotronJobInputRenderer({
                 <LemonSwitch checked={input.value} onChange={(checked) => onValueChange(checked)} disabled={disabled} />
             )
         case 'integration':
-            return <CyclotronJobInputIntegration schema={schema} value={input.value} onChange={onValueChange} />
+            return (
+                <CyclotronJobInputIntegration
+                    schema={schema}
+                    value={input.value}
+                    onChange={(newValue) => {
+                        onValueChange(newValue)
+
+                        // Clear all integration_field inputs when the integration changes
+                        if (configuration.inputs_schema && onInputChange) {
+                            configuration.inputs_schema
+                                .filter((s: CyclotronJobInputSchemaType) => s.type === 'integration_field')
+                                .forEach((field: CyclotronJobInputSchemaType) => {
+                                    onInputChange(field.key, { value: null })
+                                })
+                        }
+                    }}
+                />
+            )
         case 'integration_field':
             return (
                 <CyclotronJobInputIntegrationField
@@ -710,6 +729,7 @@ function CyclotronJobInputWithSchema({
                                         schema={schema}
                                         input={value ?? { value: '' }}
                                         onChange={onChange}
+                                        onInputChange={onInputChange}
                                         configuration={configuration}
                                         parentConfiguration={parentConfiguration}
                                         sampleGlobalsWithInputs={sampleGlobalsWithInputs}

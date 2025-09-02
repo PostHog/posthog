@@ -1,22 +1,24 @@
-import asyncio
-import dataclasses
-import datetime as dt
 import json
 import math
 import time
 import typing
+import asyncio
+import datetime as dt
+import dataclasses
 
 from django.db import close_old_connections
+
 from structlog import get_logger
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
+
+from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.heartbeat import Heartbeater
 
 from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE, SALESFORCE_ACCOUNTS_QUERY
 from ee.billing.salesforce_enrichment.enrichment import enrich_accounts_chunked_async
 from ee.billing.salesforce_enrichment.redis_cache import get_cached_accounts_count, store_accounts_in_redis
 from ee.billing.salesforce_enrichment.salesforce_client import get_salesforce_client
-from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.heartbeat import Heartbeater
 
 LOGGER = get_logger(__name__)
 

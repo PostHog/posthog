@@ -1,16 +1,14 @@
-import datetime as dt
 import logging
+import datetime as dt
 
-import structlog
-import temporalio
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
+import structlog
+import temporalio
+
 from posthog.warehouse.data_load.service import sync_external_data_job_workflow
-from posthog.warehouse.models.external_data_schema import (
-    ExternalDataSchema,
-    sync_frequency_to_sync_frequency_interval,
-)
+from posthog.warehouse.models.external_data_schema import ExternalDataSchema, sync_frequency_to_sync_frequency_interval
 
 logger = structlog.get_logger(__name__)
 

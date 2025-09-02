@@ -6,18 +6,11 @@ import pyarrow as pa
 import temporalio.common
 
 from posthog.temporal.common.logger import get_produce_only_logger, get_write_only_logger
-from products.batch_exports.backend.temporal.metrics import (
-    get_bytes_exported_metric,
-    get_rows_exported_metric,
-)
-from products.batch_exports.backend.temporal.pipeline.transformer import (
-    get_stream_transformer,
-)
+
+from products.batch_exports.backend.temporal.metrics import get_bytes_exported_metric, get_rows_exported_metric
+from products.batch_exports.backend.temporal.pipeline.transformer import get_stream_transformer
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
-from products.batch_exports.backend.temporal.spmc import (
-    RecordBatchQueue,
-    raise_on_task_failure,
-)
+from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, raise_on_task_failure
 from products.batch_exports.backend.temporal.utils import (
     cast_record_batch_json_columns,
     cast_record_batch_schema_json_columns,

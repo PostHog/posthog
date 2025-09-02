@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
+import { useDebouncedCallback } from 'use-debounce'
 
-import { IconDocument } from '@posthog/icons'
-import { Link } from '@posthog/lemon-ui'
+import { IconDocument, IconPencil } from '@posthog/icons'
+import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
-import { TextInputPrimitive } from 'lib/ui/TextInputPrimitive/TextInputPrimitive'
+import { ButtonPrimitive, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
@@ -14,7 +14,9 @@ import { cn } from 'lib/utils/css-classes'
 import { fileSystemTypes } from '~/products'
 import { FileSystemIconColor } from '~/types'
 
-import { ProductIconWrapper, iconForType } from '../../panel-layout/ProjectTree/defaultTree'
+import '../../panel-layout/ProjectTree/defaultTree'
+import { ProductIconWrapper } from '../../panel-layout/ProjectTree/defaultTree'
+import { iconForType } from '../../panel-layout/ProjectTree/defaultTree'
 
 type ResourceType = {
     to?: string
@@ -39,10 +41,25 @@ type SceneMainTitleProps = {
     resourceType: ResourceType
     markdown?: boolean
     isLoading?: boolean
-    onNameBlur?: (value: string) => void
-    onDescriptionBlur?: (value: string) => void
+    onNameChange?: (value: string) => void
+    onDescriptionChange?: (value: string) => void
     docsURL?: string
+    /**
+     * If true, the name and description will be editable
+     */
     canEdit?: boolean
+    /**
+     * If true, the name and description will be editable even if canEdit is false
+     * Usually this is for 'new' resources, or "edit" mode
+     */
+    forceEdit?: boolean
+    /**
+     * The number of milliseconds to debounce the name and description changes
+     * useful for renaming resources that update too fast
+     * e.g. insights are renamed too fast, so we need to debounce it with 1000ms
+     * @default 100
+     */
+    renameDebounceMs?: number
 }
 
 export function SceneTitleSection({
@@ -51,17 +68,18 @@ export function SceneTitleSection({
     resourceType,
     markdown = false,
     isLoading = false,
-    onNameBlur,
-    onDescriptionBlur,
+    onNameChange,
+    onDescriptionChange,
     docsURL,
     canEdit = false,
+    forceEdit = false,
+    renameDebounceMs,
 }: SceneMainTitleProps): JSX.Element | null {
     const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     if (!newSceneLayout) {
         return null
     }
-
     const icon = resourceType.forceIcon ? (
         <ProductIconWrapper type={resourceType.type} colorOverride={resourceType.forceIconColorOverride}>
             {resourceType.forceIcon}
@@ -69,12 +87,11 @@ export function SceneTitleSection({
     ) : (
         iconForType(resourceType.type)
     )
-
     return (
         <div className="@container/scene-title-section">
             <div className="scene-title-section w-full flex gap-3 group/colorful-product-icons colorful-product-icons-true">
-                <div className="flex flex-col gap-1 flex-1">
-                    <div className="flex gap-3 [&_svg]:size-6 items-center w-full">
+                <div className="flex flex-col gap-1 flex-1 -ml-[var(--button-padding-x-sm)]">
+                    <div className="flex gap-2 [&_svg]:size-6 items-center w-full">
                         <span
                             className={buttonPrimitiveVariants({
                                 size: 'base',
@@ -86,24 +103,33 @@ export function SceneTitleSection({
                         >
                             {icon}
                         </span>
-                        <SceneName name={name} isLoading={isLoading} onBlur={onNameBlur} canEdit={canEdit} />
+                        <SceneName
+                            name={name}
+                            isLoading={isLoading}
+                            onChange={onNameChange}
+                            canEdit={canEdit}
+                            forceEdit={forceEdit}
+                            renameDebounceMs={renameDebounceMs}
+                        />
                     </div>
                     {description !== null && (description || canEdit) && (
-                        <div className="flex gap-3 [&_svg]:size-6 items-center">
-                            <span
+                        <div className="flex gap-2 [&_svg]:size-6 items-center">
+                            {/* <span
                                 className={buttonPrimitiveVariants({
                                     size: 'base',
                                     iconOnly: true,
                                     inert: true,
                                 })}
                                 aria-hidden
-                            />
+                            /> */}
                             <SceneDescription
                                 description={description}
                                 markdown={markdown}
                                 isLoading={isLoading}
-                                onBlur={onDescriptionBlur}
+                                onChange={onDescriptionChange}
                                 canEdit={canEdit}
+                                forceEdit={forceEdit}
+                                renameDebounceMs={renameDebounceMs}
                             />
                         </div>
                     )}
@@ -136,15 +162,25 @@ export function SceneTitleSection({
 type SceneNameProps = {
     name?: string
     isLoading?: boolean
-    onBlur?: (value: string) => void
+    onChange?: (value: string) => void
     canEdit?: boolean
+    forceEdit?: boolean
+    renameDebounceMs?: number
 }
 
-function SceneName({ name: initialName, isLoading = false, onBlur, canEdit = false }: SceneNameProps): JSX.Element {
+function SceneName({
+    name: initialName,
+    isLoading = false,
+    onChange,
+    canEdit = false,
+    forceEdit = false,
+    renameDebounceMs = 100,
+}: SceneNameProps): JSX.Element {
     const [name, setName] = useState(initialName)
+    const [isEditing, setIsEditing] = useState(forceEdit)
 
     const textClasses =
-        'text-2xl font-semibold my-0 pl-[var(--button-padding-x-sm)] h-[var(--button-height-lg)] leading-[1.4] select-auto'
+        'text-xl font-semibold my-0 pl-[var(--button-padding-x-sm)] min-h-[var(--button-height-base)] leading-[1.4] select-auto'
 
     useEffect(() => {
         if (!isLoading) {
@@ -152,22 +188,67 @@ function SceneName({ name: initialName, isLoading = false, onBlur, canEdit = fal
         }
     }, [initialName, isLoading])
 
+    useEffect(() => {
+        if (!isLoading && forceEdit) {
+            setIsEditing(true)
+        } else {
+            setIsEditing(false)
+        }
+    }, [isLoading, forceEdit])
+
+    const debouncedOnChange = useDebouncedCallback(onChange || (() => {}), renameDebounceMs)
+
     // If onBlur is provided, we want to show a button that allows the user to edit the name
     // Otherwise, we want to show the name as a text
     const Element =
-        onBlur && canEdit ? (
-            <TextInputPrimitive
-                variant="default"
-                value={name || ''}
-                onChange={(e) => setName(e.target.value)}
-                className={`${textClasses} field-sizing-content w-full`}
-                onBlur={() => {
-                    if (initialName !== name) {
-                        onBlur?.(name || '')
-                    }
-                }}
-                size="lg"
-            />
+        onChange && canEdit ? (
+            <>
+                {isEditing ? (
+                    <TextareaPrimitive
+                        variant="default"
+                        name="name"
+                        value={name || ''}
+                        onChange={(e) => {
+                            setName(e.target.value)
+                            debouncedOnChange(e.target.value)
+                        }}
+                        className={cn(
+                            buttonPrimitiveVariants({
+                                inert: true,
+                                className: `${textClasses} field-sizing-content w-full hover:bg-fill-input`,
+                                autoHeight: true,
+                            }),
+                            '[&_.LemonIcon]:size-4'
+                        )}
+                        placeholder="Enter name"
+                        onBlur={() => !forceEdit && setIsEditing(false)}
+                        autoFocus={!forceEdit}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                                e.preventDefault()
+                            }
+                        }}
+                    />
+                ) : (
+                    <Tooltip
+                        title={canEdit && !forceEdit ? 'Edit name' : undefined}
+                        placement="top-start"
+                        arrowOffset={10}
+                    >
+                        <ButtonPrimitive
+                            className={cn(
+                                buttonPrimitiveVariants({ size: 'fit', className: textClasses }),
+                                'flex text-left [&_.LemonIcon]:size-4 h-auto'
+                            )}
+                            onClick={() => setIsEditing(true)}
+                            fullWidth
+                        >
+                            {name || <span className="text-tertiary">Unnamed</span>}
+                            {canEdit && !forceEdit && <IconPencil />}
+                        </ButtonPrimitive>
+                    </Tooltip>
+                )}
+            </>
         ) : (
             <h1 className={cn(buttonPrimitiveVariants({ size: 'lg', inert: true, className: textClasses }))}>
                 {name || <span className="text-tertiary">Unnamed</span>}
@@ -176,31 +257,36 @@ function SceneName({ name: initialName, isLoading = false, onBlur, canEdit = fal
 
     if (isLoading) {
         return (
-            <div className="max-w-prose w-full flex-1">
+            <div className="w-full flex-1">
                 <WrappingLoadingSkeleton fullWidth>{Element}</WrappingLoadingSkeleton>
             </div>
         )
     }
 
-    return <div className="scene-name max-w-prose flex flex-col gap-0 flex-1">{Element}</div>
+    return <div className="scene-name flex flex-col gap-0 flex-1">{Element}</div>
 }
 
 type SceneDescriptionProps = {
     description?: string | null
     markdown?: boolean
     isLoading?: boolean
-    onBlur?: (value: string) => void
+    onChange?: (value: string) => void
     canEdit?: boolean
+    forceEdit?: boolean
+    renameDebounceMs?: number
 }
 
 function SceneDescription({
     description: initialDescription,
     markdown = false,
     isLoading = false,
-    onBlur,
+    onChange,
     canEdit = false,
+    forceEdit = false,
+    renameDebounceMs = 100,
 }: SceneDescriptionProps): JSX.Element | null {
     const [description, setDescription] = useState(initialDescription)
+    const [isEditing, setIsEditing] = useState(forceEdit)
 
     const textClasses = 'text-sm my-0 select-auto'
 
@@ -212,25 +298,62 @@ function SceneDescription({
         }
     }, [initialDescription, isLoading])
 
-    if (!onBlur && canEdit) {
-        console.warn('SceneDescription: onBlur is required when canEdit is true')
-    }
+    useEffect(() => {
+        if (!isLoading && forceEdit) {
+            setIsEditing(true)
+        } else {
+            setIsEditing(false)
+        }
+    }, [isLoading, forceEdit])
+
+    const debouncedOnDescriptionChange = useDebouncedCallback(onChange || (() => {}), renameDebounceMs)
 
     const Element =
-        onBlur && canEdit ? (
-            <TextareaPrimitive
-                variant="default"
-                value={description || ''}
-                onChange={(e) => setDescription(e.target.value)}
-                className={`${textClasses} field-sizing-content w-full`}
-                onBlur={() => {
-                    if (initialDescription !== description) {
-                        onBlur?.(description || '')
-                    }
-                }}
-                markdown
-                placeholder={emptyText}
-            />
+        onChange && canEdit ? (
+            <>
+                {isEditing ? (
+                    <TextareaPrimitive
+                        variant="default"
+                        name="description"
+                        value={description || ''}
+                        onChange={(e) => {
+                            setDescription(e.target.value)
+                            debouncedOnDescriptionChange(e.target.value)
+                        }}
+                        className={cn(
+                            buttonPrimitiveVariants({
+                                inert: true,
+                                className: `${textClasses} field-sizing-content w-full hover:bg-fill-input`,
+                                autoHeight: true,
+                            }),
+                            '[&_.LemonIcon]:size-4'
+                        )}
+                        markdown
+                        placeholder={emptyText}
+                        onBlur={() => !forceEdit && setIsEditing(false)}
+                        autoFocus={!forceEdit}
+                    />
+                ) : (
+                    <Tooltip
+                        title={canEdit && !forceEdit ? 'Edit description' : undefined}
+                        placement="top-start"
+                        arrowOffset={10}
+                    >
+                        <ButtonPrimitive
+                            onClick={() => setIsEditing(true)}
+                            className="flex text-start px-[var(--button-padding-x-base)] py-[var(--button-padding-y-base)] [&_.LemonIcon]:size-4"
+                            autoHeight
+                            fullWidth
+                            size="base"
+                        >
+                            <LemonMarkdown lowKeyHeadings>
+                                {description || (canEdit ? 'Enter description (optional)' : 'No description')}
+                            </LemonMarkdown>
+                            {canEdit && !forceEdit && <IconPencil />}
+                        </ButtonPrimitive>
+                    </Tooltip>
+                )}
+            </>
         ) : (
             <>
                 {markdown && description !== null && description !== undefined ? (
@@ -260,11 +383,11 @@ function SceneDescription({
 
     if (isLoading) {
         return (
-            <div className="max-w-prose w-full">
+            <div className="w-full">
                 <WrappingLoadingSkeleton fullWidth>{Element}</WrappingLoadingSkeleton>
             </div>
         )
     }
 
-    return <div className="scene-description max-w-prose flex flex-col gap-0 flex-1">{Element}</div>
+    return <div className="scene-description flex flex-col gap-0 flex-1">{Element}</div>
 }

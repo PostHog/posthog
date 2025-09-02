@@ -983,6 +983,16 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
     )
     .expect("failed to create survey limiter");
 
+    let llm_events_limiter = RedisLimiter::new(
+        Duration::from_secs(60 * 60 * 24 * 7),
+        redis.clone(),
+        QUOTA_LIMITER_CACHE_KEY.to_string(),
+        None,
+        QuotaResource::LLMEvents,
+        ServiceName::Capture,
+    )
+    .expect("failed to create llm events limiter");
+
     // simple defaults - payload validation isn't the focus of these tests
     let enable_historical_rerouting = false;
     let historical_rerouting_threshold_days = 1_i64;
@@ -998,6 +1008,7 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
             redis,
             billing_limiter,
             survey_limiter,
+            llm_events_limiter,
             TokenDropper::default(),
             false,
             unit.mode.clone(),

@@ -2,25 +2,25 @@ from dataclasses import dataclass
 from itertools import chain
 from typing import Optional
 
-
-from posthog.cloud_utils import is_cloud, is_ci
 from posthog.hogql import ast
 from posthog.hogql.ast import (
     ArrayType,
     BooleanType,
     DateTimeType,
     DateType,
+    DecimalType,
     FloatType,
+    IntegerType,
     IntervalType,
     StringType,
     TupleType,
-    IntegerType,
-    DecimalType,
     UUIDType,
 )
 from posthog.hogql.base import ConstantType, UnknownType
 from posthog.hogql.errors import QueryError
 from posthog.hogql.language_mappings import LANGUAGE_CODES, LANGUAGE_NAMES
+
+from posthog.cloud_utils import is_ci, is_cloud
 
 
 def validate_function_args(
@@ -511,7 +511,15 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toSecond": HogQLFunctionMeta("toSecond", 1, 1),
     "toUnixTimestamp": HogQLFunctionMeta("toUnixTimestamp", 1, 2),
     "toUnixTimestamp64Milli": HogQLFunctionMeta("toUnixTimestamp64Milli", 1, 1),
-    "toStartOfInterval": HogQLFunctionMeta("toStartOfInterval", 2, 2),
+    "toStartOfInterval": HogQLFunctionMeta(
+        "toStartOfInterval",
+        2,
+        3,
+        signatures=[
+            ((DateTimeType(), IntervalType()), DateTimeType()),
+            ((DateTimeType(), IntervalType(), DateTimeType()), DateTimeType()),
+        ],
+    ),
     "toStartOfYear": HogQLFunctionMeta("toStartOfYear", 1, 1),
     "toStartOfISOYear": HogQLFunctionMeta("toStartOfISOYear", 1, 1),
     "toStartOfQuarter": HogQLFunctionMeta("toStartOfQuarter", 1, 1),
@@ -1455,16 +1463,17 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         )
         for name in ["today", "current_date"]
     },
-    #  This doesn't work yet but will in a new version of Clickhouse: https://github.com/ClickHouse/ClickHouse/pull/56738
-    # "date_bin": HogQLFunctionMeta(
-    #     "toSTartOfInterval({1}, {0}, {2})",
-    #     3,
-    #     3,
-    #     tz_aware=True,
-    #     signatures=[
-    #         ((IntervalType(), DateTimeType(), DateTimeType()), DateTimeType()),
-    #     ],
-    # ),
+    "date_bin": HogQLFunctionMeta(
+        "toStartOfInterval({1}, {0}, {2})",
+        3,
+        3,
+        tz_aware=True,
+        signatures=[
+            ((IntervalType(), DateTimeType(), DateTimeType()), DateTimeType()),
+        ],
+        using_placeholder_arguments=True,
+        using_positional_arguments=True,
+    ),
     "date_add": HogQLFunctionMeta(
         "date_add",
         2,
@@ -1988,10 +1997,14 @@ if is_cloud() or is_ci():
 
 HOGQL_CLICKHOUSE_FUNCTIONS.update(UDFS)
 
-
 ALL_EXPOSED_FUNCTION_NAMES = [
     name for name in chain(HOGQL_CLICKHOUSE_FUNCTIONS.keys(), HOGQL_AGGREGATIONS.keys()) if not name.startswith("_")
 ]
+
+CASE_INSENSITIVE_FUNCTION_NAME_TO_NAME = {
+    name.lower(): name
+    for name in chain(HOGQL_CLICKHOUSE_FUNCTIONS.keys(), HOGQL_AGGREGATIONS.keys(), HOGQL_POSTHOG_FUNCTIONS.keys())
+}
 
 # TODO: Make the below details part of function meta
 # Functions where we use a -OrNull variant by default
@@ -2040,6 +2053,15 @@ def find_hogql_function(name: str) -> Optional[HogQLFunctionMeta]:
 
 def find_hogql_posthog_function(name: str) -> Optional[HogQLFunctionMeta]:
     return _find_function(name, HOGQL_POSTHOG_FUNCTIONS)
+
+
+def find_function_name_case_insensitive(name: str) -> str:
+    """Get the correct casing for a HogQL function name."""
+    # Check if it's already correctly cased first (fast path)
+    if HOGQL_CLICKHOUSE_FUNCTIONS.get(name) or HOGQL_AGGREGATIONS.get(name) or HOGQL_POSTHOG_FUNCTIONS.get(name):
+        return name
+
+    return CASE_INSENSITIVE_FUNCTION_NAME_TO_NAME.get(name.lower(), name)
 
 
 def is_allowed_parametric_function(name: str) -> bool:

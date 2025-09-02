@@ -121,15 +121,26 @@ export function VariantTag({
     )
 }
 
-export function ResultsTag({ metricIndex = 0 }: { metricIndex?: number }): JSX.Element {
-    const { isPrimaryMetricSignificant, significanceDetails } = useValues(experimentLogic)
-    const result: { color: LemonTagType; label: string } = isPrimaryMetricSignificant(metricIndex)
+export function ResultsTag({ metricUuid }: { metricUuid?: string }): JSX.Element {
+    const { isPrimaryMetricSignificant, significanceDetails, experiment } = useValues(experimentLogic)
+
+    // Use first primary metric UUID if not provided
+    const uuid = metricUuid || experiment.metrics?.[0]?.uuid || ''
+    if (!uuid) {
+        return (
+            <LemonTag type="primary">
+                <b className="uppercase">Not significant</b>
+            </LemonTag>
+        )
+    }
+
+    const result: { color: LemonTagType; label: string } = isPrimaryMetricSignificant(uuid)
         ? { color: 'success', label: 'Significant' }
         : { color: 'primary', label: 'Not significant' }
 
-    if (significanceDetails(metricIndex)) {
+    if (significanceDetails(uuid)) {
         return (
-            <Tooltip title={significanceDetails(metricIndex)}>
+            <Tooltip title={significanceDetails(uuid)}>
                 <LemonTag className="cursor-pointer" type={result.color}>
                     <b className="uppercase">{result.label}</b>
                 </LemonTag>

@@ -1,11 +1,14 @@
 from typing import cast
-from common.hogvm.python.utils import HogVMException
+
+from posthog.test.base import BaseTest
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.placeholders import replace_placeholders, find_placeholders
+from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.visitor import clear_locations
-from posthog.test.base import BaseTest
+
+from common.hogvm.python.utils import HogVMException
 
 
 class TestParser(BaseTest):

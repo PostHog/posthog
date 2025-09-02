@@ -3,33 +3,30 @@ from typing import Any, Literal
 
 from django.db.models import Q, QuerySet
 from django.dispatch import receiver
+
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from ee.clickhouse.queries.experiments.utils import requires_flag_warning
-from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
-from ee.clickhouse.views.experiment_saved_metrics import (
-    ExperimentToSavedMetricSerializer,
-)
+from posthog.schema import ExperimentEventExposureConfig
+
 from posthog.api.cohort import CohortSerializer
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.models.experiment import (
-    Experiment,
-    ExperimentHoldout,
-    ExperimentSavedMetric,
-)
+from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.signals import model_activity_signal
 from posthog.models.team.team import Team
-from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between
-from posthog.schema import ExperimentEventExposureConfig
+
+from ee.clickhouse.queries.experiments.utils import requires_flag_warning
+from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
+from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
 
 class ExperimentSerializer(serializers.ModelSerializer):
@@ -75,6 +72,8 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "_create_in_folder",
             "conclusion",
             "conclusion_comment",
+            "primary_metrics_ordered_uuids",
+            "secondary_metrics_ordered_uuids",
         ]
         read_only_fields = [
             "id",
@@ -139,43 +138,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
         return value
 
-    def validate_metrics(self, value):
-        EXPERIMENT_METRIC_QTY_LIMIT = 10  # This should match frontend constant
-        if value and len(value) > EXPERIMENT_METRIC_QTY_LIMIT:
-            raise ValidationError(f"You can only have up to {EXPERIMENT_METRIC_QTY_LIMIT} primary metrics")
-        return value
-
-    def validate_metrics_secondary(self, value):
-        EXPERIMENT_METRIC_QTY_LIMIT = 10  # This should match frontend constant
-        if value and len(value) > EXPERIMENT_METRIC_QTY_LIMIT:
-            raise ValidationError(f"You can only have up to {EXPERIMENT_METRIC_QTY_LIMIT} secondary metrics")
-        return value
-
     def validate(self, data):
-        # Validate that total metrics (regular + shared) don't exceed limits
-        metrics = data.get("metrics", [])
-        metrics_secondary = data.get("metrics_secondary", [])
-        saved_metrics_ids = data.get("saved_metrics_ids", [])
-
-        if saved_metrics_ids:
-            EXPERIMENT_METRIC_QTY_LIMIT = 10  # This should match frontend constant
-            primary_shared_count = len([m for m in saved_metrics_ids if m.get("metadata", {}).get("type") == "primary"])
-            secondary_shared_count = len(
-                [m for m in saved_metrics_ids if m.get("metadata", {}).get("type") == "secondary"]
-            )
-
-            total_primary = len(metrics) + primary_shared_count
-            total_secondary = len(metrics_secondary) + secondary_shared_count
-
-            if total_primary > EXPERIMENT_METRIC_QTY_LIMIT:
-                raise ValidationError(
-                    f"You can only have up to {EXPERIMENT_METRIC_QTY_LIMIT} primary metrics (including shared metrics)"
-                )
-            if total_secondary > EXPERIMENT_METRIC_QTY_LIMIT:
-                raise ValidationError(
-                    f"You can only have up to {EXPERIMENT_METRIC_QTY_LIMIT} secondary metrics (including shared metrics)"
-                )
-
         # Validate start/end dates
         start_date = data.get("start_date")
         end_date = data.get("end_date")
@@ -381,6 +344,8 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "stats_config",
             "conclusion",
             "conclusion_comment",
+            "primary_metrics_ordered_uuids",
+            "secondary_metrics_ordered_uuids",
         }
         given_keys = set(validated_data.keys())
         extra_keys = given_keys - expected_keys

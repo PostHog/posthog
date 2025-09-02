@@ -1,11 +1,11 @@
 from typing import Any, Literal, TypedDict, TypeGuard, Union
 
-from ee.hogai.utils.types.composed import MaxGraphState, MaxNodeName
 from langchain_core.messages import AIMessageChunk
+from structlog import get_logger
 
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState, TaxonomyNodeName
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from structlog import get_logger
+from ee.hogai.utils.types.composed import MaxGraphState, MaxNodeName
 
 # A state update can have a partial state or a LangGraph's reserved dataclasses like Interrupt.
 GraphValueUpdate = dict[MaxNodeName, dict[Any, Any] | Any]

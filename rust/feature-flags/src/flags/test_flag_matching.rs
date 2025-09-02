@@ -1464,7 +1464,9 @@ mod tests {
 
         let result = matcher.get_match(&flag, None, None).unwrap();
 
-        assert!(!result.matches);
+        // With empty distinct_id and 100% rollout, the flag should match
+        // This is consistent with the Python implementation
+        assert!(result.matches);
     }
 
     #[tokio::test]

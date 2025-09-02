@@ -1,28 +1,27 @@
+from typing import Any
+
 from django.http import JsonResponse
-from rest_framework.response import Response
-import structlog
-from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
-from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.utils import get_token
-from posthog.exceptions import generate_exception_response
-from rest_framework import serializers, viewsets
-from rest_framework.request import Request
-from rest_framework import status
-from posthog.models.utils import uuid7
-
-from posthog.tasks.early_access_feature import send_events_for_early_access_feature_stage_change
-
-from .models import EarlyAccessFeature
-
-from posthog.models.feature_flag.feature_flag import FeatureFlag
-from posthog.models.team.team import Team
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
 
-from posthog.utils_cors import cors_response
-from typing import Any
-from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
+import structlog
+from rest_framework import serializers, status, viewsets
+from rest_framework.request import Request
+from rest_framework.response import Response
+
+from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.utils import get_token
+from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
+from posthog.exceptions import generate_exception_response
+from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.team.team import Team
+from posthog.models.utils import uuid7
+from posthog.tasks.early_access_feature import send_events_for_early_access_feature_stage_change
+from posthog.utils_cors import cors_response
+
+from .models import EarlyAccessFeature
 
 logger = structlog.get_logger(__name__)
 

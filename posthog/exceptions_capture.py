@@ -15,7 +15,10 @@ def celery_properties() -> dict:
 
 def capture_exception(error=None, additional_properties=None):
     import structlog
-    from posthoganalytics import api_key, capture_exception as posthog_capture_exception
+    from posthoganalytics import (
+        api_key,
+        capture_exception as posthog_capture_exception,
+    )
 
     logger = structlog.get_logger(__name__)
 

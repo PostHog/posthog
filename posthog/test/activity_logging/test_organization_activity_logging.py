@@ -1,9 +1,9 @@
+from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.test.activity_log_utils import ActivityLogTestHelper
-from posthog.models import User, Organization
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.uploaded_media import UploadedMedia
+from posthog.test.activity_log_utils import ActivityLogTestHelper
 
 
 class TestOrganizationActivityLogging(ActivityLogTestHelper):

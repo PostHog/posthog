@@ -1,12 +1,14 @@
-import json
-from typing import Optional, Any
-from ee.hogai.tool import MaxTool
-from pydantic import BaseModel, Field
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage
-from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
 import re
+import json
+from typing import Any, Optional
+
 from langchain_community.document_loaders import WebBaseLoader
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_openai import ChatOpenAI
+from pydantic import BaseModel, Field
+
+from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
+from ee.hogai.tool import MaxTool
 
 
 class CreateTemplateArgs(BaseModel):

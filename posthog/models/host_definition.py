@@ -1,7 +1,7 @@
 from django.db import models
 from django.utils import timezone
 
-from posthog.models.utils import UUIDTModel, UniqueConstraintByExpression
+from posthog.models.utils import UniqueConstraintByExpression, UUIDTModel
 
 
 # NOTE: This model is deprecated. It was created as an attempt to track all of the domains that are using PostHog.

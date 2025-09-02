@@ -1,34 +1,45 @@
-import asyncio
 import time
-from typing import cast, Any
+import asyncio
+from typing import Any, cast
 from uuid import uuid4
-from langgraph.types import StreamWriter
+
 import structlog
 from langchain_core.runnables import RunnableConfig
+from langgraph.config import get_stream_writer
+from langgraph.types import StreamWriter
 
-from ee.hogai.graph.base import AssistantNode
-from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_STREAMING_MODEL, GROUP_SUMMARIES_MIN_SESSIONS
-from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
-from ee.hogai.session_summaries.session_group.summarize_session_group import find_sessions_timestamps
-from ee.hogai.session_summaries.session_group.summary_notebooks import (
-    create_empty_notebook_for_summary,
-    SummaryNotebookIntermediateState,
-    generate_notebook_content_from_summary,
-    update_notebook_from_summary_content,
+from posthog.schema import (
+    AssistantToolCallMessage,
+    MaxRecordingUniversalFilters,
+    NotebookUpdateMessage,
+    RecordingsQuery,
 )
-from ee.hogai.session_summaries.utils import logging_session_ids
-from ee.hogai.utils.state import prepare_reasoning_progress_message
-from ee.hogai.utils.types import AssistantState, PartialAssistantState, AssistantNodeName
+
 from posthog.models.notebook.notebook import Notebook
-from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery, AssistantToolCallMessage
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
 from posthog.temporal.ai.session_summary.summarize_session_group import (
     SessionSummaryStreamUpdate,
     execute_summarize_session_group,
 )
-from langgraph.config import get_stream_writer
-from posthog.schema import NotebookUpdateMessage
+
+from ee.hogai.graph.base import AssistantNode
+from ee.hogai.session_summaries.constants import (
+    GROUP_SUMMARIES_MIN_SESSIONS,
+    MAX_SESSIONS_TO_SUMMARIZE,
+    SESSION_SUMMARIES_STREAMING_MODEL,
+)
+from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
+from ee.hogai.session_summaries.session_group.summarize_session_group import find_sessions_timestamps
+from ee.hogai.session_summaries.session_group.summary_notebooks import (
+    SummaryNotebookIntermediateState,
+    create_empty_notebook_for_summary,
+    generate_notebook_content_from_summary,
+    update_notebook_from_summary_content,
+)
+from ee.hogai.session_summaries.utils import logging_session_ids
+from ee.hogai.utils.state import prepare_reasoning_progress_message
+from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
 
 
 class SessionSummarizationNode(AssistantNode):
@@ -113,7 +124,9 @@ class SessionSummarizationNode(AssistantNode):
         max_filters = cast(MaxRecordingUniversalFilters, filters_data)
         return max_filters
 
-    def _get_session_ids_with_filters(self, replay_filters: MaxRecordingUniversalFilters) -> list[str] | None:
+    def _get_session_ids_with_filters(
+        self, replay_filters: MaxRecordingUniversalFilters, limit: int = MAX_SESSIONS_TO_SUMMARIZE
+    ) -> list[str] | None:
         from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
         # Convert Max filters into recordings query format
@@ -137,6 +150,7 @@ class SessionSummarizationNode(AssistantNode):
                 if replay_filters.duration
                 else None
             ),
+            limit=limit,
         )
         # Execute the query to get session IDs
         query_runner = SessionRecordingListFromQuery(
@@ -250,23 +264,46 @@ class SessionSummarizationNode(AssistantNode):
         conversation_id = config.get("configurable", {}).get("thread_id", "unknown")
         writer = self._get_stream_writer()
         # If query was not provided for some reason
-        if not state.session_summarization_query:
+        if state.session_summarization_query is None:
             self._log_failure(
-                f"Session summarization query is not provided: {state.session_summarization_query}",
+                f"Session summarization query is not provided when summarizing sessions: {state.session_summarization_query}",
                 conversation_id,
                 start_time,
             )
             return self._create_error_response(self._base_error_instructions, state)
+        # If the decision on the current filters is not made
+        if state.should_use_current_filters is None:
+            self._log_failure(
+                f"Use current filters decision is not made when summarizing sessions: {state.should_use_current_filters}",
+                conversation_id,
+                start_time,
+            )
+            return self._create_error_response(self._base_error_instructions, state)
+        # If the current filters were marked as relevant, but not present in the context
+        current_filters = self._get_contextual_tools(config).get("search_session_recordings", {}).get("current_filters")
         try:
-            # Generate filters to get session ids from DB
-            replay_filters = await self._generate_replay_filters(state.session_summarization_query)
-            if not replay_filters:
-                self._log_failure(
-                    f"No Replay filters were generated for session summarization: {state.session_summarization_query}",
-                    conversation_id,
-                    start_time,
-                )
-                return self._create_error_response(self._base_error_instructions, state)
+            # Use current filters, if provided
+            if state.should_use_current_filters:
+                if not current_filters:
+                    self._log_failure(
+                        f"Use current filters decision was set to True, but current filters were not provided when summarizing sessions: {state.should_use_current_filters}",
+                        conversation_id,
+                        start_time,
+                    )
+                    return self._create_error_response(self._base_error_instructions, state)
+                current_filters = cast(dict[str, Any], current_filters)
+                replay_filters = MaxRecordingUniversalFilters.model_validate(current_filters)
+            # If not - generate filters to get session ids from DB
+            else:
+                generated_filters = await self._generate_replay_filters(state.session_summarization_query)
+                if not generated_filters:
+                    self._log_failure(
+                        f"No Replay filters were generated for session summarization: {state.session_summarization_query}",
+                        conversation_id,
+                        start_time,
+                    )
+                    return self._create_error_response(self._base_error_instructions, state)
+                replay_filters = generated_filters
             # Query the filters to get session ids
             session_ids = await database_sync_to_async(self._get_session_ids_with_filters, thread_sensitive=False)(
                 replay_filters

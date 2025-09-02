@@ -1,24 +1,16 @@
 from typing import Any, cast
 from urllib.parse import urlparse
 
-import structlog
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, HttpResponseServerError
 from django.template import loader
 from django.urls import include, path, re_path
 from django.utils.http import url_has_allowed_host_and_scheme
-from django.views.decorators.csrf import (
-    csrf_exempt,
-    ensure_csrf_cookie,
-    requires_csrf_token,
-)
-from django_prometheus.exports import ExportToDjangoView
-from drf_spectacular.views import (
-    SpectacularAPIView,
-    SpectacularRedocView,
-    SpectacularSwaggerView,
-)
+from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie, requires_csrf_token
 
+import structlog
+from django_prometheus.exports import ExportToDjangoView
+from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 from two_factor.urls import urlpatterns as tf_urls
 
 from posthog.api import (
@@ -37,40 +29,42 @@ from posthog.api import (
     uploaded_media,
     user,
 )
-from posthog.api.zendesk_orgcheck import ensure_zendesk_organization
-from posthog.api.web_experiment import web_experiments
+from posthog.api.query import progress
+from posthog.api.slack import slack_interactivity_callback
+from posthog.api.survey import public_survey_page, surveys
 from posthog.api.utils import hostname_in_allowed_url_list
-from products.early_access_features.backend.api import early_access_features
-from posthog.api.survey import surveys, public_survey_page
+from posthog.api.web_experiment import web_experiments
+from posthog.api.zendesk_orgcheck import ensure_zendesk_organization
 from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.demo.legacy import demo_route
 from posthog.models import User
 from posthog.models.instance_setting import get_instance_setting
+from posthog.oauth2_urls import urlpatterns as oauth2_urls
+
+from products.early_access_features.backend.api import early_access_features
 
 from .utils import opt_slash_path, render_template
 from .views import (
+    api_key_search_view,
     health,
     login_required,
+    preferences_page,
     preflight_check,
     redis_values_view,
-    api_key_search_view,
     robots_txt,
     security_txt,
     stats,
-    preferences_page,
     update_preferences,
 )
-from posthog.api.query import progress
-
-from posthog.api.slack import slack_interactivity_callback
-from posthog.oauth2_urls import urlpatterns as oauth2_urls
 
 logger = structlog.get_logger(__name__)
 
 ee_urlpatterns: list[Any] = []
 try:
-    from ee.urls import extend_api_router
-    from ee.urls import urlpatterns as ee_urlpatterns
+    from ee.urls import (
+        extend_api_router,
+        urlpatterns as ee_urlpatterns,
+    )
 except ImportError:
     if settings.DEBUG:
         logger.warn(f"Could not import ee.urls", exc_info=True)

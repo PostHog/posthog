@@ -1,24 +1,25 @@
 import base64
-import requests
+from hashlib import sha256
 from typing import Any
 
 from django.db.models import Q
-from hashlib import sha256
+
+import requests
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import JSONParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.exceptions import InvalidSignature
 
-from posthog.redis import get_client
-from posthog.models.personal_api_key import find_personal_api_key
 from posthog.api.personal_api_key import PersonalAPIKeySerializer
-from posthog.tasks.email import send_personal_api_key_exposed
 from posthog.models import Team
+from posthog.models.personal_api_key import find_personal_api_key
+from posthog.redis import get_client
+from posthog.tasks.email import send_personal_api_key_exposed
 
 GITHUB_KEYS_URI = "https://api.github.com/meta/public_keys/secret_scanning"
 TWENTY_FOUR_HOURS = 60 * 60 * 24

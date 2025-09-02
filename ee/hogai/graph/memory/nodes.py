@@ -3,6 +3,7 @@ from typing import Literal, Optional, Union, cast
 from uuid import uuid4
 
 from django.utils import timezone
+
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
     AIMessageChunk,
@@ -17,16 +18,6 @@ from langchain_perplexity import ChatPerplexity
 from langgraph.errors import NodeInterrupt
 from pydantic import BaseModel, Field, ValidationError
 
-from ee.hogai.graph.mixins import AssistantContextMixin
-from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT, SLASH_COMMAND_REMEMBER
-from ee.hogai.llm import MaxChatOpenAI
-from ee.hogai.utils.helpers import filter_and_merge_messages, find_last_message_of_type
-from ee.hogai.utils.markdown import remove_markdown
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.models.assistant import CoreMemory
-from posthog.event_usage import report_user_action
-from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
-from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.schema import (
     AssistantForm,
     AssistantFormOption,
@@ -37,6 +28,18 @@ from posthog.schema import (
     HumanMessage,
     VisualizationMessage,
 )
+
+from posthog.event_usage import report_user_action
+from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
+from posthog.hogql_queries.query_runner import ExecutionMode
+
+from ee.hogai.graph.mixins import AssistantContextMixin
+from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT, SLASH_COMMAND_REMEMBER
+from ee.hogai.llm import MaxChatOpenAI
+from ee.hogai.utils.helpers import filter_and_merge_messages, find_last_message_of_type
+from ee.hogai.utils.markdown import remove_markdown
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.models.assistant import CoreMemory
 
 from ..base import AssistantNode
 from .parsers import MemoryCollectionCompleted, compressed_memory_parser, raise_memory_updated

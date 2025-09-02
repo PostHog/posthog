@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
 
@@ -7,12 +8,30 @@ import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import { HogFlowAction } from '../../types'
 import { getHogFlowStep } from '../HogFlowSteps'
 import { HogFlowActionSchema } from '../types'
+import { StepViewMetrics } from './StepViewMetrics'
 
-export function StepView({ action, children }: { action: HogFlowAction; children?: React.ReactNode }): JSX.Element {
-    const { selectedNode } = useValues(hogFlowEditorLogic)
+export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
+    const { selectedNode, mode } = useValues(hogFlowEditorLogic)
     const isSelected = selectedNode?.id === action.id
 
-    const Step = getHogFlowStep(action.type)
+    const height = mode === 'metrics' ? NODE_HEIGHT + 10 : NODE_HEIGHT
+
+    const { selectedColor, colorLight, color, icon } = useMemo(() => {
+        const Step = getHogFlowStep(action.type)
+
+        return {
+            selectedColor: Step?.color
+                ? isSelected
+                    ? `${Step?.color}`
+                    : `${Step?.color}20`
+                : isSelected
+                  ? 'var(--border-primary)'
+                  : 'var(--border)',
+            colorLight: Step?.color ? `${Step?.color}20` : 'var(--border)',
+            color: Step?.color || 'var(--text-secondary)',
+            icon: Step?.icon,
+        }
+    }, [action.type, isSelected])
 
     // Validate the action against the Zod schema
     const validationResult = HogFlowActionSchema.safeParse(action)
@@ -20,12 +39,13 @@ export function StepView({ action, children }: { action: HogFlowAction; children
 
     return (
         <div
-            className="relative flex cursor-pointer rounded pointer-events-none bg-surface-primary hover:bg-surface-secondary"
+            className="relative flex flex-col cursor-pointer rounded user-select-none bg-surface-primary"
             style={{
                 width: NODE_WIDTH,
-                height: NODE_HEIGHT,
-                border: `${isSelected ? '1px' : '0.5px'} solid var(--border)`,
-                boxShadow: `0px 2px 0px 0px ${Step?.color ? `${Step.color}20` : 'var(--border)'}`,
+                height,
+                borderWidth: 1,
+                borderColor: selectedColor,
+                boxShadow: `0px 2px 0px 0px ${colorLight}`,
                 zIndex: 0,
             }}
         >
@@ -34,20 +54,31 @@ export function StepView({ action, children }: { action: HogFlowAction; children
                 <div
                     className="flex justify-center h-6 items-center aspect-square rounded"
                     style={{
-                        backgroundColor:
-                            Step?.brandColor || (Step?.color ? `${Step?.color}20` : 'var(--bg-surface-secondary)'),
-                        color: Step?.color || 'var(--text-secondary)',
+                        backgroundColor: colorLight,
+                        color,
                     }}
                 >
-                    {Step?.icon}
+                    {icon}
                 </div>
                 <div className="flex flex-col">
-                    <div className="text-[0.45rem] font-sans font-medium">{action.name}</div>
+                    <div className="flex justify-between items-center gap-1">
+                        <div className="text-[0.45rem] font-sans font-medium">{action.name}</div>
+                    </div>
+
                     <div className="max-w-full text-[0.3rem]/1.5 text-muted text-ellipsis">{action.description}</div>
                 </div>
             </div>
-            {children}
             {hasValidationError && <LemonBadge status="warning" size="small" content="!" position="top-right" />}
+            {mode === 'metrics' && (
+                <div
+                    style={{
+                        borderTopColor: colorLight,
+                        borderTopWidth: 1,
+                    }}
+                >
+                    <StepViewMetrics action={action} />
+                </div>
+            )}
         </div>
     )
 }

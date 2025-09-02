@@ -44,6 +44,19 @@ export function PinnedFolder(): JSX.Element {
                     asChild
                     onClick={(e) => {
                         e.stopPropagation()
+                        setPinnedFolder('products://')
+                    }}
+                    data-attr="tree-item-menu-open-link-button"
+                >
+                    <ButtonPrimitive menuItem>
+                        {!pinnedFolder || pinnedFolder === 'products://' ? <IconCheck /> : <IconBlank />}
+                        Apps
+                    </ButtonPrimitive>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                    asChild
+                    onClick={(e) => {
+                        e.stopPropagation()
                         setPinnedFolder('shortcuts://')
                     }}
                     data-attr="tree-item-menu-open-link-button"
@@ -51,19 +64,6 @@ export function PinnedFolder(): JSX.Element {
                     <ButtonPrimitive menuItem>
                         {pinnedFolder === 'shortcuts://' ? <IconCheck /> : <IconBlank />}
                         Shortcuts
-                    </ButtonPrimitive>
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                    asChild
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        setPinnedFolder('products://')
-                    }}
-                    data-attr="tree-item-menu-open-link-button"
-                >
-                    <ButtonPrimitive menuItem>
-                        {!pinnedFolder || pinnedFolder === 'products://' ? <IconCheck /> : <IconBlank />}
-                        Products
                     </ButtonPrimitive>
                 </DropdownMenuItem>
             </DropdownMenuContent>

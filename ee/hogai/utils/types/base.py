@@ -4,24 +4,31 @@ from enum import StrEnum
 from typing import Annotated, Any, Literal, Optional, Self, TypeVar, Union
 
 from langchain_core.agents import AgentAction
-from langchain_core.messages import (
-    BaseMessage as LangchainBaseMessage,
-)
+from langchain_core.messages import BaseMessage as LangchainBaseMessage
 from langgraph.graph import END, START
 from pydantic import BaseModel, Field
 
-from ee.models import Conversation
 from posthog.schema import (
     AssistantEventType,
+    AssistantFunnelsQuery,
     AssistantGenerationStatusEvent,
+    AssistantHogQLQuery,
     AssistantMessage,
+    AssistantRetentionQuery,
     AssistantToolCallMessage,
+    AssistantTrendsQuery,
     FailureMessage,
+    FunnelsQuery,
+    HogQLQuery,
     HumanMessage,
-    ReasoningMessage,
-    VisualizationMessage,
     NotebookUpdateMessage,
+    ReasoningMessage,
+    RetentionQuery,
+    TrendsQuery,
+    VisualizationMessage,
 )
+
+from ee.models import Conversation
 
 AIMessageUnion = Union[
     AssistantMessage,
@@ -37,6 +44,11 @@ AssistantOutput = (
     tuple[Literal[AssistantEventType.CONVERSATION], Conversation]
     | tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageOrStatusUnion]
 )
+
+AnyAssistantGeneratedQuery = (
+    AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
+)
+AnyAssistantSupportedQuery = TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery
 
 
 def merge(_: Any | None, right: Any | None) -> Any | None:
@@ -184,7 +196,11 @@ class _SharedAssistantState(BaseState):
     """
     session_summarization_query: Optional[str] = Field(default=None)
     """
-    The user's query for summarizing sessions.
+    The user's query for summarizing sessions. Always pass the user's complete, unmodified query.
+    """
+    should_use_current_filters: Optional[bool] = Field(default=None)
+    """
+    Whether to use current filters from user's UI to find relevant sessions.
     """
     notebook_id: Optional[str] = Field(default=None)
     """

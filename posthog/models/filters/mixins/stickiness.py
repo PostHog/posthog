@@ -1,6 +1,6 @@
+from collections.abc import Callable
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional, Union
-from collections.abc import Callable
 
 from rest_framework.exceptions import ValidationError
 

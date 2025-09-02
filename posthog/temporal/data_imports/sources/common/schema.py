@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+
 from posthog.warehouse.types import IncrementalField
 
 

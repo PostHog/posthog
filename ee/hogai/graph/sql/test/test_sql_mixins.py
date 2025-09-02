@@ -1,7 +1,9 @@
+from posthog.test.base import NonAtomicBaseTest
+
+from posthog.schema import AssistantHogQLQuery
+
 from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.graph.sql.mixins import HogQLGeneratorMixin, SQLSchemaGeneratorOutput
-from posthog.schema import AssistantHogQLQuery
-from posthog.test.base import NonAtomicBaseTest
 
 
 class TestSQLMixins(NonAtomicBaseTest):
@@ -9,16 +11,8 @@ class TestSQLMixins(NonAtomicBaseTest):
     def _node(self):
         class DummyNode(HogQLGeneratorMixin):
             def __init__(self, team, user):
-                self.__team = team
-                self.__user = user
-
-            @property
-            def _team(self):
-                return self.__team
-
-            @property
-            def _user(self):
-                return self.__user
+                self._team = team
+                self._user = user
 
         return DummyNode(self.team, self.user)
 
@@ -57,6 +51,36 @@ class TestSQLMixins(NonAtomicBaseTest):
 
         self.assertIsInstance(result, SQLSchemaGeneratorOutput)
         self.assertEqual(result.query.query, "")
+
+    def test_parse_output_removes_semicolon(self):
+        """Test that semicolons are removed from the end of queries."""
+        mixin = self._node
+
+        test_output = {"query": "SELECT count() FROM events;"}
+        result = mixin._parse_output(test_output)
+
+        self.assertIsInstance(result, SQLSchemaGeneratorOutput)
+        self.assertEqual(result.query.query, "SELECT count() FROM events")
+
+    def test_parse_output_removes_multiple_semicolons(self):
+        """Test that multiple semicolons are removed from the end of queries."""
+        mixin = self._node
+
+        test_output = {"query": "SELECT count() FROM events;;;"}
+        result = mixin._parse_output(test_output)
+
+        self.assertIsInstance(result, SQLSchemaGeneratorOutput)
+        self.assertEqual(result.query.query, "SELECT count() FROM events")
+
+    def test_parse_output_preserves_semicolons_in_middle(self):
+        """Test that semicolons in the middle of queries are preserved."""
+        mixin = self._node
+
+        test_output = {"query": "SELECT 'hello;world' FROM events;"}
+        result = mixin._parse_output(test_output)
+
+        self.assertIsInstance(result, SQLSchemaGeneratorOutput)
+        self.assertEqual(result.query.query, "SELECT 'hello;world' FROM events")
 
     async def test_quality_check_output_success_simple_query(self):
         """Test successful quality check with simple valid query."""
@@ -157,3 +181,25 @@ class TestSQLMixins(NonAtomicBaseTest):
 
         # Should not raise any exception for valid complex SQL
         await mixin._quality_check_output(complex_output)
+
+    async def test_quality_check_does_not_expand_asterisks(self):
+        """Test quality check success with complex query including joins."""
+        mixin = self._node
+
+        complex_output = SQLSchemaGeneratorOutput(query=AssistantHogQLQuery(query="SELECT * FROM events LIMIT 10"))
+
+        # Should not raise any exception for valid complex SQL
+        res = await mixin._quality_check_output(complex_output)
+        self.assertEqual(res, "SELECT\n    *\nFROM\n    events\nLIMIT 10")
+
+    async def test_quality_check_handles_variables(self):
+        """Test quality check success with complex query including joins."""
+        mixin = self._node
+
+        complex_output = SQLSchemaGeneratorOutput(
+            query=AssistantHogQLQuery(query="SELECT event FROM events WHERE {variables.f}")
+        )
+
+        # Should not raise any exception for valid complex SQL
+        res = await mixin._quality_check_output(complex_output)
+        self.assertEqual(res, "SELECT\n    event\nFROM\n    events\nWHERE\n    {variables.f}")

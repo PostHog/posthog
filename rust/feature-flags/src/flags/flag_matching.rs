@@ -789,10 +789,10 @@ impl FeatureFlagMatcher {
         property_overrides: Option<HashMap<String, Value>>,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<FeatureFlagMatch, FlagError> {
-        if self
-            .hashed_identifier(flag, hash_key_overrides.clone())?
-            .is_empty()
-        {
+        // Check if this is a group-based flag with missing group
+        let hashed_id = self.hashed_identifier(flag, hash_key_overrides.clone())?;
+        if flag.get_group_type_index().is_some() && hashed_id.is_empty() {
+            // This is a group-based flag but we don't have the group key
             return Ok(FeatureFlagMatch {
                 matches: false,
                 variant: None,
@@ -801,6 +801,7 @@ impl FeatureFlagMatcher {
                 payload: None,
             });
         }
+        // For person-based flags, empty distinct_id is valid and should continue evaluation
 
         let mut highest_match = FeatureFlagMatchReason::NoConditionMatch;
         let mut highest_index = None;

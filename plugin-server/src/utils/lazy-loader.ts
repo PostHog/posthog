@@ -1,7 +1,8 @@
 import { Counter } from 'prom-client'
 
+import { instrumentFn } from '~/common/tracing/tracing-utils'
+
 import { defaultConfig } from '../config/config'
-import { runInstrumentedFunction } from '../main/utils'
 import { logger } from './logger'
 
 const lazyLoaderCacheHits = new Counter({
@@ -147,62 +148,59 @@ export class LazyLoader<T> {
      * If the value is older than the refreshAge, it is loaded from the database.
      */
     private async loadViaCache(keys: string[]): Promise<Record<string, T | null>> {
-        return await runInstrumentedFunction({
-            statsKey: `lazyLoader.loadViaCache`,
-            func: async () => {
-                const results: Record<string, T | null> = {}
-                const keysToLoad = new Set<string>()
+        return await instrumentFn(`lazyLoader.loadViaCache`, async () => {
+            const results: Record<string, T | null> = {}
+            const keysToLoad = new Set<string>()
 
-                // First, check if all keys are already cached and update the lastUsed time
-                for (const key of keys) {
-                    const cached = this.cache[key]
+            // First, check if all keys are already cached and update the lastUsed time
+            for (const key of keys) {
+                const cached = this.cache[key]
 
-                    if (cached !== undefined) {
-                        results[key] = cached
-                        // Always update the lastUsed time
-                        this.lastUsed[key] = Date.now()
+                if (cached !== undefined) {
+                    results[key] = cached
+                    // Always update the lastUsed time
+                    this.lastUsed[key] = Date.now()
 
-                        const cacheUntil = this.cacheUntil[key] ?? 0
-                        const backgroundRefreshAfter = this.backgroundRefreshAfter[key]
+                    const cacheUntil = this.cacheUntil[key] ?? 0
+                    const backgroundRefreshAfter = this.backgroundRefreshAfter[key]
 
-                        if (Date.now() > cacheUntil) {
-                            keysToLoad.add(key)
-                            lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
-                            continue
-                        }
-
-                        // If we haven't triggered a hard refresh, we check for a background refresh
-                        if (backgroundRefreshAfter && Date.now() > backgroundRefreshAfter) {
-                            void this.load([key])
-                            lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'hit_background' }).inc()
-                            continue
-                        }
-                    } else {
+                    if (Date.now() > cacheUntil) {
                         keysToLoad.add(key)
                         lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
                         continue
                     }
 
-                    lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'hit' }).inc()
+                    // If we haven't triggered a hard refresh, we check for a background refresh
+                    if (backgroundRefreshAfter && Date.now() > backgroundRefreshAfter) {
+                        void this.load([key])
+                        lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'hit_background' }).inc()
+                        continue
+                    }
+                } else {
+                    keysToLoad.add(key)
+                    lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
+                    continue
                 }
 
-                if (keysToLoad.size === 0) {
-                    lazyLoaderFullCacheHits.labels({ name: this.options.name, hit: 'hit' }).inc()
-                    return results
-                }
+                lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'hit' }).inc()
+            }
 
-                lazyLoaderFullCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
-
-                // We have something to load so we schedule it and then await all of them
-                await this.load(Array.from(keysToLoad))
-
-                for (const key of keys) {
-                    // Grab the new cached result for all keys
-                    results[key] = this.cache[key] ?? null
-                }
-
+            if (keysToLoad.size === 0) {
+                lazyLoaderFullCacheHits.labels({ name: this.options.name, hit: 'hit' }).inc()
                 return results
-            },
+            }
+
+            lazyLoaderFullCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
+
+            // We have something to load so we schedule it and then await all of them
+            await this.load(Array.from(keysToLoad))
+
+            for (const key of keys) {
+                // Grab the new cached result for all keys
+                results[key] = this.cache[key] ?? null
+            }
+
+            return results
         })
     }
 

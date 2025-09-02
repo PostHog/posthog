@@ -968,7 +968,7 @@ export function KeaDevtools({
                 title="Kea Devtools"
                 style={{
                     position: 'fixed',
-                    right: offset,
+                    left: offset,
                     bottom: offset,
                     width: buttonSize,
                     height: buttonSize,
@@ -1176,6 +1176,8 @@ function ActionsTab({
     onClear: () => void
 }): JSX.Element {
     const [q, setQ] = useState('')
+    const [expanded, setExpanded] = useState<Set<number>>(new Set())
+
     const filtered = useMemo(() => {
         const s = q.trim().toLowerCase()
         if (!s) {
@@ -1187,6 +1189,35 @@ function ActionsTab({
                 (typeof a.payload === 'string' && a.payload.toLowerCase().includes(s))
         )
     }, [actions, q])
+
+    const toggleExpanded = (id: number): void => {
+        setExpanded((prev) => {
+            const next = new Set(prev)
+            if (next.has(id)) {
+                next.delete(id)
+            } else {
+                next.add(id)
+            }
+            return next
+        })
+    }
+
+    const oneLine = (x: unknown): string => {
+        try {
+            // compact JSON to a single line; do not add ellipsis here
+            return JSON.stringify(x)
+        } catch {
+            return String(x)
+        }
+    }
+
+    const pretty = (x: unknown): string => {
+        try {
+            return JSON.stringify(x, null, 2)
+        } catch {
+            return String(x)
+        }
+    }
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, gap: 8, padding: 10, flex: 1 }}>
@@ -1205,6 +1236,7 @@ function ActionsTab({
                     Clear
                 </button>
             </div>
+
             <div
                 style={{
                     flex: 1,
@@ -1217,49 +1249,101 @@ function ActionsTab({
                 {filtered.length === 0 ? (
                     <div style={{ padding: 12, color: 'rgba(0,0,0,0.6)' }}>No actions yet.</div>
                 ) : (
-                    <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-                        {filtered
-                            .slice()
-                            .reverse()
-                            .map((a) => (
-                                <li
-                                    key={a.id}
-                                    style={{ borderBottom: '1px solid rgba(0,0,0,0.05)', padding: '10px 12px' }}
+                    <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+                        <thead style={{ position: 'sticky', top: 0, background: '#fafafa', zIndex: 1 }}>
+                            <tr>
+                                <th
+                                    style={{
+                                        textAlign: 'left',
+                                        padding: '10px 12px',
+                                        borderBottom: '1px solid rgba(0,0,0,0.06)',
+                                        width: '40%',
+                                    }}
                                 >
-                                    <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
-                                        <code
-                                            style={{
-                                                fontWeight: 700,
-                                                fontFamily:
-                                                    'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-                                            }}
-                                        >
-                                            {a.type}
-                                        </code>
-                                        <span
-                                            style={{
-                                                color: 'rgba(0,0,0,0.5)',
-                                                fontSize: 12,
-                                            }}
-                                        >
-                                            {new Date(a.ts).toLocaleTimeString()}
-                                        </span>
-                                    </div>
-                                    {a.payload !== undefined ? (
-                                        <pre
-                                            style={{
-                                                margin: '6px 0 0',
-                                                whiteSpace: 'pre-wrap',
-                                                fontFamily:
-                                                    'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-                                            }}
-                                        >
-                                            {compactJSON(a.payload)}
-                                        </pre>
-                                    ) : null}
-                                </li>
-                            ))}
-                    </ul>
+                                    Action • Date
+                                </th>
+                                <th
+                                    style={{
+                                        textAlign: 'left',
+                                        padding: '10px 12px',
+                                        borderBottom: '1px solid rgba(0,0,0,0.06)',
+                                    }}
+                                >
+                                    Payload
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {filtered
+                                .slice()
+                                .reverse()
+                                .map((a) => {
+                                    const isOpen = expanded.has(a.id)
+                                    return (
+                                        <tr key={a.id} style={{ borderBottom: '1px solid rgba(0,0,0,0.05)' }}>
+                                            {/* Left cell: action + time below (no truncation) */}
+                                            <td style={{ padding: '10px 12px', verticalAlign: 'top' }}>
+                                                <div>
+                                                    <code
+                                                        style={{
+                                                            fontWeight: 700,
+                                                            fontFamily:
+                                                                'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                                                            wordBreak: 'break-word',
+                                                        }}
+                                                    >
+                                                        {a.type}
+                                                    </code>
+                                                </div>
+                                                <div
+                                                    style={{
+                                                        marginTop: 4,
+                                                        color: 'rgba(0,0,0,0.6)',
+                                                        fontSize: 12,
+                                                    }}
+                                                    title={new Date(a.ts).toISOString()}
+                                                >
+                                                    {new Date(a.ts).toLocaleString()}
+                                                </div>
+                                            </td>
+
+                                            {/* Right cell: payload one-line unless expanded */}
+                                            <td style={{ padding: '10px 12px', verticalAlign: 'top' }}>
+                                                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                                                    <div
+                                                        style={{
+                                                            flex: 1,
+                                                            // one line by default; no truncation requested for left column only,
+                                                            // right column remains single-line unless expanded:
+                                                            whiteSpace: isOpen ? 'pre-wrap' : 'nowrap',
+                                                            overflow: isOpen ? 'visible' : 'hidden',
+                                                            textOverflow: isOpen ? 'clip' : 'ellipsis',
+                                                            wordBreak: isOpen ? 'break-word' : 'normal',
+                                                            fontFamily:
+                                                                'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                                                        }}
+                                                    >
+                                                        {a.payload === undefined
+                                                            ? '—'
+                                                            : isOpen
+                                                              ? pretty(a.payload)
+                                                              : oneLine(a.payload)}
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => toggleExpanded(a.id)}
+                                                        style={simpleBtnStyle}
+                                                        title={isOpen ? 'Collapse payload' : 'Expand payload'}
+                                                    >
+                                                        {isOpen ? 'Collapse' : 'Expand'}
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    )
+                                })}
+                        </tbody>
+                    </table>
                 )}
             </div>
         </div>

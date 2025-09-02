@@ -1,7 +1,11 @@
+import logging
 from dataclasses import asdict
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
+from django.db import transaction
+
+import temporalio
 from temporalio.client import (
     Schedule,
     ScheduleActionStartWorkflow,
@@ -11,22 +15,20 @@ from temporalio.client import (
     ScheduleSpec,
     ScheduleState,
 )
-import temporalio
 from temporalio.common import RetryPolicy
+
 from posthog.constants import DATA_MODELING_TASK_QUEUE
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
     create_schedule,
+    delete_schedule,
+    schedule_exists,
     trigger_schedule,
     update_schedule,
-    schedule_exists,
-    delete_schedule,
 )
 from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
-from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from django.db import transaction
 from posthog.warehouse.models import DataWarehouseModelPath
-import logging
+from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 if TYPE_CHECKING:
     from posthog.warehouse.models import DataWarehouseSavedQuery

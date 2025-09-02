@@ -1,12 +1,7 @@
-from typing import Union, Optional
-from posthog.clickhouse.materialized_columns import ColumnName
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr
-from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.hogql_queries.insights.utils.properties import Properties
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.action.action import Action
-from posthog.models.property.property import PropertyName
+from typing import Optional, Union
+
+from rest_framework.exceptions import ValidationError
+
 from posthog.schema import (
     ActionsNode,
     DataWarehouseNode,
@@ -14,7 +9,16 @@ from posthog.schema import (
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
 )
-from rest_framework.exceptions import ValidationError
+
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr
+
+from posthog.clickhouse.materialized_columns import ColumnName
+from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+from posthog.hogql_queries.insights.utils.properties import Properties
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.action.action import Action
+from posthog.models.property.property import PropertyName
 
 
 class FunnelEventQuery:

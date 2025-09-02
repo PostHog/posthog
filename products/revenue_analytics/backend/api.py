@@ -1,14 +1,18 @@
 from typing import cast
-from rest_framework.viewsets import GenericViewSet
+
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
 from rest_framework.request import Request
-from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.exceptions_capture import capture_exception
+from rest_framework.response import Response
+from rest_framework.viewsets import GenericViewSet
+
 from posthog.hogql import ast
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.query import execute_hogql_query
+
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.exceptions_capture import capture_exception
+
 from products.revenue_analytics.backend.utils import (
     REVENUE_SELECT_OUTPUT_CUSTOMER_KEY,
     REVENUE_SELECT_OUTPUT_PRODUCT_KEY,

@@ -9,9 +9,11 @@ import { sassPlugin } from 'esbuild-sass-plugin'
 import express from 'express'
 import fse from 'fs-extra'
 import fs from 'node:fs/promises'
-import * as path from 'path'
+import * as path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import postcss from 'postcss'
 import postcssPresetEnv from 'postcss-preset-env'
+import ts from 'typescript'
 
 const defaultHost = process.argv.includes('--host') && process.argv.includes('0.0.0.0') ? '0.0.0.0' : 'localhost'
 const defaultPort = 8234
@@ -123,10 +125,18 @@ export function createHashlessEntrypoints(absWorkingDir, entrypoints) {
     }
 }
 
+const tsconfigPath = isDev ? 'tsconfig.dev.json' : 'tsconfig.json'
+
+const { config: tsconfig } = ts.readConfigFile(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', tsconfigPath),
+    ts.sys.readFile
+)
+
 /** @type {import('esbuild').BuildOptions} */
 export const commonConfig = {
     sourcemap: true,
     minify: !isDev,
+    target: tsconfig.compilerOptions.target, // We want the same target as tsconfig, should fail if tsconfig not found
     resolveExtensions: ['.ts', '.tsx', '.js', '.jsx', '.scss', '.css', '.less'],
     publicPath: '/static',
     assetNames: 'assets/[name]-[hash]',
@@ -151,7 +161,7 @@ export const commonConfig = {
             },
         }),
     ],
-    tsconfig: isDev ? 'tsconfig.dev.json' : 'tsconfig.json',
+    tsconfig: tsconfigPath,
     define: {
         global: 'globalThis',
         'process.env.NODE_ENV': isDev ? '"development"' : '"production"',

@@ -46,6 +46,7 @@ import { HeatmapsSettings } from './environment/HeatmapsSettings'
 import { HumanFriendlyComparisonPeriodsSetting } from './environment/HumanFriendlyComparisonPeriodsSetting'
 import { IPAllowListInfo } from './environment/IPAllowListInfo'
 import { IPCapture } from './environment/IPCapture'
+import MCPServerSettings from './environment/MCPServerSettings'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
@@ -193,7 +194,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     </>
                 ),
                 component: <DataColorThemes />,
-                flag: 'INSIGHT_COLORS',
             },
             {
                 id: 'persons-on-events',
@@ -311,7 +311,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'cookieless-server-hash-mode',
                 title: 'Cookieless server hash mode',
                 component: <CookielessServerHashModeSetting />,
-                flag: 'COOKIELESS_SERVER_HASH_MODE_SETTING',
             },
             {
                 id: 'bounce-rate-duration',
@@ -540,6 +539,19 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'environment-access-control',
                 title: 'Access control',
                 component: <TeamAccessControl />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'mcp-server',
+        // hideSelfHost: true,
+        title: 'MCP Server',
+        settings: [
+            {
+                id: 'mcp-server-configure',
+                title: 'Model Context Protocol (MCP) server',
+                component: <MCPServerSettings />,
             },
         ],
     },

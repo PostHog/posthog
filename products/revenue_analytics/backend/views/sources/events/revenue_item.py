@@ -1,17 +1,17 @@
 from collections.abc import Iterable
 
 from posthog.hogql import ast
+from posthog.hogql.database.schema.exchange_rate import (
+    currency_expression_for_events,
+    revenue_comparison_and_value_exprs_for_events,
+)
 
 from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHandle, view_prefix_for_event
 from products.revenue_analytics.backend.views.sources.helpers import (
+    currency_aware_amount,
+    currency_aware_divider,
     events_expr_for_team,
     is_zero_decimal_in_stripe,
-    currency_aware_divider,
-    currency_aware_amount,
-)
-from posthog.hogql.database.schema.exchange_rate import (
-    revenue_comparison_and_value_exprs_for_events,
-    currency_expression_for_events,
 )
 
 
@@ -65,6 +65,11 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
                     else ast.Constant(value=None),
                 ),
                 ast.Alias(alias="customer_id", expr=ast.Call(name="toString", args=[ast.Field(chain=["person_id"])])),
+                ast.Alias(alias="group_0_key", expr=ast.Field(chain=["$group_0"])),
+                ast.Alias(alias="group_1_key", expr=ast.Field(chain=["$group_1"])),
+                ast.Alias(alias="group_2_key", expr=ast.Field(chain=["$group_2"])),
+                ast.Alias(alias="group_3_key", expr=ast.Field(chain=["$group_3"])),
+                ast.Alias(alias="group_4_key", expr=ast.Field(chain=["$group_4"])),
                 ast.Alias(alias="invoice_id", expr=ast.Constant(value=None)),
                 ast.Alias(
                     alias="subscription_id",

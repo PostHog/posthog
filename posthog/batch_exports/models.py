@@ -1,5 +1,5 @@
-import collections.abc
 import datetime as dt
+import collections.abc
 from datetime import timedelta
 from math import ceil
 
@@ -7,9 +7,8 @@ from django.db import models
 
 from posthog.clickhouse.client import sync_execute
 from posthog.helpers.encrypted_fields import EncryptedJSONField
-
-from posthog.models.utils import UUIDTModel
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.utils import UUIDTModel
 
 
 class BatchExportDestination(UUIDTModel):

@@ -1,25 +1,27 @@
 from collections.abc import Callable
-from django.utils import timezone
-from dateutil.relativedelta import relativedelta
-from unittest.mock import MagicMock, patch
 
 from freezegun import freeze_time
+from posthog.test.base import APIBaseTest
+from unittest.mock import MagicMock, patch
+
+from django.utils import timezone
+
+from dateutil.relativedelta import relativedelta
 
 from posthog.models.cohort import Cohort
 from posthog.models.person import Person
 from posthog.tasks.calculate_cohort import (
-    calculate_cohort_from_list,
-    enqueue_cohorts_to_calculate,
+    COHORT_STUCK_COUNT_GAUGE,
+    COHORTS_STALE_COUNT_GAUGE,
     MAX_AGE_MINUTES,
     MAX_ERRORS_CALCULATING,
     MAX_STUCK_COHORTS_TO_RESET,
+    calculate_cohort_from_list,
+    enqueue_cohorts_to_calculate,
+    increment_version_and_enqueue_calculate_cohort,
     reset_stuck_cohorts,
     update_cohort_metrics,
-    COHORTS_STALE_COUNT_GAUGE,
-    COHORT_STUCK_COUNT_GAUGE,
-    increment_version_and_enqueue_calculate_cohort,
 )
-from posthog.test.base import APIBaseTest
 
 MISSING_COHORT_ID = 12345
 

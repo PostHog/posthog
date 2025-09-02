@@ -1,29 +1,19 @@
 from typing import Optional, Union, cast
 
-from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES
+from posthog.schema import ActionsNode, BaseMathType, ChartDisplayType, DataWarehouseNode, EventsNode
+
 from posthog.hogql import ast
 from posthog.hogql.base import Expr
-from posthog.hogql.placeholders import replace_placeholders
-from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql_queries.insights.data_warehouse_mixin import (
-    DataWarehouseInsightQueryMixin,
-)
-from posthog.hogql_queries.insights.trends.utils import is_groups_math
-from posthog.hogql_queries.insights.utils.aggregations import (
-    FirstTimeForUserEventsQueryAlternator,
-    QueryAlternator,
-)
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql.database.schema.exchange_rate import convert_currency_call
-from posthog.models.team.team import Team
-from posthog.schema import (
-    ActionsNode,
-    BaseMathType,
-    ChartDisplayType,
-    DataWarehouseNode,
-    EventsNode,
-)
+from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.placeholders import replace_placeholders
 
+from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES
+from posthog.hogql_queries.insights.data_warehouse_mixin import DataWarehouseInsightQueryMixin
+from posthog.hogql_queries.insights.trends.utils import is_groups_math
+from posthog.hogql_queries.insights.utils.aggregations import FirstTimeForUserEventsQueryAlternator, QueryAlternator
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.team.team import Team
 
 DEFAULT_CURRENCY_VALUE = "USD"
 DEFAULT_REVENUE_PROPERTY = "$revenue"

@@ -7,13 +7,17 @@ This module defines:
 - Sensors and schedules for continuous timeseries calculation
 """
 
-import dagster
+from datetime import UTC, datetime
 from typing import Any
-from posthog.models.experiment import Experiment
+
+import dagster
+
+from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric
+
 from posthog.hogql_queries.experiments.experiment_timeseries import ExperimentTimeseries
-from posthog.schema import ExperimentMeanMetric, ExperimentFunnelMetric
+from posthog.models.experiment import Experiment
+
 from dags.common import JobOwners
-from datetime import datetime, UTC
 
 # =============================================================================
 # Dynamic Partitions Setup

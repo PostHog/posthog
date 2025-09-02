@@ -1,7 +1,7 @@
 from django import forms
 from django.contrib import admin
-from django.utils.html import format_html
 from django.urls import reverse
+from django.utils.html import format_html
 
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionState
 

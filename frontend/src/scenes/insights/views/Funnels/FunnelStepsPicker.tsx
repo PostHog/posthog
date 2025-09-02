@@ -9,7 +9,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 
 export function FunnelStepsPicker(): JSX.Element | null {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, editingDisabledReason } = useValues(insightLogic)
     const { series, isFunnelWithEnoughSteps, funnelsFilter } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
@@ -57,6 +57,7 @@ export function FunnelStepsPicker(): JSX.Element | null {
                 onChange={(fromStep: number | null) =>
                     fromStep != null && onChange(fromStep, funnelsFilter?.funnelToStep)
                 }
+                disabledReason={editingDisabledReason}
             />
             <span className="text-secondary">to</span>
             <LemonSelect
@@ -68,6 +69,7 @@ export function FunnelStepsPicker(): JSX.Element | null {
                 options={optionsForRange(toRange)}
                 value={funnelsFilter?.funnelToStep || Math.max(numberOfSeries - 1, 1)}
                 onChange={(toStep: number | null) => toStep != null && onChange(funnelsFilter?.funnelFromStep, toStep)}
+                disabledReason={editingDisabledReason}
             />
         </div>
     )

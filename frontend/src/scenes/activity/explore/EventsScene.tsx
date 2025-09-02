@@ -61,6 +61,7 @@ export function EventsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                 context={{
                     showOpenEditorButton: true,
                     extraDataTableQueryFeatures: [QueryFeature.highlightExceptionEventRows],
+                    dataTableMaxPaginationLimit: 200,
                 }}
             />
         </SceneContent>

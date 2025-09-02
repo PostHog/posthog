@@ -1,16 +1,16 @@
 from typing import NamedTuple
+
+from posthog.test.base import BaseTest
 from unittest.mock import patch
+
+from django.test import override_settings
+
+from posthog.schema import HogQLQueryModifiers, MaterializationMode, PersonsArgMaxVersion, PersonsOnEventsMode
+
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
+
 from posthog.models import Cohort
-from posthog.schema import (
-    HogQLQueryModifiers,
-    PersonsArgMaxVersion,
-    PersonsOnEventsMode,
-    MaterializationMode,
-)
-from posthog.test.base import BaseTest
-from django.test import override_settings
 
 
 class TestModifiers(BaseTest):

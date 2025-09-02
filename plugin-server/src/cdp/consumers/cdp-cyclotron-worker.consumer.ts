@@ -1,3 +1,5 @@
+import { instrumented } from '~/common/tracing/tracing-utils'
+
 import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
@@ -31,6 +33,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         this.cyclotronJobQueue = new CyclotronJobQueue(hub, this.queue, (batch) => this.processBatch(batch))
     }
 
+    @instrumented('cdpConsumer.handleEachBatch.executeInvocations')
     public async processInvocations(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationResult[]> {
         const loadedInvocations = await this.loadHogFunctions(invocations)
 
@@ -49,6 +52,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         )
     }
 
+    @instrumented('cdpConsumer.handleEachBatch.loadHogFunctions')
     protected async loadHogFunctions(
         invocations: CyclotronJobInvocation[]
     ): Promise<CyclotronJobInvocationHogFunction[]> {
@@ -102,10 +106,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             size: invocations.length,
         })
 
-        const invocationResults = await this.runInstrumented(
-            'handleEachBatch.executeInvocations',
-            async () => await this.processInvocations(invocations)
-        )
+        const invocationResults = await this.processInvocations(invocations)
 
         // NOTE: We can queue and publish all metrics in the background whilst processing the next batch of invocations
         const backgroundTask = this.queueInvocationResults(invocationResults).then(() => {

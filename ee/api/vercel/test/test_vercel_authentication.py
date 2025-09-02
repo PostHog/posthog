@@ -1,15 +1,19 @@
-from typing import Any
-from unittest.mock import patch
-from datetime import datetime, UTC
-import jwt
-import base64
 import json
+import base64
+from datetime import UTC, datetime
+from typing import Any
+
+from posthog.test.base import SimpleTestCase
+from unittest.mock import patch
+
+from django.utils import timezone
+
+import jwt
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from django.utils import timezone
-from rest_framework.test import APIRequestFactory
 from rest_framework.exceptions import AuthenticationFailed
-from posthog.test.base import SimpleTestCase
+from rest_framework.test import APIRequestFactory
+
 from ee.api.authentication import VercelAuthentication
 from ee.api.vercel.types import VercelUser
 
@@ -127,15 +131,14 @@ class TestVercelAuthentication(SimpleTestCase):
 
     def test_missing_authorization_header(self, mock_get_jwks):
         request = self.factory.get("/", HTTP_X_VERCEL_AUTH="user")
-        result = self.auth.authenticate(request)
-        assert result is None
+        with self.assertRaises(AuthenticationFailed):
+            self.auth.authenticate(request)
 
     def test_missing_vercel_auth_header(self, mock_get_jwks):
         token = self._token()
         request = self.factory.get("/", HTTP_AUTHORIZATION=f"Bearer {token}")
-        with self.assertRaises(AuthenticationFailed) as cm:
+        with self.assertRaises(AuthenticationFailed):
             self.auth.authenticate(request)
-        assert "Missing or invalid X-Vercel-Auth header" in str(cm.exception)
 
     def test_invalid_vercel_auth_header(self, mock_get_jwks):
         token = self._token()
