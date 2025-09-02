@@ -90,13 +90,10 @@ export const loadAppMetricsTotals = async (
             GROUP BY ${hogql.raw(breakdownBy.join(', '))}
         `) as HogQLQueryString
 
-    console.log(query)
-
     const response = await api.queryHogQL(query, {
         refresh: 'force_blocking',
     })
 
-    console.log(response.results)
     // Transform the response to match AppMetricsTotalsV2Response format
     const res: AppMetricsTotalsResponse = {}
 
