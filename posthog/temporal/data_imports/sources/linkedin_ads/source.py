@@ -61,17 +61,9 @@ class LinkedInAdsSource(BaseSource[LinkedinAdsSourceConfig]):
         if not config.account_id or not config.linkedin_ads_integration_id:
             return False, "Account ID and LinkedIn Ads integration are required"
 
-        if not (config.account_id.isdigit() and 6 <= len(config.account_id) <= 15):
-            return False, f"Invalid account ID format: '{config.account_id}'. Should be numeric, 6-15 digits."
-
         try:
-            # Test schemas access
-            schemas = self.get_schemas(config, team_id)
-            if not schemas:
-                return False, "No schemas available. Please check your LinkedIn Ads account permissions."
-
+            Integration.objects.get(id=config.linkedin_ads_integration_id, team_id=team_id)
             return True, None
-
         except Integration.DoesNotExist:
             return False, "LinkedIn Ads integration not found. Please re-authenticate."
         except Exception as e:
