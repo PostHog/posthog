@@ -3,12 +3,13 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { IconArrowLeft, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonTab, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 
 import { capitalizeFirstLetter } from 'lib/utils'
 
 import { HOG_FLOW_EDITOR_MODES, HogFlowEditorMode, hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { getHogFlowStep } from '../steps/HogFlowSteps'
+import { HogFlowActionSchema } from '../steps/types'
 import { HogFlowEditorPanelBuild } from './HogFlowEditorPanelBuild'
 import { HogFlowEditorPanelBuildDetail } from './HogFlowEditorPanelBuildDetail'
 import { HogFlowEditorPanelLogs } from './HogFlowEditorPanelLogs'
@@ -29,6 +30,19 @@ export function HogFlowEditorPanel(): JSX.Element | null {
     const width = mode !== 'build' ? '36rem' : selectedNode ? '36rem' : '22rem'
 
     const Step = selectedNode ? getHogFlowStep(selectedNode.data.type) : null
+    const action = selectedNode?.data
+
+    const validationResult = HogFlowActionSchema.safeParse(action)
+    const hasConfigurationErrors = !['trigger', 'exit'].includes(action?.type || '') && !validationResult.success
+    const fieldsWithErrors = validationResult.error
+        ? // err.path.length - 2, because - 1 always be "value" for hog function inputs
+          validationResult.error.errors
+              .map(
+                  (err) =>
+                      `${capitalizeFirstLetter(String(err.path[err.path.length - 2])).replaceAll('_', ' ')}: ${err.message}`
+              )
+              .join(', ')
+        : ''
 
     return (
         <div
@@ -70,6 +84,13 @@ export function HogFlowEditorPanel(): JSX.Element | null {
                         <span className="flex gap-1 items-center font-medium rounded-md mr-3">
                             <span className="text-lg">{Step?.icon}</span>
                             <span className="font-semibold">{selectedNode.data.name}</span> step
+                            {hasConfigurationErrors && (
+                                <Tooltip title={`Some fields need attention: ${fieldsWithErrors}`}>
+                                    <div>
+                                        <LemonBadge status="warning" size="large" content="!" />
+                                    </div>
+                                </Tooltip>
+                            )}
                             {selectedNode.deletable && (
                                 <LemonButton
                                     size="xsmall"
