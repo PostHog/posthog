@@ -24,6 +24,7 @@ import { isFunnelsQuery, isNodeWithSource, isTrendsQuery, isValidQueryForExperim
 import {
     ChartDisplayType,
     Experiment,
+    ExperimentMetricGoal,
     ExperimentMetricMathType,
     FeatureFlagFilters,
     FeatureFlagType,
@@ -386,7 +387,7 @@ export function getDefaultFunnelMetric(): ExperimentMetric {
         kind: NodeKind.ExperimentMetric,
         uuid: uuid(),
         metric_type: ExperimentMetricType.FUNNEL,
-        goal: 'increase',
+        goal: ExperimentMetricGoal.Increase,
         series: [
             {
                 kind: NodeKind.EventsNode,
@@ -405,7 +406,7 @@ export function getDefaultCountMetric(): ExperimentMetric {
         kind: NodeKind.ExperimentMetric,
         uuid: uuid(),
         metric_type: ExperimentMetricType.MEAN,
-        goal: 'increase',
+        goal: ExperimentMetricGoal.Increase,
         source: {
             kind: NodeKind.EventsNode,
             event: '$pageview',
@@ -419,7 +420,7 @@ export function getDefaultRatioMetric(): ExperimentMetric {
         kind: NodeKind.ExperimentMetric,
         uuid: uuid(),
         metric_type: ExperimentMetricType.RATIO,
-        goal: 'increase',
+        goal: ExperimentMetricGoal.Increase,
         numerator: {
             kind: NodeKind.EventsNode,
             event: '$pageview',
@@ -458,7 +459,7 @@ export function getExperimentMetricFromInsight(insight: QueryBasedInsightModel |
             kind: NodeKind.ExperimentMetric,
             uuid: uuid(),
             metric_type: ExperimentMetricType.FUNNEL,
-            goal: 'increase',
+            goal: ExperimentMetricGoal.Increase,
             name: metricName,
             series: insight.query.source.series.map((series) => ({
                 ...series,
@@ -486,7 +487,7 @@ export function getExperimentMetricFromInsight(insight: QueryBasedInsightModel |
             kind: NodeKind.ExperimentMetric,
             uuid: uuid(),
             metric_type: ExperimentMetricType.MEAN,
-            goal: 'increase',
+            goal: ExperimentMetricGoal.Increase,
             name: metricName,
             source: {
                 ...firstSeries,

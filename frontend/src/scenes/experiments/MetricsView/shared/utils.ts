@@ -15,6 +15,7 @@ import {
     isExperimentMeanMetric,
     isExperimentRatioMetric,
 } from '~/queries/schema/schema-general'
+import { ExperimentMetricGoal } from '~/types'
 
 export type ExperimentVariantResult = ExperimentVariantResultFrequentist | ExperimentVariantResultBayesian
 
@@ -275,14 +276,6 @@ export function getMetricSubtitleValues(
     }
 }
 
-/**
- * Applies goal direction logic to return the appropriate value based on metric goal.
- * Returns whenIncrease if goal is 'increase' (or undefined), otherwise whenDecrease.
- */
-export function applyGoalDirection<T>(goal: 'increase' | 'decrease' | undefined, whenIncrease: T, whenDecrease: T): T {
-    return goal === 'decrease' ? whenDecrease : whenIncrease
-}
-
 export function isWinning(
     result: ExperimentVariantResult,
     goal: 'increase' | 'decrease' | undefined
@@ -291,27 +284,34 @@ export function isWinning(
     if (deltaPositive === undefined) {
         return undefined
     }
-    return applyGoalDirection(goal, deltaPositive, !deltaPositive)
+
+    if (goal === 'decrease') {
+        return !deltaPositive
+    }
+    return deltaPositive
 }
 
 export function getChanceToWin(
     result: ExperimentVariantResult,
     goal: 'increase' | 'decrease' | undefined
-): number | null | undefined {
+): number | undefined {
     if (!isBayesianResult(result)) {
-        return null
+        return undefined
     }
     const chanceToWin = result.chance_to_win
     if (chanceToWin == null) {
         return chanceToWin
     }
     // When goal is to decrease, invert chance to win because lower values are better
-    return applyGoalDirection(goal, chanceToWin, 1 - chanceToWin)
+    if (goal === 'decrease') {
+        return 1 - chanceToWin
+    }
+    return chanceToWin
 }
 
 export function formatChanceToWinForGoal(
     result: ExperimentVariantResult,
-    goal: 'increase' | 'decrease' | undefined
+    goal: ExperimentMetricGoal | undefined
 ): string {
     const chanceToWin = getChanceToWin(result, goal)
     return formatChanceToWin(chanceToWin)
@@ -327,18 +327,18 @@ export interface MetricColors {
  * When goal is decrease, positive and negative colors are swapped.
  */
 export function getMetricColors(
-    goal: 'increase' | 'decrease' | undefined,
-    colors: { BAR_POSITIVE: string; BAR_NEGATIVE: string }
+    colors: { BAR_POSITIVE: string; BAR_NEGATIVE: string },
+    goal: ExperimentMetricGoal | undefined
 ): MetricColors {
-    if (!goal || goal === 'increase') {
+    if (goal === 'decrease') {
+        // Swap colors for decrease goal
         return {
-            positive: colors.BAR_POSITIVE,
-            negative: colors.BAR_NEGATIVE,
+            positive: colors.BAR_NEGATIVE,
+            negative: colors.BAR_POSITIVE,
         }
     }
-    // Swap colors for decrease goal
     return {
-        positive: colors.BAR_NEGATIVE,
-        negative: colors.BAR_POSITIVE,
+        positive: colors.BAR_POSITIVE,
+        negative: colors.BAR_NEGATIVE,
     }
 }

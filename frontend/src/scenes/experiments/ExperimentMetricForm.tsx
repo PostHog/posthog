@@ -21,7 +21,7 @@ import {
     isExperimentMeanMetric,
     isExperimentRatioMetric,
 } from '~/queries/schema/schema-general'
-import { ExperimentMetricMathType, FilterType } from '~/types'
+import { ExperimentMetricGoal, ExperimentMetricMathType, FilterType } from '~/types'
 
 import { ExperimentMetricConversionWindowFilter } from './ExperimentMetricConversionWindowFilter'
 import { ExperimentMetricFunnelOrderSelector } from './ExperimentMetricFunnelOrderSelector'
@@ -308,12 +308,12 @@ export function ExperimentMetricForm({
             </div>
             <div>
                 <LemonLabel className="mb-1">Goal</LemonLabel>
-                <LemonSelect<'increase' | 'decrease'>
-                    value={metric.goal || 'increase'}
+                <LemonSelect<ExperimentMetricGoal>
+                    value={metric.goal || ExperimentMetricGoal.Increase}
                     onChange={(value) => handleSetMetric({ ...metric, goal: value })}
                     options={[
-                        { value: 'increase' as const, label: 'Increase (higher is better)' },
-                        { value: 'decrease' as const, label: 'Decrease (lower is better)' },
+                        { value: ExperimentMetricGoal.Increase, label: 'Increase' },
+                        { value: ExperimentMetricGoal.Decrease, label: 'Decrease' },
                     ]}
                     fullWidth
                 />

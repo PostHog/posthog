@@ -1,10 +1,9 @@
 import type { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
 import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
-import { ExperimentMetricMathType } from '~/types'
+import { ExperimentMetricGoal, ExperimentMetricMathType } from '~/types'
 
 import {
     type ExperimentVariantResult,
-    applyGoalDirection,
     formatChanceToWinForGoal,
     getChanceToWin,
     getDefaultMetricTitle,
@@ -90,33 +89,12 @@ describe('getDefaultMetricTitle', () => {
     })
 })
 
-describe('applyGoalDirection', () => {
-    it('returns whenIncrease value for increase goal', () => {
-        expect(applyGoalDirection('increase', 'up', 'down')).toBe('up')
-        expect(applyGoalDirection('increase', 100, -100)).toBe(100)
-        expect(applyGoalDirection('increase', true, false)).toBe(true)
-    })
-
-    it('returns whenDecrease value for decrease goal', () => {
-        expect(applyGoalDirection('decrease', 'up', 'down')).toBe('down')
-        expect(applyGoalDirection('decrease', 100, -100)).toBe(-100)
-        expect(applyGoalDirection('decrease', true, false)).toBe(false)
-    })
-
-    it('returns whenIncrease value for undefined goal (default)', () => {
-        expect(applyGoalDirection(undefined, 'up', 'down')).toBe('up')
-        expect(applyGoalDirection(undefined, 100, -100)).toBe(100)
-        expect(applyGoalDirection(undefined, true, false)).toBe(true)
-    })
-})
-
 describe('isWinning', () => {
-    const createResult = (credible_interval: [number, number] | null): ExperimentVariantResult => ({
+    const createResult = (credible_interval: [number, number] | undefined): ExperimentVariantResult => ({
         key: 'test',
         sum: 100,
-        absolute_value: 100,
-        relative_value: 0.1,
         number_of_samples: 100,
+        sum_squares: 100,
         significant: true,
         method: 'bayesian',
         credible_interval,
@@ -125,43 +103,37 @@ describe('isWinning', () => {
 
     it('returns true for positive delta with increase goal', () => {
         const result = createResult([0.05, 0.15])
-        expect(isWinning(result, 'increase')).toBe(true)
+        expect(isWinning(result, ExperimentMetricGoal.Increase)).toBe(true)
     })
 
     it('returns false for positive delta with decrease goal', () => {
         const result = createResult([0.05, 0.15])
-        expect(isWinning(result, 'decrease')).toBe(false)
+        expect(isWinning(result, ExperimentMetricGoal.Decrease)).toBe(false)
     })
 
     it('returns false for negative delta with increase goal', () => {
         const result = createResult([-0.15, -0.05])
-        expect(isWinning(result, 'increase')).toBe(false)
+        expect(isWinning(result, ExperimentMetricGoal.Increase)).toBe(false)
     })
 
     it('returns true for negative delta with decrease goal', () => {
         const result = createResult([-0.15, -0.05])
-        expect(isWinning(result, 'decrease')).toBe(true)
+        expect(isWinning(result, ExperimentMetricGoal.Decrease)).toBe(true)
     })
 
     it('returns undefined when no interval is present', () => {
-        const result = createResult(null)
-        expect(isWinning(result, 'increase')).toBeUndefined()
-        expect(isWinning(result, 'decrease')).toBeUndefined()
-    })
-
-    it('handles undefined goal as increase', () => {
-        const result = createResult([0.05, 0.15])
-        expect(isWinning(result, undefined)).toBe(true)
+        const result = createResult(undefined)
+        expect(isWinning(result, ExperimentMetricGoal.Increase)).toBeUndefined()
+        expect(isWinning(result, ExperimentMetricGoal.Decrease)).toBeUndefined()
     })
 })
 
 describe('getChanceToWin', () => {
-    const createBayesianResult = (chance_to_win: number | null): ExperimentVariantResult => ({
+    const createBayesianResult = (chance_to_win: number | undefined): ExperimentVariantResult => ({
         key: 'test',
         sum: 100,
-        absolute_value: 100,
-        relative_value: 0.1,
         number_of_samples: 100,
+        sum_squares: 100,
         significant: true,
         method: 'bayesian',
         credible_interval: [0.05, 0.15],
@@ -171,9 +143,8 @@ describe('getChanceToWin', () => {
     const createFrequentistResult = (): ExperimentVariantResult => ({
         key: 'test',
         sum: 100,
-        absolute_value: 100,
-        relative_value: 0.1,
         number_of_samples: 100,
+        sum_squares: 100,
         significant: true,
         method: 'frequentist',
         confidence_interval: [0.05, 0.15],
@@ -182,29 +153,24 @@ describe('getChanceToWin', () => {
 
     it('returns chance to win as-is for increase goal', () => {
         const result = createBayesianResult(0.75)
-        expect(getChanceToWin(result, 'increase')).toBe(0.75)
+        expect(getChanceToWin(result, ExperimentMetricGoal.Increase)).toBe(0.75)
     })
 
     it('inverts chance to win for decrease goal', () => {
         const result = createBayesianResult(0.75)
-        expect(getChanceToWin(result, 'decrease')).toBe(0.25)
+        expect(getChanceToWin(result, ExperimentMetricGoal.Decrease)).toBe(0.25)
     })
 
     it('handles null chance to win', () => {
-        const result = createBayesianResult(null)
-        expect(getChanceToWin(result, 'increase')).toBeNull()
-        expect(getChanceToWin(result, 'decrease')).toBeNull()
+        const result = createBayesianResult(undefined)
+        expect(getChanceToWin(result, ExperimentMetricGoal.Increase)).toBeUndefined()
+        expect(getChanceToWin(result, ExperimentMetricGoal.Decrease)).toBeUndefined()
     })
 
-    it('returns null for frequentist results', () => {
+    it('returns undefined for frequentist results', () => {
         const result = createFrequentistResult()
-        expect(getChanceToWin(result, 'increase')).toBeNull()
-        expect(getChanceToWin(result, 'decrease')).toBeNull()
-    })
-
-    it('handles undefined goal as increase', () => {
-        const result = createBayesianResult(0.6)
-        expect(getChanceToWin(result, undefined)).toBe(0.6)
+        expect(getChanceToWin(result, ExperimentMetricGoal.Increase)).toBeUndefined()
+        expect(getChanceToWin(result, ExperimentMetricGoal.Decrease)).toBeUndefined()
     })
 })
 
@@ -212,9 +178,8 @@ describe('formatChanceToWinForGoal', () => {
     const createResult = (chance_to_win: number): ExperimentVariantResult => ({
         key: 'test',
         sum: 100,
-        absolute_value: 100,
-        relative_value: 0.1,
         number_of_samples: 100,
+        sum_squares: 100,
         significant: true,
         method: 'bayesian',
         credible_interval: [0.05, 0.15],
@@ -223,24 +188,24 @@ describe('formatChanceToWinForGoal', () => {
 
     it('formats chance to win for increase goal', () => {
         const result = createResult(0.756)
-        expect(formatChanceToWinForGoal(result, 'increase')).toBe('75.6%')
+        expect(formatChanceToWinForGoal(result, ExperimentMetricGoal.Increase)).toBe('75.6%')
     })
 
     it('formats inverted chance to win for decrease goal', () => {
         const result = createResult(0.756)
-        expect(formatChanceToWinForGoal(result, 'decrease')).toBe('24.4%')
+        expect(formatChanceToWinForGoal(result, ExperimentMetricGoal.Decrease)).toBe('24.4%')
     })
 
     it('handles very high chances', () => {
         const result = createResult(0.9995)
-        expect(formatChanceToWinForGoal(result, 'increase')).toBe('> 99.9%')
-        expect(formatChanceToWinForGoal(result, 'decrease')).toBe('< 0.1%')
+        expect(formatChanceToWinForGoal(result, ExperimentMetricGoal.Increase)).toBe('> 99.9%')
+        expect(formatChanceToWinForGoal(result, ExperimentMetricGoal.Decrease)).toBe('< 0.1%')
     })
 
     it('handles very low chances', () => {
         const result = createResult(0.0005)
-        expect(formatChanceToWinForGoal(result, 'increase')).toBe('< 0.1%')
-        expect(formatChanceToWinForGoal(result, 'decrease')).toBe('> 99.9%')
+        expect(formatChanceToWinForGoal(result, ExperimentMetricGoal.Increase)).toBe('< 0.1%')
+        expect(formatChanceToWinForGoal(result, ExperimentMetricGoal.Decrease)).toBe('> 99.9%')
     })
 })
 
@@ -251,20 +216,14 @@ describe('getMetricColors', () => {
     }
 
     it('returns normal colors for increase goal', () => {
-        const result = getMetricColors('increase', colors)
+        const result = getMetricColors(colors, ExperimentMetricGoal.Increase)
         expect(result.positive).toBe('#00FF00')
         expect(result.negative).toBe('#FF0000')
     })
 
     it('swaps colors for decrease goal', () => {
-        const result = getMetricColors('decrease', colors)
+        const result = getMetricColors(colors, ExperimentMetricGoal.Decrease)
         expect(result.positive).toBe('#FF0000')
         expect(result.negative).toBe('#00FF00')
-    })
-
-    it('returns normal colors for undefined goal', () => {
-        const result = getMetricColors(undefined, colors)
-        expect(result.positive).toBe('#00FF00')
-        expect(result.negative).toBe('#FF0000')
     })
 })

@@ -18,6 +18,7 @@ import {
     EventPropertyFilter,
     EventType,
     ExperimentHoldoutType,
+    ExperimentMetricGoal,
     ExperimentMetricMathType,
     FilterLogicalOperator,
     FilterType,
@@ -2516,7 +2517,7 @@ export interface ExperimentMetricBaseProperties extends Node {
     name?: string
     conversion_window?: integer
     conversion_window_unit?: FunnelConversionWindowTimeUnit
-    goal?: 'increase' | 'decrease'
+    goal?: ExperimentMetricGoal
 }
 
 export type ExperimentMetricOutlierHandling = {
