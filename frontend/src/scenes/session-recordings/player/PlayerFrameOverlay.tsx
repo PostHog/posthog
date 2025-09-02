@@ -67,8 +67,8 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
     return content ? (
         <div
             className={cn(
-                'PlayerFrameOverlay__content absolute inset-0 z-1 flex items-center justify-center bg-black/15 opacity-80 transition-opacity duration-100 hover:opacity-100',
-                pausedState && !isInExportContext && 'opacity-0 hover:opacity-100'
+                'PlayerFrameOverlay__content absolute inset-0 z-1 flex items-center justify-center bg-black/15 transition-opacity duration-100',
+                pausedState && !isInExportContext ? 'opacity-0 hover:opacity-100' : 'opacity-80 hover:opacity-100'
             )}
             aria-busy={currentPlayerState === SessionPlayerState.BUFFER}
         >
