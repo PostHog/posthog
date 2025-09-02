@@ -169,22 +169,14 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 return new Set(outgoingNodes.map((node) => node.id)).size === 1
             },
         ],
-
-        actionIds: [
-            (s) => [s.campaign],
-            (campaign): Set<string> => {
-                return new Set(campaign.actions.map((action) => action.id))
-            },
-        ],
     }),
-    loaders(({ values }) => ({
+    loaders(() => ({
         actionMetricsById: [
             null as Record<string, HogFlowEditorActionMetrics> | null,
             {
                 loadActionMetricsById: async ({ params, timezone }, breakpoint) => {
                     await breakpoint(10)
                     const response = await loadAppMetricsTotals(params, timezone)
-
                     await breakpoint(10)
 
                     // turn the response into the format we need
