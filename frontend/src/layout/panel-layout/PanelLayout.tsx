@@ -1,3 +1,5 @@
+import './PanelLayout.scss'
+
 import { cva } from 'cva'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect } from 'react'

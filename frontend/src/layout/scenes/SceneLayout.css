@@ -15,11 +15,3 @@
     container-name: unset;
     container-type: unset;
 }
-
-.storybook-test-runner .scene-tabs-corner-hack {
-    display: none;
-}
-
-.storybook-test-runner .scene-layout__content-panel {
-    border-left: none;
-}

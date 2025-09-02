@@ -48,7 +48,7 @@ import { OrganizationDropdownMenu } from './OrganizationDropdownMenu'
 import { ProjectDropdownMenu } from './ProjectDropdownMenu'
 
 const navBarStyles = cva({
-    base: 'flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative',
+    base: 'flex flex-col max-h-screen relative min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] border-r border-transparent',
     variants: {
         isLayoutNavCollapsed: {
             true: 'w-[var(--project-navbar-width-collapsed)]',
@@ -563,7 +563,12 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             onToggleClosed={(shouldBeClosed) => toggleLayoutNavCollapsed(shouldBeClosed)}
                             onDoubleClick={() => toggleLayoutNavCollapsed()}
                             data-attr="tree-navbar-resizer"
-                            className={cn(newSceneLayout && 'top-[calc(var(--scene-layout-header-height)+4px)]')}
+                            className={cn(
+                                'panel-layout-navbar-resizer',
+                                newSceneLayout && 'panel-layout-navbar-resizer--new-scene-layout'
+                            )}
+                            // If new scene layout, to fix the resizer from showing in test runner
+                            offset={newSceneLayout ? -1 : 0}
                         />
                     )}
                 </nav>
