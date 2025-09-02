@@ -747,13 +747,9 @@ AND properties.$lib != 'web'`
                 featureFlags: FeatureFlagsSet,
                 snapshots: RecordingSnapshot[]
             ): boolean => {
-                // For v2 recordings, only show loading if we have no snapshots yet
+                // For v2 recordings, only show loading if we have no snapshots AND we're actually loading something.
                 if (featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY]) {
-                    if (snapshots?.length > 0) {
-                        return false
-                    }
-
-                    return snapshotSourcesLoading || snapshotsForSourceLoading
+                    return snapshots?.length === 0 && (snapshotSourcesLoading || snapshotsForSourceLoading)
                 }
 
                 // Default behavior for non-v2 recordings
