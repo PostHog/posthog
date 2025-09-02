@@ -39,11 +39,9 @@ describe('JWT', () => {
     })
 
     it('should try all secrets for verification', () => {
-        // sign with the second secret manually
         const jwt = require('jsonwebtoken')
         const payload = { foo: 'bar' }
         const token = jwt.sign(payload, 'testsecret2')
-        // Should verify with the second secret
         expect((jwtUtil.verify(token) as any).foo).toBe('bar')
     })
 })
