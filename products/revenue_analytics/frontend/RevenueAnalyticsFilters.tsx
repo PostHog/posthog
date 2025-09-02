@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconFilter, IconGraph, IconLineGraph, IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSelect, LemonSelectOptions, Popover, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, LemonSelectOptions, Popover, Tooltip } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
@@ -98,10 +98,8 @@ export const RevenueAnalyticsFilters = (): JSX.Element => {
             right={
                 <>
                     <Tooltip title="Refresh data">
-                        <ReloadAll />
+                        <ReloadAll iconOnly />
                     </Tooltip>
-
-                    <LemonDivider vertical className="hidden md:block my-1" />
 
                     <LemonSelect
                         value={insightsDisplayMode}
