@@ -1,3 +1,4 @@
+import { NON_TIME_SERIES_DISPLAY_TYPES } from '~/lib/constants'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
@@ -20,63 +21,58 @@ describe('llmAnalyticsLogic', () => {
         it('should have explicitDate set to true for aggregate display tiles', () => {
             const tiles = logic.values.tiles
 
-            // Find the aggregate display tiles
-            const totalCostTile = tiles.find((t) => t.title === 'Total cost (USD)')
-            const costByModelTile = tiles.find((t) => t.title === 'Cost by model (USD)')
-            const generationsByStatusTile = tiles.find((t) => t.title === 'Generations by HTTP status')
+            // Filter tiles that have non-time-series display types
+            const nonTimeSeriesTiles = tiles.filter(
+                (tile) =>
+                    tile.query.trendsFilter?.display &&
+                    NON_TIME_SERIES_DISPLAY_TYPES.includes(tile.query.trendsFilter.display)
+            )
 
-            // Verify Total cost tile
-            expect(totalCostTile).not.toBeUndefined()
-            expect(totalCostTile?.query.dateRange?.explicitDate).toBe(true)
-            expect(totalCostTile?.query.trendsFilter?.display).toBe(ChartDisplayType.BoldNumber)
+            // Should have exactly 3 non-time-series tiles
+            expect(nonTimeSeriesTiles).toHaveLength(3)
 
-            // Verify Cost by model tile
-            expect(costByModelTile).not.toBeUndefined()
-            expect(costByModelTile?.query.dateRange?.explicitDate).toBe(true)
-            expect(costByModelTile?.query.trendsFilter?.display).toBe(ChartDisplayType.ActionsBarValue)
+            // All non-time-series tiles should have explicitDate set to true
+            nonTimeSeriesTiles.forEach((tile) => {
+                expect(tile.query.dateRange?.explicitDate).toBe(true)
+            })
 
-            // Verify Generations by HTTP status tile
-            expect(generationsByStatusTile).not.toBeUndefined()
-            expect(generationsByStatusTile?.query.dateRange?.explicitDate).toBe(true)
-            expect(generationsByStatusTile?.query.trendsFilter?.display).toBe(ChartDisplayType.ActionsBarValue)
+            // Verify expected display types are present
+            const displayTypes = nonTimeSeriesTiles.map((tile) => tile.query.trendsFilter?.display)
+            expect(displayTypes).toContain(ChartDisplayType.BoldNumber)
+            expect(displayTypes).toContain(ChartDisplayType.ActionsBarValue)
+
+            // Count occurrences of ActionsBarValue (should be 2)
+            const actionsBarValueCount = displayTypes.filter((d) => d === ChartDisplayType.ActionsBarValue).length
+            expect(actionsBarValueCount).toBe(2)
         })
 
         it('should NOT have explicitDate set for time-series display tiles', () => {
             const tiles = logic.values.tiles
 
-            // Find the time-series tiles
-            const tracesTile = tiles.find((t) => t.title === 'Traces')
-            const usersTile = tiles.find((t) => t.title === 'Generative AI users')
-            const costPerUserTile = tiles.find((t) => t.title === 'Cost per user (USD)')
-            const generationCallsTile = tiles.find((t) => t.title === 'Generation calls')
-            const latencyTile = tiles.find((t) => t.title === 'Generation latency by model (median)')
+            // Filter tiles that are time-series (no display type or not in NON_TIME_SERIES_DISPLAY_TYPES)
+            const timeSeriesTiles = tiles.filter(
+                (tile) =>
+                    !tile.query.trendsFilter?.display ||
+                    !NON_TIME_SERIES_DISPLAY_TYPES.includes(tile.query.trendsFilter.display)
+            )
 
-            // Verify Traces tile
-            expect(tracesTile).not.toBeUndefined()
-            expect(tracesTile?.query.dateRange?.explicitDate).toBeUndefined()
-            expect(tracesTile?.query.trendsFilter?.display).toBeUndefined()
+            // Should have exactly 5 time-series tiles
+            expect(timeSeriesTiles).toHaveLength(5)
 
-            // Verify Generative AI users tile
-            expect(usersTile).not.toBeUndefined()
-            expect(usersTile?.query.dateRange?.explicitDate).toBeUndefined()
-            expect(usersTile?.query.trendsFilter?.display).toBeUndefined()
+            // All time-series tiles should NOT have explicitDate set
+            timeSeriesTiles.forEach((tile) => {
+                expect(tile.query.dateRange?.explicitDate).toBeUndefined()
+            })
 
-            // Verify Cost per user tile
-            expect(costPerUserTile).not.toBeUndefined()
-            expect(costPerUserTile?.query.dateRange?.explicitDate).toBeUndefined()
-            // Has formula but no specific display type
-            expect(costPerUserTile?.query.trendsFilter?.formula).not.toBeUndefined()
-            expect(costPerUserTile?.query.trendsFilter?.display).toBeUndefined()
+            // All time-series tiles should have undefined display type
+            timeSeriesTiles.forEach((tile) => {
+                expect(tile.query.trendsFilter?.display).toBeUndefined()
+            })
 
-            // Verify Generation calls tile
-            expect(generationCallsTile).not.toBeUndefined()
-            expect(generationCallsTile?.query.dateRange?.explicitDate).toBeUndefined()
-            expect(generationCallsTile?.query.trendsFilter?.display).toBeUndefined()
-
-            // Verify Generation latency tile
-            expect(latencyTile).not.toBeUndefined()
-            expect(latencyTile?.query.dateRange?.explicitDate).toBeUndefined()
-            expect(latencyTile?.query.trendsFilter?.display).toBeUndefined()
+            // Verify one of them has a formula (Cost per user)
+            const tilesWithFormula = timeSeriesTiles.filter((tile) => tile.query.trendsFilter?.formula)
+            expect(tilesWithFormula).toHaveLength(1)
+            expect(tilesWithFormula[0].query.trendsFilter?.formula).toBe('A / B')
         })
 
         it('should have all 8 expected tiles', () => {
@@ -118,29 +114,31 @@ describe('llmAnalyticsLogic', () => {
         it('should maintain correct display types for visualization', () => {
             const tiles = logic.values.tiles
 
-            // Aggregate displays
-            const totalCost = tiles.find((t) => t.title === 'Total cost (USD)')
-            expect(totalCost?.query.trendsFilter?.display).toBe(ChartDisplayType.BoldNumber)
+            // Non-time-series tiles grouped by display type
+            const boldNumberTiles = tiles.filter(
+                (tile) => tile.query.trendsFilter?.display === ChartDisplayType.BoldNumber
+            )
+            const actionsBarValueTiles = tiles.filter(
+                (tile) => tile.query.trendsFilter?.display === ChartDisplayType.ActionsBarValue
+            )
 
-            const costByModel = tiles.find((t) => t.title === 'Cost by model (USD)')
-            expect(costByModel?.query.trendsFilter?.display).toBe(ChartDisplayType.ActionsBarValue)
+            // Verify counts
+            expect(boldNumberTiles).toHaveLength(1)
+            expect(actionsBarValueTiles).toHaveLength(2)
 
-            const generationsByStatus = tiles.find((t) => t.title === 'Generations by HTTP status')
-            expect(generationsByStatus?.query.trendsFilter?.display).toBe(ChartDisplayType.ActionsBarValue)
-
-            // Time-series displays (should not have display type, defaults to line graph)
-            const timeSeries = [
-                'Traces',
-                'Generative AI users',
-                'Cost per user (USD)',
-                'Generation calls',
-                'Generation latency by model (median)',
-            ]
-
-            timeSeries.forEach((title) => {
-                const tile = tiles.find((t) => t.title === title)
-                expect(tile?.query.trendsFilter?.display).toBeUndefined()
+            // Verify all non-time-series tiles are in NON_TIME_SERIES_DISPLAY_TYPES
+            const allNonTimeSeriesTiles = [...boldNumberTiles, ...actionsBarValueTiles]
+            allNonTimeSeriesTiles.forEach((tile) => {
+                expect(NON_TIME_SERIES_DISPLAY_TYPES).toContain(tile.query.trendsFilter?.display)
             })
+
+            // Time-series tiles (undefined display type)
+            const timeSeriesTiles = tiles.filter((tile) => tile.query.trendsFilter?.display === undefined)
+            expect(timeSeriesTiles).toHaveLength(5)
+
+            // Verify all tiles are accounted for
+            expect(tiles).toHaveLength(8)
+            expect(boldNumberTiles.length + actionsBarValueTiles.length + timeSeriesTiles.length).toBe(8)
         })
     })
 })
