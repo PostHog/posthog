@@ -411,12 +411,17 @@ export const sceneLogic = kea<sceneLogicType>([
                     return Scene.ErrorAccessDenied
                 }
 
-                return isCurrentTeamUnavailable &&
+                // Check if the current team is unavailable for project-based scenes
+                if (
+                    isCurrentTeamUnavailable &&
                     sceneId &&
                     sceneConfigurations[sceneId]?.projectBased &&
                     location.pathname !== urls.settings('user-danger-zone')
-                    ? Scene.ErrorProjectUnavailable
-                    : sceneId
+                ) {
+                    return Scene.ErrorProjectUnavailable
+                }
+
+                return sceneId
             },
         ],
         activeExportedScene: [
