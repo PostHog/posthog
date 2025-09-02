@@ -6,10 +6,9 @@ import React, { useContext } from 'react'
 import { IconChevronDown } from '@posthog/icons'
 
 import { accessLevelSatisfied, resourceTypeToString } from 'lib/components/AccessControlAction'
-import type { AccessControlLevel } from 'lib/components/AccessControlAction'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
 
-import { AccessControlResourceType } from '~/types'
+import { AccessControlResourceType, AccessControlLevel } from '~/types'
 
 import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
 import { Link } from '../Link'
