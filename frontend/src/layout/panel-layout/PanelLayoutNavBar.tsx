@@ -563,7 +563,8 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             onToggleClosed={(shouldBeClosed) => toggleLayoutNavCollapsed(shouldBeClosed)}
                             onDoubleClick={() => toggleLayoutNavCollapsed()}
                             data-attr="tree-navbar-resizer"
-                            className={cn(newSceneLayout && 'top-[calc(var(--scene-layout-header-height)+4px)]')}
+                            // If new scene layout, to fix the resizer from showing in test runner
+                            offset={newSceneLayout ? -1 : 0}
                         />
                     )}
                 </nav>
