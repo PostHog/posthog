@@ -159,16 +159,16 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(result.results), len(test_groups), "Should match all groups")
         self.assertEqual(result.columns, ["group_name", "key"])
-        
+
         # First result should always be exact match
         self.assertEqual(result.results[0][0], "test")
         self.assertEqual(result.results[0][1], "exact")
-        
+
         # Next two are prefix matches - order between them is non-deterministic
         prefix_results = sorted([(r[0], r[1]) for r in result.results[1:3]], key=lambda x: x[0])
         self.assertEqual(prefix_results[0], ("testable", "prefix2"))
         self.assertEqual(prefix_results[1], ("testing", "prefix"))
-        
+
         # Last two are contains matches - order between them is non-deterministic
         contains_results = sorted([(r[0], r[1]) for r in result.results[3:5]], key=lambda x: x[0])
         self.assertEqual(contains_results[0], ("best_test_ever", "contains2"))
