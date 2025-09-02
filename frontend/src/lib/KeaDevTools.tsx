@@ -5,7 +5,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 
 type MountedMap = Record<string, BuiltLogic>
 type SortMode = 'alpha' | 'recent'
-type Tab = 'logics' | 'actions' | 'graph'
+type Tab = 'logics' | 'actions' | 'graph' | 'memory'
 
 type KeaDevtoolsProps = {
     defaultOpen?: boolean
@@ -833,6 +833,498 @@ function GraphTab({
     )
 }
 
+/* ---------- Memory tab helpers ---------- */
+function formatBytes(bytes: number): string {
+    if (!Number.isFinite(bytes) || bytes <= 0) {
+        return '0 B'
+    }
+    const units = ['B', 'KB', 'MB', 'GB', 'TB']
+    let i = 0
+    let n = bytes
+    while (n >= 1024 && i < units.length - 1) {
+        n /= 1024
+        i++
+    }
+    if (i === 0) {
+        return `${Math.trunc(n)} B`
+    } // no fractional bytes
+    const s = n.toFixed(n >= 100 ? 0 : n >= 10 ? 1 : 2).replace(/\.0+$/, '')
+    return `${s} ${units[i]}`
+}
+
+// robust path walker for kea logic.path (array of strings/numbers)
+function getAtPath(root: any, path: Array<string | number> | undefined): unknown {
+    if (!root || !Array.isArray(path) || !path.length) {
+        return undefined
+    }
+    let cur = root
+    for (const seg of path) {
+        if (cur == null) {
+            return undefined
+        }
+        cur = cur[String(seg)]
+    }
+    return cur
+}
+
+// Limits to keep things safe
+const INSPECT_MAX_DEPTH = 20
+const INSPECT_MAX_ARRAY = 5_000
+
+type InspectResult = { data: unknown; truncated: boolean }
+
+// try/catch wrapper to protect against throwing getters/proxies
+function tryGet<T>(fn: () => T): T | '[[Throw]]' {
+    try {
+        return fn()
+    } catch {
+        return '[[Throw]]'
+    }
+}
+
+function toInspectable(
+    value: unknown,
+    maxDepth = INSPECT_MAX_DEPTH,
+    seen = new WeakMap<object, any>(),
+    depth = 0
+): InspectResult {
+    let truncated = false
+
+    const visit = (v: any, d: number): any => {
+        // primitives
+        const t = typeof v
+        if (v === null || t === 'string' || t === 'number' || t === 'boolean') {
+            return v
+        }
+        if (t === 'bigint') {
+            return v.toString()
+        }
+        if (t === 'symbol') {
+            return v.toString()
+        }
+        if (t === 'function') {
+            return `[Function ${v.name || 'anonymous'}]`
+        }
+
+        // depth limit
+        if (d >= maxDepth) {
+            truncated = true
+            return '[MaxDepth]'
+        }
+
+        // typed arrays / buffers
+        if (v instanceof Date) {
+            return v.toISOString()
+        }
+        if (v instanceof ArrayBuffer) {
+            return { __type: 'ArrayBuffer', byteLength: v.byteLength }
+        }
+        if (ArrayBuffer.isView(v) && !(v instanceof DataView)) {
+            return { __type: v.constructor?.name || 'TypedArray', length: (v as any).length }
+        }
+
+        // cycles
+        if (typeof v === 'object' && v !== null) {
+            if (seen.has(v)) {
+                return '[Circular]'
+            }
+        }
+
+        // arrays
+        if (Array.isArray(v)) {
+            const out: any[] = []
+            seen.set(v, out)
+            const n = v.length
+            const limit = Math.min(n, INSPECT_MAX_ARRAY)
+            for (let i = 0; i < limit; i++) {
+                out.push(
+                    visit(
+                        tryGet(() => v[i]),
+                        d + 1
+                    )
+                )
+            }
+            if (n > limit) {
+                truncated = true
+                out.push(`[+${n - limit} more]`)
+            }
+            return out
+        }
+
+        // Map / Set
+        if (v instanceof Map) {
+            const out: any[] = []
+            seen.set(v, out)
+            let i = 0
+            for (const [k, val] of v.entries()) {
+                if (i++ >= INSPECT_MAX_ARRAY) {
+                    truncated = true
+                    out.push('[+more]')
+                    break
+                }
+                out.push([visit(k, d + 1), visit(val, d + 1)])
+            }
+            return { __type: 'Map', entries: out }
+        }
+        if (v instanceof Set) {
+            const out: any[] = []
+            seen.set(v, out)
+            let i = 0
+            for (const val of v.values()) {
+                if (i++ >= INSPECT_MAX_ARRAY) {
+                    truncated = true
+                    out.push('[+more]')
+                    break
+                }
+                out.push(visit(val, d + 1))
+            }
+            return { __type: 'Set', values: out }
+        }
+
+        // generic object (protect against throwing property access)
+        if (typeof v === 'object' && v !== null) {
+            const out: Record<string, any> = {}
+            seen.set(v, out)
+            // own keys only
+            const names = tryGet(() => Object.getOwnPropertyNames(v)) as any
+            const syms = tryGet(() => Object.getOwnPropertySymbols(v)) as any
+            const keys: (string | symbol)[] = []
+            if (Array.isArray(names)) {
+                keys.push(...names)
+            }
+            if (Array.isArray(syms)) {
+                keys.push(...syms)
+            }
+
+            for (const k of keys) {
+                // guard individual getter/proxy throws
+                const val = tryGet(() => (v as any)[k as any])
+                out[String(k)] = val === '[[Throw]]' ? '[Throwing Getter]' : visit(val, d + 1)
+            }
+            return out
+        }
+
+        // fallback
+        return Object.prototype.toString.call(v)
+    }
+
+    const data = visit(value, depth)
+    return { data, truncated }
+}
+
+function toJSONStringBestEffort(value: unknown, pretty = false): { text: string; truncated: boolean } {
+    const { data, truncated } = toInspectable(value)
+    try {
+        return { text: JSON.stringify(data, null, pretty ? 2 : 0), truncated }
+    } catch {
+        return { text: '"[Unserializable]"', truncated: true }
+    }
+}
+
+function safeStringify(x: unknown, pretty = false): string {
+    return toJSONStringBestEffort(x, pretty).text
+}
+
+function byteLengthUTF8(s: string): number {
+    try {
+        return new TextEncoder().encode(s).length
+    } catch {
+        let bytes = 0
+        for (let i = 0; i < s.length; i++) {
+            const c = s.charCodeAt(i)
+            bytes += c < 0x80 ? 1 : c < 0x800 ? 2 : c < 0xd800 || c >= 0xe000 ? 3 : (i++, 4)
+        }
+        return bytes
+    }
+}
+
+// ---------- Memory tab ----------
+
+type MemoryRow = {
+    key: string
+    name: string
+    bytes: number
+    value: unknown
+}
+
+function MemoryTab({ store, mounted }: { store: KeaContext['store']; mounted: MountedMap }): JSX.Element {
+    const lastGood = useRef<Map<string, { text: string; bytes: number; value: unknown }>>(new Map())
+    const [rows, setRows] = useState<MemoryRow[]>([])
+    const [totalBytes, setTotalBytes] = useState(0)
+    const [expanded, setExpanded] = useState<Set<string>>(new Set())
+    const [isRefreshing, setIsRefreshing] = useState(false)
+    const [lastUpdated, setLastUpdated] = useState<number | null>(null)
+
+    // single recompute from a consistent snapshot
+    const recompute = React.useCallback(() => {
+        setIsRefreshing(true)
+
+        // snapshot once
+        const state = store.getState()
+        const keys = Object.keys(mounted)
+
+        // build rows from snapshot
+        const nextRows: MemoryRow[] = keys.map((pathString) => {
+            const logic = mounted[pathString]
+            const value = getAtPath(state, (logic as any)?.path)
+
+            // Best-effort JSON
+            const { text } = toJSONStringBestEffort(value, false)
+            const bytes = byteLengthUTF8(text)
+
+            // Heuristic: if it's an object-like value but serialized to something suspiciously tiny,
+            // keep the last good snapshot (prevents collapsing to 15 B).
+            const looksTiny = typeof value === 'object' && value !== null && bytes < 40 /* ~ "[{}]" scale */
+
+            const prior = lastGood.current.get(pathString)
+            if (looksTiny && prior && prior.bytes > bytes) {
+                return { key: pathString, name: displayName(logic), bytes: prior.bytes, value: prior.value }
+            }
+
+            // Update last good if this is meaningful
+            if (!looksTiny || bytes > (prior?.bytes ?? 0)) {
+                lastGood.current.set(pathString, { text, bytes, value })
+            }
+
+            return { key: pathString, name: displayName(logic), bytes, value }
+        })
+
+        nextRows.sort((a, b) => b.bytes - a.bytes)
+
+        // ✅ total is the sum of Kea slices, not a risky whole-store stringify
+        const nextTotalBytes = nextRows.reduce((acc, r) => acc + r.bytes, 0)
+
+        setRows(nextRows)
+        setTotalBytes(nextTotalBytes)
+        setLastUpdated(Date.now())
+        setIsRefreshing(false)
+    }, [store, mounted])
+
+    // run once on mount
+    useEffect(() => {
+        recompute()
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
+
+    // also refresh on store changes (coalesced)
+    useEffect(() => {
+        let raf: number | null = null
+        const unsub = store.subscribe(() => {
+            if (raf !== null) {
+                return
+            }
+            raf = requestAnimationFrame(() => {
+                raf = null
+                recompute()
+            })
+        })
+        return () => {
+            unsub()
+            if (raf !== null) {
+                cancelAnimationFrame(raf)
+            }
+        }
+    }, [store, recompute])
+
+    const toggle = (k: string): void =>
+        setExpanded((prev) => {
+            const next = new Set(prev)
+            next.has(k) ? next.delete(k) : next.add(k)
+            return next
+        })
+
+    const copyJSON = async (k: string): Promise<void> => {
+        const row = rows.find((r) => r.key === k)
+        try {
+            await navigator.clipboard.writeText(safeStringify(row?.value, true))
+            alert('Copied JSON to clipboard.')
+        } catch (e: any) {
+            alert(`Copy failed: ${e?.message ?? e}`)
+        }
+    }
+
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, padding: 10, gap: 8, flex: 1 }}>
+            <div
+                style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    background: '#fff',
+                    border: '1px solid rgba(0,0,0,0.06)',
+                    borderRadius: 12,
+                    padding: 12,
+                }}
+            >
+                <div style={{ fontWeight: 800, fontSize: 16 }}>Memory usage</div>
+                <div style={{ marginLeft: 'auto', color: 'rgba(0,0,0,0.7)' }}>
+                    Store size: <strong>{formatBytes(totalBytes)}</strong>
+                    {lastUpdated ? (
+                        <span style={{ marginLeft: 10, fontSize: 12, color: 'rgba(0,0,0,0.55)' }}>
+                            Updated {new Date(lastUpdated).toLocaleTimeString()}
+                        </span>
+                    ) : null}
+                </div>
+                <button
+                    type="button"
+                    onClick={recompute}
+                    disabled={isRefreshing}
+                    style={{ ...simpleBtnStyle, minWidth: 90, display: 'inline-flex', gap: 6, alignItems: 'center' }}
+                    title="Recompute from current store snapshot"
+                >
+                    {isRefreshing ? (
+                        <>
+                            <span
+                                aria-hidden
+                                style={{
+                                    width: 14,
+                                    height: 14,
+                                    borderRadius: '50%',
+                                    border: '2px solid rgba(0,0,0,0.25)',
+                                    borderTopColor: 'rgba(0,0,0,0.6)',
+                                    display: 'inline-block',
+                                    animation: 'spin 0.9s linear infinite',
+                                }}
+                            />
+                            Refreshing…
+                        </>
+                    ) : (
+                        'Refresh'
+                    )}
+                </button>
+                {/* local keyframes for spinner */}
+                <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            </div>
+
+            <div
+                style={{
+                    flex: 1,
+                    overflow: 'auto',
+                    background: '#fff',
+                    border: '1px solid rgba(0,0,0,0.06)',
+                    borderRadius: 12,
+                }}
+            >
+                {rows.length === 0 ? (
+                    <div style={{ padding: 12, color: 'rgba(0,0,0,0.6)' }}>No mounted logics.</div>
+                ) : (
+                    <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+                        <thead style={{ position: 'sticky', top: 0, background: '#fafafa', zIndex: 1 }}>
+                            <tr>
+                                <th
+                                    style={{
+                                        textAlign: 'left',
+                                        padding: '10px 12px',
+                                        borderBottom: '1px solid rgba(0,0,0,0.06)',
+                                        width: '45%',
+                                    }}
+                                >
+                                    Logic
+                                </th>
+                                <th
+                                    style={{
+                                        textAlign: 'right',
+                                        padding: '10px 12px',
+                                        borderBottom: '1px solid rgba(0,0,0,0.06)',
+                                        width: '10%',
+                                    }}
+                                >
+                                    Size
+                                </th>
+                                <th
+                                    style={{
+                                        textAlign: 'left',
+                                        padding: '10px 12px',
+                                        borderBottom: '1px solid rgba(0,0,0,0.06)',
+                                    }}
+                                >
+                                    Actions
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {rows.map((r) => {
+                                const isOpen = expanded.has(r.key)
+                                return (
+                                    <React.Fragment key={r.key}>
+                                        <tr style={{ borderBottom: '1px solid rgba(0,0,0,0.05)' }}>
+                                            <td style={{ padding: '10px 12px', verticalAlign: 'top' }}>
+                                                <div style={{ fontWeight: 700 }}>{r.name}</div>
+                                                <div
+                                                    style={{
+                                                        marginTop: 4,
+                                                        color: 'rgba(0,0,0,0.6)',
+                                                        fontSize: 12,
+                                                        wordBreak: 'break-all',
+                                                    }}
+                                                    title={r.key}
+                                                >
+                                                    {r.key}
+                                                </div>
+                                            </td>
+                                            <td
+                                                style={{
+                                                    padding: '10px 12px',
+                                                    verticalAlign: 'top',
+                                                    textAlign: 'right',
+                                                    fontWeight: 700,
+                                                }}
+                                            >
+                                                {formatBytes(r.bytes)}
+                                            </td>
+                                            <td style={{ padding: '10px 12px', verticalAlign: 'top' }}>
+                                                <div style={{ display: 'flex', gap: 8 }}>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => toggle(r.key)}
+                                                        style={simpleBtnStyle}
+                                                        title={isOpen ? 'Hide contents' : 'View contents'}
+                                                    >
+                                                        {isOpen ? 'Hide' : 'View'}
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => copyJSON(r.key)}
+                                                        style={simpleBtnStyle}
+                                                        title="Copy JSON to clipboard"
+                                                    >
+                                                        Copy JSON
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                        {isOpen ? (
+                                            <tr>
+                                                <td colSpan={3} style={{ padding: '6px 12px 12px' }}>
+                                                    <textarea
+                                                        readOnly
+                                                        rows={10}
+                                                        value={safeStringify(r.value, true)}
+                                                        style={{
+                                                            width: '100%',
+                                                            fontFamily:
+                                                                'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                                                            resize: 'vertical',
+                                                            border: '1px solid rgba(0,0,0,0.12)',
+                                                            borderRadius: 8,
+                                                            padding: '8px 10px',
+                                                            background: '#fafafa',
+                                                        }}
+                                                    />
+                                                </td>
+                                            </tr>
+                                        ) : null}
+                                    </React.Fragment>
+                                )
+                            })}
+                        </tbody>
+                    </table>
+                )}
+            </div>
+        </div>
+    )
+}
+
 /* ---------- main component ---------- */
 
 export function KeaDevtools({
@@ -930,8 +1422,12 @@ export function KeaDevtools({
                 <div style={{ color: 'rgba(0,0,0,0.55)' }}>{allKeys.length} mounted</div>
             ) : activeTab === 'actions' ? (
                 <div style={{ color: 'rgba(0,0,0,0.55)' }}>{actions.length} actions</div>
-            ) : (
+            ) : activeTab === 'graph' ? (
                 <div style={{ color: 'rgba(0,0,0,0.55)' }}>Graph of {allKeys.length} logics</div>
+            ) : activeTab === 'memory' ? (
+                <div style={{ color: 'rgba(0,0,0,0.55)' }}>Memory usage</div>
+            ) : (
+                <div style={{ color: 'rgba(0,0,0,0.55)' }}>{activeTab}</div>
             )}
             <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
                 <button
@@ -950,6 +1446,14 @@ export function KeaDevtools({
                 </button>
                 <button type="button" onClick={() => setActiveTab('graph')} style={tabBtnStyle(activeTab === 'graph')}>
                     Graph
+                </button>
+                <button
+                    type="button"
+                    onClick={() => setActiveTab('memory')}
+                    style={tabBtnStyle(activeTab === 'memory')}
+                    title="Analyze store size by logic"
+                >
+                    Memory
                 </button>
                 <button type="button" onClick={() => setOpen(false)} style={simpleBtnStyle}>
                     Close
@@ -1148,12 +1652,16 @@ export function KeaDevtools({
                                 onPauseToggle={() => setPaused((p) => !p)}
                                 onClear={() => setActions([])}
                             />
-                        ) : (
+                        ) : activeTab === 'graph' ? (
                             <GraphTab
                                 mounted={mounted}
                                 onOpen={(path) => setSelectedKey(path)}
                                 highlightId={graphHighlight ?? undefined}
                             />
+                        ) : activeTab === 'memory' ? (
+                            <MemoryTab store={store} mounted={mounted} />
+                        ) : (
+                            <></>
                         )}
                     </div>
                 </div>
