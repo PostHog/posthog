@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import sys
 import inspect
 import dataclasses
@@ -250,9 +248,9 @@ class SelectQueryType(Type):
     tables: dict[str, TableOrSelectType] = field(default_factory=dict)
     ctes: dict[str, CTE] = field(default_factory=dict)
     # all from and join subqueries without aliases
-    anonymous_tables: list[Union[SelectQueryType, SelectSetQueryType]] = field(default_factory=list)
+    anonymous_tables: list[Union["SelectQueryType", "SelectSetQueryType"]] = field(default_factory=list)
     # the parent select query, if this is a lambda
-    parent: Optional[Union[SelectQueryType, SelectSetQueryType]] = None
+    parent: Optional[Union["SelectQueryType", "SelectSetQueryType"]] = None
     # whether this type is related to a lambda scope
     is_lambda_type: bool = False
 
@@ -286,7 +284,7 @@ class SelectQueryType(Type):
 
 @dataclass(kw_only=True)
 class SelectSetQueryType(Type):
-    types: list[Union[SelectQueryType, SelectSetQueryType]]
+    types: list[Union["SelectQueryType", "SelectSetQueryType"]]
 
     def get_alias_for_table_type(self, table_type: TableOrSelectType) -> Optional[str]:
         return self.types[0].get_alias_for_table_type(table_type)
@@ -782,13 +780,13 @@ class JoinExpr(Expr):
     type: Optional[TableOrSelectType] = None
 
     join_type: Optional[str] = None
-    table: Optional[Union[SelectQuery, SelectSetQuery, Placeholder, HogQLXTag, Field]] = None
+    table: Optional[Union["SelectQuery", "SelectSetQuery", "Placeholder", "HogQLXTag", "Field"]] = None
     table_args: Optional[list[Expr]] = None
     alias: Optional[str] = None
     table_final: Optional[bool] = None
     constraint: Optional[JoinConstraint] = None
-    next_join: Optional[JoinExpr] = None
-    sample: Optional[SampleExpr] = None
+    next_join: Optional["JoinExpr"] = None
+    sample: Optional["SampleExpr"] = None
 
 
 @dataclass(kw_only=True)
@@ -846,7 +844,7 @@ class SelectQuery(Expr):
     view_name: Optional[str] = None
 
     @classmethod
-    def empty(cls, *, columns: list[str] | None = None) -> SelectQuery:
+    def empty(cls, *, columns: list[str] | None = None) -> "SelectQuery":
         """Returns an empty SelectQuery that evaluates to no rows.
 
         Creates a query that selects NULL with a WHERE clause that is always false,
@@ -864,7 +862,7 @@ SetOperator = Literal["UNION ALL", "UNION DISTINCT", "INTERSECT", "INTERSECT DIS
 
 @dataclass(kw_only=True)
 class SelectSetNode(AST):
-    select_query: Union[SelectQuery, SelectSetQuery]
+    select_query: Union["SelectQuery", "SelectSetQuery"]
     set_operator: SetOperator
 
     def __post_init__(self):
@@ -879,7 +877,7 @@ class SelectSetNode(AST):
 @dataclass(kw_only=True)
 class SelectSetQuery(Expr):
     type: Optional[SelectSetQueryType] = None
-    initial_select_query: Union[SelectQuery, SelectSetQuery]
+    initial_select_query: Union["SelectQuery", "SelectSetQuery"]
     subsequent_select_queries: list[SelectSetNode]
 
     def select_queries(self):
@@ -887,8 +885,8 @@ class SelectSetQuery(Expr):
 
     @classmethod
     def create_from_queries(
-        cls, queries: Sequence[Union[SelectQuery, SelectSetQuery]], set_operator: SetOperator
-    ) -> SelectQuery | SelectSetQuery:
+        cls, queries: Sequence[Union["SelectQuery", "SelectSetQuery"]], set_operator: SetOperator
+    ) -> Union["SelectQuery", "SelectSetQuery"]:
         if len(queries) == 0:
             raise ValueError("Cannot create a SelectSetQuery from an empty list of queries")
         elif len(queries) == 1:
