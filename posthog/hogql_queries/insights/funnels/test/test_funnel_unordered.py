@@ -21,6 +21,7 @@ from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
     assert_funnel_results_equal,
     funnel_breakdown_group_test_factory,
     funnel_breakdown_test_factory,
+    sort_breakdown_funnel_results,
 )
 from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
 from posthog.hogql_queries.insights.funnels.test.test_funnel import PseudoFunnelActors
@@ -94,6 +95,7 @@ class BaseTestFunnelUnorderedStepsBreakdown(
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        results = sort_breakdown_funnel_results(results)
 
         assert_funnel_results_equal(
             results[0],
