@@ -19,8 +19,8 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { urls } from 'scenes/urls'
 
-import { campaignLogic } from '../../campaignLogic'
-import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
+import { campaignLogic } from '../../../campaignLogic'
+import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import { hogFlowEditorTestLogic } from './hogFlowEditorTestLogic'
 
 export function HogFlowTestPanelNonSelected(): JSX.Element {
@@ -33,7 +33,7 @@ export function HogFlowTestPanelNonSelected(): JSX.Element {
     )
 }
 
-export function HogFlowEditorTestPanel(): JSX.Element | null {
+export function HogFlowEditorPanelTest(): JSX.Element | null {
     const { selectedNode } = useValues(hogFlowEditorLogic)
     const { logicProps } = useValues(campaignLogic)
     const { sampleGlobals, isTestInvocationSubmitting, testResult, shouldLoadSampleGlobals } = useValues(

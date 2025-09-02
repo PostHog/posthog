@@ -32,7 +32,7 @@ import type { HogFlow, HogFlowAction, HogFlowActionNode } from './types'
 
 const getEdgeId = (edge: HogFlow['edges'][number]): string => `${edge.from}->${edge.to} ${edge.index ?? ''}`.trim()
 
-export const HOG_FLOW_EDITOR_MODES = ['build', 'test'] as const
+export const HOG_FLOW_EDITOR_MODES = ['build', 'test', 'metrics', 'logs'] as const
 export type HogFlowEditorMode = (typeof HOG_FLOW_EDITOR_MODES)[number]
 
 export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
@@ -443,14 +443,14 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         }
 
         return {
-            setSelectedNodeId: () => syncProperty('selectedNodeId', values.selectedNodeId ?? null),
+            setSelectedNodeId: () => syncProperty('node', values.selectedNodeId ?? null),
             setMode: () => syncProperty('mode', values.mode),
         }
     }),
     urlToAction(({ actions }) => {
         const reactToTabChange = (_: any, search: Record<string, string>): void => {
-            const { selectedNodeId, mode } = search
-            actions.setSelectedNodeId(selectedNodeId ?? null)
+            const { node, mode } = search
+            actions.setSelectedNodeId(node ?? null)
             if (mode && HOG_FLOW_EDITOR_MODES.includes(mode as HogFlowEditorMode)) {
                 actions.setMode(mode as HogFlowEditorMode)
             }

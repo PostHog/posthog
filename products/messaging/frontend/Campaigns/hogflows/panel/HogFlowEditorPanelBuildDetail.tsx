@@ -6,14 +6,14 @@ import { LemonButton, LemonDivider, LemonLabel, LemonSwitch } from '@posthog/lem
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { urls } from 'scenes/urls'
 
-import { CategorySelect } from '../../OptOuts/CategorySelect'
-import { HogFlowFilters } from './filters/HogFlowFilters'
-import { hogFlowEditorLogic } from './hogFlowEditorLogic'
-import { getHogFlowStep } from './steps/HogFlowSteps'
-import { isOptOutEligibleAction } from './steps/types'
-import { HogFlowAction } from './types'
+import { CategorySelect } from '../../../OptOuts/CategorySelect'
+import { HogFlowFilters } from '../filters/HogFlowFilters'
+import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
+import { getHogFlowStep } from '../steps/HogFlowSteps'
+import { isOptOutEligibleAction } from '../steps/types'
+import { HogFlowAction } from '../types'
 
-export function HogFlowEditorDetailsPanel(): JSX.Element | null {
+export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
     const { selectedNode, categories, categoriesLoading } = useValues(hogFlowEditorLogic)
     const { setCampaignAction } = useActions(hogFlowEditorLogic)
 
