@@ -66,7 +66,7 @@ export type LogEntryParams = {
     levels: LogEntryLevel[]
     searchGroups: string[]
     dateFrom?: string
-    date_to?: string
+    dateTo?: string
     order: 'ASC' | 'DESC'
 }
 
@@ -112,7 +112,7 @@ const loadLogs = async (request: LogEntryParams): Promise<LogEntry[]> => {
         refresh: 'force_blocking',
         filtersOverride: {
             date_from: request.dateFrom ?? '-7d',
-            date_to: request.date_to,
+            date_to: request.dateTo,
         },
     })
 
@@ -147,7 +147,7 @@ const loadGroupedLogs = async (request: LogEntryParams): Promise<LogEntry[]> => 
         refresh: 'force_blocking',
         filtersOverride: {
             date_from: request.dateFrom ?? '-7d',
-            date_to: request.date_to,
+            date_to: request.dateTo,
         },
     })
 
@@ -281,7 +281,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     }
                     const logParams: LogEntryParams = {
                         ...values.logEntryParams,
-                        date_to: toAbsoluteClickhouseTimestamp(values.oldestLogTimestamp),
+                        dateTo: toAbsoluteClickhouseTimestamp(values.oldestLogTimestamp),
                     }
 
                     const results = await loadLogs(logParams)
@@ -316,7 +316,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     }
                     const logParams: LogEntryParams = {
                         ...values.logEntryParams,
-                        date_to: toAbsoluteClickhouseTimestamp(values.oldestLogTimestamp),
+                        dateTo: toAbsoluteClickhouseTimestamp(values.oldestLogTimestamp),
                     }
 
                     const results = await loadGroupedLogs(logParams)
@@ -424,7 +424,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     sourceType: props.sourceType,
                     sourceId: props.sourceId,
                     dateFrom: filters.date_from,
-                    date_to: filters.date_to,
+                    dateTo: filters.date_to,
                     order: 'DESC',
                 }
             },
