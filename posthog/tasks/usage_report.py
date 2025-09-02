@@ -11,7 +11,7 @@ from typing import Any, Literal, Optional, TypedDict, Union
 
 from django.conf import settings
 from django.db import connection
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, F, Q, Sum
 
 import requests
 import structlog
@@ -943,7 +943,7 @@ def get_teams_with_rows_exported_in_period(begin: datetime, end: datetime) -> li
             batch_export__model=BatchExport.Model.EVENTS,
             batch_export__deleted=False,
         )
-        .values("batch_export__team_id")
+        .values(team_id=F("batch_export__team_id"))
         .annotate(total=Sum("records_completed"))
     )
 
