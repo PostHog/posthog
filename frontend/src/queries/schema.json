@@ -11301,8 +11301,7 @@
                     "$ref": "#/definitions/StepOrderValue"
                 },
                 "goal": {
-                    "enum": ["increase", "decrease"],
-                    "type": "string"
+                    "$ref": "#/definitions/ExperimentMetricGoal"
                 },
                 "kind": {
                     "const": "ExperimentMetric",
@@ -11514,8 +11513,7 @@
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
                 },
                 "goal": {
-                    "enum": ["increase", "decrease"],
-                    "type": "string"
+                    "$ref": "#/definitions/ExperimentMetricGoal"
                 },
                 "kind": {
                     "const": "ExperimentMetric",
@@ -11594,8 +11592,7 @@
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
                 },
                 "goal": {
-                    "enum": ["increase", "decrease"],
-                    "type": "string"
+                    "$ref": "#/definitions/ExperimentMetricGoal"
                 },
                 "kind": {
                     "const": "ExperimentMetric",
@@ -11617,6 +11614,10 @@
             },
             "required": ["kind"],
             "type": "object"
+        },
+        "ExperimentMetricGoal": {
+            "enum": ["increase", "decrease"],
+            "type": "string"
         },
         "ExperimentMetricMathType": {
             "enum": ["total", "sum", "unique_session", "min", "max", "avg", "dau", "unique_group", "hogql"],
@@ -11794,8 +11795,7 @@
                     "$ref": "#/definitions/ExperimentMetricSource"
                 },
                 "goal": {
-                    "enum": ["increase", "decrease"],
-                    "type": "string"
+                    "$ref": "#/definitions/ExperimentMetricGoal"
                 },
                 "kind": {
                     "const": "ExperimentMetric",
