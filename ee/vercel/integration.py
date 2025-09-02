@@ -279,13 +279,16 @@ class VercelIntegration:
 
     @staticmethod
     def create_resource(installation_id: str, resource_data: dict[str, Any]) -> dict[str, Any]:
-        config = ResourceConfig(**resource_data)
-
         logger.info(
             "Starting Vercel resource creation",
             installation_id=installation_id,
-            resource_name=config.name,
+            resource_name=resource_data.get("name"),
         )
+
+        if not resource_data.get("name"):
+            raise exceptions.ValidationError({"name": "Resource name is required."})
+
+        config = ResourceConfig(**resource_data)
 
         installation = VercelIntegration._get_installation(installation_id)
         organization: Organization = installation.organization

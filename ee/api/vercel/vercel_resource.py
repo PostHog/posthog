@@ -168,9 +168,9 @@ class VercelResourceViewSet(VercelErrorResponseMixin, viewsets.GenericViewSet):
     }
 
     def _validate_resource_access(self, resource_id: str, installation_id: str) -> None:
-        resource = VercelIntegration._get_resource(resource_id)
-        requested_installation = VercelIntegration._get_installation(installation_id)
-        VercelIntegration._validate_resource_belongs_to_installation(resource, requested_installation)
+        resource, installation = VercelIntegration._get_resource_with_installation(resource_id)
+        if installation.integration_id != installation_id:
+            raise exceptions.ValidationError({"resource": "Resource does not belong to this installation."})
 
     def _validate_response_format(self, data: dict[str, Any]) -> dict[str, Any]:
         serializer = ResourceResponseSerializer(data=data)

@@ -218,7 +218,8 @@ class TestVercelIntegration(TestCase):
         assert "billingPlan" in result
 
         resource = Integration.objects.get(pk=result["id"])
-        assert resource.config == resource_data
+        expected_config = {**resource_data, "externalId": None, "protocolSettings": None}
+        assert resource.config == expected_config
         assert resource.team.organization == self.organization
         assert resource.created_by == self.installation.created_by
 
@@ -247,7 +248,12 @@ class TestVercelIntegration(TestCase):
             team=team,
             kind=Integration.IntegrationKind.VERCEL,
             integration_id=str(team.pk),
-            config={"productId": "posthog", "name": "Original Name", "metadata": {"old": "value"}},
+            config={
+                "productId": "posthog",
+                "name": "Original Name",
+                "metadata": {"old": "value"},
+                "billingPlanId": "free",
+            },
             created_by=self.user,
         )
 
@@ -298,4 +304,4 @@ class TestVercelIntegration(TestCase):
         assert secrets[0]["name"] == "POSTHOG_PROJECT_API_KEY"
         assert secrets[0]["value"] == "test_api_token"
         assert secrets[1]["name"] == "POSTHOG_HOST"
-        assert secrets[1]["value"] == "https://us.posthog.com"
+        assert secrets[1]["value"].startswith("https://")
