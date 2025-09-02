@@ -22,6 +22,7 @@ import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/column
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
+import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { getAppContext } from 'lib/utils/getAppContext'
@@ -506,11 +507,13 @@ export function OverViewTab({
             <LemonDivider className="my-4" />
             <div className="mb-4">
                 <span className="text-secondary ">
-                    {count
-                        ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} flag${
-                              count === 1 ? '' : 's'
-                          }`
-                        : null}
+                    {featureFlagsLoading ? (
+                        <WrappingLoadingSkeleton>1-100 of 150 flags</WrappingLoadingSkeleton>
+                    ) : count ? (
+                        `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} flag${
+                            count === 1 ? '' : 's'
+                        }`
+                    ) : null}
                 </span>
             </div>
 
