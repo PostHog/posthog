@@ -5,6 +5,7 @@ import { useRef } from 'react'
 import { IconPin, IconPinFilled, IconX } from '@posthog/icons'
 
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 
@@ -93,6 +94,7 @@ export function PanelLayoutPanel({
     const containerRef = useRef<HTMLDivElement | null>(null)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const panelContents = (
         <nav
@@ -107,44 +109,48 @@ export function PanelLayoutPanel({
             )}
             ref={containerRef}
         >
-            <div className="flex justify-between p-1 gap-px bg-surface-tertiary">
-                <ProjectDropdownMenu />
+            {!newSceneLayout && (
+                <>
+                    <div className="flex justify-between p-1 gap-px bg-surface-tertiary">
+                        <ProjectDropdownMenu />
 
-                <div className="flex gap-px items-center justify-end shrink-0">
-                    {!isMobileLayout && (
-                        <ButtonPrimitive
-                            iconOnly
-                            onClick={() => toggleLayoutPanelPinned(!isLayoutPanelPinned)}
-                            tooltip={isLayoutPanelPinned ? 'Unpin panel' : 'Pin panel'}
-                            data-attr={`tree-navbar-${isLayoutPanelPinned ? 'unpin' : 'pin'}-panel-button`}
-                            active={isLayoutPanelPinned}
-                            size="sm"
-                            aria-pressed={isLayoutPanelPinned}
-                        >
-                            {isLayoutPanelPinned ? (
-                                <IconPinFilled className="size-3 text-primary" />
-                            ) : (
-                                <IconPin className="size-3 text-tertiary" />
+                        <div className="flex gap-px items-center justify-end shrink-0">
+                            {!isMobileLayout && (
+                                <ButtonPrimitive
+                                    iconOnly
+                                    onClick={() => toggleLayoutPanelPinned(!isLayoutPanelPinned)}
+                                    tooltip={isLayoutPanelPinned ? 'Unpin panel' : 'Pin panel'}
+                                    data-attr={`tree-navbar-${isLayoutPanelPinned ? 'unpin' : 'pin'}-panel-button`}
+                                    active={isLayoutPanelPinned}
+                                    size="sm"
+                                    aria-pressed={isLayoutPanelPinned}
+                                >
+                                    {isLayoutPanelPinned ? (
+                                        <IconPinFilled className="size-3 text-primary" />
+                                    ) : (
+                                        <IconPin className="size-3 text-tertiary" />
+                                    )}
+                                </ButtonPrimitive>
                             )}
-                        </ButtonPrimitive>
-                    )}
 
-                    {panelActions ?? null}
+                            {panelActions ?? null}
 
-                    <ButtonPrimitive
-                        onClick={() => {
-                            showLayoutPanel(false)
-                            clearActivePanelIdentifier()
-                        }}
-                        tooltip="Close panel"
-                        iconOnly
-                        data-attr="tree-panel-close-panel-button"
-                        size="sm"
-                    >
-                        <IconX className="text-tertiary size-3" />
-                    </ButtonPrimitive>
-                </div>
-            </div>
+                            <ButtonPrimitive
+                                onClick={() => {
+                                    showLayoutPanel(false)
+                                    clearActivePanelIdentifier()
+                                }}
+                                tooltip="Close panel"
+                                iconOnly
+                                data-attr="tree-panel-close-panel-button"
+                                size="sm"
+                            >
+                                <IconX className="text-tertiary size-3" />
+                            </ButtonPrimitive>
+                        </div>
+                    </div>
+                </>
+            )}
             <div className="border-b border-primary h-px" />
             <div className="z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-surface-secondary group/colorful-product-icons colorful-product-icons-true">
                 {searchField || filterDropdown || sortDropdown ? (
@@ -152,18 +158,65 @@ export function PanelLayoutPanel({
                         <div className="flex gap-1 p-1 items-center justify-between">
                             {searchField ?? null}
 
-                            {filterDropdown || sortDropdown ? (
-                                <div className="flex gap-px">
-                                    {filterDropdown ?? null}
-                                    {sortDropdown ?? null}
-                                </div>
-                            ) : null}
+                            <div className="flex gap-px">
+                                {filterDropdown || sortDropdown ? (
+                                    <div className="flex gap-px">
+                                        {filterDropdown ?? null}
+                                        {sortDropdown ?? null}
+                                    </div>
+                                ) : null}
+
+                                {newSceneLayout && (
+                                    <>
+                                        <ButtonPrimitive
+                                            onClick={() => {
+                                                showLayoutPanel(false)
+                                                clearActivePanelIdentifier()
+                                            }}
+                                            tooltip="Close panel"
+                                            iconOnly
+                                            data-attr="tree-panel-close-panel-button"
+                                            size="sm"
+                                        >
+                                            <IconX className="text-tertiary size-3" />
+                                        </ButtonPrimitive>
+                                    </>
+                                )}
+                            </div>
                         </div>
                         <div className="border-b border-primary h-px" />
                     </>
                 ) : null}
                 {children}
             </div>
+
+            {newSceneLayout && (
+                <>
+                    <div className="flex justify-between p-1 gap-px bg-surface-tertiary">
+                        <div className="flex gap-px items-center justify-end shrink-0">
+                            {!isMobileLayout && (
+                                <ButtonPrimitive
+                                    iconOnly
+                                    onClick={() => toggleLayoutPanelPinned(!isLayoutPanelPinned)}
+                                    tooltip={isLayoutPanelPinned ? 'Unpin panel' : 'Pin panel'}
+                                    data-attr={`tree-navbar-${isLayoutPanelPinned ? 'unpin' : 'pin'}-panel-button`}
+                                    active={isLayoutPanelPinned}
+                                    size="sm"
+                                    aria-pressed={isLayoutPanelPinned}
+                                >
+                                    {isLayoutPanelPinned ? (
+                                        <IconPinFilled className="size-3 text-primary" />
+                                    ) : (
+                                        <IconPin className="size-3 text-tertiary" />
+                                    )}
+                                </ButtonPrimitive>
+                            )}
+
+                            {panelActions ?? null}
+                        </div>
+                    </div>
+                </>
+            )}
         </nav>
     )
 

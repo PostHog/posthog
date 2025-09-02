@@ -13,11 +13,13 @@ import {
     IconGear,
     IconHome,
     IconPeople,
+    IconSearch,
     IconShortcut,
     IconToolbar,
 } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
 
+import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
@@ -35,6 +37,7 @@ import { PinnedFolder } from '~/layout/panel-layout/PinnedFolder/PinnedFolder'
 import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { SidePanelTab } from '~/types'
 
+import { KeyboardShortcut } from '../navigation-3000/components/KeyboardShortcut'
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { SidePanelActivationIcon } from '../navigation-3000/sidepanel/panels/activation/SidePanelActivation'
 import { sidePanelLogic } from '../navigation-3000/sidepanel/sidePanelLogic'
@@ -59,6 +62,7 @@ const navBarStyles = cva({
 })
 
 export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): JSX.Element {
+    const { toggleSearchBar } = useActions(commandBarLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const {
         showLayoutPanel,
@@ -141,6 +145,28 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         tooltip?: React.ReactNode
         tooltipDocLink?: string
     }[] = [
+        ...(isLayoutNavCollapsed && !newSceneLayout
+            ? [
+                  {
+                      identifier: 'Search',
+                      label: 'Search',
+                      icon: <IconSearch />,
+                      onClick: () => {
+                          toggleSearchBar()
+                      },
+                      tooltip: (
+                          <div className="flex flex-col gap-0.5">
+                              <span>
+                                  For search, press <KeyboardShortcut command k />
+                              </span>
+                              <span>
+                                  For commands, press <KeyboardShortcut command shift k />
+                              </span>
+                          </div>
+                      ),
+                  },
+              ]
+            : []),
         {
             identifier: 'ProjectHomepage',
             label: 'Home',
@@ -286,7 +312,34 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 </Tooltip>
                             </div>
                         ) : (
-                            <OrganizationDropdownMenu />
+                            <>
+                                <OrganizationDropdownMenu />
+                                {!isLayoutNavCollapsed && (
+                                    <div
+                                        className={`flex gap-px ${isLayoutNavCollapsed ? 'justify-center' : ''}`}
+                                        aria-label="Add a new item menu actions"
+                                    >
+                                        <ButtonPrimitive
+                                            iconOnly
+                                            onClick={toggleSearchBar}
+                                            data-attr="tree-navbar-search-button"
+                                            size="sm"
+                                            tooltip={
+                                                <div className="flex flex-col gap-0.5">
+                                                    <span>
+                                                        For search, press <KeyboardShortcut command k />
+                                                    </span>
+                                                    <span>
+                                                        For commands, press <KeyboardShortcut command shift k />
+                                                    </span>
+                                                </div>
+                                            }
+                                        >
+                                            <IconSearch className="text-secondary size-4" />
+                                        </ButtonPrimitive>
+                                    </div>
+                                )}
+                            </>
                         )}
                     </div>
 
