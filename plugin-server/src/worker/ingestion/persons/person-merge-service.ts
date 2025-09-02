@@ -12,8 +12,45 @@ import { captureIngestionWarning } from '../utils'
 import { personMergeFailureCounter } from './metrics'
 import { PersonContext } from './person-context'
 import { PersonCreateService } from './person-create-service'
+// Import result types for future use (currently unused to maintain backward compatibility)
+import {
+    MergeAction as _MergeAction,
+    PersonMergeError as _PersonMergeError,
+    PersonMergeIllegalDistinctIdError as _PersonMergeIllegalDistinctIdError,
+    PersonMergeLimitExceededError as _PersonMergeLimitExceededError,
+    PersonMergeMergeNotAllowedError as _PersonMergeMergeNotAllowedError,
+    PersonMergePersonNotFoundError as _PersonMergePersonNotFoundError,
+    PersonMergeRaceConditionError as _PersonMergeRaceConditionError,
+    PersonMergeResult as _PersonMergeResult,
+    createMergeError as _createMergeError,
+    createMergeSuccess as _createMergeSuccess,
+    getRecommendedAction as _getRecommendedAction,
+} from './person-merge-types'
 import { applyEventPropertyUpdates, computeEventPropertyUpdates } from './person-update'
 import { PersonsStoreTransaction } from './persons-store-transaction'
+
+// TODO: Future usage example with class-based errors (actions decided by consumer):
+// const result = await this.merge(...)
+// if (result.success) {
+//   return result.person
+// } else {
+//   const error = result.error
+//   // Consumer decides the action based on error type and context
+//   if (error instanceof PersonMergeLimitExceededError) {
+//     logger.info(`Merge limit exceeded with ${error.distinctIdCount} distinct IDs`)
+//     await this.redirectToAsyncMerge(event) // Consumer chooses to redirect
+//   } else if (error instanceof PersonMergeRaceConditionError) {
+//     logger.warn('Race condition detected, ignoring merge', { error: error.message })
+//     // Consumer chooses to ignore
+//   } else if (error instanceof PersonMergePersonNotFoundError) {
+//     logger.warn(`Person not found: ${error.personType}`, { error: error.message })
+//     // Consumer chooses to ignore
+//   } else {
+//     // Use recommended action as fallback
+//     const action = getRecommendedAction(error)
+//     logger.warn('Using recommended action', { action, error: error.message })
+//   }
+// }
 
 export class SourcePersonNotFoundError extends Error {
     constructor(message: string) {
@@ -67,6 +104,7 @@ export class MergeRaceConditionError extends Error {
     }
 }
 
+// TODO: This will be replaced with PersonMergeResult in future commits
 export class PersonMergeLimitExceededError extends Error {
     constructor(message: string) {
         super(message)
