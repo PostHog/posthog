@@ -36,7 +36,7 @@ export class InternalCaptureService {
     }
 
     private prepareEvent(event: InternalCaptureEvent): CapturePayloadFormat {
-        const properties = { ...event.properties ?? {}, capture_internal: true }
+        const properties = { ...(event.properties ?? {}), capture_internal: true }
         const now = DateTime.utc().toISO()
         return {
             api_key: event.team_token,
