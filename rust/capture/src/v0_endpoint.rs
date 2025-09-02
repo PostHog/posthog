@@ -14,105 +14,28 @@ use serde_json::json;
 use serde_json::Value;
 use tracing::{debug, error, instrument, warn, Span};
 
-use crate::prometheus::{report_dropped_events, report_internal_error_metrics};
-use crate::v0_request::{
-    DataType, ProcessedEvent, ProcessedEventMetadata, ProcessingContext, RawRequest,
-};
 use crate::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
+    limiters::{
+        check_billing_quota_and_filter, check_llm_events_quota_and_filter,
+        check_survey_quota_and_filter,
+    },
+    prometheus::{report_dropped_events, report_internal_error_metrics},
     router, sinks,
     utils::{
         decode_base64, decode_form, extract_and_verify_token, extract_compression,
         extract_lib_version, is_likely_base64, is_likely_urlencoded_form, uuid_v7, Base64Option,
         FORM_MIME_TYPE, MAX_PAYLOAD_SNIPPET_SIZE,
     },
-    v0_request::{EventFormData, EventQuery},
+    v0_request::{
+        DataType, EventFormData, EventQuery, ProcessedEvent, ProcessedEventMetadata,
+        ProcessingContext, RawRequest,
+    },
 };
 
 // EXAMPLE: use verbose_sample_percent env var to capture extra logging/metric details of interest
 // let roll = thread_rng().with_borrow_mut(|rng| rng.gen_range(0.0..100.0));
 // if roll < verbose_sample_percent { ... }
-
-/// Check if an event is a survey-related event that should be subject to survey quota limiting
-fn is_survey_event(event_name: &str) -> bool {
-    matches!(
-        event_name,
-        "survey sent" | "survey shown" | "survey dismissed"
-    )
-}
-
-/// Check if an event is an AI-related event that should be subject to AI quota limiting
-fn is_ai_event(event_name: &str) -> bool {
-    event_name.starts_with("$ai_")
-}
-
-/// Check for survey quota limiting and filter out survey events if quota exceeded
-/// Simple all-or-nothing operation: if survey quota is exceeded, drop all survey events.
-async fn check_survey_quota_and_filter(
-    state: &crate::router::State,
-    context: &ProcessingContext,
-    events: Vec<RawEvent>,
-) -> Result<Vec<RawEvent>, CaptureError> {
-    let survey_limited = state
-        .survey_limiter
-        .is_limited(context.token.as_str())
-        .await;
-
-    if survey_limited {
-        // Drop all survey events when quota is exceeded
-        let (survey_events, non_survey_events): (Vec<_>, Vec<_>) = events
-            .into_iter()
-            .partition(|event| is_survey_event(&event.event));
-
-        let dropped_count = survey_events.len();
-        if dropped_count > 0 {
-            report_dropped_events("survey_over_quota", dropped_count as u64);
-        }
-
-        // If no events remain, return billing limit error
-        if non_survey_events.is_empty() {
-            return Err(CaptureError::BillingLimit);
-        }
-
-        return Ok(non_survey_events);
-    }
-
-    Ok(events)
-}
-
-/// Check for AI events quota limiting and filter out AI events if quota exceeded
-/// Simple all-or-nothing operation: if AI quota is exceeded, drop all AI events.
-async fn check_llm_events_quota_and_filter(
-    state: &crate::router::State,
-    context: &ProcessingContext,
-    events: Vec<RawEvent>,
-) -> Result<Vec<RawEvent>, CaptureError> {
-    let ai_limited = state
-        .llm_events_limiter
-        .is_limited(context.token.as_str())
-        .await;
-
-    if ai_limited {
-        // Drop all AI events when quota is exceeded
-        let (llm_events, non_llm_events): (Vec<_>, Vec<_>) = events
-            .into_iter()
-            .partition(|event| is_ai_event(&event.event));
-
-        let dropped_count = llm_events.len();
-        if dropped_count > 0 {
-            report_dropped_events("llm_events_over_quota", dropped_count as u64);
-        }
-
-        // If no events remain, return billing limit error
-        if non_llm_events.is_empty() {
-            return Err(CaptureError::BillingLimit);
-        }
-
-        return Ok(non_llm_events);
-    }
-
-    Ok(events)
-}
 
 /// handle_event_payload owns processing of request payloads for the
 /// /i/v0/e/, /batch/, /e/, /capture/, /track/, and /engage/ endpoints
@@ -298,29 +221,18 @@ async fn handle_event_payload(
         user_agent: Some(user_agent.to_string()),
     };
 
-    let billing_limited = state
-        .billing_limiter
-        .is_limited(context.token.as_str())
-        .await;
+    debug!(context=?context, "handle_event_payload: evaluating quota limits");
 
-    if billing_limited {
-        let start_len = events.len();
-        // TODO - right now the exception billing limits are applied only in ET's pipeline,
-        // we should apply both ET and PA limits here, and remove both types of events as needed.
-        events.retain(|e| {
-            e.event == "$exception" || is_survey_event(&e.event) || is_ai_event(&e.event)
-        });
-        report_dropped_events("over_quota", (start_len - events.len()) as u64);
-        if events.is_empty() {
-            return Err(CaptureError::BillingLimit);
-        }
-    }
-
-    // Check for survey quota limiting if any events are survey-related
+    // Apply survey quota limiting
     events = check_survey_quota_and_filter(state, &context, events).await?;
 
-    // Check for AI events quota limiting if any events are AI-related
+    // Apply LLM events quota limiting
     events = check_llm_events_quota_and_filter(state, &context, events).await?;
+
+    // add more quota limiters here (e.g. error tracking!)
+
+    // Apply billing quota limiting (IMPORTANT: this should ALWAYS be evaluated last!)
+    events = check_billing_quota_and_filter(state, &context, events).await?;
 
     debug!(context=?context,
         event_count=?events.len(),
@@ -729,25 +641,4 @@ fn snapshot_library_fallback_from(user_agent: Option<&String>) -> Option<String>
         .map(|s| s.to_string())
         .filter(|s| s.contains("posthog"))
         .or(Some("web".to_string()))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_is_survey_event() {
-        // Survey events should return true
-        assert!(is_survey_event("survey sent"));
-        assert!(is_survey_event("survey shown"));
-        assert!(is_survey_event("survey dismissed"));
-
-        // Non-survey events should return false
-        assert!(!is_survey_event("pageview"));
-        assert!(!is_survey_event("$pageview"));
-        assert!(!is_survey_event("click"));
-        assert!(!is_survey_event("survey_sent")); // underscore variant
-        assert!(!is_survey_event("Survey Sent")); // case sensitivity
-        assert!(!is_survey_event(""));
-    }
 }

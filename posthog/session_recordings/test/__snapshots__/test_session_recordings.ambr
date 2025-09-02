@@ -163,7 +163,8 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version"
+         "posthog_sessionrecording"."storage_version",
+         "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('middle_session',
                                                      'new_session',
@@ -793,7 +794,8 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version"
+         "posthog_sessionrecording"."storage_version",
+         "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('session1',
                                                      'session2')
@@ -1378,7 +1380,8 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version"
+         "posthog_sessionrecording"."storage_version",
+         "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('session_with_duration')
          AND "posthog_sessionrecording"."team_id" = 99999)
@@ -2618,7 +2621,8 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version"
+         "posthog_sessionrecording"."storage_version",
+         "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('session_many_ids')
          AND "posthog_sessionrecording"."team_id" = 99999)
@@ -3439,7 +3443,8 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version"
+         "posthog_sessionrecording"."storage_version",
+         "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('at_base_time',
                                                      'at_base_time_plus_20')
@@ -3953,7 +3958,8 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version"
+         "posthog_sessionrecording"."storage_version",
+         "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('at_base_time',
                                                      'at_base_time_plus_20')
@@ -4467,7 +4473,8 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version"
+         "posthog_sessionrecording"."storage_version",
+         "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('at_base_time',
                                                      'at_base_time_plus_20')
@@ -5075,7 +5082,8 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version"
+         "posthog_sessionrecording"."storage_version",
+         "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('1',
                                                      '2',
@@ -5757,7 +5765,8 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version"
+         "posthog_sessionrecording"."storage_version",
+         "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('1',
                                                      '2',
@@ -6469,7 +6478,8 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version"
+         "posthog_sessionrecording"."storage_version",
+         "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('1',
                                                      '2',
@@ -7159,7 +7169,8 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version"
+         "posthog_sessionrecording"."storage_version",
+         "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('1',
                                                      '2',
@@ -7805,7 +7816,8 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version"
+         "posthog_sessionrecording"."storage_version",
+         "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('1',
                                                      '10',
@@ -8127,7 +8139,8 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version"
+         "posthog_sessionrecording"."storage_version",
+         "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('1')
          AND "posthog_sessionrecording"."team_id" = 99999)
@@ -8747,7 +8760,8 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version"
+         "posthog_sessionrecording"."storage_version",
+         "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('1',
                                                      '2')
@@ -9381,7 +9395,8 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version"
+         "posthog_sessionrecording"."storage_version",
+         "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('1',
                                                      '2',
@@ -10026,7 +10041,8 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version"
+         "posthog_sessionrecording"."storage_version",
+         "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('1',
                                                      '2',
@@ -10638,7 +10654,8 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version"
+         "posthog_sessionrecording"."storage_version",
+         "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('1',
                                                      '2',

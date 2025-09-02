@@ -5,6 +5,7 @@ import { Counter, Histogram } from 'prom-client'
 import { ExecResult, convertHogToJS } from '@posthog/hogvm'
 
 import { instrumented } from '~/common/tracing/tracing-utils'
+import { ACCESS_TOKEN_PLACEHOLDER } from '~/config/constants'
 import {
     CyclotronInvocationQueueParametersEmailSchema,
     CyclotronInvocationQueueParametersFetchSchema,
@@ -564,22 +565,25 @@ export class HogExecutorService {
             headers['developer-token'] = this.hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN
         }
 
-        if (!!invocation.state.globals.inputs?.oauth) {
-            const integrationInputs = await this.hogInputsService.loadIntegrationInputs(invocation.hogFunction)
-            const accessToken: string = integrationInputs.oauth.value.access_token_raw
-            const placeholder: string = integrationInputs.oauth.value.access_token
+        const integrationInputs = await this.hogInputsService.loadIntegrationInputs(invocation.hogFunction)
 
-            if (placeholder && accessToken) {
-                const replace = (val: string) => val.replaceAll(placeholder, accessToken)
+        if (Object.keys(integrationInputs).length > 0) {
+            for (const [key, value] of Object.entries(integrationInputs)) {
+                const accessToken: string = value.value.access_token_raw
+                const placeholder: string = ACCESS_TOKEN_PLACEHOLDER + invocation.hogFunction.inputs?.[key]?.value
 
-                params.body = params.body ? replace(params.body) : params.body
-                headers = Object.fromEntries(
-                    Object.entries(params.headers ?? {}).map(([key, value]) => [
-                        key,
-                        typeof value === 'string' ? replace(value) : value,
-                    ])
-                )
-                params.url = replace(params.url)
+                if (placeholder && accessToken) {
+                    const replace = (val: string) => val.replaceAll(placeholder, accessToken)
+
+                    params.body = params.body ? replace(params.body) : params.body
+                    headers = Object.fromEntries(
+                        Object.entries(params.headers ?? {}).map(([key, value]) => [
+                            key,
+                            typeof value === 'string' ? replace(value) : value,
+                        ])
+                    )
+                    params.url = replace(params.url)
+                }
             }
         }
 

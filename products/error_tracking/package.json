@@ -7,7 +7,6 @@
         "kea-loaders": "^3.1.1",
         "kea-router": "^3.4.1",
         "kea-subscriptions": "^3.0.1",
-        "lodash.throttle": "^4.1.1",
         "posthog-js": "1.261.0"
     },
     "peerDependencies": {
@@ -31,8 +30,5 @@
         "ts-pattern": "*",
         "use-debounce": "*",
         "use-resize-observer": "*"
-    },
-    "devDependencies": {
-        "@types/lodash.throttle": "^4.1.9"
     }
 }

@@ -1070,7 +1070,6 @@ describe('Hog Executor', () => {
             const mockIntegrationInputs = {
                 oauth: {
                     value: {
-                        access_token: '$$_access_token_placeholder_123$$',
                         access_token_raw: 'actual_secret_token_12345',
                     },
                 },
@@ -1080,16 +1079,19 @@ describe('Hog Executor', () => {
 
             const invocation = createExampleInvocation()
             invocation.state.globals.inputs = mockIntegrationInputs
+            invocation.hogFunction.inputs = {
+                oauth: { value: 123 },
+            }
             invocation.state.vmState = { stack: [] } as any
             invocation.queueParameters = {
                 type: 'fetch',
-                url: 'https://example.com/test?q=$$_access_token_placeholder_123$$',
+                url: 'https://example.com/test?q=$$_access_token_placeholder_123',
                 method: 'POST',
                 headers: {
-                    'X-Test': '$$_access_token_placeholder_123$$',
-                    Authorization: 'Bearer $$_access_token_placeholder_123$$',
+                    'X-Test': '$$_access_token_placeholder_123',
+                    Authorization: 'Bearer $$_access_token_placeholder_123',
                 },
-                body: '$$_access_token_placeholder_123$$',
+                body: '$$_access_token_placeholder_123',
             } as any
 
             await executor.executeFetch(invocation)

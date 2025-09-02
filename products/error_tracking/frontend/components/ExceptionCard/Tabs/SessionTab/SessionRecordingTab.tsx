@@ -1,4 +1,3 @@
-import { SessionTabProps } from '.'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 import { match } from 'ts-pattern'
@@ -12,10 +11,10 @@ import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/ses
 import { exceptionCardLogic } from '../../exceptionCardLogic'
 import { sessionTabLogic } from './sessionTabLogic'
 
-export function SessionRecording({ ...props }: SessionTabProps): JSX.Element {
+export function SessionRecordingTab(): JSX.Element {
     const { loading } = useValues(exceptionCardLogic)
     return (
-        <TabsPrimitiveContent {...props}>
+        <TabsPrimitiveContent value="recording">
             {match(loading)
                 .with(true, () => <SessionRecordingLoading />)
                 .with(false, () => <SessionRecordingContent />)

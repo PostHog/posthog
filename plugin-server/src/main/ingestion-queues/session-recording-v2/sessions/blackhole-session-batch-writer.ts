@@ -12,7 +12,7 @@ class BlackholeBatchFileWriter implements SessionBatchFileWriter {
         return Promise.resolve({
             bytesWritten: sessionData.buffer.length,
             url: null,
-            retentionPeriod: null,
+            retentionPeriodDays: null,
         })
     }
 

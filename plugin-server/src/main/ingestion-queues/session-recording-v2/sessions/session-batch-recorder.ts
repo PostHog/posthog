@@ -211,7 +211,7 @@ export class SessionBatchRecorder {
 
                     const { consoleLogCount, consoleWarnCount, consoleErrorCount } = consoleLogRecorder.end()
 
-                    const { bytesWritten, url, retentionPeriod } = await writer.writeSession({
+                    const { bytesWritten, url, retentionPeriodDays } = await writer.writeSession({
                         buffer,
                         teamId: sessionBlockRecorder.teamId,
                         sessionId: sessionBlockRecorder.sessionId,
@@ -240,7 +240,7 @@ export class SessionBatchRecorder {
                         snapshotLibrary,
                         batchId,
                         eventCount,
-                        retentionPeriod,
+                        retentionPeriodDays,
                     })
 
                     totalEvents += eventCount

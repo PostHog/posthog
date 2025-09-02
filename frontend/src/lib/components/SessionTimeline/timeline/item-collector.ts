@@ -1,90 +1,6 @@
+import { ItemCache, ItemCategory, ItemLoader, ItemRenderer, TimelineItem } from '.'
+
 import { Dayjs } from 'lib/dayjs'
-
-import { customItemLoader, customItemRenderer } from './items/custom'
-import { exceptionLoader, exceptionRenderer } from './items/exceptions'
-import { pageLoader, pageRenderer } from './items/page'
-
-export enum ItemCategory {
-    ERROR_TRACKING = 'error-tracking',
-    CUSTOM_EVENTS = 'custom-events',
-    PAGE_VIEWS = 'page-views',
-}
-
-export interface TimelineItem {
-    id: string
-    category: ItemCategory
-    timestamp: Dayjs
-    payload: any
-}
-
-export interface RendererProps<T extends TimelineItem> {
-    item: T
-}
-
-export type ItemRenderer<T extends TimelineItem> = {
-    sourceIcon: React.FC<RendererProps<T>>
-    categoryIcon: React.ReactNode
-    render: React.FC<RendererProps<T>>
-}
-
-export type ItemLoader<T extends TimelineItem> = {
-    hasPrevious(index: Dayjs): boolean
-    previous(index: Dayjs, limit?: number): Promise<T | null>
-
-    hasNext(index: Dayjs): boolean
-    next(index: Dayjs, limit?: number): Promise<T | null>
-}
-
-export type ItemLoaderFactory<T extends TimelineItem> = (sessionId: string, timestamp: Dayjs) => ItemLoader<T>
-
-export class ItemCache<T extends TimelineItem> {
-    orderedIds: string[]
-    queue: Record<string, T>
-
-    constructor() {
-        this.queue = {}
-        this.orderedIds = []
-    }
-
-    private sort(): void {
-        this.orderedIds = Object.keys(this.queue).sort((a, b) => this.queue[a].timestamp.diff(this.queue[b].timestamp))
-    }
-
-    clear(): void {
-        this.queue = {}
-        this.orderedIds = []
-    }
-
-    getAll(): T[] {
-        return this.orderedIds.map((id) => this.queue[id])
-    }
-
-    add(items: T[]): void {
-        for (const item of items) {
-            this.queue[item.id] = item
-        }
-        this.sort()
-    }
-
-    next(from: Dayjs): T | undefined {
-        for (const id of this.orderedIds) {
-            const item = this.queue[id]
-            if (item.timestamp.isAfter(from)) {
-                return item
-            }
-        }
-    }
-
-    previous(to: Dayjs): T | undefined {
-        for (let i = this.orderedIds.length - 1; i >= 0; i--) {
-            const id = this.orderedIds[i]
-            const item = this.queue[id]
-            if (item.timestamp.isBefore(to)) {
-                return item
-            }
-        }
-    }
-}
 
 export class ItemCollector {
     sessionId: string
@@ -101,9 +17,6 @@ export class ItemCollector {
         this.beforeCursor = this.timestamp
         this.afterCursor = this.timestamp
         this.itemCache = new ItemCache<TimelineItem>()
-        this.addCategory(ItemCategory.ERROR_TRACKING, exceptionRenderer, exceptionLoader(sessionId, this.timestamp))
-        this.addCategory(ItemCategory.PAGE_VIEWS, pageRenderer, pageLoader(sessionId, this.timestamp))
-        this.addCategory(ItemCategory.CUSTOM_EVENTS, customItemRenderer, customItemLoader(sessionId, this.timestamp))
     }
 
     addCategory(category: ItemCategory, renderer: ItemRenderer<TimelineItem>, loader: ItemLoader<TimelineItem>): void {
