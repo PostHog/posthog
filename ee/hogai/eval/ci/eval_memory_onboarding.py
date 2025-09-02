@@ -184,9 +184,9 @@ A FAIL occurs if ANY of the following is true:
 
 Note: The format requirements are specifically defined in the memory initialization prompt and must be followed exactly.
 
-<input>{{input}}</input>
-<expected_output>{{expected}}</expected_output>
-<actual_output>{{output}}</actual_output>
+<input>{{{{input}}}}</input>
+<expected_output>{{{{expected}}}}</expected_output>
+<actual_output>{{{{output}}}}</actual_output>
 
 Compare the output to the expected content format. Does the output follow the exact required formatting structure with proper opening, #### headers, and bullet points like shown in the expected example? Be brutal
 - pass: Follows all required formatting specifications exactly
