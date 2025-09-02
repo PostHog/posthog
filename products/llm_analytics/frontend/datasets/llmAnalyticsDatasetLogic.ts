@@ -310,8 +310,10 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
         },
 
         loadDatasetSuccess: ({ dataset }) => {
-            // Set form defaults when dataset is loaded
-            actions.setDatasetFormValues(getDatasetFormDefaults(dataset))
+            if (!values.isEditingDataset) {
+                // Set form defaults when dataset is loaded
+                actions.setDatasetFormValues(getDatasetFormDefaults(dataset))
+            }
         },
 
         setFilters: async ({ debounce }, _, __, previousState) => {
