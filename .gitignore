@@ -45,9 +45,6 @@ common/hogvm/typescript/dist
 common/plugin_transpiler/dist
 common/tailwind/dist
 coverage-*.xml
-cypress/**/*.diff.png
-cypress/downloads/
-cypress/screenshots/
 debug.log
 docker-compose.prod.yml
 ee/benchmarks/results

@@ -235,7 +235,6 @@ export enum ProductKey {
     MARKETING_ANALYTICS = 'marketing_analytics',
     MAX = 'max',
     LINKS = 'links',
-    MCP_SERVER = 'mcp_server',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -338,6 +337,7 @@ export interface UserType extends UserBaseType {
     anonymize_data: boolean
     toolbar_mode: 'disabled' | 'toolbar'
     has_password: boolean
+    id: number
     is_staff: boolean
     is_impersonated: boolean
     is_impersonated_until?: string

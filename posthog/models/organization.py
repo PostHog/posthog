@@ -43,6 +43,7 @@ class OrganizationUsageInfo(TypedDict):
     surveys: Optional[OrganizationUsageResource]
     rows_synced: Optional[OrganizationUsageResource]
     cdp_invocations: Optional[OrganizationUsageResource]
+    rows_exported: Optional[OrganizationUsageResource]
     feature_flag_requests: Optional[OrganizationUsageResource]
     api_queries_read_bytes: Optional[OrganizationUsageResource]
     llm_events: Optional[OrganizationUsageResource]

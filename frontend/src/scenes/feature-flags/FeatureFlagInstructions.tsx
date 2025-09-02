@@ -28,7 +28,7 @@ import {
 
 function FeatureFlagInstructionsFooter({ documentationLink }: { documentationLink: string }): JSX.Element {
     return (
-        <div className="mt-4">
+        <div>
             Need more information?{' '}
             <Link data-attr="feature-flag-doc-link" target="_blank" to={documentationLink} targetBlankIcon>
                 Check the docs
@@ -214,7 +214,7 @@ export function CodeInstructions({
     const supportedLibraries = remoteConfiguration ? remoteConfigurationLibraries : allFlagLibraries
 
     return (
-        <div>
+        <div className="flex flex-col gap-4">
             {showAdvancedOptions && (
                 <div className="flex items-center gap-6">
                     <div>
@@ -293,46 +293,44 @@ export function CodeInstructions({
                     </>
                 </div>
             )}
-            <div className="mt-4 mb">
-                {showLocalEvalCode && (
-                    <>
-                        <h4 className="l4">Local evaluation</h4>
-                    </>
-                )}
-                {showFlagValueCode && (
+            {showLocalEvalCode && (
+                <>
+                    <h4 className="l4">Local evaluation</h4>
+                </>
+            )}
+            {showFlagValueCode && (
+                <selectedOption.Snippet
+                    data-attr="feature-flag-instructions-snippet"
+                    flagKey={featureFlagKey}
+                    multivariant={multivariantFlag}
+                    groupType={groupType}
+                    localEvaluation={showLocalEvalCode}
+                    instantlyAvailableProperties={!firstNonInstantProperty}
+                    samplePropertyName={firstNonInstantProperty || randomProperty}
+                />
+            )}
+            {showPayloadCode && (
+                <>
+                    <h4 className="l4">Payload</h4>
                     <selectedOption.Snippet
-                        data-attr="feature-flag-instructions-snippet"
+                        data-attr="feature-flag-instructions-payload-snippet"
                         flagKey={featureFlagKey}
                         multivariant={multivariantFlag}
                         groupType={groupType}
                         localEvaluation={showLocalEvalCode}
-                        instantlyAvailableProperties={!firstNonInstantProperty}
-                        samplePropertyName={firstNonInstantProperty || randomProperty}
+                        payload={true}
+                        remoteConfiguration={remoteConfiguration}
+                        encryptedPayload={encryptedPayload}
                     />
-                )}
-                {showPayloadCode && (
-                    <>
-                        <h4 className="l4">Payload</h4>
-                        <selectedOption.Snippet
-                            data-attr="feature-flag-instructions-payload-snippet"
-                            flagKey={featureFlagKey}
-                            multivariant={multivariantFlag}
-                            groupType={groupType}
-                            localEvaluation={showLocalEvalCode}
-                            payload={true}
-                            remoteConfiguration={remoteConfiguration}
-                            encryptedPayload={encryptedPayload}
-                        />
-                    </>
-                )}
-                {showBootstrapCode && (
-                    <>
-                        <h4 className="l4">Bootstrap</h4>
-                        <bootstrapOption.Snippet flagKey={featureFlagKey} />
-                    </>
-                )}
-                {showFooter && <FeatureFlagInstructionsFooter documentationLink={getDocumentationLink()} />}
-            </div>
+                </>
+            )}
+            {showBootstrapCode && (
+                <>
+                    <h4 className="l4">Bootstrap</h4>
+                    <bootstrapOption.Snippet flagKey={featureFlagKey} />
+                </>
+            )}
+            {showFooter && <FeatureFlagInstructionsFooter documentationLink={getDocumentationLink()} />}
             <div />
         </div>
     )
