@@ -1,5 +1,6 @@
 from ee.hogai.graph.root.prompts import MAX_PERSONALITY_PROMPT
 
+SCRAPING_SUCCESS_KEY_PHRASE = "Here's what I found on"  # We check for this being present for detecting results
 SCRAPING_TERMINATION_MESSAGE = "I couldn't find relevant information on the internet. I'll ask you a few questions to help me understand your project better."
 
 INITIALIZE_CORE_MEMORY_SYSTEM_PROMPT = f"""
@@ -12,7 +13,7 @@ Your goal is to describe the product and business associated with the given doma
 </sources>
 
 <format_instructions>
-Start your answer with "__Here's what I found on <product_name/domain>:__"
+Start your answer with "__{SCRAPING_SUCCESS_KEY_PHRASE} <product_name/domain>:__"
 
 Then, provide your summary in paragraphs, each with an h4 heading (####).
 After a brief high-level description (heading-less), write out the following sections for each where relevant data was found:

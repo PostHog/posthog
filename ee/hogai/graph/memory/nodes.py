@@ -55,6 +55,7 @@ from .prompts import (
     SCRAPING_INITIAL_MESSAGE,
     SCRAPING_MEMORY_SAVED_MESSAGE,
     SCRAPING_REJECTION_MESSAGE,
+    SCRAPING_SUCCESS_KEY_PHRASE,
     SCRAPING_TERMINATION_MESSAGE,
     SCRAPING_VERIFICATION_MESSAGE,
     TOOL_CALL_ERROR_PROMPT,
@@ -203,7 +204,7 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
 
     def router(self, state: AssistantState) -> Literal["interrupt", "continue"]:
         last_message = state.messages[-1]
-        if isinstance(last_message, AssistantMessage) and "Here's what I found" in last_message.content:
+        if isinstance(last_message, AssistantMessage) and SCRAPING_SUCCESS_KEY_PHRASE in last_message.content:
             return "interrupt"
         return "continue"
 

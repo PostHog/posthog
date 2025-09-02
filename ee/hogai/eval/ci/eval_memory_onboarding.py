@@ -13,7 +13,11 @@ from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph import AssistantGraph
-from ee.hogai.graph.memory.prompts import ENQUIRY_INITIAL_MESSAGE, SCRAPING_TERMINATION_MESSAGE
+from ee.hogai.graph.memory.prompts import (
+    ENQUIRY_INITIAL_MESSAGE,
+    SCRAPING_SUCCESS_KEY_PHRASE,
+    SCRAPING_TERMINATION_MESSAGE,
+)
 from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from ee.models.assistant import Conversation
@@ -153,10 +157,10 @@ class HasCorrectStyle(MemoryLLMClassifier):
     def __init__(self, **kwargs):
         super().__init__(
             name="has_correct_style",
-            prompt_template="""Determine if the scraped content follows the required formatting structure.
+            prompt_template=f"""Determine if the scraped content follows the required formatting structure.
 
 A PASS requires ALL of the following:
-- Starts with exactly "__Here's what I found on [some product/domain name]:__" (bold formatting with colon)
+- Starts with exactly "__{SCRAPING_SUCCESS_KEY_PHRASE} [some product/domain name]:__" (bold formatting with colon)
 - Contains at least one section with #### heading format (h4 markdown headers)
 - Sections should include relevant topics like "Product features", "User/Customer segments", "Business model", "Technical details", or "Brief history"
 - Uses bullet points (-) or structured formatting within sections (not just paragraphs)
@@ -165,7 +169,7 @@ A PASS requires ALL of the following:
 - No citation anywhere (i.e. link in parentheses)
 
 A FAIL occurs if ANY of the following is true:
-- Missing or incorrect opening format (doesn't start with "__Here's what I found on...:__")
+- Missing or incorrect opening format (doesn't start with "__{SCRAPING_SUCCESS_KEY_PHRASE} ...:__")
 - No #### section headings found
 - Poor organization with wall-of-text paragraphs instead of structured sections
 - Contains follow-up suggestions like "Would you like to know more?" or "Contact us"
