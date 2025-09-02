@@ -108,6 +108,13 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
     def __str__(self):
         return self.name or str(self.id)
 
+    def save(self, *args: Any, skip_activity_log: bool = False, **kwargs: Any) -> None:
+        if skip_activity_log:
+            # Bypass ModelActivityMixin.save() and call Model.save() directly
+            super(ModelActivityMixin, self).save(*args, **kwargs)
+        else:
+            super().save(*args, **kwargs)
+
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Dashboard"]:
         base_qs = cls.objects.filter(team=team, deleted=False).exclude(creation_mode="template")

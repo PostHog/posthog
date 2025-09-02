@@ -393,7 +393,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             asset_title = resource.dashboard.name
             asset_description = resource.dashboard.description or ""
             resource.dashboard.last_accessed_at = now()
-            resource.dashboard.save(update_fields=["last_accessed_at"])
+            resource.dashboard.save(update_fields=["last_accessed_at"], skip_activity_log=True)
 
             with task_chain_context():
                 dashboard_data = DashboardSerializer(resource.dashboard, context=context).data
