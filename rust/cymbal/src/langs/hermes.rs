@@ -1,11 +1,17 @@
 use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha512};
+use sourcemap::Token;
 
 use crate::{
-    error::UnhandledError,
-    frames::Frame,
-    langs::CommonFrameMetadata,
+    error::{FrameError, HermesError, ResolveError, UnhandledError},
+    frames::{Frame, FrameId},
+    langs::{
+        utils::{add_raw_to_junk, get_token_context},
+        CommonFrameMetadata,
+    },
+    sanitize_string,
     symbol_store::{chunk_id::OrChunkId, hermesmap::ParsedHermesMap, SymbolCatalog},
 };
 
@@ -34,16 +40,120 @@ impl RawHermesFrame {
     where
         C: SymbolCatalog<OrChunkId<HermesRef>, ParsedHermesMap>,
     {
-        todo!()
+        match self.resolve_impl(team_id, catalog).await {
+            Ok(frame) => Ok(frame),
+            Err(ResolveError::ResolutionError(FrameError::Hermes(e))) => {
+                Ok(self.handle_resolution_error(e))
+            }
+            Err(ResolveError::ResolutionError(FrameError::MissingChunkIdData(chunk_id))) => {
+                Ok(self.handle_resolution_error(HermesError::NoSourcemapUploaded(chunk_id)))
+            }
+            Err(ResolveError::ResolutionError(FrameError::JavaScript(e))) => {
+                // TODO - should be unreachable, specialize ResolveError to encode that
+                Err(UnhandledError::from(FrameError::from(e)))
+            }
+            Err(ResolveError::UnhandledError(e)) => Err(e),
+        }
+    }
+
+    async fn resolve_impl<C>(&self, team_id: i32, catalog: &C) -> Result<Frame, ResolveError>
+    where
+        C: SymbolCatalog<OrChunkId<HermesRef>, ParsedHermesMap>,
+    {
+        let r = self.get_ref()?;
+        let sourcemap = catalog.lookup(team_id, r.clone()).await?;
+        let sourcemap = &sourcemap.map;
+
+        let Some(token) = sourcemap.lookup_token(0, self.column) else {
+            return Err(HermesError::NoTokenForColumn(self.column, r.to_string()).into());
+        };
+
+        let resolved_name = sourcemap
+            .get_original_function_name(self.column)
+            .map(|s| s.to_string());
+
+        Ok((self, token, resolved_name).into())
     }
 
     pub fn frame_id(&self) -> String {
-        todo!()
+        let mut hasher = Sha512::new();
+        hasher.update(self.fn_name.as_bytes());
+        hasher.update(self.source.as_bytes());
+        hasher.update(self.column.to_string().as_bytes());
+        if let Some(chunk_id) = &self.chunk_id {
+            hasher.update(chunk_id.as_bytes());
+        }
+        format!("{:x}", hasher.finalize())
+    }
+
+    pub fn symbol_set_ref(&self) -> Option<String> {
+        self.get_ref().ok().map(|r| r.to_string())
+    }
+
+    fn get_ref(&self) -> Result<OrChunkId<HermesRef>, HermesError> {
+        self.chunk_id
+            .as_ref()
+            .map(|id| OrChunkId::chunk_id(id.clone()))
+            .ok_or(HermesError::NoChunkId)
+    }
+
+    fn handle_resolution_error(&self, err: HermesError) -> Frame {
+        (self, err).into()
     }
 }
 
 impl Display for HermesRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "HermesRef")
+    }
+}
+
+impl From<(&RawHermesFrame, HermesError)> for Frame {
+    fn from((frame, err): (&RawHermesFrame, HermesError)) -> Self {
+        let mut res = Self {
+            raw_id: FrameId::placeholder(),
+            mangled_name: frame.fn_name.clone(),
+            line: Some(1), // Hermes frames are 1-indexed and always 1
+            column: Some(frame.column),
+            source: Some(frame.source.clone()),
+            in_app: frame.meta.in_app,
+            resolved_name: None,
+            lang: "hermes-js".to_string(),
+            resolved: false,
+            resolve_failure: Some(err.to_string()),
+            synthetic: frame.meta.synthetic,
+            junk_drawer: None,
+            context: None,
+            release: None,
+        };
+
+        add_raw_to_junk(&mut res, frame);
+
+        res
+    }
+}
+
+impl From<(&RawHermesFrame, Token<'_>, Option<String>)> for Frame {
+    fn from((frame, token, resolved_name): (&RawHermesFrame, Token<'_>, Option<String>)) -> Self {
+        let mut res = Self {
+            raw_id: FrameId::placeholder(),
+            mangled_name: frame.fn_name.clone(),
+            line: Some(token.get_src_line()),
+            column: Some(token.get_src_col()),
+            source: token.get_source().map(|s| sanitize_string(s.to_string())),
+            in_app: frame.meta.in_app, // TODO - we look for node_modules in the source file name for javascript, should we here too?
+            resolved_name,
+            lang: "hermes-js".to_string(),
+            resolved: true,
+            resolve_failure: None,
+            synthetic: frame.meta.synthetic,
+            junk_drawer: None,
+            context: get_token_context(&token, token.get_src_line() as usize),
+            release: None,
+        };
+
+        add_raw_to_junk(&mut res, frame);
+
+        res
     }
 }

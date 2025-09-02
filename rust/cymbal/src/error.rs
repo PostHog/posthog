@@ -130,6 +130,12 @@ pub enum HermesError {
     DataError(#[from] SymbolDataError),
     #[error("Invalid map: {0}")]
     InvalidMap(String),
+    #[error("No sourcemap uploaded for chunk id: {0}")]
+    NoSourcemapUploaded(String),
+    #[error("No chunk id sent with frame")]
+    NoChunkId,
+    #[error("No token for column {0} on chunk {1}")]
+    NoTokenForColumn(u32, String),
 }
 
 #[derive(Debug, Error, Clone)]

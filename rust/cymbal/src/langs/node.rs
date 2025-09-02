@@ -13,7 +13,7 @@ use symbolic::sourcemapcache::{ScopeLookupResult, SourceLocation, SourcePosition
 
 use super::{
     js::FrameLocation,
-    utils::{add_raw_to_junk, get_context},
+    utils::{add_raw_to_junk, get_sourcelocation_context},
 };
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -201,7 +201,7 @@ impl From<(&RawNodeFrame, SourceLocation<'_>)> for Frame {
             resolved: true,
             resolve_failure: None,
             junk_drawer: None,
-            context: get_context(&location),
+            context: get_sourcelocation_context(&location),
             release: None,
             synthetic: raw_frame.meta.synthetic,
         };

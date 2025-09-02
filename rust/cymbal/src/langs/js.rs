@@ -12,7 +12,7 @@ use crate::{
     symbol_store::{chunk_id::OrChunkId, sourcemap::OwnedSourceMapCache, SymbolCatalog},
 };
 
-use super::utils::{add_raw_to_junk, get_context};
+use super::utils::{add_raw_to_junk, get_sourcelocation_context};
 
 // A minifed JS stack frame. Just the minimal information needed to lookup some
 // sourcemap for it and produce a "real" stack frame.
@@ -52,7 +52,7 @@ impl RawJSFrame {
                 Ok(self.handle_resolution_error(JsResolveErr::NoSourcemapUploaded(chunk_id)))
             }
             Err(ResolveError::ResolutionError(FrameError::Hermes(e))) => {
-                // TODO - should be unreachable, specialize Error to encode that
+                // TODO - should be unreachable, specialize ResolveError to encode that
                 Err(UnhandledError::from(FrameError::from(e)))
             }
             Err(ResolveError::UnhandledError(e)) => Err(e),
@@ -200,7 +200,7 @@ impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
             resolved: true,
             resolve_failure: None,
             junk_drawer: None,
-            context: get_context(&token),
+            context: get_sourcelocation_context(&token),
             release: None,
             synthetic: raw_frame.meta.synthetic,
         };
