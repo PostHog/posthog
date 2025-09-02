@@ -478,7 +478,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     // redirect new insights added to dashboard to the dashboard
                     router.actions.push(urls.dashboard(dashboards[0], savedInsight.short_id))
                 } else if (insightNumericId) {
-                    // TODO: !!!
+                    // TODO: we will soon have multiple insightSceneLogics!
                     const mountedInsightSceneLogic = insightSceneLogic.findMounted()
                     mountedInsightSceneLogic?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
                 } else {
