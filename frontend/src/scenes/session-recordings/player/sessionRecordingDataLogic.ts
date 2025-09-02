@@ -78,6 +78,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         sessionPlayerMetaData: null as SessionRecordingType | null,
     }),
     actions({
+        setTargetLoadingTimestamp: (targetLoadingTimestamp: Dayjs | null) => ({ targetLoadingTimestamp }),
         setFilters: (filters: Partial<RecordingEventsFilters>) => ({ filters }),
         loadRecordingMeta: true,
         maybeLoadRecordingMeta: true,
@@ -99,6 +100,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         setTrackedWindow: (windowId: string | null) => ({ windowId }),
     }),
     reducers(() => ({
+        targetLoadingTimestamp: [
+            null as Dayjs | null,
+            {
+                setTargetLoadingTimestamp: (_, { targetLoadingTimestamp }) => targetLoadingTimestamp,
+            },
+        ],
         trackedWindow: [
             null as string | null,
             {
@@ -542,6 +549,41 @@ AND properties.$lib != 'web'`
         },
 
         loadNextSnapshotSource: () => {
+            /**
+             * if we separate snapshot loading so that we can have
+             *
+             * recDataLogic -> snapshotDataLogic <- otherClientCode
+             *           \                          /
+             * (in future \>    eventsDataLogic   </
+             *
+             * then we can load from timestamp X
+             * and optionally seek backwards to a full snapshot (maybe in recDataLogic maybe not)
+             *
+             */
+
+            function getSliceForTargetTimestamp(
+                targetLoadingTimestamp: Dayjs,
+                snapshotSources: SessionRecordingSnapshotSource[] | null
+            ): number {
+                if (!snapshotSources) {
+                    return 0
+                }
+                // find the source that contains the target timestamp
+                const sourceContainingTimestampIndex = snapshotSources.findIndex((s) => {
+                    if (!s.start_timestamp || !s.end_timestamp) {
+                        return false
+                    }
+                    const start = dayjs(s.start_timestamp)
+                    const end = dayjs(s.end_timestamp)
+                    return targetLoadingTimestamp.isAfter(start) && targetLoadingTimestamp.isBefore(end)
+                })
+                if (sourceContainingTimestampIndex >= 0) {
+                    return sourceContainingTimestampIndex
+                }
+
+                return 0
+            }
+
             // yes this is ugly duplication, but we're going to deprecate v1 and I want it to be clear which is which
             if (values.snapshotSources?.some((s) => s.source === SnapshotSourceType.blob_v2)) {
                 const nextSourcesToLoad =
@@ -552,8 +594,19 @@ AND properties.$lib != 'web'`
                         )
                     }) || []
 
+                /**
+                 * if we have a timestamp
+                 * then we can load the slices that contain that timestamp
+                 * and then load the rest
+                 */
                 if (nextSourcesToLoad.length > 0) {
-                    return actions.loadSnapshotsForSource(nextSourcesToLoad.slice(0, 30))
+                    let slice = nextSourcesToLoad.slice(0, 30)
+                    const targetLoadingTimestamp: Dayjs | null = values.targetLoadingTimestamp
+                    if (targetLoadingTimestamp) {
+                        const index = getSliceForTargetTimestamp(targetLoadingTimestamp, values.snapshotSources)
+                        slice = nextSourcesToLoad.slice(index, index + 30)
+                    }
+                    return actions.loadSnapshotsForSource(slice)
                 }
 
                 if (!props.blobV2PollingDisabled) {

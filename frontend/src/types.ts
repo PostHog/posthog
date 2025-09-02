@@ -1102,9 +1102,15 @@ export type EncodedRecordingSnapshot = {
 // this way if we want to reference one of the valid string values for SnapshotSourceType
 // we have a strongly typed way to do it
 export const SnapshotSourceType = {
+    // the original mr blobby format, stored in S3
     blob: 'blob',
+    // partner to the original format, read from redis
+    // because of slow batching in blob v1
     realtime: 'realtime',
+    // if the user has exported snapshot data from the UI
+    //they can play back, and it appears as a fle source
     file: 'file',
+    // new and improved for 2025
     blob_v2: 'blob_v2',
 } as const
 
