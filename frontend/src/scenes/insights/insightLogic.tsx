@@ -1,7 +1,6 @@
 import { LogicWrapper, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
-import { subscriptions } from 'kea-subscriptions'
 
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 
@@ -591,9 +590,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             }
             redirectToInsight && router.actions.push(urls.insightEdit(newInsight.short_id))
         },
-    })),
-    subscriptions(() => ({
-        query: (query) => {},
     })),
     events(({ props, actions }) => ({
         afterMount: () => {
