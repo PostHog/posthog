@@ -21,6 +21,8 @@ import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { ClickhouseGroupRepository } from '../../worker/ingestion/groups/repositories/clickhouse-group-repository'
 import { PostgresDualWriteGroupRepository } from '../../worker/ingestion/groups/repositories/postgres-dualwrite-group-repository'
 import { PostgresGroupRepository } from '../../worker/ingestion/groups/repositories/postgres-group-repository'
+import { PostgresDualWritePersonRepository } from '../../worker/ingestion/persons/repositories/postgres-dualwrite-person-repository'
+import { PostgresPersonRepository } from '../../worker/ingestion/persons/repositories/postgres-person-repository'
 import { RustyHook } from '../../worker/rusty-hook'
 import { ActionManagerCDP } from '../action-manager-cdp'
 import { isTestEnv } from '../env-utils'
@@ -131,12 +133,22 @@ export async function createHub(
     const actionManager = new ActionManager(postgres, pubSub)
     const actionManagerCDP = new ActionManagerCDP(postgres)
     const actionMatcher = new ActionMatcher(postgres, actionManager)
-    const groupTypeManager = new GroupTypeManager(postgres, teamManager)
+
     const groupRepository = serverConfig.GROUPS_DUAL_WRITE_ENABLED
         ? new PostgresDualWriteGroupRepository(postgres, postgresPersonMigration, {
               comparisonEnabled: serverConfig.GROUPS_DUAL_WRITE_COMPARISON_ENABLED,
           })
         : new PostgresGroupRepository(postgres)
+    const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
+
+    const personRepositoryOptions = {
+        calculatePropertiesSize: serverConfig.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
+        comparisonEnabled: serverConfig.PERSONS_DUAL_WRITE_COMPARISON_ENABLED,
+    }
+    const personRepository = serverConfig.PERSONS_DUAL_WRITE_ENABLED
+        ? new PostgresDualWritePersonRepository(postgres, postgresPersonMigration, personRepositoryOptions)
+        : new PostgresPersonRepository(postgres, personRepositoryOptions)
+
     const clickhouseGroupRepository = new ClickhouseGroupRepository(kafkaProducer)
     const cookielessManager = new CookielessManager(serverConfig, cookielessRedisPool, teamManager)
     const geoipService = new GeoIPService(serverConfig)
@@ -173,6 +185,7 @@ export async function createHub(
         actionMatcher,
         groupRepository,
         clickhouseGroupRepository,
+        personRepository,
         actionManager,
         actionManagerCDP,
         geoipService,

@@ -330,6 +330,7 @@ class BillingManager:
                 surveys=usage_summary.get("surveys", {}),
                 rows_synced=usage_summary.get("rows_synced", {}),
                 cdp_invocations=usage_summary.get("cdp_invocations", {}),
+                rows_exported=usage_summary.get("rows_exported", {}),
                 feature_flag_requests=usage_summary.get("feature_flag_requests", {}),
                 api_queries_read_bytes=usage_summary.get("api_queries_read_bytes", {}),
                 llm_events=usage_summary.get("llm_events", {}),

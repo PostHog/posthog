@@ -2275,6 +2275,16 @@
                   "table": null,
                   "type": "string"
               },
+              "exception_code": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "exception_code",
+                  "id": null,
+                  "name": "exception_code",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
               "is_personal_api_key_request": {
                   "chain": null,
                   "fields": null,
@@ -3736,6 +3746,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
+              },
+              "exception_code": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "exception_code",
+                  "id": null,
+                  "name": "exception_code",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
               },
               "is_personal_api_key_request": {
                   "chain": null,
