@@ -172,3 +172,88 @@ class TestSharePasswordAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertIn("Incorrect password", response.json()["error"])
+
+    def test_jwt_token_invalidation_on_password_deletion(self):
+        """Test that JWT tokens are invalidated when their associated password is deleted, but remain valid when other passwords are deleted."""
+        # Create two passwords
+        password1, raw_password1 = SharePassword.create_password(
+            sharing_configuration=self.sharing_config, created_by=self.user, raw_password="password1", note="Password 1"
+        )
+        password2, raw_password2 = SharePassword.create_password(
+            sharing_configuration=self.sharing_config, created_by=self.user, raw_password="password2", note="Password 2"
+        )
+
+        # Authenticate with password1 to get JWT token
+        response = self.client.post(
+            f"/shared/{self.sharing_config.access_token}",
+            data=json.dumps({"password": raw_password1}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        jwt_token1 = response.json()["shareToken"]
+
+        # Authenticate with password2 to get another JWT token
+        response = self.client.post(
+            f"/shared/{self.sharing_config.access_token}",
+            data=json.dumps({"password": raw_password2}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        jwt_token2 = response.json()["shareToken"]
+
+        # Verify both JWT tokens work initially
+        response = self.client.get(
+            f"/shared/{self.sharing_config.access_token}",
+            HTTP_AUTHORIZATION=f"Bearer {jwt_token1}",
+            HTTP_ACCEPT="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self.client.get(
+            f"/shared/{self.sharing_config.access_token}",
+            HTTP_AUTHORIZATION=f"Bearer {jwt_token2}",
+            HTTP_ACCEPT="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Delete password2 (not the one used for jwt_token1)
+        response = self.client.delete(
+            f"/api/environments/{self.team.id}/dashboards/{self.dashboard.id}/sharing/passwords/{password2.id}/"
+        )
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        # jwt_token1 should still be valid since it was created with password1
+        response = self.client.get(
+            f"/shared/{self.sharing_config.access_token}",
+            HTTP_AUTHORIZATION=f"Bearer {jwt_token1}",
+            HTTP_ACCEPT="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Should contain dashboard data, not unlock page
+        self.assertIn("dashboard", response.json())
+
+        # jwt_token2 should now be invalid since password2 was deleted
+        response = self.client.get(
+            f"/shared/{self.sharing_config.access_token}",
+            HTTP_AUTHORIZATION=f"Bearer {jwt_token2}",
+            HTTP_ACCEPT="application/json",
+        )
+        # Should not be authenticated anymore, so should show unlock page
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("unlock", response.json().get("type", ""))
+
+        # Now delete password1
+        response = self.client.delete(
+            f"/api/environments/{self.team.id}/dashboards/{self.dashboard.id}/sharing/passwords/{password1.id}/"
+        )
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        # jwt_token1 should now also be invalid
+        response = self.client.get(
+            f"/shared/{self.sharing_config.access_token}",
+            HTTP_AUTHORIZATION=f"Bearer {jwt_token1}",
+            HTTP_ACCEPT="application/json",
+        )
+        # Should not be authenticated anymore, so should show unlock page
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("unlock", response.json().get("type", ""))

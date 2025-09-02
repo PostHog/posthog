@@ -1,6 +1,9 @@
 import secrets
 from datetime import timedelta
-from typing import cast
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from posthog.models.share_password import SharePassword
 
 from django.conf import settings
 from django.db import models
@@ -76,17 +79,17 @@ class SharingConfiguration(models.Model):
 
         return new_config
 
-    def generate_password_protected_token(self) -> str:
+    def generate_password_protected_token(self, share_password: "SharePassword") -> str:
         """
         Generate a JWT token for password-protected sharing access.
-        This token is time-limited and scoped to this specific sharing configuration.
+        This token is time-limited and scoped to the specific SharePassword used for authentication.
         """
         if not self.password_required:
             raise ValueError("Cannot generate password-protected token for non-password-protected sharing")
 
         return encode_jwt(
             payload={
-                "sharing_config_id": self.id,
+                "share_password_id": share_password.id,
                 "team_id": self.team_id,
                 "access_token": self.access_token,  # Include for validation
             },

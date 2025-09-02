@@ -1,7 +1,7 @@
 import re
 import functools
 from datetime import timedelta
-from typing import Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 from urllib.parse import urlsplit
 
 from django.apps import apps
@@ -24,6 +24,9 @@ from posthog.models.oauth import OAuthAccessToken
 from posthog.models.personal_api_key import PERSONAL_API_KEY_MODES_TO_TRY, PersonalAPIKey, hash_key_value
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
+
+if TYPE_CHECKING:
+    from posthog.models.share_password import SharePassword
 
 PERSONAL_API_KEY_QUERY_PARAM_COUNTER = Counter(
     "api_auth_personal_api_key_query_param",
@@ -361,6 +364,7 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
 
     keyword = "Bearer"
     sharing_configuration: SharingConfiguration
+    share_password: "SharePassword"
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, Any]]:
         if request.method != "GET":
@@ -382,18 +386,28 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
             # Attempt full JWT validation - this will fail fast for non-sharing JWTs due to audience mismatch
             payload = decode_jwt(sharing_jwt_token, PosthogJwtAudience.SHARING_PASSWORD_PROTECTED)
 
-            sharing_configuration = SharingConfiguration.objects.get(
-                id=payload["sharing_config_id"], team_id=payload["team_id"], enabled=True, password_required=True
+            from posthog.models.share_password import SharePassword
+
+            # Look up the SharePassword and its related SharingConfiguration
+            share_password = SharePassword.objects.select_related("sharing_configuration").get(
+                id=payload["share_password_id"],
+                sharing_configuration__team_id=payload["team_id"],
+                sharing_configuration__enabled=True,
+                sharing_configuration__password_required=True,
+                is_active=True,  # Critical: password must still be active
             )
+
+            sharing_configuration = share_password.sharing_configuration
 
             # Verify the access token matches (prevents token reuse across different shares)
             if sharing_configuration.access_token != payload.get("access_token"):
                 return None
 
             self.sharing_configuration = sharing_configuration
+            self.share_password = share_password
             return (AnonymousUser(), None)
 
-        except (jwt.InvalidTokenError, SharingConfiguration.DoesNotExist, KeyError):
+        except (jwt.InvalidTokenError, SharePassword.DoesNotExist, KeyError):
             return None
 
 

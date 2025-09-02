@@ -486,15 +486,18 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
 
         return None
 
-    def _validate_share_password(self, sharing_configuration: SharingConfiguration, raw_password: str) -> bool:
+    def _validate_share_password(
+        self, sharing_configuration: SharingConfiguration, raw_password: str
+    ) -> Optional[SharePassword]:
         """
         Validate password against SharePassword entries.
+        Returns the matching SharePassword if found, None otherwise.
         """
         for share_password in sharing_configuration.share_passwords.filter(is_active=True):
             if share_password.check_password(raw_password):
-                return True
+                return share_password
 
-        return False
+        return None
 
     def post(self, request: Request, *args: Any, **kwargs: Any) -> Any:
         return self.retrieve(request, *args, **kwargs)
@@ -556,13 +559,17 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 if jwt_token:
                     exported_data["shareToken"] = jwt_token
                 # Continue processing to add dashboard/insight data to exported_data
-            elif request.method == "POST" and (
-                "password" not in request.data or not self._validate_share_password(resource, request.data["password"])
-            ):
-                return response.Response({"error": "Incorrect password"}, status=401)
             elif request.method == "POST":
+                # Validate password
+                validated_password = None
+                if "password" in request.data:
+                    validated_password = self._validate_share_password(resource, request.data["password"])
+
+                if not validated_password:
+                    return response.Response({"error": "Incorrect password"}, status=401)
+
                 # Password is correct - generate JWT token, set cookie, and return token
-                jwt_token = resource.generate_password_protected_token()
+                jwt_token = resource.generate_password_protected_token(validated_password)
                 response_data = response.Response({"shareToken": jwt_token})
                 # Set HTTP-only cookie that expires with the JWT (24 hours)
                 # Scope the cookie to this specific share path to avoid conflicts between shares
