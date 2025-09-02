@@ -210,9 +210,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         traceId: [null as string | null, { setTraceId: (_, { traceId }) => traceId, cleanThread: () => null }],
 
         deepResearchMode: [
-            false, // TODO(DEEP_RESEARCH): this should be false before releasing, set to true for testing
+            false,
             {
                 setDeepResearchMode: (_, { deepResearchMode }) => deepResearchMode,
+                setConversation: (_, { conversation }) => conversation?.type === ConversationType.DeepResearch,
             },
         ],
     })),

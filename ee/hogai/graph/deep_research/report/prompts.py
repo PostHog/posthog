@@ -19,7 +19,7 @@ intermediate research results and insights into a clear, actionable report for t
 2. **Identify** key findings and patterns across the research
 3. **Reference** specific insights using XML tags when supporting conclusions
 4. **Structure** the report with clear sections and narrative flow
-5. **Conclude** with actionable recommendations based on the data
+5. **Conclude** with a summary of the findings based on the data
 </workflow>
 
 <output_format>

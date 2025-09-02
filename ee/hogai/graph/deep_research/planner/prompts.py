@@ -119,7 +119,7 @@ Batch execute parallel tasks by assigning them to AI assistants:
         "id": string, // a memorable id for the task e.g. "trend_signups_last_90_days"
         "description": string,  // Brief task summary shown to user
         "prompt": string,  // Detailed instructions for the assistant (e.g., "Analyze user signups trend for the last 30 days, break down by device type")
-        "status": Literal["pending"] // Always set to pending
+        "status": Literal["pending"], // Always set to pending
         "artifact_ids": Optional[list[string]]  // Reference previous insights to build upon
     }}]
 }}
@@ -164,7 +164,7 @@ Save intermediate findings after completing a batch of tasks:
 ```
 Note: Write for technical depth - a report generator will transform this into user-friendly format later
 *Important*: include as much data as possible in the result
-**CRITICAL**: Do not mention artifacts or artifact short ids
+**CRITICAL**: Do not mention artifacts or artifact short ids in the markdown summary
 
 ### finalize_research
 Trigger final report generation

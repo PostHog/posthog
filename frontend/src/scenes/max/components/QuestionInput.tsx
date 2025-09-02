@@ -107,11 +107,11 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                     >
                         {!isThreadVisible ? (
                             <div className="flex items-start justify-between">
-                                <ContextDisplay size={contextDisplaySize} deepResearchMode={deepResearchMode} />
+                                <ContextDisplay size={contextDisplaySize} />
                                 <div className="flex items-start gap-1 h-full mt-1 mr-1">{topActions}</div>
                             </div>
                         ) : (
-                            <ContextDisplay size={contextDisplaySize} deepResearchMode={deepResearchMode} />
+                            <ContextDisplay size={contextDisplaySize} />
                         )}
 
                         <SlashCommandAutocomplete visible={showAutocomplete} onClose={() => setShowAutocomplete(false)}>

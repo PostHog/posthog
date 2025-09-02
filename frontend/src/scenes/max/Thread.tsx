@@ -744,7 +744,7 @@ interface MultiVisualizationAnswerProps {
     className?: string
 }
 
-export function MultiVisualizationAnswer({ message, className }: MultiVisualizationAnswerProps): JSX.Element {
+export function MultiVisualizationAnswer({ message, className }: MultiVisualizationAnswerProps): JSX.Element | null {
     const { visualizations } = message
     const insights = useMemo(() => {
         return visualizations
@@ -769,7 +769,7 @@ export function MultiVisualizationAnswer({ message, className }: MultiVisualizat
     }
 
     if (visualizations.length === 0) {
-        return <></>
+        return null
     }
 
     // Render insights in a mosaic layout

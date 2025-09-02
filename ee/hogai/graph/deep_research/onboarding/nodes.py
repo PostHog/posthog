@@ -15,19 +15,27 @@ from ee.hogai.utils.helpers import extract_content_from_ai_message
 
 class DeepResearchOnboardingNode(DeepResearchNode):
     def should_run_onboarding_at_start(self, state: DeepResearchState) -> Literal["onboarding", "planning", "continue"]:
-        if state.messages:
-            human_messages = [m for m in state.messages if isinstance(m, HumanMessage)]
-            if len(human_messages) > 1:
-                if state.notebook_short_id:
-                    return "continue"
-                return "planning"
-        return "onboarding"
+        if not state.messages:
+            return "onboarding"
+
+        human_messages = [m for m in state.messages if isinstance(m, HumanMessage)]
+        if len(human_messages) < 2:
+            # This assumes that we keep the onboarding flow with the assistant asking a clarification question
+            # So there will be 2 human messages during the onboarding flow
+            return "onboarding"
+
+        if state.notebook_short_id:
+            return "continue"
+        return "planning"
 
     async def arun(self, state: DeepResearchState, config: RunnableConfig) -> PartialDeepResearchState:
         # We use instructions with the OpenAI Responses API
         instructions = DEEP_RESEARCH_ONBOARDING_PROMPT.format(
             core_memory=await self._aget_core_memory(),
         )
+
+        if len(state.messages) == 0:
+            raise ValueError("No messages found in the state.")
 
         last_message = state.messages[-1]
         if not isinstance(last_message, HumanMessage):

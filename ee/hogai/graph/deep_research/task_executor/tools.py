@@ -70,10 +70,6 @@ class ExecuteTasksTool:
         task_executor = RunnableLambda(self._execute_task_with_insights).with_config(run_name="TaskExecutor")  # type: ignore
         batch_inputs = [{"task": task, "artifacts": artifacts, "config": config} for task, artifacts in input_tuples]
 
-        task_progress = {}
-        for i, (task, _) in enumerate(input_tuples, 1):
-            task_progress[task.id] = i
-
         async for _, output in task_executor.abatch_as_completed(batch_inputs, config=config):
             yield output
 
@@ -117,7 +113,6 @@ class ExecuteTasksTool:
             root_tool_insight_plan=task.prompt,
         )
 
-        last_message = None
         subgraph_result_messages = []
         try:
             async for chunk in self._insights_subgraph.astream(
@@ -138,10 +133,11 @@ class ExecuteTasksTool:
             capture_exception(e)
             raise
 
-        last_message = subgraph_result_messages[-1]
-        if not last_message:
+        if len(subgraph_result_messages) == 0 or not subgraph_result_messages[-1]:
             logger.warning("Task failed: no messages received from insights subgraph", task_id=task.id)
             return self._failed_result(task)
+
+        last_message = subgraph_result_messages[-1]
 
         if not isinstance(last_message, AssistantToolCallMessage):
             logger.warning(

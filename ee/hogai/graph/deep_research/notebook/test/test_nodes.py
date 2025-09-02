@@ -24,7 +24,7 @@ class TestDeepResearchNotebookPlanningNode(APIBaseTest):
     @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._get_model")
     @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._astream_notebook")
     async def test_arun_creates_notebook_plan_successfully(self, mock_astream, mock_get_model, mock_core_memory):
-        """Test that notebook plans is created successfully."""
+        """Test that notebook plan is created successfully."""
         mock_core_memory.return_value = "Test core memory"
         mock_model = AsyncMock()
         mock_get_model.return_value = mock_model

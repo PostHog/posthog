@@ -1,5 +1,6 @@
 from uuid import UUID, uuid4
 
+import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from asgiref.sync import async_to_sync
@@ -109,7 +110,7 @@ class TestDeepResearchOnboardingNode:
             response_metadata={"id": "test_response_id"},
         )
 
-        # Ppatching the chain's ainvoke method
+        # Patching the chain's ainvoke method
         with (
             patch.object(self.node, "_aget_core_memory", return_value=mock_core_memory),
             patch.object(self.node, "_get_model") as mock_get_model,
@@ -231,11 +232,8 @@ class TestDeepResearchOnboardingNode:
         )
 
         with patch.object(self.node, "_aget_core_memory", return_value=None):
-            try:
+            with pytest.raises(ValueError, match="Last message is not a human message."):
                 async_to_sync(self.node.arun)(state, self.config)
-                raise AssertionError("Should have raised ValueError")
-            except ValueError as e:
-                assert str(e) == "Last message is not a human message."
 
     def test_arun_message_id_generation(self):
         """Test that each generated message has a unique ID."""

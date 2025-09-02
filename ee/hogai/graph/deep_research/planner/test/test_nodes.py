@@ -478,11 +478,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
         self.assertEqual(len(result.messages), 1)
         self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
 
-        has_artifacts = any(len(tr.artifacts) > 0 for tr in task_results)
-        if has_artifacts:
-            self.assertIn("Current artifacts:", result.messages[0].content)
-        else:
-            self.assertIn("Current artifacts:", result.messages[0].content)
+        self.assertIn("Current artifacts:", result.messages[0].content)
 
     async def test_execute_tasks_tool(self):
         """Test execute_tasks tool execution returns tasks"""

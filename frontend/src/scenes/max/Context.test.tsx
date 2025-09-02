@@ -23,7 +23,6 @@ describe('ContextDisplay', () => {
         initKeaTests()
         logic = maxContextLogic()
         logic.mount()
-        cleanup()
     })
 
     afterEach(() => {

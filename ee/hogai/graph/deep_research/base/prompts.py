@@ -51,8 +51,8 @@ Typical uses:
 - How many users come back and perform an action after their first visit.
 - How many users come back to perform action X after performing action Y.
 - How often users return to use a specific feature.
-## 'sql'
-The 'sql' insight type allows you to write arbitrary SQL queries to retrieve data.
+## `sql`
+The `sql` insight type allows you to write arbitrary SQL queries to retrieve data.
 The SQL insights have the following features:
 - Filter data using arbitrary SQL.
 - All ClickHouse SQL features.

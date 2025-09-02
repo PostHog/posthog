@@ -18,12 +18,15 @@ from ee.hogai.utils.state import merge_message_chunk
 
 
 class DeepResearchNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchState]):
+    REASONING_MODEL = "o3"
+    REASONING_EFFORT = "medium"
+
     notebook: Notebook | None = None
     _notebook_serializer: NotebookSerializer | None = None
 
     def _get_model(self, instructions: str, previous_response_id: Optional[str] = None):
         return MaxChatOpenAI(
-            model="o3",
+            model=self.REASONING_MODEL,
             streaming=True,
             use_responses_api=True,
             max_retries=3,
@@ -34,7 +37,7 @@ class DeepResearchNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchS
                 "previous_response_id": previous_response_id,
             },
             reasoning={
-                "effort": "medium",
+                "effort": self.REASONING_EFFORT,
                 "summary": "auto",
             },
         )

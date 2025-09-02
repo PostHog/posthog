@@ -90,7 +90,9 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             return qs
 
         # But retrieval must only return conversations from the assistant and with a title.
-        return qs.filter(title__isnull=False).exclude(type=Conversation.Type.TOOL_CALL).order_by("-updated_at")
+        return qs.filter(
+            title__isnull=False, type__in=[Conversation.Type.DEEP_RESEARCH, Conversation.Type.ASSISTANT]
+        ).order_by("-updated_at")
 
     def get_throttles(self):
         if (

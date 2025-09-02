@@ -4,6 +4,7 @@ from typing import cast
 import structlog
 from langchain_core.runnables import RunnableConfig
 from langgraph.config import get_stream_writer
+from langgraph.graph.state import CompiledStateGraph
 
 from posthog.schema import (
     AssistantMessage,
@@ -37,7 +38,7 @@ class TaskExecutorNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchS
     Core task execution node that handles research tasks (Tasks coming from the Deep Research Planner).
     """
 
-    def __init__(self, team: Team, user: User, insights_subgraph):
+    def __init__(self, team: Team, user: User, insights_subgraph: CompiledStateGraph):
         super().__init__(team, user)
         self._execute_tasks_tool = ExecuteTasksTool(insights_subgraph)
 

@@ -83,7 +83,7 @@ class SessionSummarizationNode(AssistantNode):
             return
         # Check if we have a notebook_id in the state
         if not state.notebook_short_id:
-            self.logger.exception("No notebook_id in state, skipping notebook update")
+            self.logger.exception("No notebook_short_id in state, skipping notebook update")
             return
         if partial:
             # Create a notebook update message; not providing id to count it as a partial message on FE

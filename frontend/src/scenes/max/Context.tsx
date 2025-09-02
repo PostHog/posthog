@@ -10,6 +10,7 @@ import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopov
 import { IconAction, IconEvent } from 'lib/lemon-ui/icons'
 
 import { maxContextLogic } from './maxContextLogic'
+import { maxThreadLogic } from './maxThreadLogic'
 import { MaxActionContext, MaxDashboardContext, MaxEventContext, MaxInsightContext } from './maxTypes'
 
 function pluralize(count: number, word: string): string {
@@ -238,13 +239,16 @@ export function ContextTags({ size = 'default' }: { size?: 'small' | 'default' }
 
 interface ContextDisplayProps {
     size?: 'small' | 'default'
-    /** When true, disables context functionality and shows warning message */
-    deepResearchMode?: boolean
 }
 
-export function ContextDisplay({ size = 'default', deepResearchMode = false }: ContextDisplayProps): JSX.Element {
+export function ContextDisplay({ size = 'default' }: ContextDisplayProps): JSX.Element | null {
+    const { deepResearchMode, showDeepResearchModeToggle } = useValues(maxThreadLogic)
     const { hasData, contextOptions, taxonomicGroupTypes, mainTaxonomicGroupType } = useValues(maxContextLogic)
     const { handleTaxonomicFilterChange } = useActions(maxContextLogic)
+
+    if (!showDeepResearchModeToggle) {
+        return null
+    }
 
     return (
         <div className="px-1 pt-1 w-full">
