@@ -174,7 +174,6 @@ export class HogFunctionMonitoringService {
 
                         if (this.hub.internalCaptureService.isEnabled()) {
                             this.eventsToCapture.push({
-                                team_id: event.team_id,
                                 team_token: team.api_token,
                                 event: event.event,
                                 distinct_id: event.distinct_id,

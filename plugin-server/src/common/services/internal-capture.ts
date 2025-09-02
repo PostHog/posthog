@@ -12,7 +12,6 @@ const internalCaptureCounter = new Counter({
 })
 
 export type InternalCaptureEvent = {
-    team_id: number
     team_token: string
     event: string
     distinct_id: string
@@ -20,7 +19,7 @@ export type InternalCaptureEvent = {
     timestamp?: string
 }
 
-type CapturePayloadFormt = {
+type CapturePayloadFormat = {
     api_key: string
     timestamp: string
     distinct_id: string
@@ -36,7 +35,7 @@ export class InternalCaptureService {
         return this.config.CAPTURE_INTERNAL_URL !== ''
     }
 
-    private prepareEvent(event: InternalCaptureEvent): CapturePayloadFormt {
+    private prepareEvent(event: InternalCaptureEvent): CapturePayloadFormat {
         const properties = event.properties ?? {}
         properties['capture_internal'] = true
         const now = DateTime.utc().toISO()
