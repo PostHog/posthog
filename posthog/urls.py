@@ -40,6 +40,7 @@ from posthog.demo.legacy import demo_route
 from posthog.models import User
 from posthog.models.instance_setting import get_instance_setting
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
+from posthog.temporal.codec_server import decode_payloads
 
 from products.early_access_features.backend.api import early_access_features
 
@@ -242,6 +243,8 @@ if settings.DEBUG:
     # external clients cannot see them. See the gunicorn setup for details on
     # what we do.
     urlpatterns.append(path("_metrics", ExportToDjangoView))
+    # Temporal codec server endpoint for UI decryption - locally only for now
+    urlpatterns.append(path("decode", decode_payloads, name="temporal_decode"))
 
 
 if settings.TEST:
@@ -255,6 +258,8 @@ if settings.TEST:
         return HttpResponse()
 
     urlpatterns.append(path("delete_events/", delete_events))
+    # Temporal codec server endpoint for UI decryption - needed for tests
+    urlpatterns.append(path("decode", decode_payloads, name="temporal_decode"))
 
 
 # Routes added individually to remove login requirement
