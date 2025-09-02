@@ -560,7 +560,6 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     exported_data["shareToken"] = jwt_token
                 # Continue processing to add dashboard/insight data to exported_data
             elif request.method == "POST":
-                # Validate password
                 validated_password = None
                 if "password" in request.data:
                     validated_password = self._validate_share_password(resource, request.data["password"])

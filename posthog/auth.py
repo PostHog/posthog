@@ -388,13 +388,12 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
 
             from posthog.models.share_password import SharePassword
 
-            # Look up the SharePassword and its related SharingConfiguration
             share_password = SharePassword.objects.select_related("sharing_configuration").get(
                 id=payload["share_password_id"],
                 sharing_configuration__team_id=payload["team_id"],
                 sharing_configuration__enabled=True,
                 sharing_configuration__password_required=True,
-                is_active=True,  # Critical: password must still be active
+                is_active=True,
             )
 
             sharing_configuration = share_password.sharing_configuration
