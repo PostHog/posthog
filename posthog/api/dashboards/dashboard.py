@@ -898,17 +898,3 @@ def handle_dashboard_change(
             type="dashboard",
         ),
     )
-
-
-@receiver(pre_delete, sender=Dashboard)
-def handle_dashboard_delete(sender, instance, **kwargs):
-    log_activity(
-        organization_id=instance.team.organization_id,
-        team_id=instance.team_id,
-        user=activity_storage.get_user() or getattr(instance, "last_modified_by", instance.created_by),
-        was_impersonated=activity_storage.get_was_impersonated(),
-        item_id=instance.id,
-        scope="Dashboard",
-        activity="deleted",
-        detail=Detail(name=instance.name, type="dashboard"),
-    )
