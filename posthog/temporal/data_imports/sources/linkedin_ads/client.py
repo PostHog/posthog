@@ -84,14 +84,12 @@ class LinkedinAdsClient:
     ) -> Generator[list[dict[str, Any]], None, None]:
         """Get data by resource, yielding each page separately for paginated endpoints."""
         if resource == LinkedinAdsResource.Accounts:
-            # Accounts is not paginated, yield single page
             yield self.get_accounts()
         elif resource == LinkedinAdsResource.Campaigns:
             yield from self.get_campaigns(account_id)
         elif resource == LinkedinAdsResource.CampaignGroups:
             yield from self.get_campaign_groups(account_id)
         elif resource in LINKEDIN_ADS_PIVOTS:
-            # Analytics is not paginated, yield single page
             yield self.get_analytics(account_id, LINKEDIN_ADS_PIVOTS[resource], date_start, date_end)
         else:
             raise ValueError(f"Unsupported resource: {resource}")
@@ -151,10 +149,8 @@ class LinkedinAdsClient:
             if not response.elements:
                 break
 
-            # Yield this page's elements
             yield response.elements
 
-            # Extract next page token from response
             metadata = json.loads(response.response.text).get("metadata", {})
             page_token = metadata.get("nextPageToken")
             if not page_token:

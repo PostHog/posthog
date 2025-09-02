@@ -44,7 +44,6 @@ class LinkedinAdsColumn(Column):
         elif self.qualified_name in DATE_FIELDS:
             arrow_type = pa.date32()
         else:
-            # Everything else as strings
             arrow_type = pa.string()
 
         return pa.field(self.name, arrow_type)
@@ -203,7 +202,6 @@ def linkedin_ads_source(
             date_start = start_date.strftime("%Y-%m-%d")
             date_end = end_date.strftime("%Y-%m-%d")
 
-        # Get data from LinkedIn API
         data_pages = client.get_data_by_resource(
             resource=resource,
             account_id=config.account_id,
@@ -219,8 +217,8 @@ def linkedin_ads_source(
         name=name,
         items=get_rows(),
         primary_keys=table.primary_key,
-        partition_count=1 if table.requires_filter else None,  # this enables partitioning
-        partition_size=1 if table.requires_filter else None,  # this enables partitioning
+        partition_count=1 if table.requires_filter else None,
+        partition_size=1 if table.requires_filter else None,
         partition_mode="datetime" if table.requires_filter else None,
         partition_format="day" if table.requires_filter else None,
         partition_keys=["dateRange_start"] if table.requires_filter else None,
@@ -263,7 +261,7 @@ def _extract_virtual_column_value(record: dict[str, typing.Any], column_name: st
         try:
             pivot_values = json.loads(pivot_values)
         except json.JSONDecodeError:
-            pivot_values = [pivot_values]  # Treat as single value
+            pivot_values = [pivot_values]
 
     # Extract ID from pivot values by URN type
     if not isinstance(pivot_values, list):
@@ -295,7 +293,6 @@ def _flatten_linkedin_record(
             else:
                 value = None
         else:
-            # Extract value based on qualified name
             value = record.get(column.qualified_name)
 
             # Convert based on field type
