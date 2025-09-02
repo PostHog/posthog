@@ -1038,6 +1038,314 @@ function byteLengthUTF8(s: string): number {
     }
 }
 
+function bytesOf(value: unknown): number {
+    try {
+        const { text } = toJSONStringBestEffort(value, false)
+        return byteLengthUTF8(text)
+    } catch {
+        // absolute fallback: best-effort string length
+        try {
+            return byteLengthUTF8(String(value))
+        } catch {
+            return 0
+        }
+    }
+}
+
+// Safe tag: avoids instanceof on cross-realm/host objects/proxies
+function safeTag(v: unknown): string {
+    try {
+        return Object.prototype.toString.call(v) // e.g. "[object Map]"
+    } catch {
+        return '[object Unknown]'
+    }
+}
+
+const isArray = (v: unknown): boolean => Array.isArray(v)
+const isMap = (v: unknown): boolean => safeTag(v) === '[object Map]'
+const isSet = (v: unknown): boolean => safeTag(v) === '[object Set]'
+const isDate = (v: unknown): boolean => safeTag(v) === '[object Date]'
+const isArrayBuffer = (v: unknown): boolean => safeTag(v) === '[object ArrayBuffer]'
+const isDataView = (v: unknown): boolean => safeTag(v) === '[object DataView]'
+
+function isTypedArray(v: unknown): boolean {
+    const tag = safeTag(v)
+    return (
+        /\[object (?:Uint|Int|Float)\d{1,2}Array\]/.test(tag) ||
+        tag === '[object BigInt64Array]' ||
+        tag === '[object BigUint64Array]'
+    )
+}
+
+// Hard guard for “host-like” things (DOM, React elements, Window, etc.)
+function isHostLike(v: any): boolean {
+    // React element (don’t traverse)
+    if (v && typeof v === 'object' && (v as any).$$typeof) {
+        return true
+    }
+    const tag = safeTag(v)
+    // DOM-ish, window-ish, error objects, etc. — treat as leaf
+    if (
+        tag === '[object Window]' ||
+        tag === '[object Document]' ||
+        tag === '[object Element]' ||
+        tag === '[object Node]' ||
+        tag === '[object HTMLDocument]' ||
+        tag === '[object ShadowRoot]' ||
+        tag === '[object Error]'
+    ) {
+        return true
+    }
+    return false
+}
+
+function isComposite(v: unknown): boolean {
+    if (v === null) {
+        return false
+    }
+    if (typeof v !== 'object') {
+        return false
+    }
+    if (isHostLike(v)) {
+        return false
+    }
+    return true
+}
+
+type ChildWithSize = { key: string; value: unknown; bytes: number; canExpand: boolean }
+
+function getChildrenSorted(value: unknown): ChildWithSize[] {
+    const out: ChildWithSize[] = []
+    if (value == null || !isComposite(value)) {
+        return out
+    }
+
+    // Map
+    if (isMap(value)) {
+        let i = 0
+        try {
+            for (const [k, v] of (value as Map<any, any>).entries()) {
+                if (i++ >= INSPECT_MAX_ARRAY) {
+                    break
+                }
+                let kPreview = ''
+                try {
+                    const s = JSON.stringify(k)
+                    kPreview = s.length > 80 ? s.slice(0, 77) + '…' : s
+                } catch {
+                    kPreview = String(k)
+                }
+                const b = bytesOf(v)
+                out.push({ key: `→ ${kPreview}`, value: v, bytes: b, canExpand: isComposite(v) })
+            }
+        } catch {
+            /* ignore */
+        }
+        out.sort((a, b) => b.bytes - a.bytes)
+        return out
+    }
+
+    // Set
+    if (isSet(value)) {
+        let i = 0,
+            idx = 0
+        try {
+            for (const v of (value as Set<any>).values()) {
+                if (i++ >= INSPECT_MAX_ARRAY) {
+                    break
+                }
+                const b = bytesOf(v)
+                out.push({ key: String(idx++), value: v, bytes: b, canExpand: isComposite(v) })
+            }
+        } catch {
+            /* ignore */
+        }
+        out.sort((a, b) => b.bytes - a.bytes)
+        return out
+    }
+
+    // Array
+    if (isArray(value)) {
+        const arr = value as any[]
+        const n = Math.min(arr.length, INSPECT_MAX_ARRAY)
+        for (let i = 0; i < n; i++) {
+            const got = tryGet(() => arr[i])
+            const val = got === '[[Throw]]' ? '[Throwing Getter]' : got
+            const b = bytesOf(val)
+            out.push({ key: String(i), value: val, bytes: b, canExpand: isComposite(val) })
+        }
+        out.sort((a, b) => b.bytes - a.bytes)
+        if (arr.length > n) {
+            out.push({ key: `[+${arr.length - n} more]`, value: undefined, bytes: 0, canExpand: false })
+        }
+        return out
+    }
+
+    // Binary & dates: leaf-metadata only
+    if (isArrayBuffer(value)) {
+        const bl = tryGet(() => (value as ArrayBuffer).byteLength)
+        out.push({ key: 'byteLength', value: bl, bytes: bytesOf(bl), canExpand: false })
+        return out
+    }
+    if (isTypedArray(value) || isDataView(value)) {
+        const len = tryGet(() => (value as any).length)
+        out.push({ key: 'length', value: len, bytes: bytesOf(len), canExpand: false })
+        return out
+    }
+    if (isDate(value)) {
+        return out
+    } // no children
+
+    // Plain-ish object
+    const keys: (string | symbol)[] = []
+    const names = tryGet(() => Object.getOwnPropertyNames(value as object))
+    const syms = tryGet(() => Object.getOwnPropertySymbols(value as object))
+    if (Array.isArray(names)) {
+        keys.push(...names)
+    }
+    if (Array.isArray(syms)) {
+        keys.push(...syms)
+    }
+
+    for (const k of keys) {
+        const got = tryGet(() => (value as any)[k as any])
+        const val = got === '[[Throw]]' ? '[Throwing Getter]' : got
+        const b = bytesOf(val)
+        out.push({ key: String(k), value: val, bytes: b, canExpand: isComposite(val) })
+        if (out.length >= INSPECT_MAX_ARRAY) {
+            out.push({ key: '[+more]', value: undefined, bytes: 0, canExpand: false })
+            break
+        }
+    }
+
+    out.sort((a, b) => b.bytes - a.bytes)
+    return out
+}
+
+function RowLine({
+    depth,
+    label,
+    size,
+    canExpand,
+    isOpen,
+    onToggle,
+}: {
+    depth: number
+    label: string
+    size: number
+    canExpand: boolean
+    isOpen: boolean
+    onToggle: () => void
+}): JSX.Element {
+    return (
+        <div
+            style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr max-content',
+                alignItems: 'center',
+                padding: '4px 6px',
+                borderBottom: '1px dashed rgba(0,0,0,0.05)',
+            }}
+        >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ paddingLeft: depth * 14 }} />
+                {canExpand ? (
+                    <button
+                        type="button"
+                        onClick={onToggle}
+                        style={simpleBtnStyle}
+                        title={isOpen ? 'Collapse' : 'Expand'}
+                    >
+                        {isOpen ? '▾' : '▸'}
+                    </button>
+                ) : (
+                    <span style={{ width: 32 }} />
+                )}
+                <code
+                    style={{
+                        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                        wordBreak: 'break-all',
+                    }}
+                >
+                    {label}
+                </code>
+            </div>
+            <div style={{ textAlign: 'right', fontWeight: 700 }}>{formatBytes(size)}</div>
+        </div>
+    )
+}
+
+type TreeState = { expanded: Set<string>; toggle: (id: string) => void }
+
+function MemoryTree({
+    rootValue,
+    rootId,
+    state,
+    depth = 0,
+}: {
+    rootValue: unknown
+    rootId: string
+    state: TreeState
+    depth?: number
+}) {
+    try {
+        const children = getChildrenSorted(rootValue)
+        return (
+            <div>
+                {children.map(({ key, value, bytes, canExpand }) => {
+                    const id = `${rootId}.${key}`
+                    const open = canExpand && state.expanded.has(id)
+                    return (
+                        <div key={id}>
+                            <RowLine
+                                depth={depth}
+                                label={key}
+                                size={bytes}
+                                canExpand={canExpand}
+                                isOpen={!!open}
+                                onToggle={() => state.toggle(id)}
+                            />
+                            {open ? <MemoryTree rootValue={value} rootId={id} state={state} depth={depth + 1} /> : null}
+                        </div>
+                    )
+                })}
+            </div>
+        )
+    } catch (e: any) {
+        return (
+            <div style={{ padding: 6, color: 'rgba(0,0,0,0.7)' }}>
+                <code>[[Render error: {e?.message ?? String(e)}]]</code>
+            </div>
+        )
+    }
+}
+
+class MemoryErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; msg?: string }> {
+    constructor(props: any) {
+        super(props)
+        this.state = { hasError: false, msg: undefined }
+    }
+
+    static getDerivedStateFromError(err: any): Record<string, any> {
+        return { hasError: true, msg: err?.message ?? String(err) }
+    }
+
+    componentDidCatch(err: any): void {
+        console.warn('MemoryTree error', err)
+    }
+
+    render(): JSX.Element | null {
+        if (this.state.hasError) {
+            return (
+                <div style={{ padding: 6, color: 'rgba(0,0,0,0.7)' }}>
+                    <code>[[Tree crashed: {this.state.msg}]]</code>
+                </div>
+            )
+        }
+        return this.props.children as any
+    }
+}
+
 // ---------- Memory tab ----------
 
 type MemoryRow = {
@@ -1278,9 +1586,11 @@ function MemoryTab({ store, mounted }: { store: KeaContext['store']; mounted: Mo
                                                         type="button"
                                                         onClick={() => toggle(r.key)}
                                                         style={simpleBtnStyle}
-                                                        title={isOpen ? 'Hide contents' : 'View contents'}
+                                                        title={
+                                                            isOpen ? 'Collapse details' : 'Expand to see per-key sizes'
+                                                        }
                                                     >
-                                                        {isOpen ? 'Hide' : 'View'}
+                                                        {isOpen ? 'Collapse' : 'Expand'}
                                                     </button>
                                                     <button
                                                         type="button"
@@ -1296,21 +1606,46 @@ function MemoryTab({ store, mounted }: { store: KeaContext['store']; mounted: Mo
                                         {isOpen ? (
                                             <tr>
                                                 <td colSpan={3} style={{ padding: '6px 12px 12px' }}>
-                                                    <textarea
-                                                        readOnly
-                                                        rows={10}
-                                                        value={safeStringify(r.value, true)}
+                                                    <div
                                                         style={{
-                                                            width: '100%',
-                                                            fontFamily:
-                                                                'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-                                                            resize: 'vertical',
                                                             border: '1px solid rgba(0,0,0,0.12)',
                                                             borderRadius: 8,
-                                                            padding: '8px 10px',
                                                             background: '#fafafa',
+                                                            overflow: 'hidden',
                                                         }}
-                                                    />
+                                                    >
+                                                        <div
+                                                            style={{
+                                                                display: 'grid',
+                                                                gridTemplateColumns: '1fr max-content',
+                                                                padding: '8px 10px',
+                                                                background: '#f0f1f5',
+                                                                borderBottom: '1px solid rgba(0,0,0,0.08)',
+                                                                fontWeight: 700,
+                                                            }}
+                                                        >
+                                                            <div>{r.key}</div>
+                                                            <div>{formatBytes(r.bytes)}</div>
+                                                        </div>
+
+                                                        <MemoryErrorBoundary>
+                                                            <MemoryTree
+                                                                rootValue={r.value}
+                                                                rootId={r.key}
+                                                                state={{
+                                                                    expanded,
+                                                                    toggle: (id) =>
+                                                                        setExpanded((prev) => {
+                                                                            const next = new Set(prev)
+                                                                            next.has(id)
+                                                                                ? next.delete(id)
+                                                                                : next.add(id)
+                                                                            return next
+                                                                        }),
+                                                                }}
+                                                            />
+                                                        </MemoryErrorBoundary>
+                                                    </div>
                                                 </td>
                                             </tr>
                                         ) : null}
