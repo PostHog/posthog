@@ -4,7 +4,7 @@ import api from 'lib/api'
 
 export const openInAdminPanel = async (email: string): Promise<void> => {
     try {
-        const response = await api.get(`api/users/?email=${encodeURIComponent(email)}`)
+        const response = await api.users.list(email)
 
         if (!response.results || response.results.length === 0) {
             throw new Error('User not found')
