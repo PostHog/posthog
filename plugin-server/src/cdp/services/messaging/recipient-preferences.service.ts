@@ -93,7 +93,7 @@ export class RecipientPreferencesService {
                 return { valid: false }
             }
 
-            const { team_id, identifier } = parseJSON(String(decoded))
+const { team_id, identifier } = decoded as { team_id: number, identifier: string }
             return { valid: true, team_id, identifier }
         } catch (error) {
             logger.error('Error validating preferences token:', error)
