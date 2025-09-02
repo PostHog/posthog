@@ -1,19 +1,15 @@
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
-import React, { useEffect } from 'react'
+import { useValues } from 'kea'
+import React from 'react'
 
 import { IconSparkles, IconWrench } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { userLogic } from 'scenes/userLogic'
 
-import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
-import { SidePanelTab } from '~/types'
-
-import { TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
-import { maxGlobalLogic } from './maxGlobalLogic'
+import { ToolRegistration } from './max-constants'
+import { useMaxTool } from './useMaxTool'
 import { generateBurstPoints } from './utils'
 
 interface MaxToolProps extends Omit<ToolRegistration, 'name' | 'description'> {
@@ -41,48 +37,22 @@ export function MaxTool({
     className,
     position = 'top-right',
 }: MaxToolProps): JSX.Element {
-    const { registerTool, deregisterTool } = useActions(maxGlobalLogic)
     const { user } = useValues(userLogic)
-    const { openSidePanel } = useActions(sidePanelLogic)
-    const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
 
-    const definition = TOOL_DEFINITIONS[identifier as keyof typeof TOOL_DEFINITIONS]
-
-    const isMaxAvailable = useFeatureFlag('ARTIFICIAL_HOG') && active
-    const isMaxOpen = isMaxAvailable && sidePanelOpen && selectedTab === SidePanelTab.Max
-
-    useEffect(() => {
-        if (active) {
-            registerTool({
-                identifier,
-                name: definition.name,
-                description: definition.description,
-                icon,
-                context,
-                introOverride,
-                suggestions,
-                callback,
-            })
-            return (): void => {
-                deregisterTool(identifier)
-            }
-        }
-    }, [
-        active,
+    const { definition, isMaxOpen, openMax } = useMaxTool({
         identifier,
-        definition.name,
-        definition.description,
         icon,
-        JSON.stringify(context),
+        context,
         introOverride,
-        JSON.stringify(suggestions),
         callback,
-        registerTool,
-        deregisterTool,
-    ]) // oxlint-disable-line react-hooks/exhaustive-deps
+        suggestions,
+        active,
+        initialMaxPrompt,
+        onMaxOpen,
+    })
 
     let content: JSX.Element
-    if (!isMaxAvailable) {
+    if (!definition) {
         content = <>{typeof Children === 'function' ? <Children toolAvailable={false} /> : Children}</>
     } else {
         content = (
@@ -115,18 +85,7 @@ export function MaxTool({
                             position === 'bottom-left' && '-bottom-2 -left-2'
                         )}
                         type="button"
-                        onClick={() => {
-                            // Include both initial prompt and suggestions
-                            let options = initialMaxPrompt
-                            if (suggestions && suggestions.length > 0) {
-                                options = JSON.stringify({
-                                    prompt: initialMaxPrompt,
-                                    suggestions: suggestions,
-                                })
-                            }
-                            openSidePanel(SidePanelTab.Max, options)
-                            onMaxOpen?.()
-                        }}
+                        onClick={openMax || undefined}
                     >
                         {/* Burst border - the inset and size vals are very specific just bc these look nice */}
                         <svg className={clsx('absolute -inset-1 size-8')} viewBox="0 0 100 100">

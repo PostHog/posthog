@@ -17,6 +17,8 @@ BASE_SUPPORTED_PROPERTIES = {
     "$geoip_subdivision_1_code": "region_code",
     "$geoip_subdivision_1_name": "region_name",
     "$geoip_time_zone": "time_zone",
+    "metadata.loggedIn": "mat_metadata_loggedIn",
+    "metadata.backend": "mat_metadata_backend",
 }
 
 ATTRIBUTION_PROPERTIES = {
@@ -85,6 +87,8 @@ EVENT_PROPERTY_TO_FIELD = {
     "utm_term": "utm_term",
     "utm_content": "utm_content",
     "$referring_domain": "referring_domain",
+    "metadata.loggedIn": "mat_metadata_loggedIn",
+    "metadata.backend": "mat_metadata_backend",
 }
 
 SESSION_PROPERTY_TO_FIELD = {

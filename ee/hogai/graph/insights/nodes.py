@@ -2,7 +2,7 @@ import re
 import time
 import warnings
 from datetime import timedelta
-from typing import Literal
+from typing import Literal, Optional, TypedDict
 from uuid import uuid4
 
 from django.db.models import Max
@@ -40,6 +40,17 @@ from .prompts import (
 logger = structlog.get_logger(__name__)
 # Silence Pydantic serializer warnings for creation of VisualizationMessage/Query execution
 warnings.filterwarnings("ignore", category=UserWarning, message=".*Pydantic serializer.*")
+
+
+class InsightDict(TypedDict):
+    """TypedDict for insight data returned from queryset.values()."""
+
+    id: int
+    name: Optional[str]
+    description: Optional[str]
+    query: Optional[dict]
+    derived_name: Optional[str]
+    short_id: str
 
 
 class InsightSearchNode(AssistantNode):
@@ -133,7 +144,7 @@ class InsightSearchNode(AssistantNode):
 
             self._evaluation_selections[insight_id] = {"insight": insight, "explanation": explanation}
 
-            name = insight.name or insight.derived_name or "Unnamed"
+            name = insight["name"] or insight["derived_name"] or "Unnamed"
             insight_url = self._build_insight_url(insight)
             return f"Selected insight {insight_id}: {name} (url: {insight_url})"
 
@@ -186,7 +197,7 @@ class InsightSearchNode(AssistantNode):
             .annotate(latest_view_time=Max("insightviewed__last_viewed_at"))
             # Only include insights viewed within the last 6 months
             .filter(latest_view_time__gte=cutoff_date)
-            .select_related("team", "created_by")
+            .values("id", "name", "description", "query", "derived_name", "short_id")
             .order_by("-latest_view_time")
         )
 
@@ -254,18 +265,18 @@ class InsightSearchNode(AssistantNode):
             state.root_tool_call_id,
         )
 
-    def _format_insight_for_display(self, insight: Insight) -> str:
+    def _format_insight_for_display(self, insight: InsightDict) -> str:
         """Format a single insight for display."""
-        name = insight.name or insight.derived_name or "Unnamed"
-        description = insight.description or ""
-        base = f"ID: {insight.id} | {name}"
+        name = insight["name"] or insight["derived_name"] or "Unnamed"
+        description = insight["description"] or ""
+        base = f"ID: {insight['id']} | {name}"
         return f"{base} - {description}" if description else base
 
-    def _build_insight_url(self, insight: Insight) -> str:
+    def _build_insight_url(self, insight: InsightDict) -> str:
         """Build the URL for an insight."""
-        return f"/project/{self._team.id}/insights/{insight.short_id}"
+        return f"/project/{self._team.id}/insights/{insight['short_id']}"
 
-    async def _load_insights_page(self, page_number: int) -> list[Insight]:
+    async def _load_insights_page(self, page_number: int) -> list[InsightDict]:
         """Load a specific page of insights from database."""
         logger.warning(f"_load_insights_page called with page_number={page_number}")
 
@@ -325,7 +336,7 @@ class InsightSearchNode(AssistantNode):
         self._loaded_pages[page_number] = page_insights
 
         for insight in page_insights:
-            self._insight_id_cache[insight.id] = insight
+            self._insight_id_cache[insight["id"]] = insight
 
         return page_insights
 
@@ -463,24 +474,24 @@ class InsightSearchNode(AssistantNode):
         all_ids = set()
         for page_insights in self._loaded_pages.values():
             for insight in page_insights:
-                all_ids.add(insight.id)
+                all_ids.add(insight["id"])
         return all_ids
 
-    def _find_insight_by_id(self, insight_id: int) -> Insight | None:
+    def _find_insight_by_id(self, insight_id: int) -> InsightDict | None:
         """Find an insight by ID across all loaded pages (with cache)."""
         return self._insight_id_cache.get(insight_id)
 
-    async def _process_insight_query(self, insight: Insight) -> tuple[SupportedQueryTypes | None, str | None]:
+    async def _process_insight_query(self, insight: InsightDict) -> tuple[SupportedQueryTypes | None, str | None]:
         """
         Process an insight's query and cache object and formatted results for reference
         """
-        insight_id = insight.id
+        insight_id = insight["id"]
 
         cached_result = self._get_cached_query(insight_id)
         if cached_result is not None:
             return cached_result
 
-        if not insight.query:
+        if not insight["query"]:
             return self._cache_and_return(insight_id, None, None)
 
         query_obj, formatted_results = await self._extract_and_execute_query(insight)
@@ -504,10 +515,12 @@ class InsightSearchNode(AssistantNode):
         self._query_cache[insight_id] = result
         return result
 
-    async def _extract_and_execute_query(self, insight: Insight) -> tuple[SupportedQueryTypes | None, str | None]:
+    async def _extract_and_execute_query(self, insight: InsightDict) -> tuple[SupportedQueryTypes | None, str | None]:
         """Extract query object and execute it."""
         try:
-            query_dict = insight.query
+            query_dict = insight["query"]
+            if query_dict is None:
+                return None, "Query is missing"
             query_source = query_dict.get("source", {})
             insight_type = query_source.get("kind", "Unknown")
 
@@ -563,20 +576,20 @@ class InsightSearchNode(AssistantNode):
 
         return valid_ids
 
-    async def _create_enhanced_insight_summary(self, insight: Insight) -> str:
+    async def _create_enhanced_insight_summary(self, insight: InsightDict) -> str:
         """Create enhanced summary with metadata and basic execution info."""
-        insight_id = insight.id
-        name = insight.name or insight.derived_name or "Unnamed"
-        description = insight.description or ""
+        insight_id = insight["id"]
+        name = insight["name"] or insight["derived_name"] or "Unnamed"
+        description = insight["description"] or ""
 
         insight_type = "Unknown"
         query_info = None
 
         _, query_result = await self._process_insight_query(insight)
 
-        if insight.query:
+        if insight["query"]:
             try:
-                query_dict = insight.query
+                query_dict = insight["query"]
                 query_source = query_dict.get("source", {})
                 insight_type = query_source.get("kind", "Unknown")
                 query_info = self._extract_query_metadata(query_source)
@@ -633,7 +646,7 @@ class InsightSearchNode(AssistantNode):
             capture_exception(e)
             return None
 
-    async def _create_visualization_message_for_insight(self, insight: Insight) -> VisualizationMessage | None:
+    async def _create_visualization_message_for_insight(self, insight: InsightDict) -> VisualizationMessage | None:
         """Create a VisualizationMessage to render the insight UI."""
         try:
             writer = self._get_stream_writer()
@@ -648,7 +661,7 @@ class InsightSearchNode(AssistantNode):
             if not query_obj:
                 return None
 
-            insight_name = insight.name or insight.derived_name or "Unnamed Insight"
+            insight_name = insight["name"] or insight["derived_name"] or "Unnamed Insight"
 
             visualization_message = VisualizationMessage(
                 query=f"Existing insight: {insight_name}",
@@ -804,7 +817,7 @@ class InsightSearchNode(AssistantNode):
             if visualization_message:
                 visualization_messages.append(visualization_message)
 
-            insight_name = insight.name or insight.derived_name or "Unnamed"
+            insight_name = insight["name"] or insight["derived_name"] or "Unnamed"
             insight_url = self._build_insight_url(insight)
             insight_hyperlink = f"[{insight_name}]({insight_url})"
             explanations.append(f"- {insight_hyperlink}: {selection['explanation']}")

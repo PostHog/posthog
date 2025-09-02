@@ -9,7 +9,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { objectsEqual } from 'lib/utils'
+import { isEmptyObject, isObject, objectsEqual } from 'lib/utils'
 import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -60,7 +60,7 @@ export const createEmptyInsight = (
 })
 
 export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType>([
-    props({} as InsightLogicProps),
+    props({ filtersOverride: null, variablesOverride: null } as InsightLogicProps),
     key(keyForInsightLogicProps('new')),
     path((key) => ['scenes', 'insights', 'insightLogic', key]),
     connect(() => ({
@@ -361,8 +361,11 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         insightName: [(s) => [s.insight, s.derivedName], (insight, derivedName) => insight.name || derivedName],
         insightId: [(s) => [s.insight], (insight) => insight?.id || null],
         canEditInsight: [
-            (s) => [s.insight],
-            (insight) => {
+            (s) => [s.insight, s.hasOverrides],
+            (insight, hasOverrides) => {
+                if (hasOverrides) {
+                    return false
+                }
                 return insight.user_access_level
                     ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, 'editor')
                     : true
@@ -399,6 +402,16 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         ],
         isUsingPathsV1: [(s) => [s.featureFlags], (featureFlags) => !featureFlags[FEATURE_FLAGS.PATHS_V2]],
         isUsingPathsV2: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.PATHS_V2]],
+        hasOverrides: [
+            () => [(_, props) => props],
+            (props) =>
+                (isObject(props.filtersOverride) && !isEmptyObject(props.filtersOverride)) ||
+                (isObject(props.variablesOverride) && !isEmptyObject(props.variablesOverride)),
+        ],
+        editingDisabledReason: [
+            (s) => [s.hasOverrides],
+            (hasOverrides) => (hasOverrides ? 'Discard overrides to edit the insight.' : null),
+        ],
     }),
     listeners(({ actions, values }) => ({
         saveInsight: async ({ redirectToViewMode, folder }) => {

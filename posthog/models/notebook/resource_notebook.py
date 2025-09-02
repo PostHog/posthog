@@ -20,12 +20,12 @@ class ResourceNotebook(UUIDTModel):
     # Relationships (exactly one must be set)
     # When adding a new foreign key, make sure to add the foreign key field and append field name
     # to the `RELATED_OBJECTS` tuple above.
-    group = models.ForeignKey(
-        "Group",
-        on_delete=models.CASCADE,
+    # Group relationship is not a foreign key because the table lives in another database instance, which would cause IntegrityErrors when inserting a new ResourceNotebook row.
+
+    group = models.IntegerField(
         null=True,
         blank=True,
-        related_name="notebooks",
+        db_column="group_id",
     )
 
     class Meta:

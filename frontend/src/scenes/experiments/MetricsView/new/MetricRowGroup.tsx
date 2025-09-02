@@ -46,7 +46,7 @@ interface MetricRowGroupProps {
     result: NewExperimentQueryResponse | null
     experiment: Experiment
     metricType: InsightType
-    metricIndex: number
+    displayOrder: number
     axisRange: number
     isSecondary: boolean
     isLastMetric: boolean
@@ -63,7 +63,7 @@ export function MetricRowGroup({
     result,
     experiment,
     metricType,
-    metricIndex,
+    displayOrder,
     axisRange,
     isSecondary,
     isLastMetric,
@@ -186,7 +186,7 @@ export function MetricRowGroup({
                     }}
                 >
                     <MetricHeader
-                        metricIndex={metricIndex}
+                        displayOrder={displayOrder}
                         metric={metric}
                         metricType={metricType}
                         isPrimaryMetric={!isSecondary}
@@ -274,7 +274,7 @@ export function MetricRowGroup({
                     }}
                 >
                     <MetricHeader
-                        metricIndex={metricIndex}
+                        displayOrder={displayOrder}
                         metric={metric}
                         metricType={metricType}
                         isPrimaryMetric={!isSecondary}
@@ -337,7 +337,6 @@ export function MetricRowGroup({
                                 metric={metric}
                                 result={result}
                                 experiment={experiment}
-                                metricIndex={metricIndex}
                                 isSecondary={isSecondary}
                             />
                         </>
@@ -386,7 +385,7 @@ export function MetricRowGroup({
 
                 return (
                     <tr
-                        key={`${metricIndex}-${variant.key}`}
+                        key={`${metric.uuid}-${variant.key}`}
                         className="hover:bg-bg-hover group [&:last-child>td]:border-b-0"
                         style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                         onMouseEnter={(e) => handleTooltipMouseEnter(e, variant)}
@@ -451,7 +450,7 @@ export function MetricRowGroup({
                         <ChartCell
                             variantResult={variant}
                             axisRange={axisRange}
-                            metricIndex={metricIndex}
+                            metricUuid={metric.uuid}
                             isAlternatingRow={isAlternatingRow}
                             isLastRow={isLastRow}
                             isSecondary={isSecondary}

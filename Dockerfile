@@ -63,7 +63,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /code
-COPY turbo.json package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY turbo.json package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
 COPY ./bin/turbo ./bin/turbo
 COPY ./patches ./patches
 COPY ./rust ./rust

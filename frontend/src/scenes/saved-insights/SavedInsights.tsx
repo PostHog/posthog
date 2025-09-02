@@ -512,7 +512,6 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
     [InsightType.PATHS]: QUERY_TYPES_METADATA[NodeKind.PathsQuery],
     [InsightType.STICKINESS]: QUERY_TYPES_METADATA[NodeKind.StickinessQuery],
     [InsightType.LIFECYCLE]: QUERY_TYPES_METADATA[NodeKind.LifecycleQuery],
-    [InsightType.CALENDAR_HEATMAP]: QUERY_TYPES_METADATA[NodeKind.CalendarHeatmapQuery],
     [InsightType.SQL]: {
         name: 'SQL',
         description: 'Use SQL to query your data.',

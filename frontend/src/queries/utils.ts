@@ -7,7 +7,6 @@ import {
     ActionsNode,
     ActorsQuery,
     BreakdownFilter,
-    CalendarHeatmapQuery,
     CompareFilter,
     DataTableNode,
     DataVisualizationNode,
@@ -266,10 +265,6 @@ export function isTrendsQuery(node?: Record<string, any> | null): node is Trends
     return node?.kind === NodeKind.TrendsQuery
 }
 
-export function isCalendarHeatmapQuery(node?: Record<string, any> | null): node is CalendarHeatmapQuery {
-    return node?.kind === NodeKind.CalendarHeatmapQuery
-}
-
 export function isFunnelsQuery(node?: Record<string, any> | null): node is FunnelsQuery {
     return node?.kind === NodeKind.FunnelsQuery
 }
@@ -341,8 +336,7 @@ export function isInsightQueryNode(node?: Record<string, any> | null): node is I
         isRetentionQuery(node) ||
         isPathsQuery(node) ||
         isStickinessQuery(node) ||
-        isLifecycleQuery(node) ||
-        isCalendarHeatmapQuery(node)
+        isLifecycleQuery(node)
     )
 }
 
@@ -538,7 +532,6 @@ export const nodeKindToFilterProperty: Record<InsightNodeKind, InsightFilterProp
     [NodeKind.PathsQuery]: 'pathsFilter',
     [NodeKind.StickinessQuery]: 'stickinessFilter',
     [NodeKind.LifecycleQuery]: 'lifecycleFilter',
-    [NodeKind.CalendarHeatmapQuery]: 'calendarHeatmapFilter',
 }
 
 export function filterKeyForQuery(node: InsightQueryNode): InsightFilterProperty {

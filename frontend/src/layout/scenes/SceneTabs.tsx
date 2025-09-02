@@ -126,6 +126,13 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                     clickOnTab(tab)
                 }
             }}
+            onAuxClick={(e) => {
+                e.stopPropagation()
+                e.preventDefault()
+                if (e.button === 1 && !isDragging) {
+                    removeTab(tab)
+                }
+            }}
             onDoubleClick={(e) => {
                 e.stopPropagation()
                 e.preventDefault()

@@ -238,6 +238,7 @@ impl<C: CheckpointClient> CheckpointLoader<C> {
 mod tests {
     use super::*;
     use crate::checkpoint::metadata::{CheckpointMetadata, CheckpointType};
+    use crate::kafka::types::Partition;
     use async_trait::async_trait;
     use std::collections::HashMap;
     use std::path::Path;
@@ -245,7 +246,7 @@ mod tests {
 
     #[derive(Debug, Clone)]
     struct MockClient {
-        checkpoints: HashMap<(String, i32), Vec<CheckpointInfo>>,
+        checkpoints: HashMap<Partition, Vec<CheckpointInfo>>,
     }
 
     impl MockClient {
@@ -257,7 +258,7 @@ mod tests {
 
         fn add_checkpoint(&mut self, topic: &str, partition: i32, checkpoint: CheckpointInfo) {
             self.checkpoints
-                .entry((topic.to_string(), partition))
+                .entry(Partition::new(topic.to_string(), partition))
                 .or_default()
                 .push(checkpoint);
         }
@@ -272,7 +273,7 @@ mod tests {
         ) -> Result<Vec<CheckpointInfo>> {
             let mut checkpoints = self
                 .checkpoints
-                .get(&(topic.to_string(), partition))
+                .get(&Partition::new(topic.to_string(), partition))
                 .cloned()
                 .unwrap_or_default();
 

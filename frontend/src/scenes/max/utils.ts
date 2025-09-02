@@ -20,6 +20,7 @@ import { FunnelsQuery, HogQLQuery, RetentionQuery, TrendsQuery } from '~/queries
 import { isFunnelsQuery, isHogQLQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
 import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel, SidePanelTab } from '~/types'
 
+import { SuggestionGroup } from './maxLogic'
 import { MaxActionContext, MaxContextType, MaxDashboardContext, MaxEventContext, MaxInsightContext } from './maxTypes'
 
 export function isReasoningMessage(message: RootAssistantMessage | undefined | null): message is ReasoningMessage {
@@ -197,5 +198,13 @@ export const actionToMaxContextPayload = (action: ActionType): MaxActionContext 
         id: action.id,
         name: action.name || `Action ${action.id}`,
         description: action.description || '',
+    }
+}
+
+export const createSuggestionGroup = (label: string, icon: JSX.Element, suggestions: string[]): SuggestionGroup => {
+    return {
+        label,
+        icon,
+        suggestions: suggestions.map((content) => ({ content })),
     }
 }
