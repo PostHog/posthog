@@ -6,6 +6,8 @@ view source builders, including mixins for ClickHouse queries, snapshots,
 and API testing.
 """
 
+from typing import cast
+
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
 from posthog.hogql import ast
@@ -39,6 +41,8 @@ class RevenueAnalyticsViewSourceBaseTest(ClickhouseTestMixin, QueryMatchingTest,
             expected_prefix: Expected prefix value
         """
         self.assertIsNotNone(built_query)
+
+        built_query = cast(BuiltQuery, built_query)
         self.assertEqual(built_query.key, expected_key)
         self.assertEqual(built_query.prefix, expected_prefix)
 

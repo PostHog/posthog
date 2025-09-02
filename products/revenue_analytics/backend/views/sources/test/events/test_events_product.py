@@ -20,7 +20,7 @@ class TestProductEventsBuilder(EventsSourceBaseTest):
 
         # Test subscription_charge event (has productProperty)
         key = self.SUBSCRIPTION_CHARGE_EVENT_NAME
-        subscription_charge_query = next((query for query in queries if query.key == key), None)
+        subscription_charge_query = next(query for query in queries if query.key == key)
         self.assertBuiltQueryStructure(
             subscription_charge_query,
             key,
@@ -32,7 +32,7 @@ class TestProductEventsBuilder(EventsSourceBaseTest):
 
         # Test purchase event (no productProperty)
         key = f"{self.PURCHASE_EVENT_NAME}.no_property"
-        purchase_query = next((query for query in queries if query.key == key), None)
+        purchase_query = next(query for query in queries if query.key == key)
         self.assertBuiltQueryStructure(purchase_query, key, "revenue_analytics.events.purchase")
 
         query_sql = purchase_query.query.to_hogql()

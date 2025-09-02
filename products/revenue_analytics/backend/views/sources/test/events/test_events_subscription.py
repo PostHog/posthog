@@ -34,7 +34,7 @@ class TestSubscriptionEventsBuilder(EventsSourceBaseTest):
 
         # Test purchase event (no subscriptionProperty)
         key = f"{self.PURCHASE_EVENT_NAME}.no_property"
-        purchase_query = next((query for query in queries if query.key == key), None)
+        purchase_query = next(query for query in queries if query.key == key)
         self.assertBuiltQueryStructure(purchase_query, key, "revenue_analytics.events.purchase")
 
         query_sql = purchase_query.query.to_hogql()
