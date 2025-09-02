@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconFilter, IconGraph, IconLineGraph, IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonSegmentedButton, LemonSegmentedButtonOption, Popover, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSelect, LemonSelectOptions, Popover, Tooltip } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
@@ -70,10 +70,10 @@ const DATE_FILTER_DATE_OPTIONS: DateMappingOption[] = [
 ]
 
 // Simple mapping for the display mode options and their icons
-const DISPLAY_MODE_OPTIONS: LemonSegmentedButtonOption<DisplayMode>[] = [
-    { value: 'line', icon: <IconLineGraph /> },
-    { value: 'area', icon: <IconAreaChart /> },
-    { value: 'bar', icon: <IconGraph /> },
+const DISPLAY_MODE_OPTIONS: LemonSelectOptions<DisplayMode> = [
+    { value: 'line', label: 'Line chart', icon: <IconLineGraph /> },
+    { value: 'area', label: 'Area chart', icon: <IconAreaChart /> },
+    { value: 'bar', label: 'Bar chart', icon: <IconGraph /> },
 ]
 
 export const RevenueAnalyticsFilters = (): JSX.Element => {
@@ -87,23 +87,27 @@ export const RevenueAnalyticsFilters = (): JSX.Element => {
     return (
         <FilterBar
             left={
-                <Tooltip title="Refresh data">
-                    <ReloadAll iconOnly />
-                </Tooltip>
+                <DateFilter
+                    dateFrom={dateFrom}
+                    dateTo={dateTo}
+                    onChange={setDates}
+                    dateOptions={DATE_FILTER_DATE_OPTIONS}
+                    size="small"
+                />
             }
             right={
                 <>
-                    <LemonSegmentedButton
+                    <Tooltip title="Refresh data">
+                        <ReloadAll />
+                    </Tooltip>
+
+                    <LemonDivider vertical className="hidden md:block my-1" />
+
+                    <LemonSelect
                         value={insightsDisplayMode}
                         onChange={setInsightsDisplayMode}
                         options={DISPLAY_MODE_OPTIONS}
-                    />
-
-                    <DateFilter
-                        dateFrom={dateFrom}
-                        dateTo={dateTo}
-                        onChange={setDates}
-                        dateOptions={DATE_FILTER_DATE_OPTIONS}
+                        size="small"
                     />
 
                     <RevenueAnalyticsPropertyFilters />
@@ -136,18 +140,20 @@ const RevenueAnalyticsPropertyFilters = (): JSX.Element => {
                         }
                         propertyFilters={revenueAnalyticsFilter}
                         pageKey="revenue-analytics"
+                        buttonSize="small"
                     />
                 </div>
             }
         >
             <LemonButton
+                data-attr="show-revenue-analytics-filters"
                 icon={
                     <IconWithCount count={revenueAnalyticsFilter.length} showZero={false}>
                         <IconFilter />
                     </IconWithCount>
                 }
                 type="secondary"
-                data-attr="show-revenue-analytics-filters"
+                size="small"
                 onClick={() => setDisplayFilters((displayFilters) => !displayFilters)}
             >
                 Filters
@@ -184,6 +190,7 @@ const AddBreakdownButton = (): JSX.Element => {
                 onClick={() => setOpen(!open)}
                 sideIcon={null}
                 disabledReason={breakdownProperties.length >= 2 ? 'You can only have up to 2 breakdowns' : undefined}
+                size="small"
             >
                 Add breakdown
             </LemonButton>
