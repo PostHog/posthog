@@ -216,7 +216,7 @@ async fn test_billing_limit_retains_only_exception_events() {
     assert_eq!(captured_events.len(), 2);
 
     // Parse the event data to check the event name
-    let event_data: Value = serde_json::from_str(&captured_events[0].event.data).unwrap();
+    let event_data: Value = serde_json::from_str(captured_events[0].event.data()).unwrap();
     assert_eq!(event_data["event"], "$exception");
 }
 
@@ -274,7 +274,7 @@ async fn test_no_billing_limit_retains_all_events() {
     let event_names: Vec<String> = captured_events
         .iter()
         .map(|e| {
-            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
+            let event_data: Value = serde_json::from_str(e.event.data()).unwrap();
             event_data["event"].as_str().unwrap().to_string()
         })
         .collect();
@@ -325,7 +325,7 @@ async fn test_billing_limit_on_i_endpoint() {
     let event_names: Vec<String> = captured_events
         .iter()
         .map(|e| {
-            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
+            let event_data: Value = serde_json::from_str(e.event.data()).unwrap();
             event_data["event"].as_str().unwrap().to_string()
         })
         .collect();
@@ -373,7 +373,7 @@ async fn test_survey_quota_limit_filters_only_survey_events() {
     let event_names: Vec<String> = captured_events
         .iter()
         .map(|e| {
-            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
+            let event_data: Value = serde_json::from_str(e.event.data()).unwrap();
             event_data["event"].as_str().unwrap().to_string()
         })
         .collect();
@@ -416,7 +416,7 @@ async fn test_survey_quota_limit_returns_error_when_only_survey_events() {
     let event_names: Vec<String> = captured_events
         .iter()
         .map(|e| {
-            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
+            let event_data: Value = serde_json::from_str(e.event.data()).unwrap();
             event_data["event"].as_str().unwrap().to_string()
         })
         .collect();
@@ -454,7 +454,7 @@ async fn test_survey_quota_limit_allows_survey_events_when_not_limited() {
     let event_names: Vec<String> = captured_events
         .iter()
         .map(|e| {
-            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
+            let event_data: Value = serde_json::from_str(e.event.data()).unwrap();
             event_data["event"].as_str().unwrap().to_string()
         })
         .collect();
@@ -492,7 +492,7 @@ async fn test_survey_quota_limit_ignores_non_survey_events() {
     let event_names: Vec<String> = captured_events
         .iter()
         .map(|e| {
-            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
+            let event_data: Value = serde_json::from_str(e.event.data()).unwrap();
             event_data["event"].as_str().unwrap().to_string()
         })
         .collect();
@@ -535,7 +535,7 @@ async fn test_both_billing_and_survey_limits_applied() {
     let captured_events = sink.events();
     assert_eq!(captured_events.len(), 1);
 
-    let event_data: Value = serde_json::from_str(&captured_events[0].event.data).unwrap();
+    let event_data: Value = serde_json::from_str(captured_events[0].event.data()).unwrap();
     assert_eq!(event_data["event"], "$exception");
 }
 
@@ -607,7 +607,7 @@ async fn test_survey_quota_groups_events_by_submission_id() {
     let captured_events = sink.events();
     assert_eq!(captured_events.len(), 1);
 
-    let event_data: Value = serde_json::from_str(&captured_events[0].event.data).unwrap();
+    let event_data: Value = serde_json::from_str(captured_events[0].event.data()).unwrap();
     assert_eq!(event_data["event"], "pageview");
 }
 
@@ -641,7 +641,7 @@ async fn test_survey_quota_handles_multiple_submission_groups() {
     let captured_events = sink.events();
     assert_eq!(captured_events.len(), 1);
 
-    let event_data: Value = serde_json::from_str(&captured_events[0].event.data).unwrap();
+    let event_data: Value = serde_json::from_str(captured_events[0].event.data()).unwrap();
     assert_eq!(event_data["event"], "click");
 }
 
@@ -676,7 +676,7 @@ async fn test_survey_quota_backward_compatibility_without_submission_id() {
     let event_names: Vec<String> = captured_events
         .iter()
         .map(|e| {
-            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
+            let event_data: Value = serde_json::from_str(e.event.data()).unwrap();
             event_data["event"].as_str().unwrap().to_string()
         })
         .collect();
@@ -719,7 +719,7 @@ async fn test_survey_quota_mixed_with_and_without_submission_id() {
     let captured_events = sink.events();
     assert_eq!(captured_events.len(), 1);
 
-    let event_data: Value = serde_json::from_str(&captured_events[0].event.data).unwrap();
+    let event_data: Value = serde_json::from_str(captured_events[0].event.data()).unwrap();
     assert_eq!(event_data["event"], "custom_event");
 }
 
@@ -772,7 +772,7 @@ async fn test_survey_quota_empty_submission_id_treated_as_none() {
     let captured_events = sink.events();
     assert_eq!(captured_events.len(), 1);
 
-    let event_data: Value = serde_json::from_str(&captured_events[0].event.data).unwrap();
+    let event_data: Value = serde_json::from_str(captured_events[0].event.data()).unwrap();
     assert_eq!(event_data["event"], "pageview");
 }
 
@@ -808,7 +808,7 @@ async fn test_survey_quota_allows_events_when_not_limited() {
     let event_names: Vec<String> = captured_events
         .iter()
         .map(|e| {
-            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
+            let event_data: Value = serde_json::from_str(e.event.data()).unwrap();
             event_data["event"].as_str().unwrap().to_string()
         })
         .collect();
@@ -914,7 +914,7 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
     let captured_events = sink.events();
     assert_eq!(captured_events.len(), 1); // Only pageview should remain
 
-    let event_data: Value = serde_json::from_str(&captured_events[0].event.data).unwrap();
+    let event_data: Value = serde_json::from_str(captured_events[0].event.data()).unwrap();
     assert_eq!(event_data["event"], "pageview");
 }
 
@@ -1011,7 +1011,7 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
     let captured_events = sink.events();
     assert_eq!(captured_events.len(), 1);
 
-    let event_data: Value = serde_json::from_str(&captured_events[0].event.data).unwrap();
+    let event_data: Value = serde_json::from_str(captured_events[0].event.data()).unwrap();
     assert_eq!(event_data["event"], "click");
 }
 
@@ -1111,7 +1111,7 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
     let captured_events = sink.events();
     assert_eq!(captured_events.len(), 1);
 
-    let event_data: Value = serde_json::from_str(&captured_events[0].event.data).unwrap();
+    let event_data: Value = serde_json::from_str(captured_events[0].event.data()).unwrap();
     assert_eq!(event_data["event"], "pageview");
 }
 
@@ -1147,7 +1147,7 @@ async fn test_survey_quota_only_limits_survey_sent_events() {
     let event_names: Vec<String> = captured_events
         .iter()
         .map(|e| {
-            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
+            let event_data: Value = serde_json::from_str(e.event.data()).unwrap();
             event_data["event"].as_str().unwrap().to_string()
         })
         .collect();
@@ -1193,7 +1193,7 @@ async fn test_survey_quota_backward_compatibility_survey_sent_only() {
     let event_names: Vec<String> = captured_events
         .iter()
         .map(|e| {
-            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
+            let event_data: Value = serde_json::from_str(e.event.data()).unwrap();
             event_data["event"].as_str().unwrap().to_string()
         })
         .collect();
@@ -1247,7 +1247,7 @@ async fn test_ai_events_quota_limit_filters_only_ai_events() {
     let event_names: Vec<String> = events
         .iter()
         .map(|e| {
-            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
+            let event_data: Value = serde_json::from_str(e.event.data()).unwrap();
             event_data["event"].as_str().unwrap().to_string()
         })
         .collect();
@@ -1313,7 +1313,7 @@ async fn test_ai_events_quota_allows_ai_events_when_not_limited() {
     let event_names: Vec<String> = events
         .iter()
         .map(|e| {
-            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
+            let event_data: Value = serde_json::from_str(e.event.data()).unwrap();
             event_data["event"].as_str().unwrap().to_string()
         })
         .collect();
@@ -1386,7 +1386,7 @@ async fn test_both_billing_and_ai_limits_applied() {
     let event_names: Vec<String> = events
         .iter()
         .map(|e| {
-            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
+            let event_data: Value = serde_json::from_str(e.event.data()).unwrap();
             event_data["event"].as_str().unwrap().to_string()
         })
         .collect();
@@ -1428,7 +1428,7 @@ async fn test_ai_and_survey_limits_interaction() {
     let event_names: Vec<String> = events
         .iter()
         .map(|e| {
-            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
+            let event_data: Value = serde_json::from_str(e.event.data()).unwrap();
             event_data["event"].as_str().unwrap().to_string()
         })
         .collect();
@@ -1469,7 +1469,7 @@ async fn test_all_three_limits_applied() {
     let event_names: Vec<String> = events
         .iter()
         .map(|e| {
-            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
+            let event_data: Value = serde_json::from_str(e.event.data()).unwrap();
             event_data["event"].as_str().unwrap().to_string()
         })
         .collect();
@@ -1524,7 +1524,7 @@ async fn test_ai_event_name_detection() {
         if should_be_filtered {
             // AI event should be filtered, only pageview remains
             assert_eq!(events.len(), 1, "Event '{event_name}' should be filtered");
-            let event_data: Value = serde_json::from_str(&events[0].event.data).unwrap();
+            let event_data: Value = serde_json::from_str(events[0].event.data()).unwrap();
             assert_eq!(event_data["event"], "pageview");
         } else {
             // Non-AI event should pass through with pageview
@@ -1604,7 +1604,7 @@ async fn test_ai_span_event_limited() {
 
     let events = sink.events();
     assert_eq!(events.len(), 1);
-    let event_data: Value = serde_json::from_str(&events[0].event.data).unwrap();
+    let event_data: Value = serde_json::from_str(events[0].event.data()).unwrap();
     assert_eq!(event_data["event"], "custom");
 }
 
@@ -1639,7 +1639,7 @@ async fn test_ai_trace_event_limited() {
 
     let events = sink.events();
     assert_eq!(events.len(), 1);
-    let event_data: Value = serde_json::from_str(&events[0].event.data).unwrap();
+    let event_data: Value = serde_json::from_str(events[0].event.data()).unwrap();
     assert_eq!(event_data["event"], "$autocapture");
 }
 
@@ -1671,7 +1671,7 @@ async fn test_custom_ai_prefixed_events_limited() {
 
     let events = sink.events();
     assert_eq!(events.len(), 1); // Only non-AI event should pass
-    let event_data: Value = serde_json::from_str(&events[0].event.data).unwrap();
+    let event_data: Value = serde_json::from_str(events[0].event.data()).unwrap();
     assert_eq!(event_data["event"], "non_ai_event");
 }
 
@@ -1791,7 +1791,7 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
     // So AI event should be dropped, only pageview remains
     let events = sink.events();
     assert_eq!(events.len(), 1);
-    let event_data: Value = serde_json::from_str(&events[0].event.data).unwrap();
+    let event_data: Value = serde_json::from_str(events[0].event.data()).unwrap();
     assert_eq!(event_data["event"], "pageview");
 }
 
@@ -1844,7 +1844,7 @@ async fn test_ai_quota_cross_batch_consistency() {
     let event_names: Vec<String> = events
         .iter()
         .map(|e| {
-            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
+            let event_data: Value = serde_json::from_str(e.event.data()).unwrap();
             event_data["event"].as_str().unwrap().to_string()
         })
         .collect();
@@ -1892,7 +1892,7 @@ async fn test_ai_quota_all_ai_event_types_count() {
     let event_names: Vec<String> = events
         .iter()
         .map(|e| {
-            let event_data: Value = serde_json::from_str(&e.event.data).unwrap();
+            let event_data: Value = serde_json::from_str(e.event.data()).unwrap();
             event_data["event"].as_str().unwrap().to_string()
         })
         .collect();

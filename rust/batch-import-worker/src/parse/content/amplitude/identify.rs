@@ -1,6 +1,6 @@
 use anyhow::Error;
 use chrono::Utc;
-use common_types::{CapturedEvent, InternallyCapturedEvent, RawEvent};
+use common_types::{CapturedEvent, RawEvent};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -13,7 +13,7 @@ pub fn create_identify_event(
     device_id: &str,
     event_uuid: Uuid,
     timestamp: chrono::DateTime<chrono::Utc>,
-) -> Result<InternallyCapturedEvent, Error> {
+) -> Result<CapturedEvent, Error> {
     // Validate and trim inputs
     let user_id = user_id.trim();
     let device_id = device_id.trim();
@@ -64,22 +64,18 @@ pub fn create_identify_event(
         offset: None,
     };
 
-    // Create the captured event
-    let captured_event = CapturedEvent {
-        uuid: event_uuid,
-        distinct_id: user_id.to_string(),
-        ip: "127.0.0.1".to_string(), // Default IP for identify events
-        data: serde_json::to_string(&raw_event)?,
-        now: Utc::now().to_rfc3339(),
-        sent_at: None,
-        token: token.to_string(),
-        is_cookieless_mode: false,
-    };
-
-    Ok(InternallyCapturedEvent {
+    // Create the internal captured event
+    Ok(CapturedEvent::new_internal(
+        event_uuid,
+        user_id.to_string(),
+        Some("127.0.0.1".to_string()), // Default IP for identify events
+        serde_json::to_string(&raw_event)?,
+        Utc::now().to_rfc3339(),
+        None,
+        token.to_string(),
+        false,
         team_id,
-        inner: captured_event,
-    })
+    ))
 }
 
 #[cfg(test)]
@@ -100,13 +96,13 @@ mod tests {
             create_identify_event(team_id, token, user_id, device_id, event_uuid, timestamp)
                 .unwrap();
 
-        assert_eq!(result.team_id, team_id);
-        assert_eq!(result.inner.token, token);
-        assert_eq!(result.inner.distinct_id, user_id);
-        assert_eq!(result.inner.uuid, event_uuid);
+        assert_eq!(result.team_id().unwrap(), team_id);
+        assert_eq!(result.token(), token);
+        assert_eq!(result.distinct_id(), user_id);
+        assert_eq!(result.uuid(), &event_uuid);
 
         // Parse the data to verify structure
-        let data: RawEvent = serde_json::from_str(&result.inner.data).unwrap();
+        let data: RawEvent = serde_json::from_str(result.data()).unwrap();
         assert_eq!(data.event, "$identify");
         assert_eq!(data.distinct_id, Some(Value::String(user_id.to_string())));
         assert_eq!(data.token, Some(token.to_string()));
@@ -146,13 +142,13 @@ mod tests {
                 .unwrap();
 
         // Verify the event has all required fields
-        assert!(!result.inner.data.is_empty());
-        assert!(!result.inner.distinct_id.is_empty());
-        assert!(!result.inner.now.is_empty());
-        assert!(!result.inner.ip.is_empty());
+        assert!(!result.data().is_empty());
+        assert!(!result.distinct_id().is_empty());
+        assert!(!result.now().is_empty());
+        assert!(result.ip().is_some());
 
         // Parse and verify JSON structure
-        let data: RawEvent = serde_json::from_str(&result.inner.data).unwrap();
+        let data: RawEvent = serde_json::from_str(result.data()).unwrap();
         assert!(data.timestamp.is_some());
         assert!(data.uuid.is_some());
         assert!(data.properties.contains_key("$amplitude_user_id"));
@@ -174,11 +170,11 @@ mod tests {
                 .unwrap();
 
         // Verify basic structure
-        assert_eq!(result.team_id, team_id);
-        assert_eq!(result.inner.token, token);
+        assert_eq!(result.team_id().unwrap(), team_id);
+        assert_eq!(result.token(), token);
 
         // Parse and verify special characters are preserved
-        let data: RawEvent = serde_json::from_str(&result.inner.data).unwrap();
+        let data: RawEvent = serde_json::from_str(result.data()).unwrap();
         assert_eq!(data.event, "$identify");
 
         let props = &data.properties;
@@ -253,7 +249,7 @@ mod tests {
         );
         assert!(result.is_ok(), "Should handle unicode characters");
 
-        let data: RawEvent = serde_json::from_str(&result.unwrap().inner.data).unwrap();
+        let data: RawEvent = serde_json::from_str(result.unwrap().data()).unwrap();
         let props = &data.properties;
         assert_eq!(
             props.get("$amplitude_user_id"),
@@ -277,7 +273,7 @@ mod tests {
         let result =
             create_identify_event(team_id, token, user_id, device_id, event_uuid, timestamp)
                 .unwrap();
-        let data: RawEvent = serde_json::from_str(&result.inner.data).unwrap();
+        let data: RawEvent = serde_json::from_str(result.data()).unwrap();
 
         // Verify exact JSON structure
         assert_eq!(data.event, "$identify");
@@ -322,13 +318,13 @@ mod tests {
                 .unwrap();
 
         // UUIDs should be preserved
-        assert_eq!(result1.inner.uuid, event_uuid1);
-        assert_eq!(result2.inner.uuid, event_uuid2);
+        assert_eq!(result1.uuid(), &event_uuid1);
+        assert_eq!(result2.uuid(), &event_uuid2);
         assert_ne!(event_uuid1, event_uuid2); // Different UUIDs
 
         // Verify UUIDs in the parsed data
-        let data1: RawEvent = serde_json::from_str(&result1.inner.data).unwrap();
-        let data2: RawEvent = serde_json::from_str(&result2.inner.data).unwrap();
+        let data1: RawEvent = serde_json::from_str(result1.data()).unwrap();
+        let data2: RawEvent = serde_json::from_str(result2.data()).unwrap();
 
         assert_eq!(data1.uuid, Some(event_uuid1));
         assert_eq!(data2.uuid, Some(event_uuid2));
@@ -348,17 +344,17 @@ mod tests {
                 .unwrap();
 
         // Verify CapturedEvent structure
-        assert_eq!(result.inner.uuid, event_uuid);
-        assert_eq!(result.inner.distinct_id, user_id);
-        assert_eq!(result.inner.token, token);
-        assert_eq!(result.inner.ip, "127.0.0.1"); // Default IP for identify events
-        assert!(!result.inner.data.is_empty());
-        assert!(result.inner.now.contains("T")); // ISO 8601 timestamp format
-        assert!(result.inner.sent_at.is_none()); // Should be None for historical imports
-        assert!(!result.inner.is_cookieless_mode); // Should be false
+        assert_eq!(result.uuid(), &event_uuid);
+        assert_eq!(result.distinct_id(), user_id);
+        assert_eq!(result.token(), token);
+        assert_eq!(result.ip().unwrap(), "127.0.0.1"); // Default IP for identify events
+        assert!(!result.data().is_empty());
+        assert!(result.now().contains("T")); // ISO 8601 timestamp format
+        assert!(result.sent_at().is_none()); // Should be None for historical imports
+        assert!(!result.is_cookieless_mode()); // Should be false
 
         // Verify team_id is set correctly
-        assert_eq!(result.team_id, team_id);
+        assert_eq!(result.team_id().unwrap(), team_id);
     }
 
     #[test]
@@ -385,7 +381,7 @@ mod tests {
         .unwrap();
 
         // Parse the data and verify timestamp is preserved
-        let data: RawEvent = serde_json::from_str(&result.inner.data).unwrap();
+        let data: RawEvent = serde_json::from_str(result.data()).unwrap();
         assert_eq!(data.timestamp, Some(specific_timestamp.to_rfc3339()));
 
         // Also verify the timestamp is not a "now" timestamp
@@ -436,7 +432,7 @@ mod tests {
             );
 
             let event = result.unwrap();
-            let data: RawEvent = serde_json::from_str(&event.inner.data).unwrap();
+            let data: RawEvent = serde_json::from_str(event.data()).unwrap();
 
             // For trimmed cases, verify the trimmed values are used
             let expected_user_id = user_id.trim();
@@ -461,7 +457,7 @@ mod tests {
                 data.distinct_id,
                 Some(Value::String(expected_user_id.to_string()))
             );
-            assert_eq!(event.inner.distinct_id, expected_user_id);
+            assert_eq!(event.distinct_id(), expected_user_id);
         }
     }
 }

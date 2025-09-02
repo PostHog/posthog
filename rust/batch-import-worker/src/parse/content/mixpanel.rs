@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use anyhow::Error;
 use celes::Country;
 use chrono::{DateTime, Duration, Utc};
-use common_types::{CapturedEvent, InternallyCapturedEvent, RawEvent};
+use common_types::{CapturedEvent, RawEvent};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
@@ -44,7 +44,7 @@ impl MixpanelEvent {
         skip_no_distinct_id: bool,
         timestamp_offset: Duration,
         event_transform: impl Fn(RawEvent) -> Result<Option<RawEvent>, Error>,
-    ) -> impl Fn(Self) -> Result<Option<InternallyCapturedEvent>, Error> {
+    ) -> impl Fn(Self) -> Result<Option<CapturedEvent>, Error> {
         move |mx| {
             let token = context.token.clone();
             let team_id = context.team_id;
@@ -96,18 +96,19 @@ impl MixpanelEvent {
 
             // Only return the event if import_events is enabled
             if context.import_events {
-                let inner = CapturedEvent {
-                    uuid: event_uuid,
+                let event = CapturedEvent::new_internal(
+                    event_uuid,
                     distinct_id,
-                    ip: "127.0.0.1".to_string(),
-                    data: serde_json::to_string(&raw_event)?,
-                    now: Utc::now().to_rfc3339(),
-                    sent_at: None,
+                    Some("127.0.0.1".to_string()),
+                    serde_json::to_string(&raw_event)?,
+                    Utc::now().to_rfc3339(),
+                    None,
                     token,
-                    is_cookieless_mode: false,
-                };
+                    false,
+                    team_id,
+                );
 
-                Ok(Some(InternallyCapturedEvent { team_id, inner }))
+                Ok(Some(event))
             } else {
                 Ok(None)
             }

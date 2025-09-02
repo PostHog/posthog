@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Error};
 use chrono::Duration;
-use common_types::{InternallyCapturedEvent, RawEvent};
+use common_types::{CapturedEvent, RawEvent};
 use rayon::iter::IntoParallelIterator;
 use rayon::prelude::*;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -26,8 +26,7 @@ pub enum FormatConfig {
     },
 }
 
-pub type ParserFn =
-    Box<dyn Fn(Vec<u8>) -> Result<Parsed<Vec<InternallyCapturedEvent>>, Error> + Send + Sync>;
+pub type ParserFn = Box<dyn Fn(Vec<u8>) -> Result<Parsed<Vec<CapturedEvent>>, Error> + Send + Sync>;
 
 impl FormatConfig {
     pub async fn get_parser(

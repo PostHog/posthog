@@ -12,7 +12,7 @@ use common_kafka::{
     kafka_producer::KafkaProduceError,
     transaction::{KafkaTransaction, TransactionalProducer},
 };
-use common_types::InternallyCapturedEvent;
+use common_types::CapturedEvent;
 use rdkafka::types::RDKafkaErrorCode;
 use tracing::{error, info};
 
@@ -70,10 +70,10 @@ impl Emitter for KafkaEmitter {
 
 #[async_trait]
 impl<'a> Transaction<'a> for KafkaEmitterTransaction<'a> {
-    async fn emit(&self, data: &[InternallyCapturedEvent]) -> Result<(), Error> {
+    async fn emit(&self, data: &[CapturedEvent]) -> Result<(), Error> {
         for (idx, result) in self
             .inner
-            .send_keyed_iter_to_kafka(self.topic, |e| Some(e.inner.key()), data.iter())
+            .send_keyed_iter_to_kafka(self.topic, |e| Some(e.key()), data.iter())
             .await
             .into_iter()
             .enumerate()
@@ -87,7 +87,7 @@ impl<'a> Transaction<'a> for KafkaEmitterTransaction<'a> {
                     ) =>
                 {
                     // We skip these aside from logging them, as there's not much we can do about them
-                    error!("Message size too large: {:?}", data[idx].inner);
+                    error!("Message size too large: {:?}", data[idx]);
                 }
                 Err(err) => return Err(err.into()),
             }

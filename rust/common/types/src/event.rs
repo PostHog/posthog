@@ -59,12 +59,11 @@ pub struct RawEngageEvent {
     pub set_once: Option<HashMap<String, Value>>,
 }
 
-// The event type that capture produces
+// Common fields shared between external and internal events
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
-pub struct CapturedEvent {
+pub struct CapturedEventCommon {
     pub uuid: Uuid,
     pub distinct_id: String,
-    pub ip: String,
     pub data: String, // This should be a `RawEvent`, but we serialise twice.
     pub now: String,
     #[serde(
@@ -79,22 +78,192 @@ pub struct CapturedEvent {
     pub is_cookieless_mode: bool,
 }
 
-// Used when we want to bypass token checks when emitting events from rust
-// services, by just setting the team_id instead.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct InternallyCapturedEvent {
-    #[serde(flatten)]
-    pub inner: CapturedEvent,
-    pub team_id: i32,
+/// Represents a captured event that can be either internal (from PostHog services)
+/// or external (from SDKs/clients).
+///
+/// This uses an untagged enum for automatic deserialization based on field presence.
+/// The deserialization precedence rules are:
+///
+/// **Internal variant** is selected when:
+///    - `team_id` field is present (regardless of IP value)
+///    - IP can be null, non-null, or missing
+///    - Used by plugin-server and other internal services
+///
+/// **External variant** is selected when:
+///    - `team_id` field is absent
+///    - IP must be present and non-null (required field)
+///    - Used by capture service for SDK events
+///
+/// The order of variants in the enum matters for untagged deserialization:
+/// serde tries variants in order until one successfully deserializes.
+/// Internal is listed first to handle the more specific case (has team_id).
+///
+/// # Examples
+///
+/// Internal event (from internal service):
+/// ```json
+/// {
+///   "uuid": "...",
+///   "distinct_id": "user123",
+///   "ip": null,  // Can be null for internal events
+///   "team_id": 123,
+///   // ... other fields
+/// }
+/// ```
+///
+/// External event (from SDK):
+/// ```json
+/// {
+///   "uuid": "...",
+///   "distinct_id": "user123",
+///   "ip": "192.168.1.1",  // Required and non-null
+///   // No team_id field
+///   // ... other fields
+/// }
+/// ```
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(untagged)]
+pub enum CapturedEvent {
+    // Internal events (with team_id) can have null IP
+    // Listed first for deserialization precedence - more specific case
+    Internal {
+        #[serde(flatten)]
+        common: CapturedEventCommon,
+        ip: Option<String>,
+        team_id: i32,
+    },
+    // External events (without team_id) must have IP
+    // Listed second - will be tried if Internal variant fails to deserialize
+    External {
+        #[serde(flatten)]
+        common: CapturedEventCommon,
+        ip: String,
+    },
 }
 
 impl CapturedEvent {
-    pub fn key(&self) -> String {
-        if self.is_cookieless_mode {
-            format!("{}:{}", self.token, self.ip)
-        } else {
-            format!("{}:{}", self.token, self.distinct_id)
+    /// Private helper to access common fields
+    fn common(&self) -> &CapturedEventCommon {
+        match self {
+            CapturedEvent::Internal { common, .. } | CapturedEvent::External { common, .. } => {
+                common
+            }
         }
+    }
+
+    /// Constructor for external events (backwards compatibility)
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_external(
+        uuid: Uuid,
+        distinct_id: String,
+        ip: String,
+        data: String,
+        now: String,
+        sent_at: Option<OffsetDateTime>,
+        token: String,
+        is_cookieless_mode: bool,
+    ) -> Self {
+        CapturedEvent::External {
+            common: CapturedEventCommon {
+                uuid,
+                distinct_id,
+                data,
+                now,
+                sent_at,
+                token,
+                is_cookieless_mode,
+            },
+            ip,
+        }
+    }
+
+    /// Constructor for internal events  
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_internal(
+        uuid: Uuid,
+        distinct_id: String,
+        ip: Option<String>,
+        data: String,
+        now: String,
+        sent_at: Option<OffsetDateTime>,
+        token: String,
+        is_cookieless_mode: bool,
+        team_id: i32,
+    ) -> Self {
+        CapturedEvent::Internal {
+            common: CapturedEventCommon {
+                uuid,
+                distinct_id,
+                data,
+                now,
+                sent_at,
+                token,
+                is_cookieless_mode,
+            },
+            ip,
+            team_id,
+        }
+    }
+
+    pub fn key(&self) -> String {
+        if self.is_cookieless_mode() {
+            format!("{}:{}", self.token(), self.ip().unwrap_or(""))
+        } else {
+            format!("{}:{}", self.token(), self.distinct_id())
+        }
+    }
+
+    // Helper methods to access common fields
+    pub fn uuid(&self) -> &Uuid {
+        &self.common().uuid
+    }
+
+    pub fn distinct_id(&self) -> &str {
+        &self.common().distinct_id
+    }
+
+    pub fn data(&self) -> &str {
+        &self.common().data
+    }
+
+    pub fn token(&self) -> &str {
+        &self.common().token
+    }
+
+    pub fn now(&self) -> &str {
+        &self.common().now
+    }
+
+    pub fn sent_at(&self) -> Option<OffsetDateTime> {
+        self.common().sent_at
+    }
+
+    pub fn is_cookieless_mode(&self) -> bool {
+        self.common().is_cookieless_mode
+    }
+
+    pub fn ip(&self) -> Option<&str> {
+        match self {
+            CapturedEvent::Internal { ip, .. } => ip.as_deref(),
+            CapturedEvent::External { ip, .. } => Some(ip.as_str()),
+        }
+    }
+
+    pub fn team_id(&self) -> Option<i32> {
+        match self {
+            CapturedEvent::Internal { team_id, .. } => Some(*team_id),
+            CapturedEvent::External { .. } => None,
+        }
+    }
+
+    pub fn is_internal(&self) -> bool {
+        matches!(self, CapturedEvent::Internal { .. })
+    }
+
+    pub fn get_sent_at_as_rfc3339(&self) -> Option<String> {
+        self.common()
+            .sent_at
+            .map(|sa| sa.format(&Rfc3339).expect("is a valid datetime"))
     }
 }
 
@@ -240,9 +409,325 @@ impl RawEvent {
     }
 }
 
-impl CapturedEvent {
-    pub fn get_sent_at_as_rfc3339(&self) -> Option<String> {
-        self.sent_at
-            .map(|sa| sa.format(&Rfc3339).expect("is a valid datetime"))
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_deserialize_external_event_with_required_ip() {
+        // JSON with all fields and a non-null IP (external event)
+        let json_str = r#"{
+            "uuid": "550e8400-e29b-41d4-a716-446655440000",
+            "distinct_id": "user123",
+            "ip": "192.168.1.1",
+            "data": "{\"event\": \"test\"}",
+            "now": "2024-01-01T00:00:00Z",
+            "sent_at": null,
+            "token": "test_token",
+            "is_cookieless_mode": false
+        }"#;
+
+        let event: CapturedEvent = serde_json::from_str(json_str).unwrap();
+
+        // Should deserialize as External variant
+        assert!(matches!(event, CapturedEvent::External { .. }));
+        assert_eq!(event.ip(), Some("192.168.1.1"));
+        assert_eq!(event.team_id(), None);
+        assert_eq!(event.token(), "test_token");
+        assert_eq!(event.distinct_id(), "user123");
+    }
+
+    #[test]
+    fn test_deserialize_internal_event_with_null_ip() {
+        // JSON with team_id and null IP (internal event)
+        let json_str = r#"{
+            "uuid": "550e8400-e29b-41d4-a716-446655440000",
+            "distinct_id": "user123",
+            "ip": null,
+            "data": "{\"event\": \"test\"}",
+            "now": "2024-01-01T00:00:00Z",
+            "sent_at": null,
+            "token": "test_token",
+            "is_cookieless_mode": false,
+            "team_id": 123
+        }"#;
+
+        let event: CapturedEvent = serde_json::from_str(json_str).unwrap();
+
+        // Should deserialize as Internal variant
+        assert!(matches!(event, CapturedEvent::Internal { .. }));
+        assert_eq!(event.ip(), None);
+        assert_eq!(event.team_id(), Some(123));
+        assert_eq!(event.token(), "test_token");
+        assert_eq!(event.distinct_id(), "user123");
+    }
+
+    #[test]
+    fn test_deserialize_internal_event_with_non_null_ip() {
+        // JSON with team_id and non-null IP (internal event with IP)
+        let json_str = r#"{
+            "uuid": "550e8400-e29b-41d4-a716-446655440000",
+            "distinct_id": "user123",
+            "ip": "10.0.0.1",
+            "data": "{\"event\": \"test\"}",
+            "now": "2024-01-01T00:00:00Z",
+            "sent_at": null,
+            "token": "test_token",
+            "is_cookieless_mode": false,
+            "team_id": 456
+        }"#;
+
+        let event: CapturedEvent = serde_json::from_str(json_str).unwrap();
+
+        // Should deserialize as Internal variant with IP
+        assert!(matches!(event, CapturedEvent::Internal { .. }));
+        assert_eq!(event.ip(), Some("10.0.0.1"));
+        assert_eq!(event.team_id(), Some(456));
+    }
+
+    #[test]
+    fn test_serialize_external_event() {
+        let event = CapturedEvent::new_external(
+            Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
+            "user123".to_string(),
+            "192.168.1.1".to_string(),
+            "{\"event\": \"test\"}".to_string(),
+            "2024-01-01T00:00:00Z".to_string(),
+            None,
+            "test_token".to_string(),
+            false,
+        );
+
+        let json = serde_json::to_value(&event).unwrap();
+
+        // Verify serialized JSON has correct structure
+        assert_eq!(json["uuid"], "550e8400-e29b-41d4-a716-446655440000");
+        assert_eq!(json["distinct_id"], "user123");
+        assert_eq!(json["ip"], "192.168.1.1");
+        assert_eq!(json["token"], "test_token");
+        assert!(json.get("team_id").is_none()); // Should not have team_id
+    }
+
+    #[test]
+    fn test_serialize_internal_event_with_null_ip() {
+        let event = CapturedEvent::new_internal(
+            Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
+            "user123".to_string(),
+            None,
+            "{\"event\": \"test\"}".to_string(),
+            "2024-01-01T00:00:00Z".to_string(),
+            None,
+            "test_token".to_string(),
+            false,
+            789,
+        );
+
+        let json = serde_json::to_value(&event).unwrap();
+
+        // Verify serialized JSON has correct structure
+        assert_eq!(json["uuid"], "550e8400-e29b-41d4-a716-446655440000");
+        assert_eq!(json["distinct_id"], "user123");
+        assert_eq!(json["ip"], json!(null));
+        assert_eq!(json["token"], "test_token");
+        assert_eq!(json["team_id"], 789);
+    }
+
+    #[test]
+    fn test_serialize_internal_event_with_ip() {
+        let event = CapturedEvent::new_internal(
+            Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
+            "user123".to_string(),
+            Some("10.0.0.1".to_string()),
+            "{\"event\": \"test\"}".to_string(),
+            "2024-01-01T00:00:00Z".to_string(),
+            None,
+            "test_token".to_string(),
+            false,
+            999,
+        );
+
+        let json = serde_json::to_value(&event).unwrap();
+
+        // Verify serialized JSON has correct structure
+        assert_eq!(json["uuid"], "550e8400-e29b-41d4-a716-446655440000");
+        assert_eq!(json["distinct_id"], "user123");
+        assert_eq!(json["ip"], "10.0.0.1");
+        assert_eq!(json["token"], "test_token");
+        assert_eq!(json["team_id"], 999);
+    }
+
+    #[test]
+    fn test_roundtrip_external_event() {
+        let original = CapturedEvent::new_external(
+            Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
+            "user123".to_string(),
+            "192.168.1.1".to_string(),
+            "{\"event\": \"test\"}".to_string(),
+            "2024-01-01T00:00:00Z".to_string(),
+            None,
+            "test_token".to_string(),
+            true,
+        );
+
+        // Serialize and deserialize
+        let json_str = serde_json::to_string(&original).unwrap();
+        let deserialized: CapturedEvent = serde_json::from_str(&json_str).unwrap();
+
+        // Verify all fields match
+        assert_eq!(original, deserialized);
+        assert_eq!(deserialized.ip(), Some("192.168.1.1"));
+        assert_eq!(deserialized.team_id(), None);
+        assert!(deserialized.is_cookieless_mode());
+    }
+
+    #[test]
+    fn test_roundtrip_internal_event() {
+        let original = CapturedEvent::new_internal(
+            Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
+            "user123".to_string(),
+            None,
+            "{\"event\": \"test\"}".to_string(),
+            "2024-01-01T00:00:00Z".to_string(),
+            None,
+            "test_token".to_string(),
+            false,
+            42,
+        );
+
+        // Serialize and deserialize
+        let json_str = serde_json::to_string(&original).unwrap();
+        let deserialized: CapturedEvent = serde_json::from_str(&json_str).unwrap();
+
+        // Verify all fields match
+        assert_eq!(original, deserialized);
+        assert_eq!(deserialized.ip(), None);
+        assert_eq!(deserialized.team_id(), Some(42));
+    }
+
+    #[test]
+    fn test_backwards_compatibility_with_old_format() {
+        // This tests that old code sending events without team_id still works
+        let json_str = r#"{
+            "uuid": "550e8400-e29b-41d4-a716-446655440000",
+            "distinct_id": "legacy_user",
+            "ip": "1.2.3.4",
+            "data": "{\"event\": \"legacy\"}",
+            "now": "2024-01-01T00:00:00Z",
+            "sent_at": null,
+            "token": "legacy_token",
+            "is_cookieless_mode": false
+        }"#;
+
+        let event: CapturedEvent = serde_json::from_str(json_str).unwrap();
+
+        // Should work and be treated as external event
+        assert!(matches!(event, CapturedEvent::External { .. }));
+        assert_eq!(event.ip(), Some("1.2.3.4"));
+        assert_eq!(event.team_id(), None);
+    }
+
+    #[test]
+    fn test_plugin_server_format_with_null_ip() {
+        // This simulates the exact format plugin-server sends
+        let json_str = r#"{
+            "uuid": "550e8400-e29b-41d4-a716-446655440000",
+            "distinct_id": "plugin_user",
+            "ip": null,
+            "data": "{\"event\": \"from_plugin\"}",
+            "now": "2024-01-01T00:00:00Z",
+            "sent_at": null,
+            "token": "plugin_token",
+            "is_cookieless_mode": false,
+            "team_id": 100
+        }"#;
+
+        let event: CapturedEvent = serde_json::from_str(json_str).unwrap();
+
+        // Should deserialize correctly as internal event
+        assert!(matches!(event, CapturedEvent::Internal { .. }));
+        assert_eq!(event.ip(), None);
+        assert_eq!(event.team_id(), Some(100));
+        assert_eq!(event.token(), "plugin_token");
+        assert_eq!(event.distinct_id(), "plugin_user");
+
+        // And should serialize back to same format
+        let serialized = serde_json::to_value(&event).unwrap();
+        assert_eq!(serialized["ip"], json!(null));
+        assert_eq!(serialized["team_id"], 100);
+    }
+
+    #[test]
+    fn test_deserialize_fails_without_required_ip_for_external() {
+        // JSON without team_id and with null IP should fail
+        let json_str = r#"{
+            "uuid": "550e8400-e29b-41d4-a716-446655440000",
+            "distinct_id": "user123",
+            "ip": null,
+            "data": "{\"event\": \"test\"}",
+            "now": "2024-01-01T00:00:00Z",
+            "sent_at": null,
+            "token": "test_token",
+            "is_cookieless_mode": false
+        }"#;
+
+        let result: Result<CapturedEvent, _> = serde_json::from_str(json_str);
+
+        // Should fail because external events require non-null IP
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_accessor_methods() {
+        let external = CapturedEvent::new_external(
+            Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
+            "user123".to_string(),
+            "192.168.1.1".to_string(),
+            "{\"event\": \"test\"}".to_string(),
+            "2024-01-01T00:00:00Z".to_string(),
+            None,
+            "test_token".to_string(),
+            false,
+        );
+
+        assert_eq!(
+            external.uuid().to_string(),
+            "550e8400-e29b-41d4-a716-446655440000"
+        );
+        assert_eq!(external.distinct_id(), "user123");
+        assert_eq!(external.ip(), Some("192.168.1.1"));
+        assert_eq!(external.data(), "{\"event\": \"test\"}");
+        assert_eq!(external.now(), "2024-01-01T00:00:00Z");
+        assert_eq!(external.sent_at(), None);
+        assert_eq!(external.token(), "test_token");
+        assert!(!external.is_cookieless_mode());
+        assert!(external.team_id().is_none());
+        assert!(!external.is_internal());
+
+        let internal = CapturedEvent::new_internal(
+            Uuid::parse_str("660e8400-e29b-41d4-a716-446655440000").unwrap(),
+            "user456".to_string(),
+            Some("10.0.0.1".to_string()),
+            "{\"event\": \"internal\"}".to_string(),
+            "2024-01-02T00:00:00Z".to_string(),
+            None,
+            "internal_token".to_string(),
+            true,
+            789,
+        );
+
+        assert_eq!(
+            internal.uuid().to_string(),
+            "660e8400-e29b-41d4-a716-446655440000"
+        );
+        assert_eq!(internal.distinct_id(), "user456");
+        assert_eq!(internal.ip(), Some("10.0.0.1"));
+        assert_eq!(internal.data(), "{\"event\": \"internal\"}");
+        assert_eq!(internal.now(), "2024-01-02T00:00:00Z");
+        assert_eq!(internal.sent_at(), None);
+        assert_eq!(internal.token(), "internal_token");
+        assert!(internal.is_cookieless_mode());
+        assert_eq!(internal.team_id(), Some(789));
+        assert!(internal.is_internal());
     }
 }

@@ -246,7 +246,7 @@ impl MessageProcessor for DeduplicationProcessor {
         let raw_event = match serde_json::from_slice::<CapturedEvent>(payload) {
             Ok(captured_event) => {
                 // The RawEvent is serialized in the data field
-                match serde_json::from_str::<RawEvent>(&captured_event.data) {
+                match serde_json::from_str::<RawEvent>(captured_event.data()) {
                     Ok(raw_event) => raw_event,
                     Err(e) => {
                         error!(

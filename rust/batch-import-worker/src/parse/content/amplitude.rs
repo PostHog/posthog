@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use anyhow::Error;
 use chrono::Utc;
-use common_types::{CapturedEvent, InternallyCapturedEvent, RawEvent};
+use common_types::{CapturedEvent, RawEvent};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::error;
@@ -99,7 +99,7 @@ impl AmplitudeEvent {
     pub fn parse_fn(
         context: TransformContext,
         event_transform: impl Fn(RawEvent) -> Result<Option<RawEvent>, Error>,
-    ) -> impl Fn(Self) -> Result<Vec<InternallyCapturedEvent>, Error> {
+    ) -> impl Fn(Self) -> Result<Vec<CapturedEvent>, Error> {
         move |amp| {
             let token = context.token.clone();
             let team_id = context.team_id;
@@ -389,18 +389,19 @@ impl AmplitudeEvent {
 
             // Only add the original event if import_events is enabled
             if context.import_events {
-                let inner = CapturedEvent {
-                    uuid: event_uuid,
+                let event = CapturedEvent::new_internal(
+                    event_uuid,
                     distinct_id,
-                    ip: amp.ip_address.unwrap_or_else(|| "127.0.0.1".to_string()),
-                    data: serde_json::to_string(&raw_event)?,
-                    now: Utc::now().to_rfc3339(),
-                    sent_at: None,
+                    Some(amp.ip_address.unwrap_or_else(|| "127.0.0.1".to_string())),
+                    serde_json::to_string(&raw_event)?,
+                    Utc::now().to_rfc3339(),
+                    None,
                     token,
-                    is_cookieless_mode: false,
-                };
+                    false,
+                    team_id,
+                );
 
-                events.push(InternallyCapturedEvent { team_id, inner });
+                events.push(event);
             }
 
             Ok(events)
@@ -494,11 +495,11 @@ mod tests {
         let result = parser(amp_event).unwrap();
         let result = result.into_iter().next().unwrap();
 
-        assert_eq!(result.team_id, 123);
-        assert_eq!(result.inner.token, "test_token");
-        assert_eq!(result.inner.distinct_id, "user123");
+        assert_eq!(result.team_id().unwrap(), 123);
+        assert_eq!(result.token(), "test_token");
+        assert_eq!(result.distinct_id(), "user123");
 
-        let data: RawEvent = serde_json::from_str(&result.inner.data).unwrap();
+        let data: RawEvent = serde_json::from_str(result.data()).unwrap();
         assert_eq!(data.event, "button_click");
         assert_eq!(data.properties.get("action"), Some(&json!("click")));
         assert_eq!(
@@ -534,7 +535,7 @@ mod tests {
         let result = parser(amp_event).unwrap();
         let result = result.into_iter().next().unwrap();
 
-        let data: RawEvent = serde_json::from_str(&result.inner.data).unwrap();
+        let data: RawEvent = serde_json::from_str(result.data()).unwrap();
         assert_eq!(data.event, "$pageview");
         assert_eq!(
             data.properties.get("$current_url"),
@@ -556,7 +557,7 @@ mod tests {
         let result = parser(amp_event).unwrap();
         let result = result.into_iter().next().unwrap();
 
-        let data: RawEvent = serde_json::from_str(&result.inner.data).unwrap();
+        let data: RawEvent = serde_json::from_str(result.data()).unwrap();
         assert_eq!(data.event, "$autocapture");
     }
 
@@ -593,7 +594,7 @@ mod tests {
         let result = parser(amp_event).unwrap();
         let result = result.into_iter().next().unwrap();
 
-        let data: RawEvent = serde_json::from_str(&result.inner.data).unwrap();
+        let data: RawEvent = serde_json::from_str(result.data()).unwrap();
         assert_eq!(data.properties.get("$device_type"), Some(&json!("Mobile")));
         assert_eq!(data.properties.get("$browser"), Some(&json!("iOS")));
         assert_eq!(
@@ -613,7 +614,7 @@ mod tests {
             Some(&json!("California"))
         );
         assert_eq!(data.properties.get("$ip"), Some(&json!("192.168.1.1")));
-        assert_eq!(result.inner.ip, "192.168.1.1");
+        assert_eq!(result.ip().unwrap(), "192.168.1.1");
     }
 
     #[test]
@@ -637,7 +638,7 @@ mod tests {
         let result = parser(amp_event).unwrap();
         let result = result.into_iter().next().unwrap();
 
-        let data: RawEvent = serde_json::from_str(&result.inner.data).unwrap();
+        let data: RawEvent = serde_json::from_str(result.data()).unwrap();
         let set_once = data.set_once.unwrap();
         assert_eq!(
             set_once.get("$initial_referrer"),
@@ -670,7 +671,7 @@ mod tests {
         let result = parser(amp_event).unwrap();
         let result = result.into_iter().next().unwrap();
 
-        let data: RawEvent = serde_json::from_str(&result.inner.data).unwrap();
+        let data: RawEvent = serde_json::from_str(result.data()).unwrap();
         let set_once = data.set_once.unwrap();
         assert!(!set_once.contains_key("$initial_referrer"));
         assert_eq!(set_once.get("$initial_utm_source"), Some(&json!("google")));
@@ -697,7 +698,7 @@ mod tests {
 
             if should_parse {
                 assert!(!result.is_empty());
-                let data: RawEvent = serde_json::from_str(&result[0].inner.data).unwrap();
+                let data: RawEvent = serde_json::from_str(result[0].data()).unwrap();
                 assert!(data.timestamp.is_some());
             }
         }
@@ -716,7 +717,7 @@ mod tests {
         let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
         let result = parser(amp_event).unwrap();
         let result = result.into_iter().next().unwrap();
-        assert_eq!(result.inner.distinct_id, "user123");
+        assert_eq!(result.distinct_id(), "user123");
 
         // Test with device_id only
         let amp_event = AmplitudeEvent {
@@ -729,7 +730,7 @@ mod tests {
         let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
         let result = parser(amp_event).unwrap();
         let result = result.into_iter().next().unwrap();
-        assert_eq!(result.inner.distinct_id, "device456");
+        assert_eq!(result.distinct_id(), "device456");
 
         // Test with neither (should generate UUID)
         let amp_event = AmplitudeEvent {
@@ -742,8 +743,8 @@ mod tests {
         let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
         let result = parser(amp_event).unwrap();
         let result = result.into_iter().next().unwrap();
-        assert!(!result.inner.distinct_id.is_empty());
-        assert!(Uuid::parse_str(&result.inner.distinct_id).is_ok());
+        assert!(!result.distinct_id().is_empty());
+        assert!(Uuid::parse_str(result.distinct_id()).is_ok());
     }
 
     #[test]
@@ -762,7 +763,7 @@ mod tests {
         let result = parser(amp_event).unwrap();
         let result = result.into_iter().next().unwrap();
 
-        let data: RawEvent = serde_json::from_str(&result.inner.data).unwrap();
+        let data: RawEvent = serde_json::from_str(result.data()).unwrap();
         assert_eq!(
             data.properties.get("$amplitude_user_id"),
             Some(&json!("user123"))
@@ -836,9 +837,8 @@ mod tests {
 
         // First event should be identify event
         let identify_event = &result[0];
-        assert_eq!(identify_event.team_id, 123);
-        let identify_data: serde_json::Value =
-            serde_json::from_str(&identify_event.inner.data).unwrap();
+        assert_eq!(identify_event.team_id().unwrap(), 123);
+        let identify_data: serde_json::Value = serde_json::from_str(identify_event.data()).unwrap();
         assert_eq!(identify_data["event"], "$identify");
         assert_eq!(identify_data["distinct_id"], "user123");
         assert_eq!(
@@ -859,9 +859,8 @@ mod tests {
 
         // Second event should be original event
         let original_event = &result[1];
-        assert_eq!(original_event.team_id, 123);
-        let original_data: serde_json::Value =
-            serde_json::from_str(&original_event.inner.data).unwrap();
+        assert_eq!(original_event.team_id().unwrap(), 123);
+        let original_data: serde_json::Value = serde_json::from_str(original_event.data()).unwrap();
         assert_eq!(original_data["event"], "test_event");
         assert_eq!(original_data["distinct_id"], "user123");
     }
@@ -906,15 +905,13 @@ mod tests {
         // First event should generate identify event
         let result1 = parser(amp_event1).unwrap();
         assert_eq!(result1.len(), 2); // identify + original
-        let identify_data: serde_json::Value =
-            serde_json::from_str(&result1[0].inner.data).unwrap();
+        let identify_data: serde_json::Value = serde_json::from_str(result1[0].data()).unwrap();
         assert_eq!(identify_data["event"], "$identify");
 
         // Second event should NOT generate identify event (already seen in cache)
         let result2 = parser(amp_event2).unwrap();
         assert_eq!(result2.len(), 1); // only original event
-        let original_data: serde_json::Value =
-            serde_json::from_str(&result2[0].inner.data).unwrap();
+        let original_data: serde_json::Value = serde_json::from_str(result2[0].data()).unwrap();
         assert_eq!(original_data["event"], "test_event2");
     }
 
@@ -949,8 +946,8 @@ mod tests {
 
         // The event should be the original event
         let event = &result[0];
-        assert_eq!(event.team_id, 123);
-        let data: serde_json::Value = serde_json::from_str(&event.inner.data).unwrap();
+        assert_eq!(event.team_id().unwrap(), 123);
+        let data: serde_json::Value = serde_json::from_str(event.data()).unwrap();
         assert_eq!(data["event"], "test_event");
         assert_eq!(data["distinct_id"], "user123");
     }
@@ -1044,29 +1041,27 @@ mod tests {
         // Test event with both user_id and device_id
         let result1 = parser(amp_event_with_both).unwrap();
         assert_eq!(result1.len(), 2); // identify + original
-        let identify_data: serde_json::Value =
-            serde_json::from_str(&result1[0].inner.data).unwrap();
+        let identify_data: serde_json::Value = serde_json::from_str(result1[0].data()).unwrap();
         assert_eq!(identify_data["event"], "$identify");
-        let original_data: serde_json::Value =
-            serde_json::from_str(&result1[1].inner.data).unwrap();
+        let original_data: serde_json::Value = serde_json::from_str(result1[1].data()).unwrap();
         assert_eq!(original_data["event"], "event_with_both");
 
         // Test event with only user_id
         let result2 = parser(amp_event_user_only).unwrap();
         assert_eq!(result2.len(), 1); // only original
-        let data: serde_json::Value = serde_json::from_str(&result2[0].inner.data).unwrap();
+        let data: serde_json::Value = serde_json::from_str(result2[0].data()).unwrap();
         assert_eq!(data["event"], "event_user_only");
 
         // Test event with only device_id
         let result3 = parser(amp_event_device_only).unwrap();
         assert_eq!(result3.len(), 1); // only original
-        let data: serde_json::Value = serde_json::from_str(&result3[0].inner.data).unwrap();
+        let data: serde_json::Value = serde_json::from_str(result3[0].data()).unwrap();
         assert_eq!(data["event"], "event_device_only");
 
         // Test event with neither
         let result4 = parser(amp_event_neither).unwrap();
         assert_eq!(result4.len(), 1); // only original
-        let data: serde_json::Value = serde_json::from_str(&result4[0].inner.data).unwrap();
+        let data: serde_json::Value = serde_json::from_str(result4[0].data()).unwrap();
         assert_eq!(data["event"], "event_neither");
     }
 
@@ -1101,8 +1096,8 @@ mod tests {
 
         // The event should be the identify event
         let event = &result[0];
-        assert_eq!(event.team_id, 123);
-        let data: serde_json::Value = serde_json::from_str(&event.inner.data).unwrap();
+        assert_eq!(event.team_id().unwrap(), 123);
+        let data: serde_json::Value = serde_json::from_str(event.data()).unwrap();
         assert_eq!(data["event"], "$identify");
         assert_eq!(data["distinct_id"], "user123");
     }

@@ -440,20 +440,20 @@ pub fn process_single_event(
         session_id: None,
     };
 
-    let event = CapturedEvent {
-        uuid: event.uuid.unwrap_or_else(uuid_v7),
-        distinct_id: event
+    let event = CapturedEvent::new_external(
+        event.uuid.unwrap_or_else(uuid_v7),
+        event
             .extract_distinct_id()
             .ok_or(CaptureError::MissingDistinctId)?,
-        ip: context.client_ip.clone(),
+        context.client_ip.clone(),
         data,
-        now: context.now.clone(),
-        sent_at: context.sent_at,
-        token: context.token.clone(),
-        is_cookieless_mode: event
+        context.now.clone(),
+        context.sent_at,
+        context.token.clone(),
+        event
             .extract_is_cookieless_mode()
             .ok_or(CaptureError::InvalidCookielessMode)?,
-    };
+    );
 
     // if this event was historical but not assigned to the right topic
     // by the submitting user (i.e. no historical prop flag in event)
@@ -509,7 +509,7 @@ pub async fn process_events<'a>(
         .collect::<Result<Vec<ProcessedEvent>, CaptureError>>()?;
 
     events.retain(|e| {
-        if dropper.should_drop(&e.event.token, &e.event.distinct_id) {
+        if dropper.should_drop(e.event.token(), e.event.distinct_id()) {
             report_dropped_events("token_dropper", 1);
             false
         } else {
@@ -609,11 +609,11 @@ pub async fn process_replay_events<'a>(
         session_id: Some(session_id_str.to_string()),
     };
 
-    let event = CapturedEvent {
+    let event = CapturedEvent::new_external(
         uuid,
-        distinct_id: distinct_id.clone(),
-        ip: context.client_ip.clone(),
-        data: json!({
+        distinct_id.clone(),
+        context.client_ip.clone(),
+        json!({
             "event": "$snapshot_items",
             "properties": {
                 "distinct_id": distinct_id,
@@ -625,11 +625,11 @@ pub async fn process_replay_events<'a>(
             }
         })
         .to_string(),
-        now: context.now.clone(),
-        sent_at: context.sent_at,
-        token: context.token.clone(),
+        context.now.clone(),
+        context.sent_at,
+        context.token.clone(),
         is_cookieless_mode,
-    };
+    );
 
     sink.send(ProcessedEvent { metadata, event }).await
 }

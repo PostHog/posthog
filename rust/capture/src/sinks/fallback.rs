@@ -175,16 +175,16 @@ mod tests {
 
         // Create test event
         let event = ProcessedEvent {
-            event: CapturedEvent {
-                uuid: uuid_v7(),
-                distinct_id: "test_id".to_string(),
-                ip: "127.0.0.1".to_string(),
-                data: "test data".to_string(),
-                now: "2024-01-01T00:00:00Z".to_string(),
-                sent_at: None,
-                token: "test_token".to_string(),
-                is_cookieless_mode: false,
-            },
+            event: CapturedEvent::new_external(
+                uuid_v7(),
+                "test_id".to_string(),
+                "127.0.0.1".to_string(),
+                "test data".to_string(),
+                "2024-01-01T00:00:00Z".to_string(),
+                None,
+                "test_token".to_string(),
+                false,
+            ),
             metadata: ProcessedEventMetadata {
                 data_type: DataType::AnalyticsMain,
                 session_id: None,
@@ -212,16 +212,16 @@ mod tests {
 
         // Create test event
         let event = ProcessedEvent {
-            event: CapturedEvent {
-                uuid: uuid_v7(),
-                distinct_id: "test_id".to_string(),
-                ip: "127.0.0.1".to_string(),
-                data: "test data".to_string(),
-                now: "2024-01-01T00:00:00Z".to_string(),
-                sent_at: None,
-                token: "test_token".to_string(),
-                is_cookieless_mode: false,
-            },
+            event: CapturedEvent::new_external(
+                uuid_v7(),
+                "test_id".to_string(),
+                "127.0.0.1".to_string(),
+                "test data".to_string(),
+                "2024-01-01T00:00:00Z".to_string(),
+                None,
+                "test_token".to_string(),
+                false,
+            ),
             metadata: ProcessedEventMetadata {
                 data_type: DataType::AnalyticsMain,
                 session_id: None,

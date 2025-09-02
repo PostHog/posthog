@@ -87,16 +87,16 @@ fn create_test_captured_event(
     let data = serde_json::to_string(&raw_event)?;
 
     // Create the CapturedEvent wrapper
-    let captured_event = CapturedEvent {
+    let captured_event = CapturedEvent::new_external(
         uuid,
-        distinct_id: distinct_id.to_string(),
-        ip: "127.0.0.1".to_string(),
+        distinct_id.to_string(),
+        "127.0.0.1".to_string(),
         data,
-        now: format!("{timestamp}000"), // timestamp in milliseconds
-        sent_at: None,
-        token: "test_token".to_string(),
-        is_cookieless_mode: false,
-    };
+        format!("{timestamp}000"), // timestamp in milliseconds
+        None,
+        "test_token".to_string(),
+        false,
+    );
 
     Ok(captured_event)
 }

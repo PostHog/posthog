@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use anyhow::Error;
 use async_trait::async_trait;
-use common_types::InternallyCapturedEvent;
+use common_types::CapturedEvent;
 use tokio::io::AsyncWriteExt;
 use tracing::info;
 
@@ -15,7 +15,7 @@ pub trait Emitter: Send + Sync {
 
 #[async_trait]
 pub trait Transaction<'a>: Send + Sync {
-    async fn emit(&self, data: &[InternallyCapturedEvent]) -> Result<(), Error>;
+    async fn emit(&self, data: &[CapturedEvent]) -> Result<(), Error>;
 
     // Commits return a delay to wait before the next commit start
     async fn commit_write(self: Box<Self>) -> Result<Duration, Error> {
@@ -37,7 +37,7 @@ impl Emitter for StdoutEmitter {
 
 #[async_trait]
 impl<'a> Transaction<'a> for &'a StdoutEmitter {
-    async fn emit(&self, data: &[InternallyCapturedEvent]) -> Result<(), Error> {
+    async fn emit(&self, data: &[CapturedEvent]) -> Result<(), Error> {
         for event in data {
             if self.as_json {
                 println!("{}", serde_json::to_string(&event)?);
@@ -61,7 +61,7 @@ impl Emitter for NoOpEmitter {
 
 #[async_trait]
 impl<'a> Transaction<'a> for &'a NoOpEmitter {
-    async fn emit(&self, _data: &[InternallyCapturedEvent]) -> Result<(), Error> {
+    async fn emit(&self, _data: &[CapturedEvent]) -> Result<(), Error> {
         Ok(())
     }
 }
@@ -91,7 +91,7 @@ impl Emitter for FileEmitter {
 
 #[async_trait]
 impl<'a> Transaction<'a> for &'a FileEmitter {
-    async fn emit(&self, data: &[InternallyCapturedEvent]) -> Result<(), Error> {
+    async fn emit(&self, data: &[CapturedEvent]) -> Result<(), Error> {
         info!("Writing {} events to file {}", data.len(), self.path);
         let mut file = tokio::fs::OpenOptions::new()
             .create(true)

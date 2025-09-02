@@ -354,36 +354,39 @@ pub fn validate_single_event_payload(title: &str, got_events: Vec<ProcessedEvent
     // introspect on extracted event attributes
     let event = &got.event;
     assert_eq!(
-        "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3", &event.token,
+        "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3",
+        event.token(),
         "mismatched token in case: {title}",
     );
     assert_eq!(
-        "019833ae-4913-7179-b6bc-019570abb1c9", &event.distinct_id,
+        "019833ae-4913-7179-b6bc-019570abb1c9",
+        event.distinct_id(),
         "mismatched distinct_id in case: {title}",
     );
     assert_eq!(
-        DEFAULT_TEST_TIME, &event.now,
+        DEFAULT_TEST_TIME,
+        event.now(),
         "mismatched 'now' timestamp in case: {title}",
     );
     assert_eq!(
         36_usize,
-        event.uuid.to_string().len(),
+        event.uuid().to_string().len(),
         "invalid UUID in case: {title}",
     );
 
     assert_eq!(
         Some(expected_timestamp),
-        event.sent_at,
+        event.sent_at(),
         "mismatched sent_at in case: {title}",
     );
     assert!(
-        !event.is_cookieless_mode,
+        !event.is_cookieless_mode(),
         "mismatched cookieless flag in case: {title}",
     );
 
     // introspect on event data to be processed by plugin-server
     let event_data_err_msg = format!("failed to hydrate test event.data in case: {title}");
-    let event: Value = from_str(&event.data).expect(&event_data_err_msg);
+    let event: Value = from_str(event.data()).expect(&event_data_err_msg);
 
     assert_eq!(
         "$autocapture",
@@ -470,36 +473,39 @@ pub fn validate_single_engage_event_payload(title: &str, got_events: Vec<Process
     // introspect on extracted event attributes
     let event = &got.event;
     assert_eq!(
-        "phc_VXRzc3poSG9GZm1JenRiZnJ6TTJFZGh4OWY2QXzx9f3", &event.token,
+        "phc_VXRzc3poSG9GZm1JenRiZnJ6TTJFZGh4OWY2QXzx9f3",
+        event.token(),
         "mismatched token in case: {title}",
     );
     assert_eq!(
-        "known_user@example.com", &event.distinct_id,
+        "known_user@example.com",
+        event.distinct_id(),
         "mismatched distinct_id in case: {title}",
     );
     assert_eq!(
-        DEFAULT_TEST_TIME, &event.now,
+        DEFAULT_TEST_TIME,
+        event.now(),
         "mismatched 'now' timestamp in case: {title}",
     );
     assert_eq!(
         36_usize,
-        event.uuid.to_string().len(),
+        event.uuid().to_string().len(),
         "invalid UUID in case: {title}",
     );
 
     assert_eq!(
         Some(expected_timestamp),
-        event.sent_at,
+        event.sent_at(),
         "mismatched sent_at in case: {title}",
     );
     assert!(
-        !event.is_cookieless_mode,
+        !event.is_cookieless_mode(),
         "mismatched cookieless flag in case: {title}",
     );
 
     // introspect on event data to be processed by plugin-server
     let event_data_err_msg = format!("failed to hydrate test event.data in case: {title}");
-    let event: Value = from_str(&event.data).expect(&event_data_err_msg);
+    let event: Value = from_str(event.data()).expect(&event_data_err_msg);
 
     // /engage/ events get post-processed into "$identify" events
     assert_eq!(
@@ -578,33 +584,36 @@ pub fn validate_single_replay_event_payload(title: &str, got_events: Vec<Process
     // introspect on extracted event attributes
     let event = &got.event;
     assert_eq!(
-        "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3", &event.token,
+        "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3",
+        event.token(),
         "mismatched token in case: {title}",
     );
     assert_eq!(
-        "01983d90-510c-7970-a356-ecd2aa03cb22", &event.distinct_id,
+        "01983d90-510c-7970-a356-ecd2aa03cb22",
+        event.distinct_id(),
         "mismatched distinct_id in case: {title}",
     );
 
     assert_eq!(
-        DEFAULT_TEST_TIME, &event.now,
+        DEFAULT_TEST_TIME,
+        event.now(),
         "mismatched 'now' timestamp in case: {title}",
     );
     assert_eq!(
         36_usize,
-        event.uuid.to_string().len(),
+        event.uuid().to_string().len(),
         "invalid UUID in case: {title}",
     );
 
     assert_eq!(
         Some(expected_timestamp),
-        event.sent_at,
+        event.sent_at(),
         "mismatched sent_at in case: {title}",
     );
 
     // introspect on event data to be processed by plugin-server
     let event_data_err_msg = format!("failed to hydrate test event.data in case: {title}");
-    let event: Value = from_str(&event.data).expect(&event_data_err_msg);
+    let event: Value = from_str(event.data()).expect(&event_data_err_msg);
 
     assert_eq!(
         "$snapshot_items",
@@ -701,37 +710,40 @@ pub fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent
     // introspect on extracted event attributes
     let event = &pageview.event;
     assert_eq!(
-        "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3", &event.token,
+        "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3",
+        event.token(),
         "mismatched token on $pageview in case: {title}",
     );
     assert_eq!(
-        "someone@example.com", &event.distinct_id,
+        "someone@example.com",
+        event.distinct_id(),
         "mismatched distinct_id on $pageview in case: {title}",
     );
     assert_eq!(
-        DEFAULT_TEST_TIME, &event.now,
+        DEFAULT_TEST_TIME,
+        event.now(),
         "mismatched 'now' timestamp $pageview in case: {title}",
     );
     assert_eq!(
         36_usize,
-        event.uuid.to_string().len(),
+        event.uuid().to_string().len(),
         "invalid UUID on $pageview in case: {title}",
     );
 
     assert_eq!(
         Some(expected_timestamp),
-        event.sent_at,
+        event.sent_at(),
         "mismatched sent_at on $pageview in case: {title}",
     );
     assert!(
-        !event.is_cookieless_mode,
+        !event.is_cookieless_mode(),
         "mismatched cookieless flag on $pageview in case: {title}",
     );
 
     // introspect on event data to be processed by plugin-server
     let event_data_err_msg =
         format!("failed to hydrate test $pageview event.data in case: {title}");
-    let event: Value = from_str(&event.data).expect(&event_data_err_msg);
+    let event: Value = from_str(event.data()).expect(&event_data_err_msg);
 
     assert_eq!(
         "$pageview",
@@ -821,37 +833,40 @@ pub fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent
     // introspect on extracted event attributes
     let event = &pageleave.event;
     assert_eq!(
-        "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3", &event.token,
+        "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3",
+        event.token(),
         "mismatched token on $pageleave in case: {title}",
     );
     assert_eq!(
-        "someone@example.com", &event.distinct_id,
+        "someone@example.com",
+        event.distinct_id(),
         "mismatched distinct_id on $pageleave in case: {title}",
     );
     assert_eq!(
-        DEFAULT_TEST_TIME, &event.now,
+        DEFAULT_TEST_TIME,
+        event.now(),
         "mismatched 'now' timestamp $pageleave in case: {title}",
     );
     assert_eq!(
         36_usize,
-        event.uuid.to_string().len(),
+        event.uuid().to_string().len(),
         "invalid UUID on $pageleave in case: {title}",
     );
 
     assert_eq!(
         Some(expected_timestamp),
-        event.sent_at,
+        event.sent_at(),
         "mismatched sent_at on $pageleave in case: {title}",
     );
     assert!(
-        !event.is_cookieless_mode,
+        !event.is_cookieless_mode(),
         "mismatched cookieless flag on $pageleave in case: {title}",
     );
 
     // introspect on event data to be processed by plugin-server
     let event_data_err_msg =
         format!("failed to hydrate test $pageleave event.data in case: {title}");
-    let event: Value = from_str(&event.data).expect(&event_data_err_msg);
+    let event: Value = from_str(event.data()).expect(&event_data_err_msg);
 
     assert_eq!(
         "$pageleave",

@@ -129,16 +129,12 @@ pub async fn do_team_lookups(
             continue; // We don't need to look up teams that already have a team_id
         };
 
-        if team_lookups.contains_key(&event.token) {
-            team_lookups
-                .get_mut(&event.token)
-                .unwrap()
-                .indices
-                .push(index);
+        let token = sanitize_string(event.token().to_string());
+
+        if team_lookups.contains_key(&token) {
+            team_lookups.get_mut(&token).unwrap().indices.push(index);
             continue;
         }
-
-        let token = sanitize_string(event.token.clone());
 
         let m_ctx = context.clone();
         let m_token = token.clone();

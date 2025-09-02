@@ -21,8 +21,8 @@ pub async fn apply_billing_limits(
             continue;
         };
 
-        if context.billing_limiter.is_limited(&e.token).await {
-            info!("Dropped event for {}", &e.token);
+        if context.billing_limiter.is_limited(e.token()).await {
+            info!("Dropped event for {}", &e.token());
             continue;
         }
         out.push(IncomingEvent::Captured(e));

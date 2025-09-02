@@ -1,6 +1,6 @@
 use anyhow::Error;
 use chrono::Utc;
-use common_types::{CapturedEvent, InternallyCapturedEvent, RawEvent};
+use common_types::{CapturedEvent, RawEvent};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -9,7 +9,7 @@ use super::TransformContext;
 pub fn captured_parse_fn(
     context: TransformContext,
     event_transform: impl Fn(RawEvent) -> Result<Option<RawEvent>, Error>,
-) -> impl Fn(RawEvent) -> Result<Option<InternallyCapturedEvent>, Error> {
+) -> impl Fn(RawEvent) -> Result<Option<CapturedEvent>, Error> {
     move |raw| {
         let Some(mut raw) = event_transform(raw)? else {
             return Ok(None);
@@ -29,21 +29,19 @@ pub fn captured_parse_fn(
 
         // Only return the event if import_events is enabled
         if context.import_events {
-            let inner = CapturedEvent {
+            let event = CapturedEvent::new_internal(
                 uuid,
                 distinct_id,
-                ip: "127.0.0.1".to_string(),
-                data: serde_json::to_string(&raw)?,
-                now: timestamp,
-                sent_at: None, // We don't know when it was sent at, since it's a historical import
-                token: context.token.clone(),
-                is_cookieless_mode: false,
-            };
+                Some("127.0.0.1".to_string()),
+                serde_json::to_string(&raw)?,
+                timestamp,
+                None, // We don't know when it was sent at, since it's a historical import
+                context.token.clone(),
+                false,
+                context.team_id,
+            );
 
-            Ok(Some(InternallyCapturedEvent {
-                team_id: context.team_id,
-                inner,
-            }))
+            Ok(Some(event))
         } else {
             Ok(None)
         }

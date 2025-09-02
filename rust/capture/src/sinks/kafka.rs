@@ -237,11 +237,11 @@ impl KafkaSink {
             CaptureError::NonRetryableSinkError
         })?;
 
-        let token = event.token.clone();
+        let token = event.token().to_string();
         let data_type = metadata.data_type;
         let event_key = event.key();
         let session_id = metadata.session_id.clone();
-        let distinct_id = event.distinct_id.clone();
+        let distinct_id = event.distinct_id().to_string();
 
         drop(event); // Events can be EXTREMELY memory hungry
 
@@ -479,16 +479,16 @@ mod tests {
 
         let (cluster, sink) = start_on_mocked_sink(Some(3000000)).await;
         let distinct_id = "test_distinct_id_123".to_string();
-        let event: CapturedEvent = CapturedEvent {
-            uuid: uuid_v7(),
-            distinct_id: distinct_id.clone(),
-            ip: "".to_string(),
-            data: "".to_string(),
-            now: "".to_string(),
-            sent_at: None,
-            token: "token1".to_string(),
-            is_cookieless_mode: false,
-        };
+        let event = CapturedEvent::new_external(
+            uuid_v7(),
+            distinct_id.clone(),
+            "".to_string(),
+            "".to_string(),
+            "".to_string(),
+            None,
+            "token1".to_string(),
+            false,
+        );
 
         let metadata = ProcessedEventMetadata {
             data_type: DataType::AnalyticsMain,
@@ -521,16 +521,16 @@ mod tests {
             .take(2_000_000)
             .map(char::from)
             .collect();
-        let captured = CapturedEvent {
-            uuid: uuid_v7(),
-            distinct_id: "id1".to_string(),
-            ip: "".to_string(),
-            data: big_data,
-            now: "".to_string(),
-            sent_at: None,
-            token: "token1".to_string(),
-            is_cookieless_mode: false,
-        };
+        let captured = CapturedEvent::new_external(
+            uuid_v7(),
+            "id1".to_string(),
+            "".to_string(),
+            big_data,
+            "".to_string(),
+            None,
+            "token1".to_string(),
+            false,
+        );
 
         let big_event = ProcessedEvent {
             event: captured,
@@ -549,16 +549,16 @@ mod tests {
             .collect();
 
         let big_event = ProcessedEvent {
-            event: CapturedEvent {
-                uuid: uuid_v7(),
-                distinct_id: "id1".to_string(),
-                ip: "".to_string(),
-                data: big_data,
-                now: "".to_string(),
-                sent_at: None,
-                token: "token1".to_string(),
-                is_cookieless_mode: false,
-            },
+            event: CapturedEvent::new_external(
+                uuid_v7(),
+                "id1".to_string(),
+                "".to_string(),
+                big_data,
+                "".to_string(),
+                None,
+                "token1".to_string(),
+                false,
+            ),
             metadata: metadata.clone(),
         };
 

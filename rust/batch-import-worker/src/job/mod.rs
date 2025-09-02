@@ -1,9 +1,9 @@
 use std::sync::{atomic::Ordering, Arc};
 
 use anyhow::{Context, Error};
+use common_types::CapturedEvent;
 
 use crate::metrics as metric_emit;
-use common_types::InternallyCapturedEvent;
 use model::{JobModel, JobState, PartState};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
@@ -105,7 +105,7 @@ pub struct Job {
 
 struct Checkpoint {
     key: String,
-    data: Parsed<Vec<InternallyCapturedEvent>>,
+    data: Parsed<Vec<CapturedEvent>>,
 }
 
 impl Job {
@@ -308,9 +308,7 @@ impl Job {
         Ok(Some(self))
     }
 
-    async fn get_next_chunk(
-        &self,
-    ) -> Result<Option<(String, Parsed<Vec<InternallyCapturedEvent>>)>, Error> {
+    async fn get_next_chunk(&self) -> Result<Option<(String, Parsed<Vec<CapturedEvent>>)>, Error> {
         let mut state = self.state.lock().await;
 
         let Some(next_part) = state.parts.iter_mut().find(|p| !p.is_done()) else {

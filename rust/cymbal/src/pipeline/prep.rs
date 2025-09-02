@@ -27,18 +27,18 @@ pub fn prepare_events(
             }
             IncomingEvent::Captured(outer) => {
                 let maybe_team = teams_lut
-                    .get(&sanitize_string(outer.token.to_string()))
+                    .get(&sanitize_string(outer.token().to_string()))
                     .expect("Team lookup table is fully populated");
 
                 let Some(team) = maybe_team else {
-                    buffer.push(Err(EventError::NoTeamForToken(outer.token)));
+                    buffer.push(Err(EventError::NoTeamForToken(outer.token().to_string())));
                     continue;
                 };
 
                 // If we get an event we can't deserialize at all, we have to drop it. This is a rare
                 // case where we put the whole event into the error, so we can DLQ it later for offline
                 // analysis
-                let mut raw_event: Value = match serde_json::from_str(&outer.data) {
+                let mut raw_event: Value = match serde_json::from_str(outer.data()) {
                     Ok(event) => event,
                     Err(e) => {
                         buffer.push(Err(EventError::FailedToDeserialize(
@@ -50,7 +50,7 @@ pub fn prepare_events(
                 };
 
                 // If we fail to sanitize the event, we should discard it as unprocessable
-                if let Err(e) = recursively_sanitize_properties(outer.uuid, &mut raw_event, 0) {
+                if let Err(e) = recursively_sanitize_properties(*outer.uuid(), &mut raw_event, 0) {
                     buffer.push(Err(e));
                     continue;
                 }
@@ -70,7 +70,7 @@ pub fn prepare_events(
                 // the event was captured.
                 let timestamp = match &raw_event.timestamp {
                     Some(ts) => parse_ts_assuming_utc(ts),
-                    None => Ok(parse_ts_assuming_utc(&outer.now)
+                    None => Ok(parse_ts_assuming_utc(outer.now())
                         .expect("CapturedEvent::now is always valid")), // Set by capture, should always be valid
                 };
 
@@ -108,9 +108,13 @@ fn transform_event(
         raw_event.properties.remove("$ip");
     } else {
         // Fold the ip the event was sent from into the event properties
-        raw_event
-            .properties
-            .insert("$ip".to_string(), Value::String(outer.ip.clone()));
+        // Ignore internal events since they don't have an ip
+        if !outer.is_internal() {
+            raw_event.properties.insert(
+                "$ip".to_string(),
+                Value::String(outer.ip().unwrap().to_string()),
+            );
+        }
     }
 
     // Fold in $set and $set_once properties
@@ -143,7 +147,7 @@ fn transform_event(
         sent_at = None;
     }
 
-    let now = parse_ts_assuming_utc(&outer.now).expect("CapturedEvent::now is always valid");
+    let now = parse_ts_assuming_utc(outer.now()).expect("CapturedEvent::now is always valid");
 
     let timestamp = resolve_timestamp(timestamp, sent_at, now, raw_event.offset);
 
@@ -152,11 +156,11 @@ fn transform_event(
     let timestamp = timestamp.unwrap_or(now);
 
     let mut event = ClickHouseEvent {
-        uuid: outer.uuid,
+        uuid: *outer.uuid(),
         team_id: team.id,
         project_id: team.project_id,
         event: raw_event.event,
-        distinct_id: sanitize_string(outer.distinct_id.to_string()),
+        distinct_id: sanitize_string(outer.distinct_id().to_string()),
         properties: Some(
             serde_json::to_string(&raw_event.properties)
                 .expect("Json data just deserialized can be serialized"),

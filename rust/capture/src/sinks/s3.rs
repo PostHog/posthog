@@ -317,16 +317,16 @@ mod tests {
 
     fn create_test_event() -> ProcessedEvent {
         ProcessedEvent {
-            event: CapturedEvent {
-                uuid: uuid_v7(),
-                distinct_id: "test_id".to_string(),
-                ip: "127.0.0.1".to_string(),
-                data: "test data".to_string(),
-                now: "2024-01-01T00:00:00Z".to_string(),
-                sent_at: None,
-                token: "test_token".to_string(),
-                is_cookieless_mode: false,
-            },
+            event: CapturedEvent::new_external(
+                uuid_v7(),
+                "test_id".to_string(),
+                "127.0.0.1".to_string(),
+                "test data".to_string(),
+                "2024-01-01T00:00:00Z".to_string(),
+                None,
+                "test_token".to_string(),
+                false,
+            ),
             metadata: ProcessedEventMetadata {
                 data_type: DataType::AnalyticsMain,
                 session_id: None,
@@ -356,10 +356,16 @@ mod tests {
         // Create event that will exceed MAX_BUFFER_SIZE
         let large_data = "x".repeat(MAX_BUFFER_SIZE + 1000);
         let event = ProcessedEvent {
-            event: CapturedEvent {
-                data: large_data,
-                ..create_test_event().event
-            },
+            event: CapturedEvent::new_external(
+                uuid_v7(),
+                "test_id".to_string(),
+                "127.0.0.1".to_string(),
+                large_data,
+                "2024-01-01T00:00:00Z".to_string(),
+                None,
+                "test_token".to_string(),
+                false,
+            ),
             metadata: create_test_event().metadata,
         };
 

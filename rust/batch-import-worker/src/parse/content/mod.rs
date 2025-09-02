@@ -17,7 +17,7 @@ pub enum ContentType {
     Captured, // Each json object structured as if it was going to be sent to the capture endpoint
 }
 
-// All /extra/ information needed to go from any input format to an InternallyCapturedEvent,
+// All /extra/ information needed to go from any input format to an CapturedEvent,
 // e.g. team_id
 #[derive(Debug, Clone)]
 pub struct TransformContext {
