@@ -16,7 +16,7 @@ import {
     IconShortcut,
     IconToolbar,
 } from '@posthog/icons'
-import { Link } from '@posthog/lemon-ui'
+import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { DebugNotice } from 'lib/components/DebugNotice'
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -45,7 +45,7 @@ import { OrganizationDropdownMenu } from './OrganizationDropdownMenu'
 import { ProjectDropdownMenu } from './ProjectDropdownMenu'
 
 const navBarStyles = cva({
-    base: 'flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative pt-1',
+    base: 'flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative',
     variants: {
         isLayoutNavCollapsed: {
             true: 'w-[var(--project-navbar-width-collapsed)]',
@@ -263,10 +263,28 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 >
                     <div className={`flex justify-between p-1 ${isLayoutNavCollapsed ? 'justify-center' : ''}`}>
                         {newSceneLayout ? (
-                            <ButtonGroupPrimitive>
-                                <OrganizationDropdownMenu showName={false} />
-                                <ProjectDropdownMenu />
-                            </ButtonGroupPrimitive>
+                            <div
+                                className={cn(
+                                    'flex gap-1 rounded-md p-1 w-full',
+                                    isLayoutNavCollapsed
+                                        ? 'bg-[var(--color-bg-fill-highlight-75)] flex-col'
+                                        : 'bg-[var(--color-bg-fill-highlight-25)] '
+                                )}
+                            >
+                                <Tooltip title="Switch organization" closeDelayMs={0} placement="bottom">
+                                    <div>
+                                        <OrganizationDropdownMenu showName={false} buttonProps={{ variant: 'panel' }} />
+                                    </div>
+                                </Tooltip>
+                                <Tooltip title="Switch project" closeDelayMs={0} placement="bottom">
+                                    <div className="w-full">
+                                        <ProjectDropdownMenu
+                                            buttonProps={{ fullWidth: true, className: 'max-w-full' }}
+                                            iconOnly={isLayoutNavCollapsed}
+                                        />
+                                    </div>
+                                </Tooltip>
+                            </div>
                         ) : (
                             <OrganizationDropdownMenu />
                         )}
