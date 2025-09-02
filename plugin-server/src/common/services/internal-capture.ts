@@ -1,7 +1,15 @@
 import { DateTime } from 'luxon'
+import { Counter } from 'prom-client'
 
 import { PluginsServerConfig } from '~/types'
+import { logger } from '~/utils/logger'
 import { internalFetch } from '~/utils/request'
+
+const internalCaptureCounter = new Counter({
+    name: 'internal_capture_events',
+    help: 'Number of internal capture events',
+    labelNames: ['status'],
+})
 
 export type InternalCaptureEvent = {
     team_id: number
@@ -24,10 +32,6 @@ type CapturePayloadFormt = {
 export class InternalCaptureService {
     constructor(private config: PluginsServerConfig) {}
 
-    get url(): string {
-        return `${this.config.CAPTURE_INTERNAL_URL}/i/v0/e/`
-    }
-
     isEnabled(): boolean {
         return this.config.CAPTURE_INTERNAL_URL !== ''
     }
@@ -47,13 +51,20 @@ export class InternalCaptureService {
     }
 
     async capture(event: InternalCaptureEvent): Promise<void> {
-        await internalFetch(this.url, {
+        if (!this.isEnabled()) {
+            throw new Error('Internal capture is not enabled due to missing configuration')
+        }
+        logger.debug('Capturing internal event', { event, url: this.config.CAPTURE_INTERNAL_URL })
+        const response = await internalFetch(this.config.CAPTURE_INTERNAL_URL, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify(this.prepareEvent(event)),
         })
+        logger.debug('Internal capture event captured', { status: response.status })
+
+        internalCaptureCounter.inc({ status: response.status.toString() })
     }
 
     async captureMany(events: InternalCaptureEvent[]): Promise<void> {
