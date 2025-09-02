@@ -279,7 +279,7 @@ class VercelAuthentication(authentication.BaseAuthentication):
     def authenticate(self, request: Request) -> tuple[VercelUser, None] | None:
         token = self._get_bearer_token(request)
         if not token:
-            return None
+            raise AuthenticationFailed("Missing Token for Vercel request")
 
         auth_type = self._get_vercel_auth_type(request)
 

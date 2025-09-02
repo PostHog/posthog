@@ -1,5 +1,5 @@
 // This file contains example queries, used in storybook and in the /query interface.
-import { RETENTION_FIRST_TIME } from 'lib/constants'
+import { RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import {
@@ -502,7 +502,7 @@ const WebAnalyticsRetention: InsightVizNode<RetentionQuery> = {
         },
         filterTestAccounts: false,
         retentionFilter: {
-            retentionType: RETENTION_FIRST_TIME,
+            retentionType: RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
             retentionReference: 'total',
             totalIntervals: 8,
             period: RetentionPeriod.Week,
