@@ -19,7 +19,6 @@ import { GroupedLogEntry, LogsViewerLogicProps } from './logsViewerLogic'
 const EVENT_LINK_REGEX = /Event: '(.+)'/g
 
 export const renderHogFunctionMessage = (message: string): JSX.Element => {
-    // Modifies the rendered log message to auto-detect action parts and replace them with a link
     const parts = message.split(EVENT_LINK_REGEX)
     const elements: (string | JSX.Element)[] = []
 
