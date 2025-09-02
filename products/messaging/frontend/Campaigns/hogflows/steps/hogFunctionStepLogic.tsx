@@ -52,7 +52,7 @@ export const hogFunctionStepLogic = kea<hogFunctionStepLogicType>([
     forms(({ props }) => ({
         configuration: {
             defaults: {
-                inputs: props.node?.data.config.inputs || {},
+                inputs: props.node?.data?.config?.inputs || {},
             },
         },
     })),
