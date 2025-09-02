@@ -134,7 +134,6 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 cachedResults={props.cachedResults}
                 uniqueKey={uniqueKey}
                 readOnly={readOnly}
-                editMode={editMode}
                 dataAttr={dataAttr}
             />
         )

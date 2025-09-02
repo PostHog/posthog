@@ -230,6 +230,7 @@ function InsightCardInternal(
                                     embedded
                                     inSharedMode={placement === DashboardPlacement.Public}
                                     variablesOverride={variablesOverride}
+                                    editMode={false}
                                 />
                             )}
                         </div>
