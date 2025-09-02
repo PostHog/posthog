@@ -88,6 +88,12 @@ procs:
             bin/check_kafka_clickhouse_up && \
             bin/start-rust-service capture-replay
 
+    batch-import-worker:
+        shell: |-
+            bin/check_postgres_up && \
+            bin/check_kafka_clickhouse_up && \
+            bin/start-rust-service batch-import-worker
+
     migrate-postgres:
         shell: 'bin/check_postgres_up && python manage.py migrate' # This takes ~10 s
 
