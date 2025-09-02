@@ -33,7 +33,7 @@ import { LLMAnalyticsTraces } from './LLMAnalyticsTracesScene'
 import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
 import { LLM_ANALYTICS_DATA_COLLECTION_NODE_ID, llmAnalyticsLogic } from './llmAnalyticsLogic'
 import { CompatMessage } from './types'
-import { normalizeMessages } from './utils'
+import { normalizeMessages, truncateValue } from './utils'
 
 export const scene: SceneExport = {
     component: LLMAnalyticsScene,
@@ -335,18 +335,4 @@ export function LLMAnalyticsScene(): JSX.Element {
             </SceneContent>
         </BindLogic>
     )
-}
-
-function truncateValue(value: unknown): string {
-    if (value === null || value === undefined) {
-        return '-'
-    }
-
-    const stringValue = String(value)
-
-    if (stringValue.length <= 12) {
-        return stringValue
-    }
-
-    return stringValue.slice(0, 4) + '...' + stringValue.slice(-4)
 }

@@ -10,12 +10,11 @@ from posthog.schema import AssistantMessage, AssistantToolCall, NodeKind
 
 from ee.hogai.utils.types.base import AnyAssistantGeneratedQuery, AnyAssistantSupportedQuery
 
-from .sql import SQLFunctionCorrectness, SQLSemanticsCorrectness, SQLSyntaxCorrectness
+from .sql import SQLSemanticsCorrectness, SQLSyntaxCorrectness
 
 __all__ = [
     "SQLSemanticsCorrectness",
     "SQLSyntaxCorrectness",
-    "SQLFunctionCorrectness",
     "ToolRelevance",
     "QueryKindSelection",
     "PlanCorrectness",
