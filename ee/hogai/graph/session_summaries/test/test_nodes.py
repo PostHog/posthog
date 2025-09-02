@@ -151,7 +151,9 @@ class TestSessionSummarizationNode(BaseTest):
         mock_query_runner = self._create_mock_query_runner([])
         mock_query_runner_class.return_value = mock_query_runner
 
-        result = self.node._get_session_ids_with_filters(mock_filters)
+        # Convert MaxRecordingUniversalFilters to RecordingsQuery
+        recordings_query = self.node._convert_max_filters_to_recordings_query(mock_filters)
+        result = self.node._get_session_ids_with_filters(recordings_query)
 
         self.assertIsNone(result)
 
