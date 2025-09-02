@@ -58,7 +58,7 @@ Currently, **read permissions are required** for the following resources:
                         label="API key",
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
-                        placeholder="sk_live_...",
+                        placeholder="rk_live_...",
                     ),
                 ],
             ),
