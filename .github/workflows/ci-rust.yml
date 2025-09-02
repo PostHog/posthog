@@ -194,8 +194,6 @@ jobs:
             - name: Run sqlx migrations
               if: needs.changes.outputs.rust == 'true'
               env:
-                  DEBUG: 'true'
-                  TEST: 'true'
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
               run: |
                   sqlx migrate run --source persons_migrations/

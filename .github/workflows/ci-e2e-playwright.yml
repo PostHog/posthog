@@ -213,14 +213,14 @@ jobs:
 
                   # Run Django migrations (./bin/migrate will skip Rust migrations since rust/bin doesn't exist in container)
                   $DOCKER_RUN ./bin/migrate
-                  
+
                   # Now run Rust migrations using dedicated container
                   docker build -f rust/Dockerfile.migrate -t posthog-migrations:latest ./rust
                   docker run --rm --network host \
                     -e PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
                     -e CYCLOTRON_DATABASE_URL="postgres://posthog:posthog@localhost:5432/cyclotron" \
                     posthog-migrations:latest
-                  
+
                   $DOCKER_RUN python manage.py setup_dev
 
                   # only starts the plugin server so that the "wait for PostHog" step passes
@@ -472,19 +472,18 @@ jobs:
             - name: Apply postgres and clickhouse migrations and setup dev
               if: needs.changes.outputs.shouldRun == 'true'
               run: |
-                  # Run Django and ClickHouse migrations first
                   python manage.py migrate_clickhouse &
                   python manage.py migrate --noinput
-                  wait
-                  
+
                   # Build and run Rust migrations using dedicated container
                   docker build -f rust/Dockerfile.migrate -t posthog-migrations:latest ./rust
                   docker run --rm --network host \
                     -e PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_e2e_test" \
                     -e CYCLOTRON_DATABASE_URL="postgres://posthog:posthog@localhost:5432/cyclotron" \
                     posthog-migrations:latest
-                  
+
                   python manage.py setup_dev
+                  wait
 
             - name: Source celery queues
               if: needs.changes.outputs.shouldRun == 'true'

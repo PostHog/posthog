@@ -19,6 +19,7 @@ class Group(models.Model):
     version = models.BigIntegerField(null=False)
 
     class Meta:
+        # migrations managed via rust/persons_migrations
         managed = False
         constraints = [
             models.UniqueConstraint(

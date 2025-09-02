@@ -7,7 +7,7 @@ PERSONS_DATABASE_URL=${PERSONS_DATABASE_URL:-postgres://posthog:posthog@localhos
 
 echo "Performing persons migrations for $PERSONS_DATABASE_URL (DATABASE_NAME=$PERSONS_DATABASE_NAME)"
 
-cd $SCRIPT_DIR/..
+cd "$SCRIPT_DIR/.." || { echo "Error: Failed to change directory to $SCRIPT_DIR/.."; exit 1; }
 
-sqlx database create -D "$PERSONS_DATABASE_URL" 2>/dev/null || true
+sqlx database create -D "$PERSONS_DATABASE_URL"
 sqlx migrate run -D "$PERSONS_DATABASE_URL" --source persons_migrations/

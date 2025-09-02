@@ -55,7 +55,7 @@ class Person(models.Model):
     objects = PersonManager()
 
     class Meta:
-        # managed via rust/migrate-persons/
+        # migrations managed via rust/persons_migrations
         managed = False
 
     @property
@@ -137,7 +137,7 @@ class PersonDistinctId(models.Model):
     version = models.BigIntegerField(null=True, blank=True)
 
     class Meta:
-        # managed via rust/migrate-persons/
+        # migrations managed via rust/persons_migrations
         managed = False
         constraints = [models.UniqueConstraint(fields=["team", "distinct_id"], name="unique distinct_id for team")]
 
@@ -150,7 +150,7 @@ class PersonlessDistinctId(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
 
     class Meta:
-        # managed via rust/migrate-persons/
+        # migrations managed via rust/persons_migrations
         managed = False
         constraints = [
             models.UniqueConstraint(fields=["team", "distinct_id"], name="unique personless distinct_id for team")
@@ -165,7 +165,7 @@ class PersonOverrideMapping(models.Model):
     uuid = models.UUIDField()
 
     class Meta:
-        # managed via rust/migrate-persons/
+        # migrations managed via rust/persons_migrations
         managed = False
         constraints = [
             models.UniqueConstraint(fields=["team_id", "uuid"], name="unique_uuid"),
@@ -195,7 +195,7 @@ class PersonOverride(models.Model):
     version = models.BigIntegerField(null=True, blank=True)
 
     class Meta:
-        # managed via rust/migrate-persons/
+        # migrations managed via rust/persons_migrations
         managed = False
         constraints = [
             models.UniqueConstraint(
@@ -219,7 +219,7 @@ class PendingPersonOverride(models.Model):
     oldest_event = models.DateTimeField()
 
     class Meta:
-        # managed via rust/migrate-persons/
+        # migrations managed via rust/persons_migrations
         managed = False
 
 
@@ -234,7 +234,7 @@ class FlatPersonOverride(models.Model):
     version = models.BigIntegerField(null=True, blank=True)
 
     class Meta:
-        # managed via rust/migrate-persons/
+        # migrations managed via rust/persons_migrations
         managed = False
         indexes = [
             models.Index(fields=["team_id", "override_person_id"]),

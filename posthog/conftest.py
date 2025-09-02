@@ -218,6 +218,10 @@ def mock_two_factor_sso_enforcement_check(request, mocker):
 
 
 def pytest_sessionstart():
+    """
+    A bit of a hack to get django/py-test to do table truncation between test runs for the Persons tables that are
+    no longer managed by django
+    """
     from django.apps import apps
 
     unmanaged_models = [m for m in apps.get_models() if not m._meta.managed]
