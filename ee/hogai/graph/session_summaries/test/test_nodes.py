@@ -657,6 +657,8 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
         # - $ai_generation events
         # - active_seconds > 6 (7, 8, 10, 9 seconds respectively)
 
+        self.assertIsNotNone(session_ids)
+        assert session_ids is not None  # Type narrowing for mypy
         self.assertEqual(len(session_ids), 4)
         self.assertIn(self.session_id_1, session_ids)
         self.assertIn(self.session_id_2, session_ids)
@@ -689,6 +691,8 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
         # - session_id_2: 8 seconds (included)
         # - session_id_3: 10 seconds (included)
         # - session_id_4: 9 seconds (included)
+        self.assertIsNotNone(session_ids)
+        assert session_ids is not None  # Type narrowing for mypy
         self.assertEqual(len(session_ids), 3)
         self.assertNotIn(self.session_id_1, session_ids)  # 7 seconds, excluded
         self.assertIn(self.session_id_2, session_ids)  # 8 seconds, included
@@ -724,6 +728,8 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
         # - session_id_4: 9 seconds (included)
 
         # We expect exactly 2 sessions with active_seconds > 8
+        self.assertIsNotNone(session_ids)
+        assert session_ids is not None  # Type narrowing for mypy
         self.assertEqual(len(session_ids), 2, "Should find exactly 2 sessions with active_seconds > 8")
         self.assertIn(self.session_id_3, session_ids)  # 10 seconds, included
         self.assertIn(self.session_id_4, session_ids)  # 9 seconds, included
