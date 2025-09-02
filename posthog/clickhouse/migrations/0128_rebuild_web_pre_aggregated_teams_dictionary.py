@@ -7,7 +7,11 @@ from posthog.models.web_preaggregated.team_selection import (
 
 operations = [
     run_sql_with_exceptions(
-        DROP_WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(on_cluster=False), node_role=NodeRole.ALL
+        DROP_WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(on_cluster=False),
+        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
     ),
-    run_sql_with_exceptions(WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(on_cluster=False), node_role=NodeRole.ALL),
+    run_sql_with_exceptions(
+        WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(on_cluster=False),
+        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+    ),
 ]

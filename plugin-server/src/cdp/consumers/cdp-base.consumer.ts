@@ -68,7 +68,7 @@ export abstract class CdpConsumerBase {
             this.recipientPreferencesService
         )
 
-        this.personsManager = new PersonsManagerService(this.hub)
+        this.personsManager = new PersonsManagerService(this.hub.personRepository)
         this.groupsManager = new GroupsManagerService(this.hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(this.hub)
         this.pluginDestinationExecutorService = new LegacyPluginExecutorService(this.hub)

@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     message_count Int64,
     snapshot_source LowCardinality(Nullable(String)),
     snapshot_library Nullable(String),
-    retention_period Nullable(String),
+    retention_period_days Nullable(Int64),
 ) ENGINE = {engine}
 """
 
@@ -87,8 +87,8 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
     snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
     _timestamp SimpleAggregateFunction(max, DateTime),
-    -- retention period for this session, useful to show TTL for the recording
-    retention_period Nullable(String)
+    -- retention period for this session, in days. Useful to show TTL for the recording
+    retention_period_days Nullable(Int64)
 ) ENGINE = {engine}
 """
 
@@ -170,7 +170,7 @@ argMinState(snapshot_library, first_timestamp) as snapshot_library,
 max(_timestamp) as _timestamp,
 -- CH will pick the retention period here, but only if there is a single unique non-null value across all blocks
 -- ...otherwise this column will be NULL
-singleValueOrNull(retention_period) as retention_period
+singleValueOrNull(retention_period_days) as retention_period_days
 FROM {database}.kafka_session_replay_events
 group by session_id, team_id
 """.format(
@@ -197,7 +197,7 @@ group by session_id, team_id
 `snapshot_source` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
 `snapshot_library` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
 `_timestamp` Nullable(DateTime),
-`retention_period` Nullable(String)
+`retention_period_days` Nullable(Int64)
 )""",
     )
 

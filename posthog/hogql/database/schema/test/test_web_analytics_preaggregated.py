@@ -108,12 +108,17 @@ class TestWebAnalyticsPreAggregatedSchema:
                 len(UTM_FIELDS),
                 len(PATH_FIELDS),
                 len(ATTRIBUTION_FIELDS),
+                2,  # mat_metadata_loggedIn and mat_metadata_backend fields
             ]
         )
 
         assert (
             len(SHARED_SCHEMA_FIELDS) == expected_field_count
         ), f"SHARED_SCHEMA_FIELDS has {len(SHARED_SCHEMA_FIELDS)} fields, expected {expected_field_count}"
+
+        # Ensure custom metadata fields are present
+        assert "mat_metadata_loggedIn" in SHARED_SCHEMA_FIELDS
+        assert "mat_metadata_backend" in SHARED_SCHEMA_FIELDS
 
         field_groups = {
             "device_browser": list(DEVICE_BROWSER_FIELDS.keys()),

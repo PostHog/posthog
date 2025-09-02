@@ -1,4 +1,3 @@
-import clsx from 'clsx'
 import { useState } from 'react'
 
 import { IconPencil } from '@posthog/icons'
@@ -6,6 +5,7 @@ import { LemonButton, LemonCalendarSelectInput } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { Label } from 'lib/ui/Label/Label'
 
 const ExperimentDate = ({
     label,
@@ -28,9 +28,7 @@ const ExperimentDate = ({
 
     return (
         <div className="block" data-attr={dataAttr}>
-            <div className={clsx('text-xs font-semibold uppercase tracking-wide', isDatePickerOpen && 'text-center')}>
-                {label}
-            </div>
+            <Label intent="menu">{label}</Label>
             <div className="flex">
                 {isDatePickerOpen ? (
                     <LemonCalendarSelectInput

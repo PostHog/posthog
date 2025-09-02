@@ -69,7 +69,7 @@ export function InsightsTable({
     isMainInsightView = false,
 }: InsightsTableProps): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
-    const { insightProps, isInDashboardContext, insight } = useValues(insightLogic)
+    const { insightProps, isInDashboardContext, insight, editingDisabledReason } = useValues(insightLogic)
     const {
         insightDataLoading,
         indexedResults,
@@ -122,6 +122,7 @@ export function InsightsTable({
                         canCheckUncheckSeries={canCheckUncheckSeries}
                         getTrendsHidden={getTrendsHidden}
                         toggleAllResultsHidden={toggleAllResultsHidden}
+                        disabledReason={editingDisabledReason}
                     />
                 )}
                 <span>Series</span>
@@ -146,6 +147,7 @@ export function InsightsTable({
                     isHidden={getTrendsHidden(item)}
                     toggleResultHidden={toggleResultHidden}
                     label={<div className="ml-2 font-normal">{label}</div>}
+                    disabledReason={editingDisabledReason}
                 />
             ) : (
                 label
