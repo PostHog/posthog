@@ -47,22 +47,6 @@ export function BatchExportsMetrics({ id }: { id: string }): JSX.Element {
                     timeSeries={getSingleTrendSeries('failed')}
                     previousPeriodTimeSeries={getSingleTrendSeries('failed', true)}
                 />
-
-                <AppMetricSummary
-                    name="Filtered"
-                    description={METRICS_INFO.filtered}
-                    loading={appMetricsTrendsLoading}
-                    timeSeries={getSingleTrendSeries('filtered')}
-                    previousPeriodTimeSeries={getSingleTrendSeries('filtered', true)}
-                />
-
-                <AppMetricSummary
-                    name="Disabled"
-                    description={METRICS_INFO.disabled_permanently}
-                    loading={appMetricsTrendsLoading}
-                    timeSeries={getSingleTrendSeries('disabled_permanently')}
-                    previousPeriodTimeSeries={getSingleTrendSeries('disabled_permanently', true)}
-                />
             </div>
             <AppMetricsTrends appMetricsTrends={appMetricsTrends} loading={appMetricsTrendsLoading} />
         </div>
