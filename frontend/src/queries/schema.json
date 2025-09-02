@@ -11300,6 +11300,9 @@
                 "funnel_order_type": {
                     "$ref": "#/definitions/StepOrderValue"
                 },
+                "goal": {
+                    "$ref": "#/definitions/ExperimentMetricGoal"
+                },
                 "kind": {
                     "const": "ExperimentMetric",
                     "type": "string"
@@ -11509,6 +11512,9 @@
                 "conversion_window_unit": {
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
                 },
+                "goal": {
+                    "$ref": "#/definitions/ExperimentMetricGoal"
+                },
                 "kind": {
                     "const": "ExperimentMetric",
                     "type": "string"
@@ -11585,6 +11591,9 @@
                 "conversion_window_unit": {
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
                 },
+                "goal": {
+                    "$ref": "#/definitions/ExperimentMetricGoal"
+                },
                 "kind": {
                     "const": "ExperimentMetric",
                     "type": "string"
@@ -11605,6 +11614,10 @@
             },
             "required": ["kind"],
             "type": "object"
+        },
+        "ExperimentMetricGoal": {
+            "enum": ["increase", "decrease"],
+            "type": "string"
         },
         "ExperimentMetricMathType": {
             "enum": ["total", "sum", "unique_session", "min", "max", "avg", "dau", "unique_group", "hogql"],
@@ -11780,6 +11793,9 @@
                 },
                 "denominator": {
                     "$ref": "#/definitions/ExperimentMetricSource"
+                },
+                "goal": {
+                    "$ref": "#/definitions/ExperimentMetricGoal"
                 },
                 "kind": {
                     "const": "ExperimentMetric",
