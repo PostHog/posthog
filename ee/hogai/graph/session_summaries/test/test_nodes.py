@@ -642,7 +642,7 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
             distinct_id="filter-user-1",
             timestamp=timezone.datetime(2025, 8, 28, 10, 5, 0, tzinfo=timezone.utc),
             team=self.team,
-            event_name="$pageview",
+            event="$pageview",
             properties={
                 "$session_id": self.session_id_1,
                 "$os": "Mac OS X",
@@ -653,8 +653,8 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
             distinct_id="filter-user-1",
             timestamp=timezone.datetime(2025, 8, 28, 10, 10, 0, tzinfo=timezone.utc),
             team=self.team,
-            event_name="$ai_generation",
-            properties={"$session_id": "filter-test-session-1"},
+            event="$ai_generation",
+            properties={"$session_id": self.session_id_1},
         )
 
         # Events for session 2
@@ -662,7 +662,7 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
             distinct_id="filter-user-2",
             timestamp=timezone.datetime(2025, 8, 28, 15, 5, 0, tzinfo=timezone.utc),
             team=self.team,
-            event_name="$pageview",
+            event="$pageview",
             properties={
                 "$session_id": self.session_id_2,
                 "$os": "Mac OS X",
@@ -673,8 +673,8 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
             distinct_id="filter-user-2",
             timestamp=timezone.datetime(2025, 8, 28, 15, 15, 0, tzinfo=timezone.utc),
             team=self.team,
-            event_name="$ai_generation",
-            properties={"$session_id": "filter-test-session-2"},
+            event="$ai_generation",
+            properties={"$session_id": self.session_id_2},
         )
 
         # Events for session 3
@@ -682,7 +682,7 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
             distinct_id="filter-user-3",
             timestamp=timezone.datetime(2025, 8, 29, 11, 5, 0, tzinfo=timezone.utc),
             team=self.team,
-            event_name="$pageview",
+            event="$pageview",
             properties={
                 "$session_id": self.session_id_3,
                 "$os": "Mac OS X",
@@ -693,8 +693,8 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
             distinct_id="filter-user-3",
             timestamp=timezone.datetime(2025, 8, 29, 11, 10, 0, tzinfo=timezone.utc),
             team=self.team,
-            event_name="$ai_generation",
-            properties={"$session_id": "filter-test-session-3"},
+            event="$ai_generation",
+            properties={"$session_id": self.session_id_3},
         )
 
         # Events for session 4
@@ -702,7 +702,7 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
             distinct_id="filter-user-4",
             timestamp=timezone.datetime(2025, 8, 30, 9, 5, 0, tzinfo=timezone.utc),
             team=self.team,
-            event_name="$pageview",
+            event="$pageview",
             properties={
                 "$session_id": self.session_id_4,
                 "$os": "Mac OS X",
@@ -713,9 +713,14 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
             distinct_id="filter-user-4",
             timestamp=timezone.datetime(2025, 8, 30, 9, 10, 0, tzinfo=timezone.utc),
             team=self.team,
-            event_name="$ai_generation",
-            properties={"$session_id": "filter-test-session-4"},
+            event="$ai_generation",
+            properties={"$session_id": self.session_id_4},
         )
+
+        # Flush all events to ensure they're written to ClickHouse
+        from posthog.test.base import flush_persons_and_events
+
+        flush_persons_and_events()
 
     def test_waka_waka(self) -> None:
         """Test waka waka."""
