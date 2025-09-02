@@ -88,6 +88,8 @@ class VercelIntegration:
         org_integration = resource.team.organization.organizationintegration_set.get(
             kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL
         )
+        if not org_integration.integration_id:
+            raise exceptions.NotFound("Installation not found")
         installation = VercelIntegration._get_installation(org_integration.integration_id)
         return resource, installation
 
