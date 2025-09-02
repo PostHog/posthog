@@ -45,45 +45,7 @@ describe('InternalCaptureService', () => {
         `
         )
     })
-    it('should capture many events', async () => {
-        const res = await service.captureMany([
-            { team_token: 'token', event: 'event-name', distinct_id: 'distinct-id' },
-            { team_token: 'token-2', event: 'event-name-2', distinct_id: 'distinct-id-2' },
-        ])
-        expect(res).toHaveLength(2)
-        expect(res[0][0]).toBeNull()
-        expect(res[0][1]).toBeDefined()
-        expect(res[1][0]).toBeNull()
-        expect(res[1][1]).toBeDefined()
-        expect(res[0][1]?.status).toBe(200)
-        expect(res[1][1]?.status).toBe(200)
-        expect(mockInternalFetch.mock.calls).toMatchInlineSnapshot(
-            `
-            [
-              [
-                "http://localhost:8010/capture",
-                {
-                  "body": "{"api_key":"token","timestamp":"2025-01-01T00:00:00.000Z","distinct_id":"distinct-id","sent_at":"2025-01-01T00:00:00.000Z","event":"event-name","properties":{"capture_internal":true}}",
-                  "headers": {
-                    "Content-Type": "application/json",
-                  },
-                  "method": "POST",
-                },
-              ],
-              [
-                "http://localhost:8010/capture",
-                {
-                  "body": "{"api_key":"token-2","timestamp":"2025-01-01T00:00:00.000Z","distinct_id":"distinct-id-2","sent_at":"2025-01-01T00:00:00.000Z","event":"event-name-2","properties":{"capture_internal":true}}",
-                  "headers": {
-                    "Content-Type": "application/json",
-                  },
-                  "method": "POST",
-                },
-              ],
-            ]
-        `
-        )
-    })
+
     it('should allow some overrides', async () => {
         await service.capture({
             team_token: 'token',

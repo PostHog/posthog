@@ -54,7 +54,7 @@ export class HogFunctionMonitoringService {
     async flush() {
         const messages = [...this.messagesToProduce]
         this.messagesToProduce = []
-        const events = [...this.eventsToCapture]
+        const eventsToCapture = [...this.eventsToCapture]
         this.eventsToCapture = []
 
         await Promise.all([
@@ -81,7 +81,12 @@ export class HogFunctionMonitoringService {
                         captureException(error)
                     })
             }),
-            this.hub.internalCaptureService.captureMany(events),
+            eventsToCapture.map((event) =>
+                this.hub.internalCaptureService.capture(event).catch((error) => {
+                    logger.error('Error capturing internal event', { error })
+                    captureException(error)
+                })
+            ),
         ])
     }
 

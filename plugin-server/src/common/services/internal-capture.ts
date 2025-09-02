@@ -72,16 +72,4 @@ export class InternalCaptureService {
             throw e
         }
     }
-
-    async captureMany(events: InternalCaptureEvent[]): Promise<[null | Error, FetchResponse | undefined][]> {
-        return Promise.all(
-            events.map(async (event) => {
-                try {
-                    return [null, await this.capture(event)]
-                } catch (e) {
-                    return [e as Error, undefined]
-                }
-            })
-        )
-    }
 }
