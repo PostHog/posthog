@@ -1,11 +1,10 @@
 import { useValues } from 'kea'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs/LemonTabs'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { HogFunctionMetricsV2 } from 'scenes/hog-functions/metrics/HogFunctionMetricsV2'
+import { HogFunctionMetrics } from 'scenes/hog-functions/metrics/HogFunctionMetrics'
 import { HogFunctionTesting } from 'scenes/hog-functions/testing/HogFunctionTesting'
 import { PipelineNodeLogs } from 'scenes/pipeline/PipelineNodeLogs'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -16,7 +15,6 @@ import { ActivityScope, PipelineNodeTab, PipelineStage, PipelineTab } from '~/ty
 import { BatchExportBackfills } from '../data-pipelines/batch-exports/BatchExportBackfills'
 import { BatchExportRuns } from '../data-pipelines/batch-exports/BatchExportRuns'
 import { HogFunctionLogs } from '../hog-functions/logs/HogFunctionLogs'
-import { HogFunctionMetrics } from '../hog-functions/metrics/HogFunctionMetrics'
 import { PipelineNodeConfiguration } from './PipelineNodeConfiguration'
 import { PipelineNodeMetrics } from './PipelineNodeMetrics'
 import { PipelineNodeLogicProps, pipelineNodeLogic } from './pipelineNodeLogic'
@@ -63,9 +61,7 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
         [PipelineNodeTab.Configuration]: <PipelineNodeConfiguration />,
         [PipelineNodeTab.Metrics]:
             node.backend === PipelineBackend.HogFunction ? (
-                <FlaggedFeature flag="cdp-app-metrics-new" fallback={<HogFunctionMetrics id={node.id} />}>
-                    <HogFunctionMetricsV2 id={node.id} />
-                </FlaggedFeature>
+                <HogFunctionMetrics id={node.id} />
             ) : (
                 <PipelineNodeMetrics id={id} />
             ),
