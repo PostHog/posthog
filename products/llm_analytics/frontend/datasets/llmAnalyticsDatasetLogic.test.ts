@@ -6,7 +6,7 @@ import { urls } from 'scenes/urls'
 
 import api from '~/lib/api'
 import { initKeaTests } from '~/test/init'
-import { DatasetItem } from '~/types'
+import { Dataset, DatasetItem } from '~/types'
 
 import { DatasetFormValues, DatasetLogicProps, llmAnalyticsDatasetLogic } from './llmAnalyticsDatasetLogic'
 import { llmAnalyticsDatasetsLogic } from './llmAnalyticsDatasetsLogic'
@@ -16,7 +16,7 @@ jest.mock('~/lib/api')
 jest.mock('lib/lemon-ui/LemonToast/LemonToast')
 
 describe('llmAnalyticsDatasetLogic', () => {
-    const mockDataset = {
+    const mockDataset: Dataset = {
         id: 'test-dataset-id',
         name: 'Test Dataset',
         description: 'Test description',
@@ -31,6 +31,48 @@ describe('llmAnalyticsDatasetLogic', () => {
             first_name: 'Test',
             email: 'test@example.com',
         },
+    }
+
+    const mockDatasetItem1: DatasetItem = {
+        id: 'item-1',
+        dataset: 'test-dataset-id',
+        team: 997,
+        input: { query: 'test input' },
+        output: { response: 'test response 1' },
+        metadata: { key: 'value' },
+        ref_trace_id: null,
+        ref_trace_timestamp: null,
+        ref_span_id: null,
+        created_by: {
+            id: 1,
+            uuid: 'test-uuid',
+            distinct_id: 'test-distinct-id',
+            first_name: 'Test',
+            email: 'test@example.com',
+        },
+        created_at: '2024-01-01T00:00:00Z',
+        updated_at: '2024-01-01T00:00:00Z',
+    }
+
+    const mockDatasetItem2: DatasetItem = {
+        id: 'item-2',
+        dataset: 'test-dataset-id',
+        team: 997,
+        input: { query: 'test input 2' },
+        output: { response: 'test response 2' },
+        metadata: { key: 'value2' },
+        ref_trace_id: null,
+        ref_trace_timestamp: null,
+        ref_span_id: null,
+        created_by: {
+            id: 1,
+            uuid: 'test-uuid',
+            distinct_id: 'test-distinct-id',
+            first_name: 'Test',
+            email: 'test@example.com',
+        },
+        created_at: '2024-01-01T00:00:00Z',
+        updated_at: '2024-01-01T00:00:00Z',
     }
 
     const mockApi = api as jest.Mocked<typeof api>
@@ -483,48 +525,6 @@ describe('llmAnalyticsDatasetLogic', () => {
         })
 
         describe('dataset item modal and URL state', () => {
-            const mockDatasetItem1: DatasetItem = {
-                id: 'item-1',
-                dataset: 'test-dataset-id',
-                team: 997,
-                input: { query: 'test input' },
-                output: { response: 'test response 1' },
-                metadata: { key: 'value' },
-                ref_trace_id: null,
-                ref_trace_timestamp: null,
-                ref_span_id: null,
-                created_by: {
-                    id: 1,
-                    uuid: 'test-uuid',
-                    distinct_id: 'test-distinct-id',
-                    first_name: 'Test',
-                    email: 'test@example.com',
-                },
-                created_at: '2024-01-01T00:00:00Z',
-                updated_at: '2024-01-01T00:00:00Z',
-            }
-
-            const mockDatasetItem2: DatasetItem = {
-                id: 'item-2',
-                dataset: 'test-dataset-id',
-                team: 997,
-                input: { query: 'test input 2' },
-                output: { response: 'test response 2' },
-                metadata: { key: 'value2' },
-                ref_trace_id: null,
-                ref_trace_timestamp: null,
-                ref_span_id: null,
-                created_by: {
-                    id: 1,
-                    uuid: 'test-uuid',
-                    distinct_id: 'test-distinct-id',
-                    first_name: 'Test',
-                    email: 'test@example.com',
-                },
-                created_at: '2024-01-01T00:00:00Z',
-                updated_at: '2024-01-01T00:00:00Z',
-            }
-
             it('opens modal when dataset item is selected from data', () => {
                 const mockDatasetItems = {
                     results: [mockDatasetItem1, mockDatasetItem2],
@@ -567,6 +567,104 @@ describe('llmAnalyticsDatasetLogic', () => {
                 }).toFinishAllListeners()
 
                 expect(mockApi.datasetItems.list).toHaveBeenCalledTimes(initialCallCount + 1)
+            })
+        })
+
+        describe('URL integration with router', () => {
+            beforeEach(() => {
+                const mockDatasetItems = {
+                    results: [mockDatasetItem1, mockDatasetItem2],
+                    count: 2,
+                    offset: 0,
+                }
+                logic.actions.loadDatasetItemsSuccess(mockDatasetItems)
+            })
+
+            it('handles URL with item parameter via urlToAction', async () => {
+                // Test that urlToAction responds to URL changes with item parameter
+                const datasetUrl = urls.llmAnalyticsDataset('existing-dataset-id')
+
+                await expectLogic(logic, () => {
+                    router.actions.push(datasetUrl, { item: 'item-1', page: '1' })
+                }).toFinishAllListeners()
+
+                // Verify modal opens with correct item selected
+                expect(logic.values.selectedDatasetItem).toEqual(mockDatasetItem1)
+                expect(logic.values.isDatasetItemModalOpen).toBe(true)
+            })
+
+            it('ignores URL item parameter when item not found', async () => {
+                const datasetUrl = urls.llmAnalyticsDataset('existing-dataset-id')
+
+                await expectLogic(logic, () => {
+                    router.actions.push(datasetUrl, { item: 'non-existent-item', page: '1' })
+                }).toFinishAllListeners()
+
+                // Verify modal stays closed when item not found
+                expect(logic.values.selectedDatasetItem).toBe(null)
+                expect(logic.values.isDatasetItemModalOpen).toBe(false)
+            })
+
+            it('sets filters from URL parameters via urlToAction', async () => {
+                const datasetUrl = urls.llmAnalyticsDataset('existing-dataset-id')
+
+                await expectLogic(logic, () => {
+                    router.actions.push(datasetUrl, { page: '3', limit: '25' })
+                }).toFinishAllListeners()
+
+                // Verify filters are set from URL
+                expect(logic.values.filters).toEqual({
+                    page: 3,
+                    limit: 25,
+                })
+            })
+
+            it('sets active tab from URL parameters via urlToAction', async () => {
+                const datasetUrl = urls.llmAnalyticsDataset('existing-dataset-id')
+
+                await expectLogic(logic, () => {
+                    router.actions.push(datasetUrl, { tab: 'metadata', page: '1' })
+                }).toFinishAllListeners()
+
+                // Verify tab is set from URL
+                expect(logic.values.activeTab).toBe('metadata')
+            })
+
+            it('closes modal and clears state when closeModalAndRefetchDatasetItems is called', async () => {
+                // Set up initial state with modal open
+                logic.actions.setSelectedDatasetItem(mockDatasetItem1)
+                logic.actions.triggerDatasetItemModal(true)
+
+                // Close modal
+                await expectLogic(logic, () => {
+                    logic.actions.closeModalAndRefetchDatasetItems(false)
+                }).toFinishAllListeners()
+
+                // Verify modal state is cleared
+                expect(logic.values.selectedDatasetItem).toBe(null)
+                expect(logic.values.isDatasetItemModalOpen).toBe(false)
+            })
+
+            it('handles complete workflow: URL -> modal -> close', async () => {
+                const datasetUrl = urls.llmAnalyticsDataset('existing-dataset-id')
+
+                // Step 1: Navigate to URL with item parameter
+                await expectLogic(logic, () => {
+                    router.actions.push(datasetUrl, { item: 'item-1', page: '1' })
+                }).toFinishAllListeners()
+
+                // Verify modal opened via urlToAction
+                expect(logic.values.selectedDatasetItem).toEqual(mockDatasetItem1)
+                expect(logic.values.isDatasetItemModalOpen).toBe(true)
+
+                // Step 2: Close modal
+                await expectLogic(logic, () => {
+                    logic.actions.closeModalAndRefetchDatasetItems(false)
+                }).toFinishAllListeners()
+
+                // Verify modal state cleared
+                expect(logic.values.selectedDatasetItem).toBe(null)
+                expect(logic.values.isDatasetItemModalOpen).toBe(false)
             })
         })
     })
