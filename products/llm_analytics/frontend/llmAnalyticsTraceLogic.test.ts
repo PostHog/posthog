@@ -70,7 +70,7 @@ describe('llmAnalyticsTraceLogic', () => {
         await expectLogic(logic).toMatchValues({
             traceId: traceIdWithColon,
             eventId: eventId,
-            dateRange: { dateFrom: '2024-01-01T23:40:00Z', dateTo: '2024-01-02T00:20:00Z' },
+            dateRange: { dateFrom: '2024-01-01T23:40:00.000Z', dateTo: '2024-01-02T00:20:00.000Z' },
         })
     })
 
