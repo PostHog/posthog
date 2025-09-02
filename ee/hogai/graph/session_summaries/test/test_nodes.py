@@ -735,3 +735,25 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
         self.assertIn(self.session_id_4, session_ids)  # 9 seconds, included
         self.assertNotIn(self.session_id_1, session_ids)  # 7 seconds, excluded
         self.assertNotIn(self.session_id_2, session_ids)  # 8 seconds, excluded
+
+    @freeze_time("2025-09-03T12:00:00")
+    def test_get_session_ids_respects_limit(self) -> None:
+        """Test that _get_session_ids_with_filters respects the limit parameter."""
+        # Create a filter that would match all 4 sessions
+        custom_filters = {
+            "date_from": "2025-08-27T00:00:00",
+            "date_to": "2025-08-31T23:59:59",
+            "filter_group": {"type": "AND", "values": [{"type": "AND", "values": []}]},
+            "filter_test_accounts": False,
+        }
+
+        # Convert custom filters to recordings query
+        recordings_query = self.node._convert_current_filters_to_recordings_query(custom_filters)
+
+        # Get session IDs with explicit limit of 1
+        session_ids = self.node._get_session_ids_with_filters(recordings_query, limit=1)
+
+        # Should only return 1 session despite 4 matching
+        self.assertIsNotNone(session_ids)
+        assert session_ids is not None  # Type narrowing for mypy
+        self.assertEqual(len(session_ids), 1, "Should return exactly 1 session due to limit")

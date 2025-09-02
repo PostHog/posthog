@@ -101,7 +101,7 @@ class SessionSummarizationNode(AssistantNode):
         from products.replay.backend.max_tools import SessionReplayFilterOptionsGraph
 
         graph = SessionReplayFilterOptionsGraph(self._team, self._user).compile_full_graph()
-        # Call with your query
+        # Call with user's query
         result = await graph.ainvoke(
             {
                 "change": plain_text_query,
@@ -125,9 +125,7 @@ class SessionSummarizationNode(AssistantNode):
         max_filters = cast(MaxRecordingUniversalFilters, filters_data)
         return max_filters
 
-    def _convert_max_filters_to_recordings_query(
-        self, replay_filters: MaxRecordingUniversalFilters, limit: int = MAX_SESSIONS_TO_SUMMARIZE
-    ) -> RecordingsQuery:
+    def _convert_max_filters_to_recordings_query(self, replay_filters: MaxRecordingUniversalFilters) -> RecordingsQuery:
         """Convert Max-generated filters into recordings query format"""
         properties = []
         if replay_filters.filter_group and replay_filters.filter_group.values:
@@ -149,13 +147,10 @@ class SessionSummarizationNode(AssistantNode):
                 if replay_filters.duration
                 else None
             ),
-            limit=limit,
         )
         return recordings_query
 
-    def _convert_current_filters_to_recordings_query(
-        self, current_filters: dict[str, Any], limit: int = MAX_SESSIONS_TO_SUMMARIZE
-    ) -> RecordingsQuery:
+    def _convert_current_filters_to_recordings_query(self, current_filters: dict[str, Any]) -> RecordingsQuery:
         """Convert current filters into recordings query format"""
         from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
             convert_filters_to_recordings_query,
@@ -166,11 +161,14 @@ class SessionSummarizationNode(AssistantNode):
         recordings_query = convert_filters_to_recordings_query(temp_playlist)
         return recordings_query
 
-    def _get_session_ids_with_filters(self, replay_filters: RecordingsQuery) -> list[str] | None:
+    def _get_session_ids_with_filters(
+        self, replay_filters: RecordingsQuery, limit: int = MAX_SESSIONS_TO_SUMMARIZE
+    ) -> list[str] | None:
         """Get session ids from DB with filters"""
         from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
         # Execute the query to get session IDs
+        replay_filters.limit = limit
         query_runner = SessionRecordingListFromQuery(team=self._team, query=replay_filters, hogql_query_modifiers=None)
         results = query_runner.run()
         # Extract session IDs
