@@ -266,7 +266,6 @@ export const FEATURE_FLAGS = {
     USAGE_SPEND_DASHBOARDS: 'usage-spend-dashboards', // owner: @pawel-cebula #team-billing
     CDP_HOG_SOURCES: 'cdp-hog-sources', // owner #team-messaging-cdp
     CDP_PERSON_UPDATES: 'cdp-person-updates', // owner: #team-messaging-cdp
-    CDP_APP_METRICS_NEW: 'cdp-app-metrics-new', // owner: #team-messaging-cdp
     SCREENSHOT_EDITOR: 'screenshot-editor', // owner: @veryayskiy #team-replay
     ACTIVITY_OR_EXPLORE: 'activity-or-explore', // owner: @pauldambra #team-replay
     LINEAGE_DEPENDENCY_VIEW: 'lineage-dependency-view', // owner: @phixMe #team-data-warehouse
