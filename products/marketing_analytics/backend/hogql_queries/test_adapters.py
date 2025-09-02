@@ -1,18 +1,21 @@
-import pytest
 import logging
-from pathlib import Path
-from typing import Union
-from unittest.mock import Mock, patch
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
+from typing import Union
+
+import pytest
+from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import Mock, patch
+
+from posthog.schema import DateRange, SourceMap
 
 from posthog.hogql import ast
-from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.hogql.query import execute_hogql_query
-from posthog.test.base import BaseTest, ClickhouseTestMixin
-from posthog.models.team.team import DEFAULT_CURRENCY
+from posthog.hogql.test.utils import pretty_print_in_tests
+
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.schema import SourceMap, DateRange
+from posthog.models.team.team import DEFAULT_CURRENCY
 from posthog.warehouse.models import DataWarehouseTable, ExternalDataSource
 from posthog.warehouse.models.credential import DataWarehouseCredential
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
@@ -26,9 +29,9 @@ from products.marketing_analytics.backend.hogql_queries.adapters.bigquery import
 from products.marketing_analytics.backend.hogql_queries.adapters.google_ads import GoogleAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.self_managed import (
     AWSAdapter,
-    GoogleCloudAdapter,
-    CloudflareR2Adapter,
     AzureAdapter,
+    CloudflareR2Adapter,
+    GoogleCloudAdapter,
 )
 
 # Test Constants

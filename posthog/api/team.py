@@ -2,12 +2,14 @@ import json
 from datetime import timedelta
 from functools import cached_property
 from typing import Any, Literal, Optional, cast
-from uuid import UUID
 
+from django.conf import settings
 from django.shortcuts import get_object_or_404
+
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.permissions import BasePermission, IsAuthenticated
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.api.utils import action
@@ -16,25 +18,19 @@ from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.models import ProductIntent, Team, User, TeamRevenueAnalyticsConfig, TeamMarketingAnalyticsConfig
-from posthog.models.activity_logging.activity_log import (
-    Detail,
-    dict_changes_between,
-    load_activity,
-    log_activity,
-)
+from posthog.models import ProductIntent, Team, TeamMarketingAnalyticsConfig, TeamRevenueAnalyticsConfig, User
+from posthog.models.activity_logging.activity_log import Detail, dict_changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.data_color_theme import DataColorTheme
-from posthog.models.group_type_mapping import GroupTypeMapping, GROUP_TYPE_MAPPING_SERIALIZER_FIELDS
+from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
+from posthog.models.group_type_mapping import GROUP_TYPE_MAPPING_SERIALIZER_FIELDS, GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.models.product_intent.product_intent import ProductIntentSerializer, calculate_product_activation
 from posthog.models.project import Project
-from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
-from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.models.signals import mute_selected_signals
-from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data, actions_that_require_current_team
-from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
+from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
+from posthog.models.team.util import actions_that_require_current_team, delete_batch_exports, delete_bulky_postgres_data
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
     CREATE_ACTIONS,
@@ -47,12 +43,9 @@ from posthog.permissions import (
 )
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
-from posthog.utils import (
-    get_instance_realm,
-    get_ip_address,
-    get_week_start_for_country_code,
-)
+from posthog.utils import get_instance_realm, get_ip_address, get_week_start_for_country_code
 
 
 def _format_serializer_errors(serializer_errors: dict) -> str:
@@ -459,6 +452,41 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         return value
 
+    def validate_access_control(self, value) -> None:
+        """Validate that access_control field is not being used as it's deprecated."""
+        if value is not None:
+            import posthoganalytics
+
+            request = self.context.get("request")
+            user = request.user if request else None
+
+            posthoganalytics.capture_exception(
+                Exception("Deprecated access control field used"),
+                properties={
+                    "field": "access_control",
+                    "value": str(value),
+                    "user_id": user.id if user else None,
+                    "team_id": getattr(user, "team_id", None) if user else None,
+                },
+            )
+
+            raise exceptions.ValidationError(
+                "The 'access_control' field has been deprecated and is no longer supported. "
+                "Please use the new access control system instead. "
+                "For more information, visit: https://posthog.com/docs/settings/access-control"
+            )
+        return None
+
+    def validate_app_urls(self, value: list[str | None] | None) -> list[str] | None:
+        if value is None:
+            return value
+        return [url for url in value if url]
+
+    def validate_recording_domains(self, value: list[str | None] | None) -> list[str] | None:
+        if value is None:
+            return value
+        return [domain for domain in value if domain]
+
     def validate(self, attrs: Any) -> Any:
         attrs = validate_team_attrs(attrs, self.context["view"], self.context["request"], self.instance)
         return super().validate(attrs)
@@ -759,6 +787,12 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         return self.get_object()
 
     def perform_destroy(self, team: Team):
+        # Check if bulk deletion operations are disabled via environment variable
+        if settings.DISABLE_BULK_DELETES:
+            raise exceptions.ValidationError(
+                "Team deletion is temporarily disabled during database migration. Please try again later."
+            )
+
         team_id = team.pk
         organization_id = team.organization_id
         team_name = team.name
@@ -961,20 +995,6 @@ def validate_team_attrs(
             )
         if attrs["primary_dashboard"].team_id != instance.id:
             raise exceptions.ValidationError({"primary_dashboard": "Dashboard does not belong to this team."})
-
-    if "access_control" in attrs:
-        assert isinstance(request.user, User)
-        # We get the instance's organization_id, unless we're handling creation, in which case there's no instance yet
-        organization_id = instance.organization_id if instance is not None else cast(UUID | str, view.organization_id)
-        # Only organization-wide admins and above should be allowed to switch the project between open and private
-        # If a project-only admin who is only an org member disabled this it, they wouldn't be able to reenable it
-        org_membership: OrganizationMembership = OrganizationMembership.objects.only("level").get(
-            organization_id=organization_id, user=request.user
-        )
-        if org_membership.level < OrganizationMembership.Level.ADMIN:
-            raise exceptions.PermissionDenied(
-                "Your organization access level is insufficient to configure project access restrictions."
-            )
 
     if "autocapture_exceptions_errors_to_ignore" in attrs:
         if not isinstance(attrs["autocapture_exceptions_errors_to_ignore"], list):

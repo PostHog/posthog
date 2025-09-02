@@ -4,14 +4,12 @@ from collections.abc import AsyncGenerator
 from uuid import uuid4
 
 import pytest
-import pytest_asyncio
+
 import snowflake.connector
 
 from posthog.batch_exports.models import BatchExport
-from posthog.temporal.tests.utils.models import (
-    acreate_batch_export,
-    adelete_batch_export,
-)
+from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export
+
 from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import load_private_key
 
 
@@ -67,7 +65,7 @@ def snowflake_config(database, schema) -> dict[str, str]:
     return config
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def snowflake_batch_export(
     ateam, table_name, snowflake_config, interval, exclude_events, temporal_client
 ) -> AsyncGenerator[BatchExport, None]:

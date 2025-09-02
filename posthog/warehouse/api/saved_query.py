@@ -1,35 +1,48 @@
+import uuid
 from datetime import datetime
 from typing import Any
+
 from django.conf import settings
+from django.db import transaction
+from django.db.models import OuterRef, Prefetch, Q, Subquery, TextField
+from django.db.models.functions import Cast
 
 import structlog
 from asgiref.sync import async_to_sync
-from django.db import transaction
-from django.db.models import Prefetch, Q, OuterRef, Subquery, TextField
-from django.db.models.functions import Cast
+from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
-from loginas.utils import is_impersonated_session
-from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.shared import UserBasicSerializer
-from posthog.models import Team
-from posthog.models.activity_logging.activity_log import (
-    Detail,
-    log_activity,
-    changes_between,
-    Change,
-    load_activity,
-    ActivityLog,
-)
-from posthog.models.activity_logging.activity_page import activity_page_response
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.response import Response
+from temporalio.client import ScheduleActionExecutionStartWorkflow
+
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import SerializedField, create_hogql_database, serialize_fields
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import FindPlaceholders
 from posthog.hogql.printer import print_ast
+
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.shared import UserBasicSerializer
+from posthog.models import Team
+from posthog.models.activity_logging.activity_log import (
+    ActivityLog,
+    Change,
+    Detail,
+    changes_between,
+    load_activity,
+    log_activity,
+)
+from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.temporal.common.client import sync_connect
-from temporalio.client import ScheduleActionExecutionStartWorkflow
+from posthog.warehouse.data_load.saved_query_service import (
+    delete_saved_query_schedule,
+    recreate_model_paths,
+    saved_query_workflow_exists,
+    sync_saved_query_workflow,
+    trigger_saved_query_schedule,
+)
 from posthog.warehouse.models import (
     CLICKHOUSE_HOGQL_MAPPING,
     DataModelingJob,
@@ -39,19 +52,9 @@ from posthog.warehouse.models import (
     clean_type,
 )
 from posthog.warehouse.models.external_data_schema import (
-    sync_frequency_to_sync_frequency_interval,
     sync_frequency_interval_to_sync_frequency,
+    sync_frequency_to_sync_frequency_interval,
 )
-from posthog.warehouse.data_load.saved_query_service import (
-    saved_query_workflow_exists,
-    sync_saved_query_workflow,
-    delete_saved_query_schedule,
-    trigger_saved_query_schedule,
-    recreate_model_paths,
-)
-from rest_framework.response import Response
-from rest_framework.pagination import PageNumberPagination
-import uuid
 
 logger = structlog.get_logger(__name__)
 

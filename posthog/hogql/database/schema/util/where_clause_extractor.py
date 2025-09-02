@@ -8,9 +8,8 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, LazyJoinToAdd, LazyTableToAdd
 from posthog.hogql.errors import NotImplementedError, QueryError
 from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
-from posthog.hogql.helpers.timestamp_visitor import is_time_or_interval_constant, is_simple_timestamp_field_expression
-
-from posthog.hogql.visitor import clone_expr, CloningVisitor, TraversingVisitor
+from posthog.hogql.helpers.timestamp_visitor import is_simple_timestamp_field_expression, is_time_or_interval_constant
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 SESSION_BUFFER_DAYS = 3
 
@@ -395,9 +394,9 @@ class RewriteTimestampFieldVisitor(CloningVisitor):
 
     def visit_field(self, node: ast.Field) -> ast.Expr:
         from posthog.hogql.database.schema.events import EventsTable
+        from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable
         from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1
         from posthog.hogql.database.schema.sessions_v2 import SessionsTableV2
-        from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable
 
         if node.type and isinstance(node.type, ast.FieldType):
             resolved_field = node.type.resolve_database_field(self.context)

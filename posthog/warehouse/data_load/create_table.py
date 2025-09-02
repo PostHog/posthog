@@ -1,8 +1,9 @@
 import uuid
 
+from django.conf import settings
+
 from asgiref.sync import sync_to_async
 from clickhouse_driver.errors import ServerException
-from django.conf import settings
 from structlog.contextvars import bind_contextvars
 
 from posthog.exceptions_capture import capture_exception

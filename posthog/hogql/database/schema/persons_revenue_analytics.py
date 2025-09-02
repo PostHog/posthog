@@ -1,17 +1,18 @@
 from collections import defaultdict
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.parser import parse_expr
 from posthog.hogql.database.models import (
     DecimalDatabaseField,
-    IntegerDatabaseField,
-    StringDatabaseField,
-    LazyTable,
     FieldOrTable,
-    LazyTableToAdd,
+    IntegerDatabaseField,
     LazyJoinToAdd,
+    LazyTable,
+    LazyTableToAdd,
+    StringDatabaseField,
 )
 from posthog.hogql.errors import ResolutionError
+from posthog.hogql.parser import parse_expr
 
 
 def join_with_persons_revenue_analytics_table(

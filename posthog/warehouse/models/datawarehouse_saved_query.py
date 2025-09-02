@@ -1,28 +1,31 @@
-from datetime import datetime
 import re
-from typing import Any, Optional, Union
 import uuid
+from datetime import datetime
+from typing import Any, Optional, Union
 from urllib.parse import urlparse
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.conf import settings
+
+from dlt.common.normalizers.naming.snake_case import NamingConvention
+
+from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import FieldOrTable, SavedQuery
+from posthog.hogql.database.s3_table import S3Table
+
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDTModel
-from posthog.schema import HogQLQueryModifiers
+from posthog.sync import database_sync_to_async
 from posthog.warehouse.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
     clean_type,
     remove_named_tuples,
 )
-from posthog.hogql.database.s3_table import S3Table
-from posthog.sync import database_sync_to_async
-from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 
 def validate_saved_query_name(value):
@@ -137,6 +140,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         from posthog.hogql.parser import parse_select
         from posthog.hogql.query import create_default_modifiers_for_team
         from posthog.hogql.resolver import resolve_types
+
         from posthog.models.property.util import S3TableVisitor
 
         context = HogQLContext(

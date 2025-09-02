@@ -4,11 +4,7 @@ from posthog.queries.funnels import ClickhouseFunnelBase
 
 
 def get_funnel_order_class(filter: Filter) -> type[ClickhouseFunnelBase]:
-    from posthog.queries.funnels import (
-        ClickhouseFunnel,
-        ClickhouseFunnelStrict,
-        ClickhouseFunnelUnordered,
-    )
+    from posthog.queries.funnels import ClickhouseFunnel, ClickhouseFunnelStrict, ClickhouseFunnelUnordered
 
     if filter.funnel_order_type == FunnelOrderType.UNORDERED:
         return ClickhouseFunnelUnordered

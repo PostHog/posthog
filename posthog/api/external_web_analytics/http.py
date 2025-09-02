@@ -1,32 +1,30 @@
 from django.conf import settings
+
 import posthoganalytics
+from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
 from rest_framework import viewsets
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
-from drf_spectacular.utils import extend_schema, OpenApiExample
-from rest_framework.exceptions import PermissionDenied
 
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from drf_spectacular.utils import OpenApiResponse
 from posthog.api.utils import action
-from posthog.models.user import User
-
-from posthog.auth import SessionAuthentication, PersonalAPIKeyAuthentication
+from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.clickhouse.client.limit import get_web_analytics_api_rate_limiter
+from posthog.models.user import User
 from posthog.rate_limit import WebAnalyticsAPIBurstThrottle, WebAnalyticsAPISustainedThrottle
-
-from .serializers import (
-    WebAnalyticsOverviewRequestSerializer,
-    WebAnalyticsTrendRequestSerializer,
-    WebAnalyticsBreakdownRequestSerializer,
-    WebAnalyticsOverviewResponseSerializer,
-    WebAnalyticsTrendResponseSerializer,
-    WebAnalyticsBreakdownResponseSerializer,
-)
 
 from .data import WebAnalyticsDataFactory
 from .query_adapter import ExternalWebAnalyticsQueryAdapter
+from .serializers import (
+    WebAnalyticsBreakdownRequestSerializer,
+    WebAnalyticsBreakdownResponseSerializer,
+    WebAnalyticsOverviewRequestSerializer,
+    WebAnalyticsOverviewResponseSerializer,
+    WebAnalyticsTrendRequestSerializer,
+    WebAnalyticsTrendResponseSerializer,
+)
 
 TEAM_IDS_WITH_EXTERNAL_WEB_ANALYTICS = [1, 2]
 

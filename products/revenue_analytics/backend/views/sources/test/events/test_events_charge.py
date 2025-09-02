@@ -1,7 +1,7 @@
 from products.revenue_analytics.backend.views.core import SourceHandle
+from products.revenue_analytics.backend.views.schemas.charge import SCHEMA as CHARGE_SCHEMA
 from products.revenue_analytics.backend.views.sources.events.charge import build
 from products.revenue_analytics.backend.views.sources.test.events.base import EventsSourceBaseTest
-from products.revenue_analytics.backend.views.schemas.charge import SCHEMA as CHARGE_SCHEMA
 
 
 class TestChargeEventsBuilder(EventsSourceBaseTest):

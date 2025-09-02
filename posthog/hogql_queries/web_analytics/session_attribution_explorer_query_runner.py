@@ -1,16 +1,18 @@
-from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.parser import parse_select
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.schema import (
     CachedSessionAttributionExplorerQueryResponse,
+    HogQLFilters,
     SessionAttributionExplorerQuery,
     SessionAttributionExplorerQueryResponse,
     SessionAttributionGroupBy,
     SessionTableVersion,
-    HogQLFilters,
 )
+
+from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.parser import parse_select
+
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
 AD_IDS_PREFIXES_SESSIONS_V1 = [
     "gclid",

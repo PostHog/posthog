@@ -12,12 +12,12 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { HogFunctionMetricSparkLine } from 'scenes/hog-functions/metrics/HogFunctionMetricsSparkline'
 import { urls } from 'scenes/urls'
 
 import { HogFunctionType } from '~/types'
@@ -99,12 +99,43 @@ export function HogFunctionList({
                 title: 'Last 7 days',
                 width: 0,
                 render: (_, hogFunction) => {
+                    if (hogFunction.id.startsWith('batch-export-')) {
+                        // TODO: Make this less hacky, maybe with some extended type for managing these values
+                        const batchExportId = hogFunction.id.replace('batch-export-', '')
+                        return (
+                            <Link to={urlForHogFunction(hogFunction) + '?tab=metrics'}>
+                                <AppMetricsSparkline
+                                    logicKey={batchExportId}
+                                    forceParams={{
+                                        appSource: 'batch_export',
+                                        appSourceId: batchExportId,
+                                        metricKind: ['success', 'failure'],
+                                        breakdownBy: 'metric_kind',
+                                        interval: 'day',
+                                        dateFrom: '-7d',
+                                    }}
+                                />
+                            </Link>
+                        )
+                    }
+
                     if (isManualFunction(hogFunction) || hogFunction.type === 'site_app') {
                         return <>N/A</>
                     }
+
                     return (
                         <Link to={urlForHogFunction(hogFunction) + '?tab=metrics'}>
-                            <HogFunctionMetricSparkLine id={hogFunction.id} />
+                            <AppMetricsSparkline
+                                logicKey={hogFunction.id}
+                                forceParams={{
+                                    appSource: 'hog_function',
+                                    appSourceId: hogFunction.id,
+                                    metricKind: ['success', 'failure'],
+                                    breakdownBy: 'metric_kind',
+                                    interval: 'day',
+                                    dateFrom: '-7d',
+                                }}
+                            />
                         </Link>
                     )
                 },
@@ -183,8 +214,8 @@ export function HogFunctionList({
     }, [props.type, canEnableHogFunction, humanizedType, toggleEnabled, deleteHogFunction, isManualFunction]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
-        <>
-            <div className="flex gap-2 items-center mb-2">
+        <div className="flex flex-col gap-4">
+            <div className="flex gap-2 items-center">
                 <LemonInput
                     type="search"
                     placeholder="Search..."
@@ -241,6 +272,6 @@ export function HogFunctionList({
                 />
                 <HogFunctionOrderModal />
             </BindLogic>
-        </>
+        </div>
     )
 }

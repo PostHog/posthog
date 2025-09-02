@@ -1,9 +1,5 @@
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.clickhouse.table_engines import (
-    Distributed,
-    ReplicationScheme,
-    MergeTreeEngine,
-)
+from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
 
 """
 We want to use ML to convert session replay data to embeddings, these will let us check similarity between sessions

@@ -1,29 +1,7 @@
 import json
-from ee.clickhouse.materialized_columns.analyze import materialize
 from datetime import datetime, timedelta
-from typing import Optional, Any
-from unittest import mock
-from unittest.mock import patch, MagicMock
+from typing import Any, Optional
 
-from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test.client import Client
-from django.utils import timezone
-from rest_framework import status
-
-from posthog.api.test.test_exports import TestExportMixin
-from posthog.clickhouse.client.execute import sync_execute
-from posthog.models import FeatureFlag, Person, Action
-from posthog.models.async_deletion.async_deletion import AsyncDeletion
-from posthog.models.cohort import Cohort
-from posthog.models.cohort.cohort import CohortType
-from posthog.models.property import BehavioralPropertyType
-from posthog.models.team.team import Team
-from posthog.schema import PropertyOperator, PersonsOnEventsMode
-from posthog.tasks.calculate_cohort import (
-    calculate_cohort_ch,
-    get_cohort_calculation_candidates_queryset,
-    increment_version_and_enqueue_calculate_cohort,
-)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -32,6 +10,32 @@ from posthog.test.base import (
     _create_person,
     flush_persons_and_events,
 )
+from unittest import mock
+from unittest.mock import MagicMock, patch
+
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test.client import Client
+from django.utils import timezone
+
+from rest_framework import status
+
+from posthog.schema import PersonsOnEventsMode, PropertyOperator
+
+from posthog.api.test.test_exports import TestExportMixin
+from posthog.clickhouse.client.execute import sync_execute
+from posthog.models import Action, FeatureFlag, Person
+from posthog.models.async_deletion.async_deletion import AsyncDeletion
+from posthog.models.cohort import Cohort
+from posthog.models.cohort.cohort import CohortType
+from posthog.models.property import BehavioralPropertyType
+from posthog.models.team.team import Team
+from posthog.tasks.calculate_cohort import (
+    calculate_cohort_ch,
+    get_cohort_calculation_candidates_queryset,
+    increment_version_and_enqueue_calculate_cohort,
+)
+
+from ee.clickhouse.materialized_columns.analyze import materialize
 
 
 class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -2526,8 +2530,9 @@ class TestCalculateCohortCommand(APIBaseTest):
             groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
         )
         # Call the command
-        from django.core.management import call_command
         from io import StringIO
+
+        from django.core.management import call_command
 
         out = StringIO()
         with patch("posthog.management.commands.calculate_cohort.calculate_cohort_ch") as mock_calculate_cohort:
@@ -2546,8 +2551,9 @@ class TestCalculateCohortCommand(APIBaseTest):
             groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
         )
         # Call the command
-        from django.core.management import call_command
         from io import StringIO
+
+        from django.core.management import call_command
 
         out = StringIO()
         with patch(

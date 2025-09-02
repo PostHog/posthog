@@ -1,8 +1,9 @@
-import dataclasses
-import typing
 import uuid
+import typing
+import dataclasses
 
 from django.db import close_old_connections
+
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 

@@ -1,4 +1,5 @@
 from django.utils.html import format_html
+
 from django_admin_inline_paginator.admin import TabularInlinePaginated
 
 from posthog.admin.admins.project_admin import ProjectAdmin

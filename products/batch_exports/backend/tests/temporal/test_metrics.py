@@ -1,27 +1,22 @@
+import uuid
 import asyncio
 import datetime as dt
-import uuid
+
+import pytest
 from unittest import mock
 
-import psycopg
-import pytest
-import pytest_asyncio
-import temporalio.client
 from django.conf import settings
+
+import psycopg
+import temporalio.client
 from structlog.testing import capture_logs
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.service import (
-    BatchExportModel,
-)
+from posthog.batch_exports.service import BatchExportModel
 from posthog.constants import BATCH_EXPORTS_TASK_QUEUE
-from posthog.temporal.tests.utils.models import (
-    acreate_batch_export,
-    adelete_batch_export,
-)
-from products.batch_exports.backend.temporal.destinations.postgres_batch_export import (
-    PostgresBatchExportInputs,
-)
+from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export
+
+from products.batch_exports.backend.temporal.destinations.postgres_batch_export import PostgresBatchExportInputs
 from products.batch_exports.backend.temporal.metrics import SLAWaiter
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
@@ -44,7 +39,7 @@ def postgres_config():
     }
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def postgres_connection(postgres_config, setup_postgres_test_db):
     connection = await psycopg.AsyncConnection.connect(
         user=postgres_config["user"],
@@ -60,7 +55,7 @@ async def postgres_connection(postgres_config, setup_postgres_test_db):
     await connection.close()
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def postgres_batch_export(ateam, table_name, postgres_config, interval, exclude_events, temporal_client):
     destination_data = {
         "type": "Postgres",

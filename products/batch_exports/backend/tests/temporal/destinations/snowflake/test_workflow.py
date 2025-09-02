@@ -6,11 +6,13 @@ Note: This module uses a mocked Snowflake connection.
 
 import asyncio
 import datetime as dt
-import unittest.mock
 from uuid import uuid4
 
 import pytest
+import unittest.mock
+
 from django.test import override_settings
+
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
@@ -21,13 +23,9 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog import constants
 from posthog.batch_exports.models import BatchExport, BatchExportRun
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
-from posthog.temporal.tests.utils.models import (
-    afetch_batch_export_runs,
-)
-from products.batch_exports.backend.temporal.batch_exports import (
-    finish_batch_export_run,
-    start_batch_export_run,
-)
+from posthog.temporal.tests.utils.models import afetch_batch_export_runs
+
+from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import (
     SnowflakeBatchExportInputs,
     SnowflakeBatchExportWorkflow,
@@ -35,16 +33,12 @@ from products.batch_exports.backend.temporal.destinations.snowflake_batch_export
     insert_into_snowflake_activity,
     insert_into_snowflake_activity_from_stage,
 )
-from products.batch_exports.backend.temporal.pipeline.internal_stage import (
-    insert_into_internal_stage_activity,
-)
+from products.batch_exports.backend.temporal.pipeline.internal_stage import insert_into_internal_stage_activity
 from products.batch_exports.backend.tests.temporal.destinations.snowflake.utils import (
     TEST_TIME,
     FakeSnowflakeConnection,
 )
-from products.batch_exports.backend.tests.temporal.utils import (
-    mocked_start_batch_export_run,
-)
+from products.batch_exports.backend.tests.temporal.utils import mocked_start_batch_export_run
 
 pytestmark = [
     pytest.mark.asyncio,

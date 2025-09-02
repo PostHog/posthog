@@ -1,14 +1,17 @@
+# ruff: noqa: T201 allow print statements
+
 import logging
 from time import sleep
 from typing import Any
 from uuid import uuid4
 
-import structlog
 from django.conf import settings
 from django.core.management.base import BaseCommand
 
-from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
+import structlog
+
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.group.sql import GROUPS_TABLE
 from posthog.models.person.sql import PERSON_DISTINCT_ID2_TABLE, PERSONS_TABLE

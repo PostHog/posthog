@@ -5,6 +5,9 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+
 import { BacklogView } from './components/BacklogView'
 import { GitHubIntegrationSettings } from './components/GitHubIntegrationSettings'
 import { KanbanView } from './components/KanbanView'
@@ -19,6 +22,7 @@ export function TaskTracker(): JSX.Element {
     const { activeTab } = useValues(tasksLogic)
     const { setActiveTab } = useActions(tasksLogic)
     const isEnabled = useFeatureFlag('TASKS')
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     if (!isEnabled) {
         return <NotFound object="Tasks" caption="This feature is not enabled for your project." />
@@ -45,12 +49,29 @@ export function TaskTracker(): JSX.Element {
     return (
         <div className="TaskTracker">
             <div className="space-y-4">
-                <div>
-                    <h1 className="text-2xl font-bold">Tasks</h1>
-                    <p className="text-muted">Manage and track development tasks across all PostHog products</p>
-                </div>
+                {!newSceneLayout && (
+                    <div>
+                        <h1 className="text-2xl font-bold">Tasks</h1>
+                        <p className="text-muted">Manage and track development tasks across all PostHog products</p>
+                    </div>
+                )}
+                <SceneTitleSection
+                    name="Tasks"
+                    description="Manage and track development tasks across all PostHog products"
+                    resourceType={{
+                        type: 'task',
+                        typePlural: 'tasks',
+                    }}
+                />
+                <SceneDivider />
 
-                <LemonTabs activeKey={activeTab} onChange={setActiveTab} tabs={tabs} size="medium" />
+                <LemonTabs
+                    activeKey={activeTab}
+                    onChange={setActiveTab}
+                    tabs={tabs}
+                    size="medium"
+                    sceneInset={newSceneLayout}
+                />
             </div>
         </div>
     )

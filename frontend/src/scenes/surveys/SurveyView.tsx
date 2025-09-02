@@ -11,11 +11,10 @@ import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { ProductIntentContext } from 'lib/utils/product-intents'
@@ -40,6 +39,9 @@ import {
     ScenePanelDivider,
     ScenePanelMetaInfo,
 } from '~/layout/scenes/SceneLayout'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import {
     ActivityScope,
@@ -72,8 +74,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
     const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
 
     const [tabKey, setTabKey] = useState(survey.start_date ? 'results' : 'overview')
-    const { featureFlags } = useValues(featureFlagLogic)
-    const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     useEffect(() => {
         if (survey.start_date) {
@@ -88,7 +89,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
             {surveyLoading ? (
                 <LemonSkeleton />
             ) : (
-                <>
+                <SceneContent>
                     <PageHeader
                         buttons={
                             <div className="flex gap-2 items-center">
@@ -259,26 +260,28 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                             </div>
                         }
                         caption={
-                            <>
-                                {survey && !!survey.description && (
-                                    <EditableField
-                                        multiline
-                                        name="description"
-                                        markdown
-                                        value={survey.description || ''}
-                                        placeholder="Description (optional)"
-                                        onSave={(value) =>
-                                            updateSurvey({
-                                                id: id,
-                                                description: value,
-                                                intentContext: ProductIntentContext.SURVEY_EDITED,
-                                            })
-                                        }
-                                        saveOnBlur={true}
-                                        compactButtons
-                                    />
-                                )}
-                            </>
+                            !newSceneLayout ? (
+                                <>
+                                    {survey && !!survey.description && (
+                                        <EditableField
+                                            multiline
+                                            name="description"
+                                            markdown
+                                            value={survey.description || ''}
+                                            placeholder="Description (optional)"
+                                            onSave={(value) =>
+                                                updateSurvey({
+                                                    id: id,
+                                                    description: value,
+                                                    intentContext: ProductIntentContext.SURVEY_EDITED,
+                                                })
+                                            }
+                                            saveOnBlur={true}
+                                            compactButtons
+                                        />
+                                    )}
+                                </>
+                            ) : null
                         }
                     />
                     <ScenePanel>
@@ -340,9 +343,24 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                         </ScenePanelActions>
                     </ScenePanel>
                     <SurveysDisabledBanner />
+                    <SceneTitleSection
+                        name={survey.name}
+                        description={survey.description}
+                        resourceType={{
+                            type: 'survey',
+                            typePlural: 'surveys',
+                        }}
+                        canEdit
+                        onNameChange={(name) => updateSurvey({ id, name })}
+                        onDescriptionChange={(description) => updateSurvey({ id, description })}
+                        renameDebounceMs={1000}
+                        isLoading={surveyLoading}
+                    />
+                    <SceneDivider />
                     <LemonTabs
                         activeKey={tabKey}
                         onChange={(key) => setTabKey(key)}
+                        sceneInset={newSceneLayout}
                         tabs={[
                             survey.start_date
                                 ? {
@@ -405,7 +423,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                         ]}
                     />
                     {hasMultipleProjects && <DuplicateToProjectModal />}
-                </>
+                </SceneContent>
             )}
         </div>
     )

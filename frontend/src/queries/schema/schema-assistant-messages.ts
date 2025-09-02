@@ -7,6 +7,7 @@ import {
     AssistantRetentionQuery,
     AssistantTrendsQuery,
 } from './schema-assistant-queries'
+import { FunnelsQuery, HogQLQuery, RetentionQuery, TrendsQuery } from './schema-general'
 
 // re-export MaxBillingContext to make it available in the schema
 export type { MaxBillingContext }
@@ -84,12 +85,26 @@ export interface ReasoningMessage extends BaseAssistantMessage {
     substeps?: string[]
 }
 
+/**
+ * The union type with all cleaned queries for the assistant. Only used for generating the schemas with an LLM.
+ */
+export type AnyAssistantGeneratedQuery =
+    | AssistantTrendsQuery
+    | AssistantFunnelsQuery
+    | AssistantRetentionQuery
+    | AssistantHogQLQuery
+
+/**
+ * The union type with all supported base queries for the assistant.
+ */
+export type AnyAssistantSupportedQuery = TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery
+
 export interface VisualizationMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Visualization
     /** @default '' */
     query: string
     plan?: string
-    answer: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
+    answer: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery
     initiator?: string
 }
 

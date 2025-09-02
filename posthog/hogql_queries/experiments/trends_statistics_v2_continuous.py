@@ -1,13 +1,15 @@
+import numpy as np
 from rest_framework.exceptions import ValidationError
+from scipy.stats import t
+
+from posthog.schema import ExperimentSignificanceCode, ExperimentVariantTrendsBaseStats
+
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.experiments import (
+    EXPECTED_LOSS_SIGNIFICANCE_LEVEL,
     FF_DISTRIBUTION_THRESHOLD,
     MIN_PROBABILITY_FOR_SIGNIFICANCE,
-    EXPECTED_LOSS_SIGNIFICANCE_LEVEL,
 )
-from posthog.schema import ExperimentSignificanceCode, ExperimentVariantTrendsBaseStats
-from scipy.stats import t
-import numpy as np
 
 # Prior parameters (minimal prior knowledge)
 MU_0 = 0.0  # Prior mean

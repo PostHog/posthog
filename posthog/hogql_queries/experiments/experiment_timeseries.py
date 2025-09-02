@@ -1,39 +1,41 @@
 import logging
-from typing import Union, Any
 from datetime import datetime, timedelta
+from typing import Any, Union
 
-from posthog.hogql_queries.experiments.utils import (
-    get_bayesian_experiment_result,
-    get_frequentist_experiment_result,
-    get_new_variant_results,
-    split_baseline_and_test_variants,
-    get_experiment_stats_method,
+from posthog.schema import (
+    ExperimentDataWarehouseNode,
+    ExperimentFunnelMetric,
+    ExperimentMeanMetric,
+    ExperimentStatsBase,
+    IntervalType,
 )
-from posthog.models import Experiment
+
 from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.experiments.exposure_query_logic import (
-    get_multiple_variant_handling_from_experiment,
-    get_entity_key,
-)
+
 from posthog.hogql_queries.experiments.base_query_utils import (
     get_experiment_date_range,
     get_experiment_exposure_query,
-    get_metric_events_query,
     get_metric_aggregation_expr,
+    get_metric_events_query,
     get_winsorized_metric_values_query,
 )
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.schema import (
-    IntervalType,
-    ExperimentMeanMetric,
-    ExperimentFunnelMetric,
-    ExperimentDataWarehouseNode,
-    ExperimentStatsBase,
+from posthog.hogql_queries.experiments.exposure_query_logic import (
+    get_entity_key,
+    get_multiple_variant_handling_from_experiment,
 )
+from posthog.hogql_queries.experiments.utils import (
+    get_bayesian_experiment_result,
+    get_experiment_stats_method,
+    get_frequentist_experiment_result,
+    get_new_variant_results,
+    split_baseline_and_test_variants,
+)
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models import Experiment
 
 logger = logging.getLogger(__name__)
 

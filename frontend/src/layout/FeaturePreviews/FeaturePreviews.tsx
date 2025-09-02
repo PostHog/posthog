@@ -12,7 +12,7 @@ import { Label } from 'lib/ui/Label/Label'
 import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from './featurePreviewsLogic'
 
 // Feature previews can be linked to by using hash in the url
-// example external link: https://app.posthog.com/settings/user-feature-previews#llm-observability
+// example external link: https://app.posthog.com/settings/user-feature-previews#llm-analytics
 
 export function FeaturePreviews(): JSX.Element {
     const { earlyAccessFeatures, rawEarlyAccessFeaturesLoading } = useValues(featurePreviewsLogic)

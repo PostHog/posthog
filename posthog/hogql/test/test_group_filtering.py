@@ -2,14 +2,16 @@
 Tests for created_at filtering of group fields based on GroupTypeMapping creation time.
 """
 
-from datetime import datetime, UTC
+from datetime import UTC, datetime
+
+from posthog.test.base import APIBaseTest
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
+
 from posthog.models import GroupTypeMapping
-from posthog.test.base import APIBaseTest
 
 
 class TestGroupKeyFiltering(APIBaseTest):

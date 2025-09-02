@@ -590,7 +590,7 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
             message: [
                 feedback,
                 '\nℹ️ This ticket was created automatically when a user gave thumbs down feedback to Max AI.',
-                `Trace: https://us.posthog.com/project/2/llm-observability/traces/${traceId}`,
+                `Trace: https://us.posthog.com/project/2/llm-analytics/traces/${traceId}`,
             ].join('\n'),
         })
     }
@@ -631,11 +631,11 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
                             location.hostname !== 'localhost'
                                 ? 'https://us.posthog.com/project/2'
                                 : `${window.location.origin}/project/2`
-                        }${urls.llmObservabilityTrace(traceId)}`}
+                        }${urls.llmAnalyticsTrace(traceId)}`}
                         icon={<IconEye />}
                         type="tertiary"
                         size="xsmall"
-                        tooltip="View trace in LLM observability"
+                        tooltip="View trace in LLM analytics"
                         targetBlank
                     />
                 )}

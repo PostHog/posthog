@@ -7,7 +7,11 @@ SESSION_SUMMARIES_SUPPORTED_REASONING_MODELS = {SESSION_SUMMARIES_SYNC_MODEL}
 SESSION_SUMMARIES_REASONING_EFFORT = "medium"
 SESSION_SUMMARIES_TEMPERATURE = 0.1  # Reduce hallucinations, but >0 to allow for some creativity
 
+# Ensure to cut LLM response if longer than expected to avoid hanging connections
+BASE_LLM_CALL_TIMEOUT_S = 600.0
+
 # Summarization
+MAX_SESSIONS_TO_SUMMARIZE = 200  # Maximum number of sessions to summarize at once
 HALLUCINATED_EVENTS_MIN_RATIO = 0.15  # If more than 15% of events in the summary hallucinated, fail the summarization
 # Minimum number of sessions to use group summary logic (find patterns) instead of summarizing them separately
 GROUP_SUMMARIES_MIN_SESSIONS = 5
@@ -22,5 +26,10 @@ SESSION_GROUP_SUMMARIES_WORKFLOW_POLLING_INTERVAL_MS = 2000  # How often to poll
 PATTERNS_ASSIGNMENT_CHUNK_SIZE = 10  # How many single-session-summaries to feed at once to assign events to patterns
 # Maximum tokens allowed for pattern extraction (below o3 model limit and within expected quality range)
 PATTERNS_EXTRACTION_MAX_TOKENS = 150000
-SINGLE_ENTITY_MAX_TOKENS = 200000  # General limit to avoid hitting the o3 model limit, used in case of exceptions (like one session to large for a regular chunk)
-FAILED_PATTERNS_EXTRACTION_MIN_RATIO = 0.75  # If less than 75% of pattern extraction chunks succeed, stop the workflow
+SINGLE_ENTITY_MAX_TOKENS = 200000  # General limit to avoid hitting the o3 model limit, used in case of exceptions
+FAILED_PATTERNS_EXTRACTION_MIN_RATIO = 0.75  # If less than 75% of pattern extraction chunks succeed
+FAILED_PATTERNS_ASSIGNMENT_MIN_RATIO = 0.75  # If less than 75% of patterns assignment succeed
+FAILED_PATTERNS_ENRICHMENT_MIN_RATIO = 0.75  # If less than 75% of patterns were enriched with the meta
+
+# Logging
+MAX_SESSION_IDS_COMBINED_LOGGING_LENGTH = 150  # Maximum string of combined session ids to log in a readable format

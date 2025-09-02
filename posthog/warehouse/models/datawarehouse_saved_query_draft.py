@@ -1,7 +1,7 @@
 from django.db import models
 
 from posthog.models.team import Team
-from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDTModel, UpdatedMetaFields
+from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel
 
 
 class DataWarehouseSavedQueryDraft(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):

@@ -1,8 +1,9 @@
 from collections.abc import Iterable
 
+from posthog.schema import SubscriptionDropoffMode
+
 from posthog.hogql import ast
 
-from posthog.schema import SubscriptionDropoffMode
 from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHandle, view_prefix_for_event
 from products.revenue_analytics.backend.views.sources.helpers import events_expr_for_team
 

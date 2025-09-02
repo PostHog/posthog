@@ -1,11 +1,11 @@
-import dataclasses
-import datetime as dt
 import json
+import datetime as dt
+import dataclasses
 from typing import Optional
-
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
+
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.product_analytics.upgrade_queries_activities import (
     GetInsightsToMigrateActivityInputs,

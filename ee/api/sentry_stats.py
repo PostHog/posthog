@@ -1,8 +1,9 @@
 from datetime import datetime, timedelta
 from typing import Any, Optional, Union
 
-import requests
 from django.http import HttpRequest, JsonResponse
+
+import requests
 from rest_framework.decorators import api_view
 from rest_framework.exceptions import ValidationError
 

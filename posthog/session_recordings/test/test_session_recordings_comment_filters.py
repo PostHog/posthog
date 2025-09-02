@@ -1,22 +1,19 @@
 import json
 from datetime import timedelta
 
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
+
 from django.utils.timezone import now
+
 from parameterized import parameterized
 from rest_framework import status
+
+from posthog.schema import PropertyOperator
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Comment
 from posthog.models.utils import uuid7
-from posthog.schema import PropertyOperator
-from posthog.session_recordings.queries.test.session_replay_sql import (
-    produce_replay_summary,
-)
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    QueryMatchingTest,
-)
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 
 class TestSessionRecordingsCommentFiltering(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest):

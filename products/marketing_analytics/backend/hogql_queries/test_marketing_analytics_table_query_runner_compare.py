@@ -1,27 +1,30 @@
-from pathlib import Path
-from typing import Union, Any
-from unittest.mock import Mock
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Union
 
 import pytest
-from posthog.hogql.test.utils import pretty_print_in_tests
-from posthog.hogql.errors import QueryError
-from posthog.models.team.team import Team
 from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import Mock
+
 from posthog.schema import (
+    BaseMathType,
+    ConversionGoalFilter2,
+    DateRange,
     MarketingAnalyticsTableQuery,
     MarketingAnalyticsTableQueryResponse,
-    SourceMap,
-    DateRange,
-    ConversionGoalFilter2,
     NodeKind,
-    BaseMathType,
+    SourceMap,
 )
+
+from posthog.hogql.errors import QueryError
+from posthog.hogql.test.utils import pretty_print_in_tests
+
+from posthog.models import Action
+from posthog.models.team.team import Team
 from posthog.warehouse.models import DataWarehouseTable, ExternalDataSource
 from posthog.warehouse.models.credential import DataWarehouseCredential
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
-from posthog.models import Action
 
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
     MarketingAnalyticsTableQueryRunner,
@@ -275,6 +278,7 @@ class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTes
         assert len(response.results) == 0
         assert response.hasMore is False
 
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_multi_source_business_metrics_validation_with_compare(self):
         """Test business metrics validation across multiple sources."""
         facebook_info = self._setup_csv_table("facebook_ads")
@@ -423,6 +427,7 @@ class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTes
         with pytest.raises(QueryError, match="nonexistent_column"):
             runner.calculate()
 
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_conversion_goal_basic_setup(self):
         facebook_info = self._setup_csv_table("facebook_ads")
 
@@ -525,6 +530,7 @@ class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTes
         assert response.results is not None
         assert len(response.columns) == 11, "Should have 11 columns including multiple conversion goal columns"
 
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_comprehensive_marketing_analytics_basic(self):
         facebook_info = self._setup_csv_table("facebook_ads")
 
@@ -568,12 +574,12 @@ class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTes
         assert response.results is not None
         assert len(response.results) == 3, "Should have 3 Facebook campaigns in November 2024"
 
-        sources = [row[1] for row in response.results]
+        sources = [row[1].value for row in response.results]
         assert all(source == "Facebook Ads" for source in sources), "All sources should be Facebook Ads"
 
-        total_cost = sum(float(row[2] or 0) for row in response.results)
-        total_clicks = sum(int(row[3] or 0) for row in response.results)
-        total_impressions = sum(int(row[4] or 0) for row in response.results)
+        total_cost = sum(float(row[2].value or 0) for row in response.results)
+        total_clicks = sum(int(row[3].value or 0) for row in response.results)
+        total_impressions = sum(int(row[4].value or 0) for row in response.results)
 
         assert round(total_cost, 2) == 8.40, f"Expected cost $8.40, got ${total_cost}"
         assert total_clicks == 4, f"Expected 4 clicks, got {total_clicks}"

@@ -3,7 +3,7 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { AnthropicInputMessage, OpenAICompletionMessage } from './types'
 import { formatLLMEventTitle, looksLikeXml, normalizeMessage } from './utils'
 
-describe('LLM Observability utils', () => {
+describe('LLM Analytics utils', () => {
     it('normalizeOutputMessage: parses OpenAI message', () => {
         const message: OpenAICompletionMessage = {
             role: 'assistant',

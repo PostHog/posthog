@@ -215,9 +215,9 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'Group analytics',
             },
             {
-                value: 'llm-observability',
-                'data-attr': `support-form-target-area-llm-observability`,
-                label: 'LLM observability',
+                value: 'llm-analytics',
+                'data-attr': `support-form-target-area-llm-analytics`,
+                label: 'LLM analytics',
             },
             {
                 value: 'max-ai',

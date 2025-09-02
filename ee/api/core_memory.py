@@ -1,10 +1,12 @@
 from django.db import IntegrityError
+
 from rest_framework import mixins, serializers
 from rest_framework.viewsets import GenericViewSet
 
-from ee.models.assistant import CoreMemory
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions import Conflict
+
+from ee.models.assistant import CoreMemory
 
 
 class MaxCoreMemorySerializer(serializers.ModelSerializer):

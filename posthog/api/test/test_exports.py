@@ -1,14 +1,17 @@
 from datetime import datetime, timedelta
 from typing import Optional
+
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 from unittest.mock import patch
+
+from django.http import HttpResponse
+from django.utils.timezone import now
 
 import celery
 import requests.exceptions
 from boto3 import resource
 from botocore.client import Config
-from django.http import HttpResponse
-from django.utils.timezone import now
-from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.api.insight import InsightSerializer
@@ -27,7 +30,6 @@ from posthog.settings import (
 )
 from posthog.tasks import exporter
 from posthog.tasks.exports.image_exporter import export_image
-from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 
 TEST_ROOT_BUCKET = "test_exports"
 

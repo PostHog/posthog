@@ -1,15 +1,17 @@
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.printer import to_printed_hogql
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.schema import (
     CachedVectorSearchQueryResponse,
     VectorSearchQuery,
     VectorSearchQueryResponse,
     VectorSearchResponseItem,
 )
+
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.printer import to_printed_hogql
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
 LATEST_ACTIONS_EMBEDDING_VERSION: int = 2
 """Bump the version when the embedding behavior changes for actions."""

@@ -1,18 +1,20 @@
 from typing import cast
+
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
-    SourceFieldOauthConfig,
     SourceFieldInputConfigType,
+    SourceFieldOauthConfig,
 )
+
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+from posthog.temporal.data_imports.sources.generated_configs import MetaAdsSourceConfig
 from posthog.temporal.data_imports.sources.meta_ads.meta_ads import meta_ads_source
 from posthog.temporal.data_imports.sources.meta_ads.schemas import ENDPOINTS, INCREMENTAL_FIELDS
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.generated_configs import MetaAdsSourceConfig
 from posthog.warehouse.types import ExternalDataSourceType
 
 

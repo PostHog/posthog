@@ -1,34 +1,36 @@
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
+from typing import Optional
 from zoneinfo import ZoneInfo
 
-from posthog.exceptions_capture import capture_exception
 from rest_framework.exceptions import ValidationError
 
-from posthog.clickhouse.query_tagging import tag_queries
-from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
-from posthog.hogql.parser import parse_expr
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
-from posthog.hogql_queries.experiments.exposure_query_logic import (
-    get_multiple_variant_handling_from_experiment,
-    get_variant_selection_expr,
-    get_exposure_event_and_property,
-    build_common_exposure_conditions,
-    get_entity_key,
-)
-from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.schema import (
+    CachedExperimentExposureQueryResponse,
+    DateRange,
     ExperimentExposureQuery,
     ExperimentExposureQueryResponse,
     ExperimentExposureTimeSeries,
-    DateRange,
     IntervalType,
-    CachedExperimentExposureQueryResponse,
 )
-from typing import Optional
+
+from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.parser import parse_expr
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.query_tagging import tag_queries
+from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
+from posthog.hogql_queries.experiments.exposure_query_logic import (
+    build_common_exposure_conditions,
+    get_entity_key,
+    get_exposure_event_and_property,
+    get_multiple_variant_handling_from_experiment,
+    get_variant_selection_expr,
+)
+from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 QUERY_ROW_LIMIT = 5000  # Should be sufficient for all experiments (days * variants)
 

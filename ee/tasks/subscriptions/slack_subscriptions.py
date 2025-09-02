@@ -1,7 +1,9 @@
-import structlog
 from dataclasses import dataclass, field
 from typing import Any
+
 from django.conf import settings
+
+import structlog
 
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.integration import Integration, SlackIntegration

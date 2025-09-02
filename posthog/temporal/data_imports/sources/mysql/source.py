@@ -1,27 +1,30 @@
 from typing import cast
+
 from sshtunnel import BaseSSHTunnelForwarderError
-from posthog.exceptions_capture import capture_exception
+
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    Option,
     SourceConfig,
     SourceFieldInputConfig,
-    SourceFieldSelectConfig,
-    SourceFieldSSHTunnelConfig,
     SourceFieldInputConfigType,
-    Option,
+    SourceFieldSelectConfig,
     SourceFieldSelectConfigConverter,
+    SourceFieldSSHTunnelConfig,
 )
+
+from posthog.exceptions_capture import capture_exception
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
+from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
+from posthog.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
 from posthog.temporal.data_imports.sources.mysql.mysql import (
+    filter_mysql_incremental_fields,
     get_schemas as get_mysql_schemas,
     mysql_source,
-    filter_mysql_incremental_fields,
 )
-from posthog.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
 from posthog.warehouse.types import ExternalDataSourceType, IncrementalField
 
 

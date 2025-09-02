@@ -1,16 +1,18 @@
 import json
 from typing import Any, cast
 
+from posthog.schema import (
+    CachedRevenueExampleEventsQueryResponse,
+    RevenueExampleEventsQuery,
+    RevenueExampleEventsQueryResponse,
+)
+
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.constants import LimitContext
-from posthog.hogql_queries.query_runner import QueryRunnerWithHogQLContext
+
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.schema import (
-    RevenueExampleEventsQuery,
-    RevenueExampleEventsQueryResponse,
-    CachedRevenueExampleEventsQueryResponse,
-)
+from posthog.hogql_queries.query_runner import QueryRunnerWithHogQLContext
 
 from products.revenue_analytics.backend.views import RevenueAnalyticsChargeView
 

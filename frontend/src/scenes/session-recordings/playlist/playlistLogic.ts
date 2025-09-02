@@ -43,6 +43,9 @@ export const playlistLogic = kea<playlistLogicType>([
                 actions.setIsFiltersExpanded(true)
             }
         },
+        [urls.replay(ReplayTabs.Playlists)]: () => {
+            actions.setIsFiltersExpanded(false)
+        },
     })),
     actionToUrl(({ values }) => ({
         setIsFiltersExpanded: () => {

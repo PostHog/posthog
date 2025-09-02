@@ -1,26 +1,26 @@
+import uuid
 import asyncio
 from typing import Any
 
-import jwt
-import uuid
 from django.db.models import QuerySet
 from django.http import HttpRequest, JsonResponse
+
+import jwt
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 
-from ee.tasks import subscriptions
-from ee.tasks.subscriptions import team_use_temporal_flag
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.constants import AvailableFeature, GENERAL_PURPOSE_TASK_QUEUE
+from posthog.constants import GENERAL_PURPOSE_TASK_QUEUE, AvailableFeature
 from posthog.models.subscription import Subscription, unsubscribe_using_token
 from posthog.permissions import PremiumFeaturePermission
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.subscriptions.subscription_scheduling_workflow import (
-    DeliverSubscriptionReportActivityInputs,
-)
+from posthog.temporal.subscriptions.subscription_scheduling_workflow import DeliverSubscriptionReportActivityInputs
 from posthog.utils import str_to_bool
+
+from ee.tasks import subscriptions
+from ee.tasks.subscriptions import team_use_temporal_flag
 
 
 class SubscriptionSerializer(serializers.ModelSerializer):

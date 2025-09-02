@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { IconGridMasonry, IconNotebook, IconPalette, IconScreen, IconTrash } from '@posthog/icons'
 
@@ -106,6 +106,29 @@ export function DashboardHeader(): JSX.Element | null {
     const [isPinned, setIsPinned] = useState(dashboard?.pinned)
     const { featureFlags } = useValues(featureFlagLogic)
     const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+
+    const isNewDashboard = useMemo(() => {
+        if (!dashboard || dashboardLoading) {
+            return false
+        }
+
+        // A dashboard is considered new if:
+        // 1. It's a fresh duplicate (has _highlight set), OR
+        // 2. It's a blank dashboard with default name, OR
+        // 3. It was created recently (within last 30 seconds) - catches templates, OR
+        // 4. It has no tiles yet (completely empty)
+        const now = new Date()
+        const createdAt = new Date(dashboard.created_at)
+        const isRecentlyCreated = now.getTime() - createdAt.getTime() < 30000 // 30 seconds
+
+        return (
+            Boolean(dashboard._highlight) ||
+            dashboard.name === 'New Dashboard' ||
+            isRecentlyCreated ||
+            !dashboard.tiles ||
+            dashboard.tiles.length === 0
+        )
+    }, [dashboard, dashboardLoading])
 
     const hasDashboardColors = useFeatureFlag('DASHBOARD_COLORS')
 
@@ -620,13 +643,15 @@ export function DashboardHeader(): JSX.Element | null {
                     type: 'dashboard',
                     typePlural: 'dashboards',
                 }}
-                onNameBlur={(value) => updateDashboard({ id: dashboard?.id, name: value, allowUndo: true })}
-                onDescriptionBlur={(value) =>
+                onNameChange={(value) => updateDashboard({ id: dashboard?.id, name: value, allowUndo: true })}
+                onDescriptionChange={(value) =>
                     updateDashboard({ id: dashboard?.id, description: value, allowUndo: true })
                 }
                 markdown
                 canEdit={canEditDashboard}
                 isLoading={dashboardLoading}
+                forceEdit={dashboardMode === DashboardMode.Edit || isNewDashboard}
+                renameDebounceMs={1000}
             />
             <SceneDivider />
         </>

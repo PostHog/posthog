@@ -1,6 +1,6 @@
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
-import { EnrichedTraceTreeNode } from './llmObservabilityTraceDataLogic'
+import { EnrichedTraceTreeNode } from './llmAnalyticsTraceDataLogic'
 import { buildMinimalTraceJSON } from './traceExportUtils'
 
 describe('traceExportUtils', () => {

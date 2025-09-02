@@ -1,6 +1,7 @@
 import datetime as dt
 
 import pytest
+
 from django.test.client import Client as DjangoTestClient
 
 from posthog.api.test.test_organization import create_organization

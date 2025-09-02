@@ -1,10 +1,10 @@
 """Test utilities that deal with test person generation."""
 
-import datetime as dt
 import json
+import uuid
 import random
 import typing
-import uuid
+import datetime as dt
 
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.utils.datetimes import date_range

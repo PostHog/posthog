@@ -3,10 +3,7 @@ from collections.abc import Iterable
 from posthog.hogql import ast
 
 from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHandle, view_prefix_for_event
-from products.revenue_analytics.backend.views.sources.helpers import (
-    events_expr_for_team,
-    get_cohort_expr,
-)
+from products.revenue_analytics.backend.views.sources.helpers import events_expr_for_team, get_cohort_expr
 
 
 def build(handle: SourceHandle) -> Iterable[BuiltQuery]:

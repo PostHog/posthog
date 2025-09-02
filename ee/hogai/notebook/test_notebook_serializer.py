@@ -1,6 +1,7 @@
 from django.test import TestCase
 
-from posthog.schema import ProsemirrorJSONContent, Mark
+from posthog.schema import Mark, ProsemirrorJSONContent
+
 from ee.hogai.notebook.notebook_serializer import MarkdownTokenizer, NotebookSerializer
 
 
