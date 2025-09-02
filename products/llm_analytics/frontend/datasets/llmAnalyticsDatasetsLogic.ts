@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
@@ -31,10 +31,6 @@ function cleanFilters(values: Partial<DatasetFilters>): DatasetFilters {
 
 export const llmAnalyticsDatasetsLogic = kea<llmAnalyticsDatasetsLogicType>([
     path(['scenes', 'llm-analytics', 'llmAnalyticsDatasetsLogic']),
-
-    connect(() => ({
-        values: [sceneLogic, ['activeSceneId']],
-    })),
 
     actions({
         setFilters: (filters: Partial<DatasetFilters>, merge: boolean = true, debounce: boolean = true) => ({
