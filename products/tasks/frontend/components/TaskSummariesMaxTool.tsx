@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import React from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 

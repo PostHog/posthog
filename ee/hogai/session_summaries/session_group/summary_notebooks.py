@@ -15,6 +15,7 @@ from posthog.models.notebook.util import (
     create_text_content,
 )
 from posthog.models.team import Team
+from posthog.models.team.team import check_is_feature_available_for_team
 from posthog.models.user import User
 from posthog.temporal.ai.session_summary.types.group import SessionSummaryStep
 
@@ -394,6 +395,30 @@ def _create_pattern_section(
         content.append(_create_line_separator())
         content.extend(example_content)
     content.append(_create_line_separator())
+    if check_is_feature_available_for_team(team_id, "TASK_SUMMARIES"):
+        try:
+            # Action: allow creating a task directly from this pattern in Notebooks (behind feature flag)
+            task_description_lines = [
+                f"Pattern: {pattern.pattern_name}",
+                f"Severity: {(pattern.severity.value if hasattr(pattern.severity, 'value') else pattern.severity).title()}",
+                f"Description: {pattern.pattern_description}",
+            ]
+            # Add a compact list of indicators for quick context
+            if getattr(pattern, "indicators", None):
+                indicators_text = "; ".join(str(x) for x in pattern.indicators[:5])
+                task_description_lines.append(f"Indicators: {indicators_text}")
+            content.append(
+                {
+                    "type": "ph-task-create",
+                    "attrs": {
+                        "title": pattern.pattern_name,
+                        "description": "\n".join(task_description_lines),
+                    },
+                }
+            )
+        except Exception:
+            # Don't block notebook rendering
+            pass
     return content
 
 

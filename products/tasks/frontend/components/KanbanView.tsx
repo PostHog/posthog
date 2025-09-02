@@ -116,7 +116,6 @@ export function KanbanView(): JSX.Element {
             <DndContext
                 sensors={sensors}
                 collisionDetection={closestCorners}
-                // collisionDetection={collisionDetectionStrategy}
                 measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
                 onDragStart={({ active }) => {
                     const task = tasks.find((t: Task) => t.id === active.id)
