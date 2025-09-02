@@ -66,6 +66,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
                     embedded
                     filterKey={`trends_${view}`}
                     canEditSeriesNameInline={editMode}
+                    editMode={editMode}
                     isMainInsightView={true}
                 />
             )

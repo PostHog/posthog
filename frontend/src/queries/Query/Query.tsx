@@ -147,7 +147,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 uniqueKey={uniqueKey}
                 context={queryContext}
                 readOnly={readOnly}
-                editMode={editMode}
+                editMode={!!editMode}
                 variablesOverride={props.variablesOverride}
             />
         )
@@ -158,7 +158,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 query={query}
                 context={queryContext}
                 readOnly={readOnly}
-                editMode={editMode}
+                editMode={!!editMode}
                 embedded={embedded}
             />
         )
@@ -170,7 +170,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 setQuery={setQuery as unknown as (query: InsightVizNode) => void}
                 context={queryContext}
                 readOnly={readOnly}
-                editMode={editMode}
+                editMode={!!editMode}
                 uniqueKey={uniqueKey}
                 embedded={embedded}
                 inSharedMode={inSharedMode}
