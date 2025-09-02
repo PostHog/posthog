@@ -157,7 +157,6 @@ from posthog.models.web_preaggregated.team_selection import (
     WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL,
     WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL,
 )
-from posthog.person_db_router import PERSONS_DB_MODELS
 from posthog.session_recordings.sql.session_recording_event_sql import (
     DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL,
     DROP_SESSION_RECORDING_EVENTS_TABLE_SQL,
@@ -610,26 +609,6 @@ class PostHogTestCase(SimpleTestCase):
         global persons_ordering_int
         persons_ordering_int = 0
         super().tearDown()
-
-        # manually clean unmanaged persons tables
-        # For unmanaged models, Django doesn't automatically clean them between tests
-        # We use DELETE instead of TRUNCATE to avoid "pending trigger events" errors
-        # this is what Django does when cleaning up tables, so we are just using that same logic
-        from django.db import connection
-
-        with connection.cursor() as cursor:
-            # DELETE is transaction-safe and doesn't have trigger event issues
-            for table in PERSONS_DB_MODELS:
-                cursor.execute(f"DELETE FROM posthog_{table}")
-
-            # Reset sequences for auto-incrementing IDs (PostgreSQL specific)
-            if connection.vendor == "postgresql":
-                for table in PERSONS_DB_MODELS:
-                    try:
-                        cursor.execute(f"SELECT setval(pg_get_serial_sequence('posthog_{table}', 'id'), 1, false)")
-                    except Exception:
-                        # Some tables might not have auto-incrementing id fields
-                        pass
 
     def validate_basic_html(self, html_message, site_url, preheader=None):
         # absolute URLs are used
