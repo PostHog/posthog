@@ -146,7 +146,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
                                 return <></>
                             }
 
-                            const visualValue = truncateValue(value as string)
+                            const visualValue = truncateValue(value)
 
                             if (!traceId) {
                                 return <strong>{visualValue}</strong>
@@ -215,7 +215,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
                                 return <></>
                             }
 
-                            const visualValue = truncateValue(value as string)
+                            const visualValue = truncateValue(value)
 
                             return (
                                 <Tooltip title={value as string}>

@@ -488,7 +488,7 @@ export function looksLikeXml(input: unknown): boolean {
  * @param value - The string to format.
  * @returns The formatted string.
  */
-export function truncateValue(value: string | null | undefined): string {
+export function truncateValue(value: unknown): string {
     if (value === null || value === undefined) {
         return '-'
     }
