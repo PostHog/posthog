@@ -8,6 +8,7 @@ import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 const METRICS_INFO = {
     succeeded: 'Total number of runs processed successfully',
     failed: 'Total number of runs that had errors during processing',
+    canceled: 'Total number of runs that were canceled',
 }
 
 export function BatchExportsMetrics({ id }: { id: string }): JSX.Element {
@@ -46,6 +47,13 @@ export function BatchExportsMetrics({ id }: { id: string }): JSX.Element {
                     loading={appMetricsTrendsLoading}
                     timeSeries={getSingleTrendSeries('failed')}
                     previousPeriodTimeSeries={getSingleTrendSeries('failed', true)}
+                />
+                <AppMetricSummary
+                    name="Canceled"
+                    description={METRICS_INFO.canceled}
+                    loading={appMetricsTrendsLoading}
+                    timeSeries={getSingleTrendSeries('canceled')}
+                    previousPeriodTimeSeries={getSingleTrendSeries('canceled', true)}
                 />
             </div>
             <AppMetricsTrends appMetricsTrends={appMetricsTrends} loading={appMetricsTrendsLoading} />
