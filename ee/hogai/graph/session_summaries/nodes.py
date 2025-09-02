@@ -169,7 +169,9 @@ class SessionSummarizationNode(AssistantNode):
 
         # Execute the query to get session IDs
         replay_filters.limit = limit
-        query_runner = SessionRecordingListFromQuery(team=self._team, query=replay_filters, hogql_query_modifiers=None)
+        query_runner = SessionRecordingListFromQuery(
+            team=self._team, query=replay_filters, hogql_query_modifiers=None, limit=limit
+        )
         results = query_runner.run()
         # Extract session IDs
         session_ids = [recording["session_id"] for recording in results.results]
