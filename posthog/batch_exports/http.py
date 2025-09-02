@@ -221,9 +221,9 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
             )
             if destination_field.name not in config:
                 if is_required and self.instance is None:
-                    # `self.instance is None` checks that we are creating a new instance
                     # Required fields may be missing when patching an existing instance,
-                    # so we omit this check.
+                    # (i.e. when `self.instance is not None`). So, when an existing
+                    # instance exists, we allow required fails to be missing.
                     raise serializers.ValidationError(
                         f"Configuration missing required field: '{destination_field.name}'"
                     )
