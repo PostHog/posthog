@@ -22,7 +22,6 @@ describe('InternalCaptureService', () => {
     })
     it('should capture an event', async () => {
         const res = await service.capture({
-            team_id: 1,
             team_token: 'token',
             event: 'event-name',
             distinct_id: 'distinct-id',
@@ -48,8 +47,8 @@ describe('InternalCaptureService', () => {
     })
     it('should capture many events', async () => {
         const res = await service.captureMany([
-            { team_id: 1, team_token: 'token', event: 'event-name', distinct_id: 'distinct-id' },
-            { team_id: 2, team_token: 'token-2', event: 'event-name-2', distinct_id: 'distinct-id-2' },
+            { team_token: 'token', event: 'event-name', distinct_id: 'distinct-id' },
+            { team_token: 'token-2', event: 'event-name-2', distinct_id: 'distinct-id-2' },
         ])
         expect(res).toHaveLength(2)
         expect(res[0][0]).toBeNull()
@@ -87,7 +86,6 @@ describe('InternalCaptureService', () => {
     })
     it('should allow some overrides', async () => {
         await service.capture({
-            team_id: 1,
             team_token: 'token',
             event: 'event-name',
             timestamp: '2025-03-03T03:03:03.000Z',
