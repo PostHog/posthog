@@ -1,5 +1,7 @@
+import typing
 import datetime as dt
 import dataclasses
+import collections.abc
 from dataclasses import dataclass
 from typing import Any, TypedDict, cast
 
@@ -26,6 +28,8 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.batch_exports.models import BATCH_EXPORT_INTERVALS
 from posthog.batch_exports.service import (
+    DESTINATION_WORKFLOWS,
+    BaseBatchExportInputs,
     BatchExportIdError,
     BatchExportSchema,
     BatchExportServiceError,
@@ -187,6 +191,56 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
         """Create a BatchExportDestination."""
         export_destination = BatchExportDestination.objects.create(**validated_data)
         return export_destination
+
+    def validate(self, data: collections.abc.Mapping[str, typing.Any]) -> collections.abc.Mapping[str, typing.Any]:
+        """Validate the destination configuration based on workflow inputs.
+
+        Ensure that the submitted destination configuration passes the following checks:
+        * Does NOT contain fields that do not exist in workflow inputs.
+        * Contains all required fields as defined by workflow inputs.
+        * Provided values match types required by workflow inputs.
+
+        Raises:
+            A `serializers.ValidationError` if any of these checks fail.
+        """
+        export_type, config = data["type"], data["config"]
+        _, workflow_inputs = DESTINATION_WORKFLOWS[export_type]
+        base_field_names = {field.name for field in dataclasses.fields(BaseBatchExportInputs)}
+        workflow_fields = dataclasses.fields(workflow_inputs)
+        destination_fields = {field for field in workflow_fields if field.name not in base_field_names}
+
+        extra_fields = config.keys() - {field.name for field in destination_fields}
+        if extra_fields:
+            str_fields = ", ".join(f"'{extra_field}'" for extra_field in extra_fields)
+            raise serializers.ValidationError(f"Configuration has unknown field/s: {str_fields}")
+
+        for destination_field in destination_fields:
+            is_required = (
+                destination_field.default == dataclasses.MISSING
+                and destination_field.default_factory == dataclasses.MISSING
+            )
+            if destination_field.name not in config:
+                if is_required:
+                    raise serializers.ValidationError(
+                        f"Configuration missing required field: '{destination_field.name}'"
+                    )
+                else:
+                    continue
+
+            config_value = config[destination_field.name]
+            field_type = destination_field.type
+
+            if not isinstance(field_type, type):
+                # `dataclasses.Field.type` could be something we can't work with.
+                # TODO: Validate these ones too?
+                continue
+
+            if not isinstance(config_value, field_type):
+                raise serializers.ValidationError(
+                    f"Configuration has invalid type: got '{type(config_value).__name__}', expected '{field_type.__name__}'"
+                )
+
+        return data
 
     def to_representation(self, instance: BatchExportDestination) -> dict:
         data = super().to_representation(instance)
