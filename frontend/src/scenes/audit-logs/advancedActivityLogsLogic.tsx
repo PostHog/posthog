@@ -1,11 +1,13 @@
-import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
-import { ADVANCED_ACTIVITY_PAGE_SIZE } from 'lib/constants'
+import { ADVANCED_ACTIVITY_PAGE_SIZE, FEATURE_FLAGS } from 'lib/constants'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dateStringToDayJs } from 'lib/utils'
+import { urls } from 'scenes/urls'
 
 import { ActivityScope } from '~/types'
 
@@ -37,6 +39,9 @@ const DEFAULT_FILTERS: AdvancedActivityLogFilters = {
 
 export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
     path(['scenes', 'audit-logs', 'advancedActivityLogsLogic']),
+    connect(() => ({
+        values: [featureFlagLogic, ['featureFlags']],
+    })),
 
     actions({
         setFilters: (filters: Partial<AdvancedActivityLogFilters>) => ({ filters }),
@@ -108,6 +113,11 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
     })),
 
     selectors(({ actions }) => ({
+        isFeatureFlagEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.ADVANCED_ACTIVITY_LOGS],
+        ],
+
         hasActiveFilters: [
             (s) => [s.filters],
             (filters: AdvancedActivityLogFilters): boolean => {
@@ -149,8 +159,12 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
         },
     })),
 
-    events(({ actions }) => ({
+    events(({ actions, values }) => ({
         afterMount: () => {
+            if (!values.isFeatureFlagEnabled) {
+                window.location.href = urls.projectHomepage()
+            }
+
             actions.loadAvailableFilters()
             actions.loadAdvancedActivityLogs()
         },
