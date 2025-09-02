@@ -1,6 +1,5 @@
 import './PropertyGroupFilters.scss'
 
-import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import React from 'react'
 
@@ -160,12 +159,7 @@ export function PropertyGroupFilters({
                         icon={<IconPlusSmall />}
                         sideIcon={null}
                         disabledReason={disabledReason}
-                        // This class hides this button in some situations to improve layout
-                        // We don't want to hide it in Cypress tests because it'll complain the button isn't clickable
-                        // so let's simply avoid adding the class in that case
-                        className={clsx({
-                            'PropertyGroupFilters__add-filter-group-after': !window.Cypress,
-                        })}
+                        className="PropertyGroupFilters__add-filter-group-after"
                     >
                         Add filter group
                     </LemonButton>
