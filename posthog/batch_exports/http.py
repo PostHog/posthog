@@ -209,7 +209,9 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
         workflow_fields = dataclasses.fields(workflow_inputs)
         destination_fields = {field for field in workflow_fields if field.name not in base_field_names}
 
-        extra_fields = config.keys() - {field.name for field in destination_fields}
+        extra_fields = {k for k in config.keys() if not k.startswith("destination__")} - {
+            field.name for field in destination_fields
+        }
         if extra_fields:
             str_fields = ", ".join(f"'{extra_field}'" for extra_field in extra_fields)
             raise serializers.ValidationError(f"Configuration has unknown field/s: {str_fields}")
