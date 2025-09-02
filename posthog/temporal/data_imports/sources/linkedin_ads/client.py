@@ -13,6 +13,9 @@ from .schemas import (
 )
 
 LINKEDIN_SPONSORED_URN_PREFIX = "urn:li:sponsored"
+MAX_PAGE_SIZE = 1000
+MAX_PAGES = 1000  # Safety limit, this will be equivalent to 1 million rows
+API_VERSION = "202508"
 
 
 class LinkedinAdsClient:
@@ -23,7 +26,7 @@ class LinkedinAdsClient:
             raise ValueError("Access token required")
         self.access_token = access_token
         self.client = RestliClient()
-        self.api_version = "202508"
+        self.api_version = API_VERSION
 
     def get_accounts(self) -> list[dict[str, Any]]:
         """Get ad accounts."""
@@ -128,9 +131,9 @@ class LinkedinAdsClient:
         """Make paginated requests yielding each page separately."""
         page_token = None
 
-        for _ in range(1000):  # Safety limit, this will be equivalent to 1 million rows
+        for _ in range(MAX_PAGES):
             fields = self._get_fields_for_resource(endpoint)
-            params = {"fields": ",".join(fields), "pageSize": 1000}
+            params = {"fields": ",".join(fields), "pageSize": MAX_PAGE_SIZE}
             if page_token:
                 params["pageToken"] = page_token
 
