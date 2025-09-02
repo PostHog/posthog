@@ -17,7 +17,6 @@ from posthog.schema import (
 
 from posthog.models.notebook.notebook import Notebook
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
-from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
 from posthog.temporal.ai.session_summary.summarize_session_group import (
@@ -42,9 +41,6 @@ from ee.hogai.session_summaries.session_group.summary_notebooks import (
 from ee.hogai.session_summaries.utils import logging_session_ids
 from ee.hogai.utils.state import prepare_reasoning_progress_message
 from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
-from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
-    convert_filters_to_recordings_query,
-)
 
 
 class SessionSummarizationNode(AssistantNode):
@@ -161,12 +157,19 @@ class SessionSummarizationNode(AssistantNode):
         self, current_filters: dict[str, Any], limit: int = MAX_SESSIONS_TO_SUMMARIZE
     ) -> RecordingsQuery:
         """Convert current filters into recordings query format"""
+        from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
+            convert_filters_to_recordings_query,
+        )
+
         # Create a temporary playlist object to use the conversion function
         temp_playlist = SessionRecordingPlaylist(filters=current_filters)
         recordings_query = convert_filters_to_recordings_query(temp_playlist)
         return recordings_query
 
     def _get_session_ids_with_filters(self, replay_filters: RecordingsQuery) -> list[str] | None:
+        """Get session ids from DB with filters"""
+        from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
+
         # Execute the query to get session IDs
         query_runner = SessionRecordingListFromQuery(team=self._team, query=replay_filters, hogql_query_modifiers=None)
         results = query_runner.run()
