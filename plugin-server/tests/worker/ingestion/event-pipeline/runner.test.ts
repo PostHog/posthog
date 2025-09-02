@@ -27,7 +27,7 @@ import * as metrics from '../../../../src/worker/ingestion/event-pipeline/metric
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
-import { PersonMergeLimitExceededError } from '../../../../src/worker/ingestion/persons/person-merge-service'
+import { PersonMergeLimitExceededError } from '../../../../src/worker/ingestion/persons/person-merge-types'
 import { PostgresPersonRepository } from '../../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 
 jest.mock('../../../../src/worker/ingestion/event-pipeline/processPersonsStep')

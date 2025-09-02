@@ -1,12 +1,16 @@
 import LRU from 'lru-cache'
 import { DateTime } from 'luxon'
 
+import { PluginEvent } from '@posthog/plugin-scaffold'
+
 import { ONE_HOUR } from '../../../config/constants'
-import { Person } from '../../../types'
+import { InternalPerson, Person } from '../../../types'
 import { logger } from '../../../utils/logger'
 import { uuidFromDistinctId } from '../person-uuid'
+import { captureIngestionWarning } from '../utils'
 import { PersonContext } from './person-context'
 import { PersonMergeService } from './person-merge-service'
+import { PersonMergeLimitExceededError, PersonMergeRaceConditionError } from './person-merge-types'
 import { PersonPropertyService } from './person-property-service'
 
 // Tracks whether we know we've already inserted a `posthog_personlessdistinctid` for the given
@@ -37,7 +41,33 @@ export class PersonEventProcessor {
         }
 
         // First, handle any identify/alias/merge operations
-        const [personFromMerge, identifyOrAliasKafkaAck] = await this.mergeService.handleIdentifyOrAlias()
+        const mergeResult = await this.mergeService.handleIdentifyOrAlias()
+
+        let personFromMerge: InternalPerson | undefined = undefined
+        let identifyOrAliasKafkaAck: Promise<void> = Promise.resolve()
+
+        if (mergeResult.success) {
+            personFromMerge = mergeResult.person
+            identifyOrAliasKafkaAck = mergeResult.kafkaAck
+        } else {
+            // Handle merge error with action-based approach
+            const handled = await this.handleMergeError(mergeResult.error, this.context.event)
+            if (handled) {
+                // Error was handled (redirected or sent to DLQ), return empty result
+                const fakePerson: Person = {
+                    team_id: this.context.team.id,
+                    properties: {},
+                    uuid: uuidFromDistinctId(this.context.team.id, this.context.distinctId),
+                    created_at: DateTime.utc(1970, 1, 1, 0, 0, 5),
+                }
+                return [fakePerson, Promise.resolve()]
+            }
+            // For other errors, log and continue with normal flow
+            logger.warn('Merge operation failed, continuing with normal property updates', {
+                error: mergeResult.error.message,
+                team_id: this.context.team.id,
+            })
+        }
 
         if (personFromMerge) {
             // Try to shortcut if we have the person from identify or alias
@@ -131,5 +161,131 @@ export class PersonEventProcessor {
 
     getContext(): PersonContext {
         return this.context
+    }
+
+    /**
+     * Handle merge errors with action-based approach
+     * Returns true if error was handled (redirected/DLQ), false to continue normal processing
+     */
+    private async handleMergeError(error: any, event: PluginEvent): Promise<boolean> {
+        const mergeMode = this.context.mergeMode
+
+        if (error instanceof PersonMergeLimitExceededError) {
+            logger.info('Merge limit exceeded', {
+                mode: mergeMode.type,
+                team_id: this.context.team.id,
+                distinct_id: this.context.distinctId,
+            })
+
+            // Action depends on the configured merge mode
+            switch (mergeMode.type) {
+                case 'ASYNC':
+                    logger.info('Redirecting to async merge topic', {
+                        topic: mergeMode.topic,
+                        team_id: event.team_id,
+                        distinct_id: event.distinct_id,
+                    })
+                    await this.redirectToAsyncMerge(event, mergeMode.topic)
+                    return true
+                case 'LIMIT':
+                    logger.warn('Sending to DLQ due to limit exceeded', {
+                        limit: mergeMode.limit,
+                        team_id: event.team_id,
+                        distinct_id: event.distinct_id,
+                    })
+                    await this.sendToDLQ(event, error)
+                    return true
+                case 'SYNC':
+                    // SYNC mode should never hit limits - this indicates a bug
+                    logger.error('Unexpected limit exceeded in SYNC mode - this should not happen', {
+                        team_id: event.team_id,
+                        distinct_id: event.distinct_id,
+                        mergeMode: mergeMode,
+                    })
+                    throw error
+            }
+        } else if (error instanceof PersonMergeRaceConditionError) {
+            logger.warn('Race condition detected, ignoring merge', {
+                error: error.message,
+                team_id: this.context.team.id,
+                distinct_id: this.context.distinctId,
+            })
+            return false // Continue with normal processing
+        } else {
+            // Unknown errors should be thrown - they indicate bugs or unexpected conditions
+            logger.error('Unknown merge error - throwing to surface the issue', {
+                mergeMode: mergeMode.type,
+                error: error.message,
+                team_id: this.context.team.id,
+                distinct_id: this.context.distinctId,
+            })
+            throw error
+        }
+    }
+
+    /**
+     * Redirects an event to the async merge topic for later processing
+     * The event is sent in the exact same format as received
+     */
+    private async redirectToAsyncMerge(event: PluginEvent, asyncTopic: string): Promise<void> {
+        // Send event in the same capture format that the ingestion pipeline expects
+        const token = this.context.team.api_token
+        const captureEvent = {
+            uuid: event.uuid,
+            distinct_id: event.distinct_id,
+            ip: event.ip,
+            now: event.now,
+            token: token,
+            data: JSON.stringify({
+                ...event,
+                // Add a marker to indicate this is a redirected async merge event
+                properties: {
+                    ...event.properties,
+                    $async_merge_redirected: true,
+                },
+            }),
+        }
+
+        await this.context.kafkaProducer.produce({
+            topic: asyncTopic,
+            key: `${token}:${event.distinct_id}`,
+            value: Buffer.from(JSON.stringify(captureEvent)),
+            headers: {
+                distinct_id: event.distinct_id,
+                token: token,
+            },
+        })
+
+        logger.info('Event redirected to async merge topic', {
+            team_id: event.team_id,
+            distinct_id: event.distinct_id,
+            event: event.event,
+            topic: asyncTopic,
+        })
+    }
+
+    /**
+     * Sends an event to the dead letter queue
+     */
+    private async sendToDLQ(event: PluginEvent, error: any): Promise<void> {
+        await captureIngestionWarning(
+            this.context.kafkaProducer,
+            this.context.team.id,
+            'person_merge_limit_exceeded_dlq',
+            {
+                distinctId: event.distinct_id,
+                eventUuid: event.uuid,
+                error: error.message,
+                event: event.event,
+            },
+            { alwaysSend: true }
+        )
+
+        logger.warn('Event sent to DLQ due to merge limit exceeded', {
+            team_id: event.team_id,
+            distinct_id: event.distinct_id,
+            event: event.event,
+            error: error.message,
+        })
     }
 }

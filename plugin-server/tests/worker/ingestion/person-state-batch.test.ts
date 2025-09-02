@@ -27,12 +27,12 @@ import { uuidFromDistinctId } from '../../../src/worker/ingestion/person-uuid'
 import { BatchWritingPersonsStoreForBatch } from '../../../src/worker/ingestion/persons/batch-writing-person-store'
 import { PersonContext } from '../../../src/worker/ingestion/persons/person-context'
 import { PersonEventProcessor } from '../../../src/worker/ingestion/persons/person-event-processor'
+import { PersonMergeService } from '../../../src/worker/ingestion/persons/person-merge-service'
 import {
     SourcePersonNotFoundError,
     TargetPersonNotFoundError,
-} from '../../../src/worker/ingestion/persons/person-merge-service'
-import { PersonMergeService } from '../../../src/worker/ingestion/persons/person-merge-service'
-import { createDefaultSyncMergeMode } from '../../../src/worker/ingestion/persons/person-merge-types'
+    createDefaultSyncMergeMode,
+} from '../../../src/worker/ingestion/persons/person-merge-types'
 import { PersonPropertyService } from '../../../src/worker/ingestion/persons/person-property-service'
 import { PersonsStoreForBatch } from '../../../src/worker/ingestion/persons/persons-store-for-batch'
 import { PostgresPersonRepository } from '../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
@@ -1058,7 +1058,7 @@ describe('PersonState.processEvent()', () => {
             // create mock merge service,
             const mergeService = personMergeService(event)
             jest.spyOn(mergeService, 'handleIdentifyOrAlias').mockReturnValue(
-                Promise.resolve([personInitial, Promise.resolve()])
+                Promise.resolve({ success: true, person: personInitial, kafkaAck: Promise.resolve() })
             )
 
             const personS = personProcessor(event, undefined, mergeService)
@@ -1208,7 +1208,7 @@ describe('PersonState.processEvent()', () => {
             // create mock merge service
             const mergeService = personMergeService(event)
             jest.spyOn(mergeService, 'handleIdentifyOrAlias').mockReturnValue(
-                Promise.resolve([mergeDeletedPerson, Promise.resolve()])
+                Promise.resolve({ success: true, person: mergeDeletedPerson, kafkaAck: Promise.resolve() })
             )
 
             const personS = personProcessor(event, undefined, mergeService)
@@ -1253,7 +1253,13 @@ describe('PersonState.processEvent()', () => {
                     $set: { foo: 'bar' },
                 },
             })
-            const [person, kafkaAcks] = await mergeService.handleIdentifyOrAlias()
+            const result = await mergeService.handleIdentifyOrAlias()
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Expected successful merge result')
+            }
+            const person = result.person
+            const kafkaAcks = result.kafkaAck
             const context = mergeService.getContext()
             await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
 
@@ -1271,7 +1277,13 @@ describe('PersonState.processEvent()', () => {
                     $anon_distinct_id: oldUserDistinctId,
                 },
             })
-            const [person, kafkaAcks] = await mergeService.handleIdentifyOrAlias()
+            const result = await mergeService.handleIdentifyOrAlias()
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Expected successful merge result')
+            }
+            const person = result.person
+            const kafkaAcks = result.kafkaAck
             const context = mergeService.getContext()
             await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
 
@@ -1319,7 +1331,13 @@ describe('PersonState.processEvent()', () => {
                     $anon_distinct_id: oldUserDistinctId,
                 },
             })
-            const [person, kafkaAcks] = await mergeService.handleIdentifyOrAlias()
+            const result = await mergeService.handleIdentifyOrAlias()
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Expected successful merge result')
+            }
+            const person = result.person
+            const kafkaAcks = result.kafkaAck
             const context = mergeService.getContext()
             await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
 
@@ -1357,7 +1375,13 @@ describe('PersonState.processEvent()', () => {
                     $anon_distinct_id: oldUserDistinctId,
                 },
             })
-            const [person, kafkaAcks] = await mergeService.handleIdentifyOrAlias()
+            const result = await mergeService.handleIdentifyOrAlias()
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Expected successful merge result')
+            }
+            const person = result.person
+            const kafkaAcks = result.kafkaAck
             const context = mergeService.getContext()
             await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
 
@@ -1400,7 +1424,13 @@ describe('PersonState.processEvent()', () => {
                     $anon_distinct_id: oldUserDistinctId,
                 },
             })
-            const [person, kafkaAcks] = await mergeService.handleIdentifyOrAlias()
+            const result = await mergeService.handleIdentifyOrAlias()
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Expected successful merge result')
+            }
+            const person = result.person
+            const kafkaAcks = result.kafkaAck
             const context = mergeService.getContext()
             await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
 
@@ -1448,7 +1478,13 @@ describe('PersonState.processEvent()', () => {
                     $anon_distinct_id: oldUserDistinctId,
                 },
             })
-            const [person, kafkaAcks] = await mergeService.handleIdentifyOrAlias()
+            const result = await mergeService.handleIdentifyOrAlias()
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Expected successful merge result')
+            }
+            const person = result.person
+            const kafkaAcks = result.kafkaAck
             const context = mergeService.getContext()
             await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
 
@@ -1523,7 +1559,13 @@ describe('PersonState.processEvent()', () => {
                     $anon_distinct_id: oldUserDistinctId,
                 },
             })
-            const [person, kafkaAcks] = await mergeService.handleIdentifyOrAlias()
+            const result = await mergeService.handleIdentifyOrAlias()
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Expected successful merge result')
+            }
+            const person = result.person
+            const kafkaAcks = result.kafkaAck
             const context = mergeService.getContext()
             await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
 
@@ -1598,7 +1640,13 @@ describe('PersonState.processEvent()', () => {
                     $anon_distinct_id: oldUserDistinctId,
                 },
             })
-            const [person, kafkaAcks] = await personS.handleIdentifyOrAlias()
+            const result = await personS.handleIdentifyOrAlias()
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Expected successful merge result')
+            }
+            const person = result.person
+            const kafkaAcks = result.kafkaAck
             await hub.db.kafkaProducer.flush()
             await kafkaAcks
 
@@ -1643,13 +1691,19 @@ describe('PersonState.processEvent()', () => {
             await createPerson(hub, timestamp2, {}, {}, {}, teamId, null, true, newUserUuid, [
                 { distinctId: newUserDistinctId },
             ])
-            const [person, kafkaAcks] = await personMergeService({
+            const result = await personMergeService({
                 event: '$identify',
                 distinct_id: newUserDistinctId,
                 properties: {
                     $anon_distinct_id: oldUserDistinctId,
                 },
             }).handleIdentifyOrAlias()
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Expected successful merge result')
+            }
+            const person = result.person
+            const kafkaAcks = result.kafkaAck
             await hub.db.kafkaProducer.flush()
             await kafkaAcks
 
@@ -1708,7 +1762,13 @@ describe('PersonState.processEvent()', () => {
                     $anon_distinct_id: oldUserDistinctId,
                 },
             })
-            const [person, kafkaAcks] = await mergeService.handleIdentifyOrAlias()
+            const result = await mergeService.handleIdentifyOrAlias()
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Expected successful merge result')
+            }
+            const person = result.person
+            const kafkaAcks = result.kafkaAck
             const context = mergeService.getContext()
             await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
 
@@ -1797,7 +1857,13 @@ describe('PersonState.processEvent()', () => {
                     $anon_distinct_id: newUserDistinctId,
                 },
             })
-            const [person, kafkaAcks] = await mergeService.handleIdentifyOrAlias()
+            const result = await mergeService.handleIdentifyOrAlias()
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Expected successful merge result')
+            }
+            const person = result.person
+            const kafkaAcks = result.kafkaAck
             const context = mergeService.getContext()
             await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
             jest.spyOn(personRepository, 'addDistinctId').mockRestore()
@@ -1843,7 +1909,7 @@ describe('PersonState.processEvent()', () => {
                 hub
             )
             jest.spyOn(state, 'merge').mockImplementation(() => {
-                return Promise.resolve([undefined, Promise.resolve()])
+                return Promise.resolve({ success: true, person: undefined, kafkaAck: Promise.resolve() })
             })
             await state.handleIdentifyOrAlias()
             expect(state.merge).toHaveBeenCalledWith(oldUserDistinctId, newUserDistinctId, teamId, timestamp)
@@ -1860,7 +1926,7 @@ describe('PersonState.processEvent()', () => {
                 hub
             )
             jest.spyOn(state, 'merge').mockImplementation(() => {
-                return Promise.resolve([undefined, Promise.resolve()])
+                return Promise.resolve({ success: true, person: undefined, kafkaAck: Promise.resolve() })
             })
 
             await state.handleIdentifyOrAlias()
@@ -1878,7 +1944,7 @@ describe('PersonState.processEvent()', () => {
                 hub
             )
             jest.spyOn(state, 'merge').mockImplementation(() => {
-                return Promise.resolve([undefined, Promise.resolve()])
+                return Promise.resolve({ success: true, person: undefined, kafkaAck: Promise.resolve() })
             })
 
             await state.handleIdentifyOrAlias()
@@ -1903,7 +1969,13 @@ describe('PersonState.processEvent()', () => {
                     alias: oldUserDistinctId,
                 },
             })
-            const [person, kafkaAcks] = await mergeService.handleIdentifyOrAlias()
+            const result = await mergeService.handleIdentifyOrAlias()
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Expected successful merge result')
+            }
+            const person = result.person
+            const kafkaAcks = result.kafkaAck
             const context = mergeService.getContext()
             await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
 
@@ -1974,7 +2046,13 @@ describe('PersonState.processEvent()', () => {
                     $anon_distinct_id: 'anonymous_id',
                 },
             })
-            const [person, kafkaAcks] = await mergeService.handleIdentifyOrAlias()
+            const result = await mergeService.handleIdentifyOrAlias()
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Expected successful merge result')
+            }
+            const person = result.person
+            const kafkaAcks = result.kafkaAck
             const context = mergeService.getContext()
             await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
 
@@ -1991,7 +2069,13 @@ describe('PersonState.processEvent()', () => {
                     $anon_distinct_id: illegalId,
                 },
             })
-            const [person, kafkaAcks] = await mergeService.handleIdentifyOrAlias()
+            const result = await mergeService.handleIdentifyOrAlias()
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Expected successful merge result')
+            }
+            const person = result.person
+            const kafkaAcks = result.kafkaAck
             const context = mergeService.getContext()
             await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
 
@@ -2008,7 +2092,13 @@ describe('PersonState.processEvent()', () => {
                     alias: 'some_distinct_id',
                 },
             })
-            const [person, kafkaAcks] = await mergeService.handleIdentifyOrAlias()
+            const result = await mergeService.handleIdentifyOrAlias()
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Expected successful merge result')
+            }
+            const person = result.person
+            const kafkaAcks = result.kafkaAck
             const context = mergeService.getContext()
             await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
 
@@ -2025,7 +2115,13 @@ describe('PersonState.processEvent()', () => {
                     alias: 'null',
                 },
             })
-            const [person, kafkaAcks] = await mergeService.handleIdentifyOrAlias()
+            const result = await mergeService.handleIdentifyOrAlias()
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Expected successful merge result')
+            }
+            const person = result.person
+            const kafkaAcks = result.kafkaAck
             const context = mergeService.getContext()
             await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
 
@@ -2087,7 +2183,12 @@ describe('PersonState.processEvent()', () => {
                     distinct_id: 'new_distinct_id',
                 },
             })
-            const [_, kafkaAcks] = await mergeService.handleIdentifyOrAlias()
+            const mergeResult = await mergeService.handleIdentifyOrAlias()
+            expect(mergeResult.success).toBe(true)
+            if (!mergeResult.success) {
+                throw new Error('Expected successful merge result')
+            }
+            const kafkaAcks = mergeResult.kafkaAck
             const context = mergeService.getContext()
             await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
 
@@ -2177,7 +2278,12 @@ describe('PersonState.processEvent()', () => {
                     distinct_id: 'new_distinct_id',
                 },
             })
-            const [_, kafkaAcks] = await mergeService.handleIdentifyOrAlias()
+            const mergeResult = await mergeService.handleIdentifyOrAlias()
+            expect(mergeResult.success).toBe(true)
+            if (!mergeResult.success) {
+                throw new Error('Expected successful merge result')
+            }
+            const kafkaAcks = mergeResult.kafkaAck
             const context = mergeService.getContext()
             await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
 
@@ -2254,7 +2360,12 @@ describe('PersonState.processEvent()', () => {
                     $anon_distinct_id: 'anonymous_id',
                 },
             })
-            const [_, kafkaAcks] = await mergeService.handleIdentifyOrAlias()
+            const mergeResult = await mergeService.handleIdentifyOrAlias()
+            expect(mergeResult.success).toBe(true)
+            if (!mergeResult.success) {
+                throw new Error('Expected successful merge result')
+            }
+            const kafkaAcks = mergeResult.kafkaAck
             const context = mergeService.getContext()
             await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
 
@@ -2313,7 +2424,13 @@ describe('PersonState.processEvent()', () => {
 
             const state: PersonMergeService = personMergeService({}, hub)
             jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
-            const [person, kafkaAcks] = await state.merge(secondUserDistinctId, firstUserDistinctId, teamId, timestamp)
+            const result = await state.merge(secondUserDistinctId, firstUserDistinctId, teamId, timestamp)
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Merge should have succeeded')
+            }
+            const person = result.person
+            const kafkaAcks = result.kafkaAck
             await hub.db.kafkaProducer.flush()
             await kafkaAcks
 
@@ -2380,7 +2497,8 @@ describe('PersonState.processEvent()', () => {
             })
 
             // verify Postgres distinct_ids
-            const distinctIds = await fetchDistinctIdValues(hub.db.postgres, person)
+            expect(person).toBeDefined()
+            const distinctIds = await fetchDistinctIdValues(hub.db.postgres, person!)
             expect(distinctIds).toEqual(expect.arrayContaining([firstUserDistinctId, secondUserDistinctId]))
 
             // verify ClickHouse persons
@@ -2405,7 +2523,7 @@ describe('PersonState.processEvent()', () => {
 
             // verify ClickHouse distinct_ids
             await clickhouse.delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1())
-            const clickHouseDistinctIds = await fetchDistinctIdsClickhouse(person)
+            const clickHouseDistinctIds = await fetchDistinctIdsClickhouse(person!)
             expect(clickHouseDistinctIds).toEqual(expect.arrayContaining([firstUserDistinctId, secondUserDistinctId]))
         })
 
@@ -2687,7 +2805,13 @@ describe('PersonState.processEvent()', () => {
             jest.spyOn(personRepository, 'fetchPerson')
 
             // Should succeed after retry
-            const [person, kafkaAcks] = await state.merge(firstUserDistinctId, secondUserDistinctId, teamId, timestamp)
+            const result = await state.merge(firstUserDistinctId, secondUserDistinctId, teamId, timestamp)
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Merge should have succeeded')
+            }
+            const person = result.person
+            const kafkaAcks = result.kafkaAck
             await hub.db.kafkaProducer.flush()
             await kafkaAcks
 
@@ -2738,7 +2862,13 @@ describe('PersonState.processEvent()', () => {
             jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
 
             // Should succeed after retry
-            const [person, kafkaAcks] = await state.merge(firstUserDistinctId, secondUserDistinctId, teamId, timestamp)
+            const result = await state.merge(firstUserDistinctId, secondUserDistinctId, teamId, timestamp)
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Merge should have succeeded')
+            }
+            const person = result.person
+            const kafkaAcks = result.kafkaAck
             await hub.db.kafkaProducer.flush()
             await kafkaAcks
 
@@ -2806,7 +2936,13 @@ describe('PersonState.processEvent()', () => {
             jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
 
             // Should return target person without error
-            const [person, kafkaAcks] = await state.merge(firstUserDistinctId, secondUserDistinctId, teamId, timestamp)
+            const result = await state.merge(firstUserDistinctId, secondUserDistinctId, teamId, timestamp)
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Merge should have succeeded')
+            }
+            const person = result.person
+            const kafkaAcks = result.kafkaAck
             await hub.db.kafkaProducer.flush()
             await kafkaAcks
 
@@ -2863,7 +2999,13 @@ describe('PersonState.processEvent()', () => {
             jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
 
             // Should return target person without error
-            const [person, kafkaAcks] = await state.merge(firstUserDistinctId, secondUserDistinctId, teamId, timestamp)
+            const result = await state.merge(firstUserDistinctId, secondUserDistinctId, teamId, timestamp)
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Merge should have succeeded')
+            }
+            const person = result.person
+            const kafkaAcks = result.kafkaAck
             await hub.db.kafkaProducer.flush()
             await kafkaAcks
 

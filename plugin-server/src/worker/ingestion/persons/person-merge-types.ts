@@ -69,27 +69,20 @@ export class PersonMergePersonNotFoundError extends PersonMergeError {
 }
 
 /**
- * Error when merge is not allowed
+ * Error when source person is not found during merge transaction
  */
-export class PersonMergeMergeNotAllowedError extends PersonMergeError {
-    readonly type = 'MERGE_NOT_ALLOWED' as const
-
+export class SourcePersonNotFoundError extends PersonMergePersonNotFoundError {
     constructor(message: string) {
-        super(message)
+        super(message, 'source')
     }
 }
 
 /**
- * Error when trying to merge with illegal distinct ID
+ * Error when target person is not found during merge transaction
  */
-export class PersonMergeIllegalDistinctIdError extends PersonMergeError {
-    readonly type = 'ILLEGAL_DISTINCT_ID' as const
-
-    constructor(
-        message: string,
-        public readonly illegalDistinctId: string
-    ) {
-        super(message)
+export class TargetPersonNotFoundError extends PersonMergePersonNotFoundError {
+    constructor(message: string) {
+        super(message, 'target')
     }
 }
 
@@ -99,7 +92,7 @@ export class PersonMergeIllegalDistinctIdError extends PersonMergeError {
 export type PersonMergeResult =
     | {
           success: true
-          person: InternalPerson
+          person: InternalPerson | undefined
           kafkaAck: Promise<void>
       }
     | {
@@ -143,7 +136,7 @@ export function isAsyncMode(mode: MergeMode): mode is Extract<MergeMode, { type:
 /**
  * Helper function to create a successful merge result
  */
-export function createMergeSuccess(person: InternalPerson, kafkaAck: Promise<void>): PersonMergeResult {
+export function createMergeSuccess(person: InternalPerson | undefined, kafkaAck: Promise<void>): PersonMergeResult {
     return {
         success: true,
         person,

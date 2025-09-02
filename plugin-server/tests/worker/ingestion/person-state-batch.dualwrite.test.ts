@@ -538,8 +538,13 @@ describe('PersonState dual-write compatibility', () => {
                 // Call the private mergeDistinctIds method (we'll need to make it accessible for testing)
                 // For now, let's test through the public handleIdentifyOrAlias method
                 ;(context as any).anonDistinctId = existingDistinctId
-                const [mergedPerson, updatePromise] = await mergeService.handleIdentifyOrAlias()
-                await updatePromise
+                const result = await mergeService.handleIdentifyOrAlias()
+                expect(result.success).toBe(true)
+                if (!result.success) {
+                    throw new Error('Expected successful merge result')
+                }
+                const mergedPerson = result.person
+                await result.kafkaAck
 
                 // Flush any pending operations
                 await personsStore.flush()
@@ -628,8 +633,13 @@ describe('PersonState dual-write compatibility', () => {
                 ;(context as any).anonDistinctId = secondDistinctId
 
                 // Execute the merge - this should create a new person with both distinct IDs
-                const [mergedPerson, updatePromise] = await mergeService.handleIdentifyOrAlias()
-                await updatePromise
+                const result = await mergeService.handleIdentifyOrAlias()
+                expect(result.success).toBe(true)
+                if (!result.success) {
+                    throw new Error('Expected successful merge result')
+                }
+                const mergedPerson = result.person
+                await result.kafkaAck
 
                 // Flush any pending operations
                 await personsStore.flush()
@@ -785,8 +795,13 @@ describe('PersonState dual-write compatibility', () => {
                 ;(context as any).anonDistinctId = person2DistinctId
 
                 // Execute the merge
-                const [mergedPerson, updatePromise] = await mergeService.handleIdentifyOrAlias()
-                await updatePromise
+                const result = await mergeService.handleIdentifyOrAlias()
+                expect(result.success).toBe(true)
+                if (!result.success) {
+                    throw new Error('Expected successful merge result')
+                }
+                const mergedPerson = result.person
+                await result.kafkaAck
 
                 // Flush any pending operations
                 await personsStore.flush()
@@ -942,8 +957,10 @@ describe('PersonState dual-write compatibility', () => {
                 // The merge should fail internally but PersonMergeService catches errors
                 // We need to check that the operation didn't succeed
                 try {
-                    const [_, updatePromise] = await mergeService.handleIdentifyOrAlias()
-                    await updatePromise
+                    const result = await mergeService.handleIdentifyOrAlias()
+                    if (result.success) {
+                        await result.kafkaAck
+                    }
                     await personsStore.flush()
                 } catch (e: any) {
                     // Expected to catch error
@@ -1067,8 +1084,10 @@ describe('PersonState dual-write compatibility', () => {
 
                 // The operation should fail internally
                 try {
-                    const [_, updatePromise] = await mergeService.handleIdentifyOrAlias()
-                    await updatePromise
+                    const result = await mergeService.handleIdentifyOrAlias()
+                    if (result.success) {
+                        await result.kafkaAck
+                    }
                     await personsStore.flush()
                 } catch (e: any) {
                     // Expected to catch error
