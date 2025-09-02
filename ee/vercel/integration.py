@@ -85,11 +85,10 @@ class VercelIntegration:
     @staticmethod
     def _get_resource_with_installation(resource_id: str) -> tuple[Integration, OrganizationIntegration]:
         resource = VercelIntegration._get_resource(resource_id)
-        installation = VercelIntegration._get_installation(
-            resource.team.organization.organizationintegration_set.get(
-                kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL
-            ).integration_id
+        org_integration = resource.team.organization.organizationintegration_set.get(
+            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL
         )
+        installation = VercelIntegration._get_installation(org_integration.integration_id)
         return resource, installation
 
     @staticmethod
@@ -298,19 +297,20 @@ class VercelIntegration:
             },  # Mark one product as onboarded to show quick start sidebar
         )
 
-        ProductIntent.register(
-            team=team,
-            product_type="feature_flags",
-            context="vercel integration",
-            user=installation.created_by,
-        )
+        if installation.created_by:
+            ProductIntent.register(
+                team=team,
+                product_type="feature_flags",
+                context="vercel integration",
+                user=installation.created_by,
+            )
 
-        ProductIntent.register(
-            team=team,
-            product_type="experiments",
-            context="vercel integration",
-            user=installation.created_by,
-        )
+            ProductIntent.register(
+                team=team,
+                product_type="experiments",
+                context="vercel integration",
+                user=installation.created_by,
+            )
 
         resource = Integration.objects.create(
             team=team,
