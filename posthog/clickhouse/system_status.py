@@ -50,7 +50,7 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
         "value": get_event_count_month_to_date(),
     }
 
-    recording_status = None
+    recordings_status = None
     try:
         recordings_status = get_recording_status_month_to_date()
     except Exception as ex:
@@ -59,19 +59,19 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
     yield {
         "key": "clickhouse_session_recordings_count_month_to_date",
         "metric": "Session recordings month to date",
-        "value": recordings_status.count if recording_status else "N/A",
+        "value": recordings_status.count if recordings_status else "N/A",
     }
 
     yield {
         "key": "clickhouse_session_recordings_events_count_month_to_date",
         "metric": "Session recordings events month to date",
-        "value": recordings_status.events if recording_status else "N/A",
+        "value": recordings_status.events if recordings_status else "N/A",
     }
 
     yield {
         "key": "clickhouse_session_recordings_events_size_ingested",
         "metric": "Session recordings events data ingested month to date",
-        "value": recordings_status.size if recording_status else "N/A",
+        "value": recordings_status.size if recordings_status else "N/A",
     }
 
     disk_status = sync_execute(
