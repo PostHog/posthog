@@ -49,7 +49,7 @@ class UpdateInstallationPayloadSerializer(serializers.Serializer):
     billingPlanId = serializers.CharField(help_text='Partner-provided billing plan. Example: "pro200"')
 
 
-INSTALLATION_ID_PATTERN = re.compile(r"^inst_[A-Za-z0-9]{9,}$")
+INSTALLATION_ID_PATTERN = re.compile(r"^icfg_[A-Za-z0-9]{24}$")
 
 
 def validate_installation_id(installation_id: str | None) -> str:

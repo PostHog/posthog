@@ -41,7 +41,7 @@ class TestVercelResourceAPI(VercelTestBase):
         self.primary_resource = self.create_resource()
 
     def create_installation(self, installation_id=None, email=None):
-        installation_id = installation_id or f"inst_{uuid4().hex[:12]}"
+        installation_id = installation_id or f"icfg_{uuid4().hex[:24]}"
         email = email or f"test-{uuid4().hex[:8]}@example.com"
 
         user = User.objects.create_user(email=email, password="test", first_name="Test")
