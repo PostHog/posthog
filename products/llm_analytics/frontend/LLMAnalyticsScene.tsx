@@ -3,21 +3,24 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
 import { IconArchive } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTab, LemonTabs, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTab, LemonTabs, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { QueryCard } from 'lib/components/Cards/InsightCard/QueryCard'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { FeedbackNotice } from 'lib/components/FeedbackNotice'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
@@ -85,13 +88,13 @@ const Tiles = (): JSX.Element => {
 
 const IngestionStatusCheck = (): JSX.Element | null => {
     return (
-        <LemonBanner type="warning" className="mt-2">
+        <LemonBanner type="warning">
             <p>
                 <strong>No LLM generation events have been detected!</strong>
             </p>
             <p>
                 To use the LLM Analytics product, please{' '}
-                <Link to="https://posthog.com/docs/ai-engineering/observability">
+                <Link to="https://posthog.com/docs/llm-analytics/installation">
                     instrument your LLM calls with the PostHog SDK
                 </Link>{' '}
                 (otherwise it'll be a little empty!)
@@ -143,8 +146,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
                                 return <></>
                             }
 
-                            const visualValue: string =
-                                (value as string).slice(0, 4) + '...' + (value as string).slice(-4)
+                            const visualValue = truncateValue(value)
 
                             if (!traceId) {
                                 return <strong>{visualValue}</strong>
@@ -213,8 +215,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
                                 return <></>
                             }
 
-                            const visualValue: string =
-                                (value as string).slice(0, 4) + '...' + (value as string).slice(-4)
+                            const visualValue = truncateValue(value)
 
                             return (
                                 <Tooltip title={value as string}>
@@ -238,7 +239,7 @@ function LLMAnalyticsNoEvents(): JSX.Element {
                 <h2 className="text-xl leading-tight">We haven't detected any LLM generations yet</h2>
                 <p className="text-sm text-center text-balance">
                     To use the LLM Analytics product, please{' '}
-                    <Link to="https://posthog.com/docs/ai-engineering/observability">
+                    <Link to="https://posthog.com/docs/llm-analytics/installation">
                         instrument your LLM calls with the PostHog SDK
                     </Link>{' '}
                 </p>
@@ -251,6 +252,8 @@ export function LLMAnalyticsScene(): JSX.Element {
     const { activeTab, hasSentAiGenerationEvent, hasSentAiGenerationEventLoading } = useValues(llmAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
+
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const tabs: LemonTab<string>[] = [
         {
@@ -282,7 +285,14 @@ export function LLMAnalyticsScene(): JSX.Element {
     if (featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_PLAYGROUND]) {
         tabs.push({
             key: 'playground',
-            label: 'Playground',
+            label: (
+                <>
+                    Playground{' '}
+                    <LemonTag className="ml-1" type="warning">
+                        Beta
+                    </LemonTag>
+                </>
+            ),
             content: <LLMAnalyticsPlaygroundScene />,
             link: combineUrl(urls.llmAnalyticsPlayground(), searchParams).url,
         })
@@ -294,7 +304,7 @@ export function LLMAnalyticsScene(): JSX.Element {
                 buttons={
                     <div className="flex gap-2">
                         <LemonButton
-                            to="https://posthog.com/docs/ai-engineering/observability"
+                            to="https://posthog.com/docs/llm-analytics/installation"
                             type="secondary"
                             targetBlank
                         >
@@ -304,12 +314,39 @@ export function LLMAnalyticsScene(): JSX.Element {
                 }
             />
 
-            {hasSentAiGenerationEventLoading ? null : hasSentAiGenerationEvent ? (
-                <FeedbackNotice text="LLM analytics is currently in beta. Thanks for taking part! We'd love to hear what you think." />
-            ) : (
-                <IngestionStatusCheck />
-            )}
-            <LemonTabs activeKey={activeTab} data-attr="llm-analytics-tabs" tabs={tabs} />
+            <SceneContent>
+                {!hasSentAiGenerationEventLoading && !hasSentAiGenerationEvent && <IngestionStatusCheck />}
+                <SceneTitleSection
+                    name="LLM Analytics"
+                    description="Analyze and understand your LLM usage and performance."
+                    resourceType={{
+                        type: 'ai',
+                        typePlural: 'LLM Analytics',
+                    }}
+                />
+                <SceneDivider />
+
+                <LemonTabs
+                    activeKey={activeTab}
+                    data-attr="llm-analytics-tabs"
+                    tabs={tabs}
+                    sceneInset={newSceneLayout}
+                />
+            </SceneContent>
         </BindLogic>
     )
+}
+
+function truncateValue(value: unknown): string {
+    if (value === null || value === undefined) {
+        return '-'
+    }
+
+    const stringValue = String(value)
+
+    if (stringValue.length <= 12) {
+        return stringValue
+    }
+
+    return stringValue.slice(0, 4) + '...' + stringValue.slice(-4)
 }

@@ -1,6 +1,7 @@
 from collections.abc import Mapping
 from concurrent.futures import Future
 from dataclasses import dataclass
+
 from posthog import settings
 from posthog.clickhouse.cluster import ClickhouseCluster, Query
 from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme

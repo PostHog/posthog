@@ -1,29 +1,31 @@
-from datetime import date, datetime
-from typing import Optional, Any
-from dataclasses import dataclass
 from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import date, datetime
+from typing import Any, Optional
 
-from rest_framework.utils.urls import replace_query_param, remove_query_param
-from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
-from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
+from rest_framework.utils.urls import remove_query_param, replace_query_param
+
 from posthog.schema import (
-    WebOverviewQuery,
     DateRange,
-    HogQLQueryModifiers,
     EventPropertyFilter,
+    HogQLQueryModifiers,
     PropertyOperator,
+    WebOverviewQuery,
     WebOverviewQueryResponse,
+    WebStatsBreakdown,
     WebStatsTableQuery,
     WebStatsTableQueryResponse,
-    WebStatsBreakdown,
 )
-from posthog.models import Team
+
 from posthog.api.external_web_analytics.serializers import (
-    WebAnalyticsOverviewRequestSerializer,
-    WebAnalyticsBreakdownRequestSerializer,
-    EXTERNAL_WEB_ANALYTICS_PAGINATION_DEFAULT_LIMIT,
     EXTERNAL_WEB_ANALYTICS_NONE_BREAKDOWN_VALUE,
+    EXTERNAL_WEB_ANALYTICS_PAGINATION_DEFAULT_LIMIT,
+    WebAnalyticsBreakdownRequestSerializer,
+    WebAnalyticsOverviewRequestSerializer,
 )
+from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
+from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
+from posthog.models import Team
 
 
 @dataclass

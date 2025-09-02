@@ -1,22 +1,25 @@
 from typing import cast
+
 import gspread
+
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-from posthog.temporal.data_imports.sources.google_sheets.google_sheets import (
-    get_schemas as get_google_sheets_schemas,
-    get_schema_incremental_fields as get_google_sheets_schema_incremental_fields,
-    google_sheets_source,
-    google_sheets_client,
-)
+
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.generated_configs import GoogleSheetsSourceConfig
+from posthog.temporal.data_imports.sources.google_sheets.google_sheets import (
+    get_schema_incremental_fields as get_google_sheets_schema_incremental_fields,
+    get_schemas as get_google_sheets_schemas,
+    google_sheets_client,
+    google_sheets_source,
+)
 from posthog.warehouse.types import ExternalDataSourceType
 
 

@@ -1,15 +1,14 @@
-import functools
 import uuid
+import functools
 
-import aioboto3
 import pytest
-import pytest_asyncio
+
 from django.conf import settings
 
-from products.batch_exports.backend.api.destination_tests import (
-    S3EnsureBucketTestStep,
-    Status,
-)
+import aioboto3
+import pytest_asyncio
+
+from products.batch_exports.backend.api.destination_tests import S3EnsureBucketTestStep, Status
 
 pytestmark = [pytest.mark.asyncio]
 

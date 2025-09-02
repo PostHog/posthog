@@ -6,20 +6,18 @@ from difflib import get_close_matches
 from typing import Literal, Optional, Union, cast
 from uuid import UUID
 
-from posthog.clickhouse.materialized_columns import (
-    MaterializedColumn,
-    TablesWithMaterializedColumns,
-    get_materialized_column_for_property,
+from posthog.schema import (
+    HogQLQueryModifiers,
+    InCohortVia,
+    MaterializationMode,
+    PersonsOnEventsMode,
+    PropertyGroupsMode,
 )
-from posthog.clickhouse.property_groups import property_groups
+
 from posthog.hogql import ast
-from posthog.hogql.ast import StringType, Constant
+from posthog.hogql.ast import Constant, StringType
 from posthog.hogql.base import _T_AST, AST
-from posthog.hogql.constants import (
-    HogQLGlobalSettings,
-    LimitContext,
-    get_max_limit_for_context,
-)
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_max_limit_for_context
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.database.models import FunctionCallTable, SavedQuery, Table
@@ -44,8 +42,8 @@ from posthog.hogql.functions import (
 from posthog.hogql.functions.mapping import (
     ALL_EXPOSED_FUNCTION_NAMES,
     HOGQL_COMPARISON_MAPPING,
-    validate_function_args,
     is_allowed_parametric_function,
+    validate_function_args,
 )
 from posthog.hogql.modifiers import create_default_modifiers_for_team, set_default_in_cohort_via
 from posthog.hogql.resolver import resolve_types
@@ -54,6 +52,13 @@ from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_co
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
 from posthog.hogql.visitor import Visitor, clone_expr
+
+from posthog.clickhouse.materialized_columns import (
+    MaterializedColumn,
+    TablesWithMaterializedColumns,
+    get_materialized_column_for_property,
+)
+from posthog.clickhouse.property_groups import property_groups
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.property import PropertyName, TableColumn
 from posthog.models.surveys.util import (
@@ -63,13 +68,6 @@ from posthog.models.surveys.util import (
 from posthog.models.team import Team
 from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
-from posthog.schema import (
-    HogQLQueryModifiers,
-    InCohortVia,
-    MaterializationMode,
-    PersonsOnEventsMode,
-    PropertyGroupsMode,
-)
 from posthog.settings import CLICKHOUSE_DATABASE
 
 CHANNEL_DEFINITION_DICT = f"{CLICKHOUSE_DATABASE}.channel_definition_dict"

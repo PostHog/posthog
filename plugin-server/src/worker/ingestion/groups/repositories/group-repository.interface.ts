@@ -2,7 +2,14 @@ import { DateTime } from 'luxon'
 
 import { Properties } from '@posthog/plugin-scaffold'
 
-import { Group, GroupTypeIndex, PropertiesLastOperation, PropertiesLastUpdatedAt, TeamId } from '../../../../types'
+import {
+    Group,
+    GroupTypeIndex,
+    ProjectId,
+    PropertiesLastOperation,
+    PropertiesLastUpdatedAt,
+    TeamId,
+} from '../../../../types'
 import { GroupRepositoryTransaction } from './group-repository-transaction.interface'
 
 export interface GroupRepository {
@@ -12,6 +19,19 @@ export interface GroupRepository {
         groupKey: string,
         options?: { forUpdate?: boolean; useReadReplica?: boolean }
     ): Promise<Group | undefined>
+
+    fetchGroupsByKeys(
+        teamIds: TeamId[],
+        groupTypeIndexes: GroupTypeIndex[],
+        groupKeys: string[]
+    ): Promise<
+        {
+            team_id: TeamId
+            group_type_index: GroupTypeIndex
+            group_key: string
+            group_properties: Record<string, any>
+        }[]
+    >
 
     insertGroup(
         teamId: TeamId,
@@ -44,6 +64,25 @@ export interface GroupRepository {
         propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
         propertiesLastOperation: PropertiesLastOperation
     ): Promise<number | undefined>
+
+    // Group Type Methods
+
+    fetchGroupTypesByProjectIds(
+        projectIds: ProjectId[]
+    ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>>
+
+    fetchGroupTypesByTeamIds(
+        teamIds: TeamId[]
+    ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>>
+
+    insertGroupType(
+        teamId: TeamId,
+        projectId: ProjectId,
+        groupType: string,
+        index: number
+    ): Promise<[GroupTypeIndex | null, boolean]>
+
+    // Transaction Methods
 
     inTransaction<T>(description: string, transaction: (tx: GroupRepositoryTransaction) => Promise<T>): Promise<T>
 }

@@ -1,17 +1,8 @@
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
 from rest_framework.exceptions import ValidationError
 
-from ee.hogai.graph.query_executor.nodes import QueryExecutorNode
-from ee.hogai.graph.query_executor.prompts import (
-    FUNNEL_STEPS_EXAMPLE_PROMPT,
-    FUNNEL_TIME_TO_CONVERT_EXAMPLE_PROMPT,
-    FUNNEL_TRENDS_EXAMPLE_PROMPT,
-    RETENTION_EXAMPLE_PROMPT,
-    TRENDS_EXAMPLE_PROMPT,
-)
-from ee.hogai.utils.types import AssistantState
-from posthog.api.services.query import process_query_dict
 from posthog.schema import (
     AssistantFunnelsFilter,
     AssistantFunnelsQuery,
@@ -27,7 +18,18 @@ from posthog.schema import (
     QueryStatus,
     VisualizationMessage,
 )
-from posthog.test.base import BaseTest, ClickhouseTestMixin
+
+from posthog.api.services.query import process_query_dict
+
+from ee.hogai.graph.query_executor.nodes import QueryExecutorNode
+from ee.hogai.graph.query_executor.prompts import (
+    FUNNEL_STEPS_EXAMPLE_PROMPT,
+    FUNNEL_TIME_TO_CONVERT_EXAMPLE_PROMPT,
+    FUNNEL_TRENDS_EXAMPLE_PROMPT,
+    RETENTION_EXAMPLE_PROMPT,
+    TRENDS_EXAMPLE_PROMPT,
+)
+from ee.hogai.utils.types import AssistantState
 
 
 class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):

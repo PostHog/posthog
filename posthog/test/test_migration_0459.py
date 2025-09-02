@@ -1,8 +1,7 @@
 from typing import Any
 
-from posthog.test.base import NonAtomicTestMigrations
-
 import pytest
+from posthog.test.base import NonAtomicTestMigrations
 
 pytestmark = pytest.mark.skip("old migrations slow overall test run down")
 

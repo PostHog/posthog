@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from datetime import datetime
-import time
 import math
+import time
+from datetime import datetime
 
-import structlog
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.db.models import Q
+
+import structlog
 
 from posthog.hogql_queries.query_metadata import InsightQueryMetadata
 from posthog.models import Insight

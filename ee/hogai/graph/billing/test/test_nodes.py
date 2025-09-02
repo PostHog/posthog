@@ -1,26 +1,28 @@
 import datetime
 from typing import cast
-from unittest.mock import patch
 from uuid import uuid4
+
+from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import patch
+
+from posthog.schema import (
+    AssistantToolCallMessage,
+    BillingSpendResponseBreakdownType,
+    BillingUsageResponseBreakdownType,
+    MaxAddonInfo,
+    MaxBillingContext,
+    MaxBillingContextBillingPeriod,
+    MaxBillingContextBillingPeriodInterval,
+    MaxBillingContextSettings,
+    MaxBillingContextSubscriptionLevel,
+    MaxBillingContextTrial,
+    MaxProductInfo,
+    SpendHistoryItem,
+    UsageHistoryItem,
+)
 
 from ee.hogai.graph.billing.nodes import BillingNode
 from ee.hogai.utils.types import AssistantState
-from posthog.schema import (
-    AssistantToolCallMessage,
-    MaxBillingContextBillingPeriod,
-    BillingSpendResponseBreakdownType,
-    BillingUsageResponseBreakdownType,
-    MaxBillingContextBillingPeriodInterval,
-    MaxAddonInfo,
-    MaxBillingContext,
-    MaxProductInfo,
-    MaxBillingContextSettings,
-    SpendHistoryItem,
-    MaxBillingContextSubscriptionLevel,
-    MaxBillingContextTrial,
-    UsageHistoryItem,
-)
-from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 
 class TestBillingNode(ClickhouseTestMixin, BaseTest):

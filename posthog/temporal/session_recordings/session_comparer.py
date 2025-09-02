@@ -1,5 +1,5 @@
-from typing import Any
 import json
+from typing import Any
 
 
 def is_click(event: dict) -> bool:

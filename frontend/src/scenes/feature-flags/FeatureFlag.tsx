@@ -399,7 +399,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                 label="Enable feature flag"
                                                 onChange={() => onChange(!value)}
                                                 checked={value}
-                                                dataAttr="feature-flag-enabled-checkbox"
+                                                data-attr="feature-flag-enabled-checkbox"
                                             />
                                         </div>
                                     )}
@@ -739,7 +739,10 @@ function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Elemen
                     {!hasEnrichedAnalytics && !enrichAnalyticsNoticeAcknowledged && (
                         <LemonBanner type="info" className="mb-3" onClose={() => closeEnrichAnalyticsNotice()}>
                             Get richer insights automatically by{' '}
-                            <Link to="https://posthog.com/docs/libraries/js#enriched-analytics" target="_blank">
+                            <Link
+                                to="https://posthog.com/docs/libraries/js/features#enriched-flag-analytics"
+                                target="_blank"
+                            >
                                 enabling enriched analytics for flags{' '}
                             </Link>
                         </LemonBanner>
@@ -1266,7 +1269,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                             label="Encrypt remote configuration payload"
                                                             onChange={() => onChange(!value)}
                                                             checked={value}
-                                                            dataAttr="feature-flag-payload-encrypted-checkbox"
+                                                            data-attr="feature-flag-payload-encrypted-checkbox"
                                                             disabledReason={
                                                                 hasEncryptedPayloadBeenSaved &&
                                                                 'An encrypted payload has already been saved for this flag. Reset the payload or create a new flag to create an unencrypted configuration payload.'
@@ -1568,7 +1571,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                     label="Encrypt remote configuration payload"
                                                     onChange={() => onChange(!value)}
                                                     checked={value}
-                                                    dataAttr="feature-flag-payload-encrypted-checkbox"
+                                                    data-attr="feature-flag-payload-encrypted-checkbox"
                                                     disabledReason={
                                                         hasEncryptedPayloadBeenSaved &&
                                                         'An encrypted payload has already been saved for this flag. Reset the payload or create a new flag to create an unencrypted configuration payload.'

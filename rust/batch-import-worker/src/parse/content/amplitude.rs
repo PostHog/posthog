@@ -5,9 +5,12 @@ use chrono::Utc;
 use common_types::{CapturedEvent, InternallyCapturedEvent, RawEvent};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use tracing::error;
 use uuid::Uuid;
 
 use super::TransformContext;
+
+mod identify;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AmplitudeData {
@@ -96,17 +99,17 @@ impl AmplitudeEvent {
     pub fn parse_fn(
         context: TransformContext,
         event_transform: impl Fn(RawEvent) -> Result<Option<RawEvent>, Error>,
-    ) -> impl Fn(Self) -> Result<Option<InternallyCapturedEvent>, Error> {
+    ) -> impl Fn(Self) -> Result<Vec<InternallyCapturedEvent>, Error> {
         move |amp| {
             let token = context.token.clone();
             let team_id = context.team_id;
 
             let Some(event_type_raw) = &amp.event_type else {
-                return Ok(None);
+                return Ok(vec![]);
             };
 
             let event_type = match event_type_raw.as_str() {
-                "session_start" => return Ok(None),
+                "session_start" => return Ok(vec![]),
                 "[Amplitude] Page Viewed" => "$pageview".to_string(),
                 "[Amplitude] Element Clicked" | "[Amplitude] Element Changed" => {
                     "$autocapture".to_string()
@@ -335,21 +338,81 @@ impl AmplitudeEvent {
             };
 
             let Some(raw_event) = event_transform(raw_event)? else {
-                return Ok(None);
+                return Ok(vec![]);
             };
 
-            let inner = CapturedEvent {
-                uuid: event_uuid,
-                distinct_id,
-                ip: amp.ip_address.unwrap_or_else(|| "127.0.0.1".to_string()),
-                data: serde_json::to_string(&raw_event)?,
-                now: Utc::now().to_rfc3339(),
-                sent_at: None,
-                token,
-                is_cookieless_mode: false,
-            };
+            let mut events = Vec::new();
 
-            Ok(Some(InternallyCapturedEvent { team_id, inner }))
+            // Check if we need to inject an $identify event
+            if context.generate_identify_events {
+                if let (Some(user_id), Some(device_id)) = (&amp.user_id, &amp.device_id) {
+                    // Check cache to see if we've seen this user-device combination
+                    let cache_result = tokio::task::block_in_place(|| {
+                        tokio::runtime::Handle::current().block_on(async {
+                            context
+                                .identify_cache
+                                .has_seen_user_device(team_id, user_id, device_id)
+                                .await
+                        })
+                    });
+
+                    match cache_result {
+                        Ok(has_seen) => {
+                            if !has_seen {
+                                // Create and inject $identify event
+                                let identify_uuid = Uuid::now_v7();
+                                let identify_event = identify::create_identify_event(
+                                    team_id,
+                                    &token,
+                                    user_id,
+                                    device_id,
+                                    identify_uuid,
+                                )?;
+
+                                events.push(identify_event);
+
+                                // Mark as seen in cache
+                                let mark_result = tokio::task::block_in_place(|| {
+                                    tokio::runtime::Handle::current().block_on(async {
+                                        context
+                                            .identify_cache
+                                            .mark_seen_user_device(team_id, user_id, device_id)
+                                            .await
+                                    })
+                                });
+
+                                if let Err(e) = mark_result {
+                                    error!("Failed to mark seen in identify cache for team {} user {} device {}: {}", team_id, user_id, device_id, e);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            error!(
+                                "Failed to check identify cache for team {} user {} device {}: {}",
+                                team_id, user_id, device_id, e
+                            );
+                        }
+                    }
+                }
+            }
+
+            // Only add the original event if import_events is enabled
+            if context.import_events {
+                let inner = CapturedEvent {
+                    uuid: event_uuid,
+                    distinct_id,
+                    ip: amp.ip_address.unwrap_or_else(|| "127.0.0.1".to_string()),
+                    data: serde_json::to_string(&raw_event)?,
+                    now: Utc::now().to_rfc3339(),
+                    sent_at: None,
+                    token,
+                    is_cookieless_mode: false,
+                };
+
+                events.push(InternallyCapturedEvent { team_id, inner });
+            }
+
+            Ok(events)
         }
     }
 }
@@ -405,9 +468,15 @@ mod tests {
     use serde_json::json;
 
     fn create_test_context() -> TransformContext {
+        use crate::cache::MockIdentifyCache;
+        use std::sync::Arc;
+
         TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            identify_cache: Arc::new(MockIdentifyCache::new()),
+            import_events: true,
+            generate_identify_events: false,
         }
     }
 
@@ -431,7 +500,8 @@ mod tests {
         };
 
         let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
-        let result = parser(amp_event).unwrap().unwrap();
+        let result = parser(amp_event).unwrap();
+        let result = result.into_iter().next().unwrap();
 
         assert_eq!(result.team_id, 123);
         assert_eq!(result.inner.token, "test_token");
@@ -470,7 +540,8 @@ mod tests {
         };
 
         let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
-        let result = parser(amp_event).unwrap().unwrap();
+        let result = parser(amp_event).unwrap();
+        let result = result.into_iter().next().unwrap();
 
         let data: RawEvent = serde_json::from_str(&result.inner.data).unwrap();
         assert_eq!(data.event, "$pageview");
@@ -491,7 +562,8 @@ mod tests {
         };
 
         let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
-        let result = parser(amp_event).unwrap().unwrap();
+        let result = parser(amp_event).unwrap();
+        let result = result.into_iter().next().unwrap();
 
         let data: RawEvent = serde_json::from_str(&result.inner.data).unwrap();
         assert_eq!(data.event, "$autocapture");
@@ -508,7 +580,7 @@ mod tests {
         let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
         let result = parser(amp_event).unwrap();
 
-        assert!(result.is_none());
+        assert!(result.is_empty());
     }
 
     #[test]
@@ -527,7 +599,8 @@ mod tests {
         };
 
         let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
-        let result = parser(amp_event).unwrap().unwrap();
+        let result = parser(amp_event).unwrap();
+        let result = result.into_iter().next().unwrap();
 
         let data: RawEvent = serde_json::from_str(&result.inner.data).unwrap();
         assert_eq!(data.properties.get("$device_type"), Some(&json!("Mobile")));
@@ -570,7 +643,8 @@ mod tests {
         };
 
         let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
-        let result = parser(amp_event).unwrap().unwrap();
+        let result = parser(amp_event).unwrap();
+        let result = result.into_iter().next().unwrap();
 
         let data: RawEvent = serde_json::from_str(&result.inner.data).unwrap();
         let set_once = data.set_once.unwrap();
@@ -602,7 +676,8 @@ mod tests {
         };
 
         let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
-        let result = parser(amp_event).unwrap().unwrap();
+        let result = parser(amp_event).unwrap();
+        let result = result.into_iter().next().unwrap();
 
         let data: RawEvent = serde_json::from_str(&result.inner.data).unwrap();
         let set_once = data.set_once.unwrap();
@@ -630,8 +705,8 @@ mod tests {
             let result = parser(amp_event).unwrap();
 
             if should_parse {
-                assert!(result.is_some());
-                let data: RawEvent = serde_json::from_str(&result.unwrap().inner.data).unwrap();
+                assert!(!result.is_empty());
+                let data: RawEvent = serde_json::from_str(&result[0].inner.data).unwrap();
                 assert!(data.timestamp.is_some());
             }
         }
@@ -648,7 +723,8 @@ mod tests {
         };
 
         let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
-        let result = parser(amp_event).unwrap().unwrap();
+        let result = parser(amp_event).unwrap();
+        let result = result.into_iter().next().unwrap();
         assert_eq!(result.inner.distinct_id, "user123");
 
         // Test with device_id only
@@ -660,7 +736,8 @@ mod tests {
         };
 
         let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
-        let result = parser(amp_event).unwrap().unwrap();
+        let result = parser(amp_event).unwrap();
+        let result = result.into_iter().next().unwrap();
         assert_eq!(result.inner.distinct_id, "device456");
 
         // Test with neither (should generate UUID)
@@ -672,7 +749,8 @@ mod tests {
         };
 
         let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
-        let result = parser(amp_event).unwrap().unwrap();
+        let result = parser(amp_event).unwrap();
+        let result = result.into_iter().next().unwrap();
         assert!(!result.inner.distinct_id.is_empty());
         assert!(Uuid::parse_str(&result.inner.distinct_id).is_ok());
     }
@@ -690,7 +768,8 @@ mod tests {
         };
 
         let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
-        let result = parser(amp_event).unwrap().unwrap();
+        let result = parser(amp_event).unwrap();
+        let result = result.into_iter().next().unwrap();
 
         let data: RawEvent = serde_json::from_str(&result.inner.data).unwrap();
         assert_eq!(
@@ -723,6 +802,314 @@ mod tests {
         let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
         let result = parser(amp_event).unwrap();
 
-        assert!(result.is_none());
+        assert!(result.is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_amplitude_identify_injection_first_time() {
+        use crate::cache::MockIdentifyCache;
+        use crate::parse::content::TransformContext;
+        use std::collections::HashMap;
+        use std::sync::Arc;
+
+        let amp_event = AmplitudeEvent {
+            event_type: Some("test_event".to_string()),
+            user_id: Some("user123".to_string()),
+            device_id: Some("device456".to_string()),
+            event_time: Some("2023-10-15 14:30:00".to_string()),
+            event_properties: {
+                let mut props = HashMap::new();
+                props.insert("action".to_string(), serde_json::json!("click"));
+                props
+            },
+            amplitude_id: 789,
+            event_id: 101112,
+            session_id: 131415,
+            ..Default::default()
+        };
+
+        // Create context with identify injection enabled and mock cache
+        let context = TransformContext {
+            team_id: 123,
+            token: "test_token".to_string(),
+            identify_cache: Arc::new(MockIdentifyCache::new()),
+            import_events: true,
+            generate_identify_events: true,
+        };
+
+        let parser = AmplitudeEvent::parse_fn(context, identity_transform);
+        let result = parser(amp_event).unwrap();
+
+        // Should have 2 events: identify event + original event
+        assert_eq!(result.len(), 2);
+
+        // First event should be identify event
+        let identify_event = &result[0];
+        assert_eq!(identify_event.team_id, 123);
+        let identify_data: serde_json::Value =
+            serde_json::from_str(&identify_event.inner.data).unwrap();
+        assert_eq!(identify_data["event"], "$identify");
+        assert_eq!(identify_data["distinct_id"], "user123");
+        assert_eq!(
+            identify_data["properties"]["$anon_distinct_id"],
+            "device456"
+        );
+        // Verify identify event has the required properties
+        assert_eq!(identify_data["properties"]["$amplitude_user_id"], "user123");
+        assert_eq!(
+            identify_data["properties"]["$amplitude_device_id"],
+            "device456"
+        );
+        assert_eq!(identify_data["properties"]["historical_migration"], true);
+        assert_eq!(identify_data["properties"]["analytics_source"], "amplitude");
+
+        // Second event should be original event
+        let original_event = &result[1];
+        assert_eq!(original_event.team_id, 123);
+        let original_data: serde_json::Value =
+            serde_json::from_str(&original_event.inner.data).unwrap();
+        assert_eq!(original_data["event"], "test_event");
+        assert_eq!(original_data["distinct_id"], "user123");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_amplitude_identify_injection_duplicate() {
+        use crate::cache::MockIdentifyCache;
+        use crate::parse::content::TransformContext;
+        use std::sync::Arc;
+
+        // First event with same user-device pair
+        let amp_event1 = AmplitudeEvent {
+            event_type: Some("test_event1".to_string()),
+            user_id: Some("user123".to_string()),
+            device_id: Some("device456".to_string()),
+            event_time: Some("2023-10-15 14:30:00".to_string()),
+            ..Default::default()
+        };
+
+        // Second event with same user-device pair
+        let amp_event2 = AmplitudeEvent {
+            event_type: Some("test_event2".to_string()),
+            user_id: Some("user123".to_string()),
+            device_id: Some("device456".to_string()),
+            event_time: Some("2023-10-15 14:30:01".to_string()),
+            ..Default::default()
+        };
+
+        // Create shared mock cache to track state between calls
+        let cache = Arc::new(MockIdentifyCache::new());
+
+        let context = TransformContext {
+            team_id: 123,
+            token: "test_token".to_string(),
+            identify_cache: cache.clone(),
+            import_events: true,
+            generate_identify_events: true,
+        };
+
+        let parser = AmplitudeEvent::parse_fn(context, identity_transform);
+
+        // First event should generate identify event
+        let result1 = parser(amp_event1).unwrap();
+        assert_eq!(result1.len(), 2); // identify + original
+        let identify_data: serde_json::Value =
+            serde_json::from_str(&result1[0].inner.data).unwrap();
+        assert_eq!(identify_data["event"], "$identify");
+
+        // Second event should NOT generate identify event (already seen in cache)
+        let result2 = parser(amp_event2).unwrap();
+        assert_eq!(result2.len(), 1); // only original event
+        let original_data: serde_json::Value =
+            serde_json::from_str(&result2[0].inner.data).unwrap();
+        assert_eq!(original_data["event"], "test_event2");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_amplitude_identify_injection_disabled() {
+        use crate::cache::MockIdentifyCache;
+        use crate::parse::content::TransformContext;
+        use std::sync::Arc;
+
+        let amp_event = AmplitudeEvent {
+            event_type: Some("test_event".to_string()),
+            user_id: Some("user123".to_string()),
+            device_id: Some("device456".to_string()),
+            event_time: Some("2023-10-15 14:30:00".to_string()),
+            ..Default::default()
+        };
+
+        // Create context with identify injection disabled
+        let context = TransformContext {
+            team_id: 123,
+            token: "test_token".to_string(),
+            identify_cache: Arc::new(MockIdentifyCache::new()),
+            import_events: true,
+            generate_identify_events: false, // Disabled
+        };
+
+        let parser = AmplitudeEvent::parse_fn(context, identity_transform);
+        let result = parser(amp_event).unwrap();
+
+        // Should have only 1 event (no identify event)
+        assert_eq!(result.len(), 1);
+
+        // The event should be the original event
+        let event = &result[0];
+        assert_eq!(event.team_id, 123);
+        let data: serde_json::Value = serde_json::from_str(&event.inner.data).unwrap();
+        assert_eq!(data["event"], "test_event");
+        assert_eq!(data["distinct_id"], "user123");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_amplitude_identify_with_cache_failure() {
+        use crate::cache::MockIdentifyCache;
+        use crate::parse::content::TransformContext;
+        use std::sync::Arc;
+
+        let amp_event = AmplitudeEvent {
+            event_type: Some("test_event".to_string()),
+            user_id: Some("user123".to_string()),
+            device_id: Some("device456".to_string()),
+            event_time: Some("2023-10-15 14:30:00".to_string()),
+            ..Default::default()
+        };
+
+        // Create context with identify injection enabled
+        let context = TransformContext {
+            team_id: 123,
+            token: "test_token".to_string(),
+            identify_cache: Arc::new(MockIdentifyCache::new()),
+            import_events: true,
+            generate_identify_events: true,
+        };
+
+        let parser = AmplitudeEvent::parse_fn(context, identity_transform);
+
+        // First parse should work fine
+        let result1 = parser(amp_event.clone()).unwrap();
+        assert_eq!(result1.len(), 2);
+
+        // TODO: Add test for cache failure scenarios once we have better error handling
+        // This would require mocking cache failures or using a cache that can fail
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_amplitude_mixed_events_with_identify() {
+        use crate::cache::MockIdentifyCache;
+        use crate::parse::content::TransformContext;
+        use std::sync::Arc;
+
+        // Event with user_id and device_id (should generate identify)
+        let amp_event_with_both = AmplitudeEvent {
+            event_type: Some("event_with_both".to_string()),
+            user_id: Some("user123".to_string()),
+            device_id: Some("device456".to_string()),
+            event_time: Some("2023-10-15 14:30:00".to_string()),
+            ..Default::default()
+        };
+
+        // Event with only user_id (should not generate identify)
+        let amp_event_user_only = AmplitudeEvent {
+            event_type: Some("event_user_only".to_string()),
+            user_id: Some("user789".to_string()),
+            device_id: None,
+            event_time: Some("2023-10-15 14:30:01".to_string()),
+            ..Default::default()
+        };
+
+        // Event with only device_id (should not generate identify)
+        let amp_event_device_only = AmplitudeEvent {
+            event_type: Some("event_device_only".to_string()),
+            user_id: None,
+            device_id: Some("device999".to_string()),
+            event_time: Some("2023-10-15 14:30:02".to_string()),
+            ..Default::default()
+        };
+
+        // Event with neither (should not generate identify)
+        let amp_event_neither = AmplitudeEvent {
+            event_type: Some("event_neither".to_string()),
+            user_id: None,
+            device_id: None,
+            event_time: Some("2023-10-15 14:30:03".to_string()),
+            ..Default::default()
+        };
+
+        // Create context with identify injection enabled
+        let context = TransformContext {
+            team_id: 123,
+            token: "test_token".to_string(),
+            identify_cache: Arc::new(MockIdentifyCache::new()),
+            import_events: true,
+            generate_identify_events: true,
+        };
+
+        let parser = AmplitudeEvent::parse_fn(context, identity_transform);
+
+        // Test event with both user_id and device_id
+        let result1 = parser(amp_event_with_both).unwrap();
+        assert_eq!(result1.len(), 2); // identify + original
+        let identify_data: serde_json::Value =
+            serde_json::from_str(&result1[0].inner.data).unwrap();
+        assert_eq!(identify_data["event"], "$identify");
+        let original_data: serde_json::Value =
+            serde_json::from_str(&result1[1].inner.data).unwrap();
+        assert_eq!(original_data["event"], "event_with_both");
+
+        // Test event with only user_id
+        let result2 = parser(amp_event_user_only).unwrap();
+        assert_eq!(result2.len(), 1); // only original
+        let data: serde_json::Value = serde_json::from_str(&result2[0].inner.data).unwrap();
+        assert_eq!(data["event"], "event_user_only");
+
+        // Test event with only device_id
+        let result3 = parser(amp_event_device_only).unwrap();
+        assert_eq!(result3.len(), 1); // only original
+        let data: serde_json::Value = serde_json::from_str(&result3[0].inner.data).unwrap();
+        assert_eq!(data["event"], "event_device_only");
+
+        // Test event with neither
+        let result4 = parser(amp_event_neither).unwrap();
+        assert_eq!(result4.len(), 1); // only original
+        let data: serde_json::Value = serde_json::from_str(&result4[0].inner.data).unwrap();
+        assert_eq!(data["event"], "event_neither");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_amplitude_identify_import_events_disabled() {
+        use crate::cache::MockIdentifyCache;
+        use crate::parse::content::TransformContext;
+        use std::sync::Arc;
+
+        let amp_event = AmplitudeEvent {
+            event_type: Some("test_event".to_string()),
+            user_id: Some("user123".to_string()),
+            device_id: Some("device456".to_string()),
+            event_time: Some("2023-10-15 14:30:00".to_string()),
+            ..Default::default()
+        };
+
+        // Create context with import_events disabled but identify injection enabled
+        let context = TransformContext {
+            team_id: 123,
+            token: "test_token".to_string(),
+            identify_cache: Arc::new(MockIdentifyCache::new()),
+            import_events: false, // Disabled
+            generate_identify_events: true,
+        };
+
+        let parser = AmplitudeEvent::parse_fn(context, identity_transform);
+        let result = parser(amp_event).unwrap();
+
+        // Should have only 1 event (identify event, but no original event)
+        assert_eq!(result.len(), 1);
+
+        // The event should be the identify event
+        let event = &result[0];
+        assert_eq!(event.team_id, 123);
+        let data: serde_json::Value = serde_json::from_str(&event.inner.data).unwrap();
+        assert_eq!(data["event"], "$identify");
+        assert_eq!(data["distinct_id"], "user123");
     }
 }

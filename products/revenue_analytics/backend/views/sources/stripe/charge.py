@@ -1,23 +1,19 @@
-from typing import cast
 from collections.abc import Iterable
+from typing import cast
 
 from posthog.hogql import ast
-from posthog.temporal.data_imports.sources.stripe.constants import (
-    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
-)
+from posthog.hogql.database.schema.exchange_rate import EXCHANGE_RATE_DECIMAL_PRECISION, convert_currency_call
+
+from posthog.temporal.data_imports.sources.stripe.constants import CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.table import DataWarehouseTable
-from posthog.hogql.database.schema.exchange_rate import (
-    EXCHANGE_RATE_DECIMAL_PRECISION,
-    convert_currency_call,
-)
-from products.revenue_analytics.backend.views.sources.helpers import (
-    is_zero_decimal_in_stripe,
-    currency_aware_divider,
-    currency_aware_amount,
-)
 
 from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHandle, view_prefix_for_source
+from products.revenue_analytics.backend.views.sources.helpers import (
+    currency_aware_amount,
+    currency_aware_divider,
+    is_zero_decimal_in_stripe,
+)
 
 
 def build(handle: SourceHandle) -> Iterable[BuiltQuery]:

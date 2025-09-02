@@ -1,13 +1,15 @@
 from datetime import datetime, timedelta
-from unittest.mock import patch, MagicMock
+
+from freezegun import freeze_time
+from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
 from django.utils import timezone
-from freezegun import freeze_time
 
-from ee.session_recordings.session_recording_extensions import persist_recording_v2
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
+
+from ee.session_recordings.session_recording_extensions import persist_recording_v2
 
 BLOCK1_EVENTS = (
     '{"timestamp":1,"type":2,"data":{"href":"http://localhost:3000/","width":2560,"height":1304}}\n'

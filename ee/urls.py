@@ -6,13 +6,15 @@ from django.contrib.admin.sites import NotRegistered  # type: ignore[attr-define
 from django.urls import include
 from django.urls.conf import path
 from django.views.decorators.csrf import csrf_exempt
+
 from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
+
+from posthog.utils import opt_slash_path
 
 from ee.api import integration
 from ee.api.mcp.http import mcp_view
 from ee.support_sidebar_max.views import MaxChatViewSet
-from posthog.utils import opt_slash_path
 
 from .api import (
     authentication,
@@ -31,7 +33,6 @@ from .api.rbac import organization_resource_access, role
 
 
 def extend_api_router() -> None:
-    from ee.api import max_tools, session_summaries
     from posthog.api import (
         environment_dashboards_router,
         environments_router,
@@ -41,6 +42,8 @@ def extend_api_router() -> None:
         register_grandfathered_environment_nested_viewset,
         router as root_router,
     )
+
+    from ee.api import max_tools, session_summaries
 
     root_router.register(r"billing", billing.BillingViewset, "billing")
     root_router.register(r"license", license.LicenseViewSet)

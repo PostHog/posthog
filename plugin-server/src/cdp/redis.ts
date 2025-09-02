@@ -149,3 +149,14 @@ export const createCdpRedisPool = (config: PluginsServerConfig): CdpRedis => {
         usePipeline,
     }
 }
+
+export type RedisPipelineResults = [Error | null, any][]
+
+export const getRedisPipelineResults = (
+    res: RedisPipelineResults,
+    index: number,
+    numOperations: number
+): RedisPipelineResults => {
+    // pipeline results are just a big array of operation results so we need to slice out the correct parts
+    return res.slice(index * numOperations, index * numOperations + numOperations)
+}

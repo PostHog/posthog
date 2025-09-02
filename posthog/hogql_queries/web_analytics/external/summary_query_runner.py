@@ -1,26 +1,27 @@
-from typing import Any
 import csv
-from io import StringIO
 from dataclasses import dataclass
 from datetime import datetime
-import structlog
+from io import StringIO
+from typing import Any
+
 import chdb
+import structlog
+
+from posthog.schema import (
+    ExternalQueryError,
+    ExternalQueryErrorCode,
+    ExternalQueryStatus,
+    WebAnalyticsExternalSummaryQuery,
+    WebAnalyticsExternalSummaryQueryResponse,
+)
+
 from posthog.hogql import ast
 from posthog.hogql.database.s3_table import build_function_call
-from posthog.hogql.database.schema.web_analytics_s3 import (
-    create_s3_web_stats_table,
-    create_s3_web_bounces_table,
-)
+from posthog.hogql.database.schema.web_analytics_s3 import create_s3_web_bounces_table, create_s3_web_stats_table
+
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.schema import (
-    ExternalQueryErrorCode,
-    ExternalQueryError,
-    WebAnalyticsExternalSummaryQuery,
-    WebAnalyticsExternalSummaryQueryResponse,
-    ExternalQueryStatus,
-)
 
 
 @dataclass

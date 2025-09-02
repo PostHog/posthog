@@ -4,12 +4,13 @@ from django.conf import settings
 from django.db import connection
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
+
 from rest_framework import viewsets
-from posthog.api.utils import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.utils import action
 from posthog.async_migrations.status import async_migrations_ok
 from posthog.cloud_utils import is_cloud
 from posthog.git import get_git_commit_short
@@ -212,10 +213,7 @@ class InstanceStatusViewSet(viewsets.ViewSet):
     def queries(self, request: Request) -> Response:
         queries = {"postgres_running": self.get_postgres_running_queries()}
 
-        from posthog.clickhouse.system_status import (
-            get_clickhouse_running_queries,
-            get_clickhouse_slow_log,
-        )
+        from posthog.clickhouse.system_status import get_clickhouse_running_queries, get_clickhouse_slow_log
 
         queries["clickhouse_running"] = get_clickhouse_running_queries()
         queries["clickhouse_slow_log"] = get_clickhouse_slow_log()

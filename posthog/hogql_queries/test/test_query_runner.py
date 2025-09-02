@@ -1,37 +1,40 @@
 from datetime import datetime, timedelta
 from typing import Any, Literal, Optional
-from unittest import mock
 from zoneinfo import ZoneInfo
 
-from django.core.cache import cache
 from freezegun import freeze_time
+from posthog.test.base import BaseTest
+from unittest import mock
+
+from django.core.cache import cache
+
 from pydantic import BaseModel
 
-from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.team.team import Team, WeekStartDay
-from posthog.hogql.constants import LimitContext
 from posthog.schema import (
-    CurrencyCode,
+    BounceRatePageViewMode,
     CacheMissResponse,
+    CurrencyCode,
     HogQLQuery,
     HogQLQueryModifiers,
     InCohortVia,
+    IntervalType,
     MaterializationMode,
-    BounceRatePageViewMode,
     PersonsArgMaxVersion,
     PersonsOnEventsMode,
     SessionsV2JoinMode,
     SessionTableVersion,
     TestBasicQueryResponse as TheTestBasicQueryResponse,
     TestCachedBasicQueryResponse as TheTestCachedBasicQueryResponse,
-    IntervalType,
 )
+
+from posthog.hogql.constants import LimitContext
+
+from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.team.team import Team, WeekStartDay
+
 from products.marketing_analytics.backend.hogql_queries.test.utils import MARKETING_ANALYTICS_SOURCES_MAP_SAMPLE
-from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
-    REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT,
-)
-from posthog.test.base import BaseTest
+from products.revenue_analytics.backend.hogql_queries.test.data.structure import REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT
 
 
 class TheTestQuery(BaseModel):
@@ -325,8 +328,9 @@ class TestQueryRunner(BaseTest):
 
     def test_modifier_passthrough(self):
         try:
-            from ee.clickhouse.materialized_columns.analyze import materialize
             from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+
+            from ee.clickhouse.materialized_columns.analyze import materialize
 
             materialize("events", "$browser")
         except ModuleNotFoundError:

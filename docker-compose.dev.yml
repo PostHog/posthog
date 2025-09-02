@@ -81,7 +81,7 @@ services:
         # (maybe only in Pycharm) keeps many idle transactions open
         # and eventually kills postgres, these settings aim to stop that happening.
         # They are only for DEV and should not be used in production.
-        command: postgres -c max_connections=1000 -c idle_in_transaction_session_timeout=300000
+        command: postgres -c max_connections=1000 -c idle_in_transaction_session_timeout=300000 -c max_prepared_transactions=10
 
     counters_db:
         extends:

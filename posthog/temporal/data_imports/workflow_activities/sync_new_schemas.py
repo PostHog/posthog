@@ -1,16 +1,14 @@
-import dataclasses
 import typing as t
+import dataclasses
 
 from django.db import close_old_connections
+
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.sources import SourceRegistry
-from posthog.warehouse.models import (
-    ExternalDataSource,
-    sync_old_schemas_with_new_schemas,
-)
+from posthog.warehouse.models import ExternalDataSource, sync_old_schemas_with_new_schemas
 from posthog.warehouse.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)

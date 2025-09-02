@@ -365,7 +365,7 @@
   SELECT
       if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
       if(notEmpty(source_name), source_name, 'organic') AS source,
-      sum(conversion_value) AS conversion_0
+      coalesce(sum(conversion_value), 0) AS conversion_0
   
   FROM
       (

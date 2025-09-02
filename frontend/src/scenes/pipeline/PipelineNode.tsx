@@ -1,9 +1,11 @@
 import { useValues } from 'kea'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs/LemonTabs'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { HogFunctionMetricsV2 } from 'scenes/hog-functions/metrics/HogFunctionMetricsV2'
 import { HogFunctionTesting } from 'scenes/hog-functions/testing/HogFunctionTesting'
 import { PipelineNodeLogs } from 'scenes/pipeline/PipelineNodeLogs'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -61,7 +63,9 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
         [PipelineNodeTab.Configuration]: <PipelineNodeConfiguration />,
         [PipelineNodeTab.Metrics]:
             node.backend === PipelineBackend.HogFunction ? (
-                <HogFunctionMetrics id={node.id} />
+                <FlaggedFeature flag="cdp-app-metrics-new" fallback={<HogFunctionMetrics id={node.id} />}>
+                    <HogFunctionMetricsV2 id={node.id} />
+                </FlaggedFeature>
             ) : (
                 <PipelineNodeMetrics id={id} />
             ),

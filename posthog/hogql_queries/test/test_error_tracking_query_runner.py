@@ -1,38 +1,43 @@
-from datetime import timedelta, datetime
-from unittest import TestCase
-from freezegun import freeze_time
-from dateutil.relativedelta import relativedelta
-from django.utils.timezone import now
-from posthog.models.utils import uuid7
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from posthog.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner, search_tokenizer
-from posthog.schema import (
-    ErrorTrackingQuery,
-    DateRange,
-    FilterLogicalOperator,
-    PropertyGroupFilter,
-    PropertyGroupFilterValue,
-    PersonPropertyFilter,
-    ErrorTrackingIssueFilter,
-    PropertyOperator,
-)
-from ee.models.rbac.role import Role
-from posthog.models.error_tracking import (
-    ErrorTrackingIssue,
-    ErrorTrackingIssueFingerprintV2,
-    ErrorTrackingIssueAssignment,
-    update_error_tracking_issue_fingerprints,
-    override_error_tracking_issue_fingerprint,
-)
+from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
-    _create_person,
     _create_event,
+    _create_person,
     flush_persons_and_events,
+    snapshot_clickhouse_queries,
 )
-from posthog.test.base import snapshot_clickhouse_queries
+from unittest import TestCase
+
+from django.utils.timezone import now
+
+from dateutil.relativedelta import relativedelta
+
+from posthog.schema import (
+    DateRange,
+    ErrorTrackingIssueFilter,
+    ErrorTrackingQuery,
+    FilterLogicalOperator,
+    PersonPropertyFilter,
+    PropertyGroupFilter,
+    PropertyGroupFilterValue,
+    PropertyOperator,
+)
+
+from posthog.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner, search_tokenizer
+from posthog.models.error_tracking import (
+    ErrorTrackingIssue,
+    ErrorTrackingIssueAssignment,
+    ErrorTrackingIssueFingerprintV2,
+    override_error_tracking_issue_fingerprint,
+    update_error_tracking_issue_fingerprints,
+)
+from posthog.models.utils import uuid7
+
+from ee.models.rbac.role import Role
 
 
 class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):

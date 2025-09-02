@@ -1,17 +1,19 @@
-from typing import cast
 from decimal import Decimal
+from typing import cast
+
+from posthog.schema import (
+    CachedRevenueAnalyticsGrowthRateQueryResponse,
+    ResolvedDateRangeResponse,
+    RevenueAnalyticsGrowthRateQuery,
+    RevenueAnalyticsGrowthRateQueryResponse,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
-from posthog.schema import (
-    CachedRevenueAnalyticsGrowthRateQueryResponse,
-    RevenueAnalyticsGrowthRateQueryResponse,
-    RevenueAnalyticsGrowthRateQuery,
-    ResolvedDateRangeResponse,
-)
+
+from products.revenue_analytics.backend.views import RevenueAnalyticsRevenueItemView
 
 from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
-from products.revenue_analytics.backend.views import RevenueAnalyticsRevenueItemView
 
 ORDER_BY_MONTH_ASC = ast.OrderExpr(expr=ast.Field(chain=["month"]), order="ASC")
 

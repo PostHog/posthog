@@ -1,39 +1,25 @@
 from itertools import cycle
 from typing import Any, Literal, Optional, cast
-from unittest.mock import patch
 from uuid import uuid4
+
+from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, _create_person
+from unittest.mock import patch
+
+from django.test import override_settings
 
 from asgiref.sync import async_to_sync
 from azure.ai.inference import EmbeddingsClient
 from azure.ai.inference.models import EmbeddingsResult, EmbeddingsUsage
 from azure.core.credentials import AzureKeyCredential
-from django.test import override_settings
 from langchain_core import messages
+from langchain_core.messages import AIMessageChunk
 from langchain_core.prompts.chat import ChatPromptValue
 from langchain_core.runnables import RunnableConfig, RunnableLambda
-from langchain_core.messages import AIMessageChunk
 from langgraph.errors import GraphRecursionError, NodeInterrupt
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StateSnapshot
 from pydantic import BaseModel
 
-from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.graph.funnels.nodes import FunnelsSchemaGeneratorOutput
-from ee.hogai.graph.memory import prompts as memory_prompts
-from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
-from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT
-from ee.hogai.graph.trends.nodes import TrendsSchemaGeneratorOutput
-from ee.hogai.tool import search_documentation
-from ee.hogai.utils.tests import FakeChatOpenAI, FakeRunnableLambdaWithTokenCounter
-from ee.hogai.utils.types import (
-    AssistantMode,
-    AssistantNodeName,
-    AssistantOutput,
-    AssistantState,
-    PartialAssistantState,
-)
-from ee.models.assistant import Conversation, CoreMemory
-from posthog.models import Action
 from posthog.schema import (
     AssistantEventType,
     AssistantFunnelsEventsNode,
@@ -54,18 +40,36 @@ from posthog.schema import (
     HumanMessage,
     MaxAddonInfo,
     MaxBillingContext,
+    MaxBillingContextSettings,
+    MaxBillingContextSubscriptionLevel,
     MaxDashboardContext,
     MaxInsightContext,
     MaxProductInfo,
     MaxUIContext,
     ReasoningMessage,
-    MaxBillingContextSettings,
-    MaxBillingContextSubscriptionLevel,
     TrendsQuery,
     VisualizationMessage,
 )
-from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, _create_person
+
+from posthog.models import Action
+
+from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
+from ee.hogai.graph.funnels.nodes import FunnelsSchemaGeneratorOutput
+from ee.hogai.graph.memory import prompts as memory_prompts
+from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
+from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT
+from ee.hogai.graph.trends.nodes import TrendsSchemaGeneratorOutput
+from ee.hogai.tool import search_documentation
 from ee.hogai.utils.state import GraphValueUpdateTuple
+from ee.hogai.utils.tests import FakeChatOpenAI, FakeRunnableLambdaWithTokenCounter
+from ee.hogai.utils.types import (
+    AssistantMode,
+    AssistantNodeName,
+    AssistantOutput,
+    AssistantState,
+    PartialAssistantState,
+)
+from ee.models.assistant import Conversation, CoreMemory
 
 from ..assistant import Assistant
 from ..graph import AssistantGraph, InsightsAssistantGraph

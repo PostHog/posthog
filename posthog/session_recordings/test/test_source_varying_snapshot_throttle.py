@@ -1,16 +1,18 @@
 from datetime import timedelta
-from unittest.mock import patch, MagicMock
 
+from posthog.test.base import APIBaseTest
+from unittest.mock import MagicMock, patch
+
+from django.core.cache import cache
 from django.http import HttpResponse
 from django.utils.timezone import now
+
 from parameterized import parameterized
 from rest_framework import status
-from django.core.cache import cache
 
 from posthog.models import PersonalAPIKey, SessionRecording
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.personal_api_key import hash_key_value
-from posthog.test.base import APIBaseTest
 
 
 class TestSourceVaryingSnapshotThrottle(APIBaseTest):

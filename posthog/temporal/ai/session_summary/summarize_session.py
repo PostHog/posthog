@@ -1,20 +1,45 @@
-import asyncio
-from collections.abc import Generator
-import dataclasses
-from datetime import timedelta
 import json
 import time
-from typing import cast
 import uuid
+import asyncio
+import dataclasses
+from collections.abc import Generator
+from datetime import timedelta
+from typing import cast
 
-from redis import Redis
+from django.conf import settings
+
 import structlog
 import temporalio
+from redis import Redis
+from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
-from django.conf import settings
+from temporalio.exceptions import ApplicationError
+
+from posthog import constants
+from posthog.models.team.team import Team
+from posthog.models.user import User
+from posthog.redis import get_async_client, get_client
+from posthog.sync import database_sync_to_async
+from posthog.temporal.ai.session_summary.state import (
+    StateActivitiesEnum,
+    decompress_redis_data,
+    generate_state_key,
+    get_data_class_from_redis,
+    get_redis_state_client,
+    store_data_in_redis,
+)
+from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
+from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.client import async_connect
+
 from ee.hogai.session_summaries import ExceptionToRetry
-from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL, SESSION_SUMMARIES_STREAMING_MODEL
-from ee.hogai.session_summaries.llm.consume import stream_llm_single_session_summary, get_llm_single_session_summary
+from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_STREAMING_MODEL, SESSION_SUMMARIES_SYNC_MODEL
+from ee.hogai.session_summaries.llm.consume import (
+    get_exception_event_ids_from_summary,
+    get_llm_single_session_summary,
+    stream_llm_single_session_summary,
+)
 from ee.hogai.session_summaries.session.summarize_session import (
     ExtraSummaryContext,
     SingleSessionSummaryLlmInputs,
@@ -23,23 +48,7 @@ from ee.hogai.session_summaries.session.summarize_session import (
     prepare_single_session_summary_input,
 )
 from ee.hogai.session_summaries.utils import serialize_to_sse_event
-from posthog import constants
-from posthog.models.team.team import Team
-from posthog.redis import get_client, get_async_client
-from posthog.temporal.ai.session_summary.state import (
-    StateActivitiesEnum,
-    decompress_redis_data,
-    generate_state_key,
-    get_data_class_from_redis,
-    get_redis_state_client,
-    store_data_in_redis,
-    get_data_str_from_redis,
-)
-from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
-from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.client import async_connect
-from temporalio.client import WorkflowHandle, WorkflowExecutionStatus
-from temporalio.exceptions import ApplicationError
+from ee.models.session_summaries import SessionSummaryRunMeta, SingleSessionSummary
 
 logger = structlog.get_logger(__name__)
 
@@ -48,57 +57,67 @@ SESSION_SUMMARIES_STREAM_INTERVAL = 0.1  # 100ms
 
 
 @temporalio.activity.defn
-async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> str | None:
+async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> None:
     """Fetch data from DB for a single session and store/cache in Redis (to avoid hitting Temporal memory limits)"""
+    # Check if the summary is already in the DB, so no need to fetch data from DB
+    # Keeping thread-sensitive as checking for a single summary should be fast
+    summary_exists = await database_sync_to_async(SingleSessionSummary.objects.summaries_exist)(
+        team_id=inputs.team_id,
+        session_ids=[inputs.session_id],
+        extra_summary_context=inputs.extra_summary_context,
+    )
+    if summary_exists.get(inputs.session_id):
+        # Skip data fetching as the ready summary will be returned in the next activity
+        return None
+    # If not - check if DB data is already in Redis. If it is and matched the target class - it's within TTL, so no need to re-fetch it from DB
     redis_client, redis_input_key, _ = get_redis_state_client(
         key_base=inputs.redis_key_base,
         input_label=StateActivitiesEnum.SESSION_DB_DATA,
         state_id=inputs.session_id,
     )
-    try:
-        # Check if DB data is already in Redis. If it is and matched the target class - it's within TTL, so no need to re-fetch it from DB
-        # TODO: Think about edge-cases like stale data for still-running sessions
-        await get_data_class_from_redis(
-            redis_client=redis_client,
-            redis_key=redis_input_key,
-            label=StateActivitiesEnum.SESSION_DB_DATA,
-            target_class=SingleSessionSummaryLlmInputs,
-        )
-    except ValueError:
-        # If not yet, or TTL expired - fetch data from DB
-        session_db_data = await get_session_data_from_db(
-            session_id=inputs.session_id,
-            team_id=inputs.team_id,
-            local_reads_prod=inputs.local_reads_prod,
-        )
-        summary_data = await prepare_data_for_single_session_summary(
-            session_id=inputs.session_id,
-            user_id=inputs.user_id,
-            session_db_data=session_db_data,
-            extra_summary_context=inputs.extra_summary_context,
-        )
-        if summary_data.error_msg is not None:
-            # If we weren't able to collect the required data - retry
-            logger.exception(
-                f"Not able to fetch data from the DB for session {inputs.session_id} (by user {inputs.user_id}): {summary_data.error_msg}",
-                session_id=inputs.session_id,
-                user_id=inputs.user_id,
-            )
-            raise ExceptionToRetry()
-        input_data = prepare_single_session_summary_input(
+    success = await get_data_class_from_redis(
+        redis_client=redis_client,
+        redis_key=redis_input_key,
+        label=StateActivitiesEnum.SESSION_DB_DATA,
+        target_class=SingleSessionSummaryLlmInputs,
+    )
+    # Return if the data is properly cached
+    if success is not None:
+        return None
+    # If not yet, or TTL expired - fetch data from DB
+    session_db_data = await get_session_data_from_db(
+        session_id=inputs.session_id,
+        team_id=inputs.team_id,
+        local_reads_prod=inputs.local_reads_prod,
+    )
+    summary_data = await prepare_data_for_single_session_summary(
+        session_id=inputs.session_id,
+        user_id=inputs.user_id,
+        session_db_data=session_db_data,
+        extra_summary_context=inputs.extra_summary_context,
+    )
+    if summary_data.error_msg is not None:
+        # If we weren't able to collect the required data - retry
+        logger.exception(
+            f"Not able to fetch data from the DB for session {inputs.session_id} (by user {inputs.user_id}): {summary_data.error_msg}",
             session_id=inputs.session_id,
             user_id=inputs.user_id,
-            summary_data=summary_data,
-            model_to_use=inputs.model_to_use,
         )
-        # Store the input in Redis
-        input_data_str = json.dumps(dataclasses.asdict(input_data))
-        await store_data_in_redis(
-            redis_client=redis_client,
-            redis_key=redis_input_key,
-            data=input_data_str,
-            label=StateActivitiesEnum.SESSION_DB_DATA,
-        )
+        raise ExceptionToRetry()
+    input_data = prepare_single_session_summary_input(
+        session_id=inputs.session_id,
+        user_id=inputs.user_id,
+        summary_data=summary_data,
+        model_to_use=inputs.model_to_use,
+    )
+    # Store the input in Redis
+    input_data_str = json.dumps(dataclasses.asdict(input_data))
+    await store_data_in_redis(
+        redis_client=redis_client,
+        redis_key=redis_input_key,
+        data=input_data_str,
+        label=StateActivitiesEnum.SESSION_DB_DATA,
+    )
     # Nothing to return if the fetch was successful, as the data is stored in Redis
     return None
 
@@ -108,59 +127,78 @@ async def get_llm_single_session_summary_activity(
     inputs: SingleSessionSummaryInputs,
 ) -> None:
     """Summarize a single session in one call and store/cache in Redis (to avoid hitting Temporal memory limits)"""
-    redis_client, redis_input_key, redis_output_key = get_redis_state_client(
+    # Check if summary is already in the DB (in case of race conditions/multiple group summaries running in parallel/etc.)
+    # Keeping thread-sensitive as checking for a single summary should be fast
+    summary_exists = await database_sync_to_async(SingleSessionSummary.objects.summaries_exist)(
+        team_id=inputs.team_id,
+        session_ids=[inputs.session_id],
+        extra_summary_context=inputs.extra_summary_context,
+    )
+    if summary_exists.get(inputs.session_id):
+        # Stored successfully, no need to summarize again
+        return None
+    # Base key includes session ids, so when summarizing this session again, but with different inputs (or order) - we don't use cache
+    redis_client, redis_input_key, _ = get_redis_state_client(
         key_base=inputs.redis_key_base,
         input_label=StateActivitiesEnum.SESSION_DB_DATA,
-        output_label=StateActivitiesEnum.SESSION_SUMMARY,
         state_id=inputs.session_id,
     )
-    # Base key includes session ids, so when summarizing this session again, but with different inputs (or order) - we don't use cache
-    # TODO: Should be solved by storing the summary in DB (long-term for using in UI)
-    try:
-        # Check if the summary is already in Redis. If it is - it's within TTL, so no need to re-generate it with LLM
-        await get_data_str_from_redis(
-            redis_client=redis_client,
-            redis_key=redis_output_key,
-            label=StateActivitiesEnum.SESSION_SUMMARY,
+    # If not yet - generate the summary with LLM
+    llm_input_raw = await get_data_class_from_redis(
+        redis_client=redis_client,
+        redis_key=redis_input_key,
+        label=StateActivitiesEnum.SESSION_DB_DATA,
+        target_class=SingleSessionSummaryLlmInputs,
+    )
+    if llm_input_raw is None:
+        # No reason to retry activity, as the input data is not in Redis
+        raise ApplicationError(
+            f"No LLM input found for session {inputs.session_id} when summarizing",
+            non_retryable=True,
         )
-    except ValueError:
-        # If not yet, or TTL expired - generate the summary with LLM
-        llm_input = cast(
-            SingleSessionSummaryLlmInputs,
-            await get_data_class_from_redis(
-                redis_client=redis_client,
-                redis_key=redis_input_key,
-                label=StateActivitiesEnum.SESSION_DB_DATA,
-                target_class=SingleSessionSummaryLlmInputs,
-            ),
-        )
-        # Get summary from LLM
-        session_summary_str = await get_llm_single_session_summary(
-            session_id=llm_input.session_id,
-            user_id=llm_input.user_id,
-            model_to_use=llm_input.model_to_use,
-            # Prompt
-            summary_prompt=llm_input.summary_prompt,
-            system_prompt=llm_input.system_prompt,
-            # Mappings to enrich events
-            allowed_event_ids=list(llm_input.simplified_events_mapping.keys()),
-            simplified_events_mapping=llm_input.simplified_events_mapping,
-            event_ids_mapping=llm_input.event_ids_mapping,
-            simplified_events_columns=llm_input.simplified_events_columns,
-            url_mapping_reversed=llm_input.url_mapping_reversed,
-            window_mapping_reversed=llm_input.window_mapping_reversed,
-            # Session metadata
-            session_start_time_str=llm_input.session_start_time_str,
-            session_duration=llm_input.session_duration,
-            trace_id=temporalio.activity.info().workflow_id,
-        )
-        # Store the generated summary in Redis
-        await store_data_in_redis(
-            redis_client=redis_client,
-            redis_key=redis_output_key,
-            data=session_summary_str,
-            label=StateActivitiesEnum.SESSION_SUMMARY,
-        )
+    llm_input = cast(
+        SingleSessionSummaryLlmInputs,
+        llm_input_raw,
+    )
+    # Get summary from LLM
+    session_summary = await get_llm_single_session_summary(
+        session_id=llm_input.session_id,
+        user_id=llm_input.user_id,
+        model_to_use=llm_input.model_to_use,
+        # Prompt
+        summary_prompt=llm_input.summary_prompt,
+        system_prompt=llm_input.system_prompt,
+        # Mappings to enrich events
+        allowed_event_ids=list(llm_input.simplified_events_mapping.keys()),
+        simplified_events_mapping=llm_input.simplified_events_mapping,
+        event_ids_mapping=llm_input.event_ids_mapping,
+        simplified_events_columns=llm_input.simplified_events_columns,
+        url_mapping_reversed=llm_input.url_mapping_reversed,
+        window_mapping_reversed=llm_input.window_mapping_reversed,
+        # Session metadata
+        session_start_time_str=llm_input.session_start_time_str,
+        session_duration=llm_input.session_duration,
+        trace_id=temporalio.activity.info().workflow_id,
+    )
+    # Store the generated summary in the DB
+    exception_event_ids = get_exception_event_ids_from_summary(session_summary)
+    # Getting the user explicitly from the DB as we can't pass models between activities
+    user = await database_sync_to_async(User.objects.get)(id=inputs.user_id)
+    if not user:
+        raise ValueError(f"User with id {inputs.user_id} not found, when trying to add session summary")
+    # Disable thread-sensitive as the summary could be pretty heavy and it's a write
+    await database_sync_to_async(SingleSessionSummary.objects.add_summary, thread_sensitive=False)(
+        session_id=inputs.session_id,
+        team_id=inputs.team_id,
+        summary=session_summary,
+        exception_event_ids=exception_event_ids,
+        extra_summary_context=inputs.extra_summary_context,
+        run_metadata=SessionSummaryRunMeta(
+            model_used=inputs.model_to_use,
+            visual_confirmation=False,
+        ),
+        created_by=user,
+    )
     # Returning nothing as the data is stored in Redis
     return None
 
@@ -168,6 +206,17 @@ async def get_llm_single_session_summary_activity(
 @temporalio.activity.defn
 async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummaryInputs) -> str:
     """Summarize a single session and stream the summary state as it becomes available"""
+    # Check if summary is already in the DB, so no need to summarize again
+    # Disabling thread-sensitive as summaries can be heavy to load from DB
+    ready_summary = await database_sync_to_async(SingleSessionSummary.objects.get_summary, thread_sensitive=False)(
+        team_id=inputs.team_id,
+        session_id=inputs.session_id,
+        extra_summary_context=inputs.extra_summary_context,
+    )
+    if ready_summary is not None:
+        # Return the ready summary straight away
+        return json.dumps(ready_summary.summary)
+    # If not - summarize and stream through Redis
     if not inputs.redis_key_base:
         raise ApplicationError(
             f"Redis key base was not provided when summarizing session {inputs.session_id}: {inputs}",
@@ -185,15 +234,19 @@ async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummar
             f"Redis input ({redis_input_key}) or output ({redis_output_key}) keys not provided when summarizing session {inputs.session_id}: {inputs}",
             non_retryable=True,
         )
-    llm_input = cast(
-        SingleSessionSummaryLlmInputs,
-        await get_data_class_from_redis(
-            redis_client=redis_client,
-            redis_key=redis_input_key,
-            label=StateActivitiesEnum.SESSION_DB_DATA,
-            target_class=SingleSessionSummaryLlmInputs,
-        ),
+    llm_input_raw = await get_data_class_from_redis(
+        redis_client=redis_client,
+        redis_key=redis_input_key,
+        label=StateActivitiesEnum.SESSION_DB_DATA,
+        target_class=SingleSessionSummaryLlmInputs,
     )
+    if llm_input_raw is None:
+        # No reason to retry activity, as the input data is not in Redis
+        raise ApplicationError(
+            f"No LLM input found for session {inputs.session_id} when summarizing",
+            non_retryable=True,
+        )
+    llm_input = cast(SingleSessionSummaryLlmInputs, llm_input_raw)
     last_summary_state_str = ""
     temporalio.activity.heartbeat()
     last_heartbeat_timestamp = time.time()
@@ -356,7 +409,6 @@ def _prepare_execution(
     shared_id = session_id
     # Prepare the input data
     redis_key_base = f"session-summary:single:{user_id}-{team.id}:{shared_id}"
-    # TODO: Write sync state client to use outside of asyncio
     redis_client = get_client()
     redis_input_key = generate_state_key(
         key_base=redis_key_base, label=StateActivitiesEnum.SESSION_DB_DATA, state_id=session_id
@@ -396,7 +448,7 @@ async def execute_summarize_session(
     Start the direct summarization workflow (no streaming) and return the summary.
     Intended to use as a part of other tools or workflows to get more context on summary, so implemented async.
     """
-    _, redis_input_key, redis_output_key, session_input, workflow_id = _prepare_execution(
+    _, _, redis_output_key, session_input, workflow_id = _prepare_execution(
         session_id=session_id,
         user_id=user_id,
         team=team,
@@ -405,7 +457,6 @@ async def execute_summarize_session(
         extra_summary_context=extra_summary_context,
         local_reads_prod=local_reads_prod,
     )
-    # Using async client to avoid blocking
     redis_client = get_async_client()
     # Wait for the workflow to complete
     await _execute_single_session_summary_workflow(inputs=session_input, workflow_id=workflow_id)

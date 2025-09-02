@@ -5,11 +5,7 @@ This module provides common setup and utilities specifically for testing
 event-based revenue analytics view sources.
 """
 
-from posthog.schema import (
-    CurrencyCode,
-    RevenueAnalyticsEventItem,
-    RevenueCurrencyPropertyConfig,
-)
+from posthog.schema import CurrencyCode, RevenueAnalyticsEventItem, RevenueCurrencyPropertyConfig
 
 from products.revenue_analytics.backend.views.sources.test.base import RevenueAnalyticsViewSourceBaseTest
 

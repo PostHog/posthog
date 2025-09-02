@@ -1,12 +1,12 @@
 import json
-import structlog
-from django_filters.rest_framework import DjangoFilterBackend
-from django_filters import BaseInFilter, CharFilter, FilterSet
+
 from django.db.models import QuerySet
+
+import structlog
+from django_filters import BaseInFilter, CharFilter, FilterSet
+from django_filters.rest_framework import DjangoFilterBackend
 from loginas.utils import is_impersonated_session
-
-
-from rest_framework import serializers, viewsets, exceptions
+from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -17,12 +17,10 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.cdp.validation import HogFunctionFiltersSerializer, InputsSchemaItemSerializer, InputsSerializer
-
-from posthog.models.activity_logging.activity_log import log_activity, changes_between, Detail
+from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.hog_flow.hog_flow import HogFlow
 from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.plugins.plugin_server_api import create_hog_flow_invocation_test
-
 
 logger = structlog.get_logger(__name__)
 

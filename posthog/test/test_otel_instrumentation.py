@@ -1,11 +1,11 @@
 # posthog/test/test_otel_instrumentation.py
-from unittest import mock
-import logging
 import os
+import logging
 
-
-from posthog.otel_instrumentation import initialize_otel, _otel_django_request_hook, _otel_django_response_hook
 from posthog.test.base import BaseTest
+from unittest import mock
+
+from posthog.otel_instrumentation import _otel_django_request_hook, _otel_django_response_hook, initialize_otel
 
 
 class TestOtelInstrumentation(BaseTest):

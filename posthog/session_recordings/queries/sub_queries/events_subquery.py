@@ -1,15 +1,14 @@
 from datetime import datetime, timedelta
 from typing import Optional
 
+from posthog.schema import HogQLQueryModifiers, RecordingsQuery
+
 from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import legacy_entity_to_node, MathAvailability
-from posthog.models import Team, Entity
-from posthog.schema import (
-    RecordingsQuery,
-    HogQLQueryModifiers,
-)
+
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import MathAvailability, legacy_entity_to_node
+from posthog.models import Entity, Team
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.utils import (
     INVERSE_OPERATOR_FOR,

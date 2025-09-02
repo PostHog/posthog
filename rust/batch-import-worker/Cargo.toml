@@ -22,6 +22,7 @@ common-alloc = { path = "../common/alloc" }
 common-types = { path = "../common/types" }
 common-metrics = { path = "../common/metrics" }
 common-dns = { path = "../common/dns" }
+common-redis = { path = "../common/redis" }
 health = { path = "../common/health" }
 anyhow = { workspace = true }
 envconfig = { workspace = true }
@@ -43,6 +44,8 @@ zip = "4.0.0"
 flate2.workspace = true
 httpdate = "1"
 metrics = { workspace = true }
+urlencoding = "2.1"
+moka = { workspace = true }
 
 [dev-dependencies]
 httpmock = { workspace = true }

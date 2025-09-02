@@ -2,31 +2,34 @@ import re
 from itertools import product
 from uuid import uuid4
 
-from dateutil.relativedelta import relativedelta
-from django.utils.timezone import now
 from freezegun import freeze_time
-from parameterized import parameterized
-
-from ee.clickhouse.materialized_columns.columns import materialize
-from posthog.clickhouse.client import sync_execute
-from posthog.hogql.ast import CompareOperation, And, SelectQuery
-from posthog.hogql.base import Expr
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.printer import print_ast
-from posthog.models import Person
-from posthog.schema import PersonsOnEventsMode, RecordingsQuery
-from posthog.session_recordings.queries.session_recording_list_from_query import (
-    SessionRecordingListFromQuery,
-)
-from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
-from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     QueryMatchingTest,
-    snapshot_clickhouse_queries,
     _create_event,
+    snapshot_clickhouse_queries,
 )
+
+from django.utils.timezone import now
+
+from dateutil.relativedelta import relativedelta
+from parameterized import parameterized
+
+from posthog.schema import PersonsOnEventsMode, RecordingsQuery
+
+from posthog.hogql.ast import And, CompareOperation, SelectQuery
+from posthog.hogql.base import Expr
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.printer import print_ast
+
+from posthog.clickhouse.client import sync_execute
+from posthog.models import Person
+from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
+
+from ee.clickhouse.materialized_columns.columns import materialize
 
 
 # The HogQL pair of TestClickhouseSessionRecordingsListFromSessionReplay can be renamed when delete the old one

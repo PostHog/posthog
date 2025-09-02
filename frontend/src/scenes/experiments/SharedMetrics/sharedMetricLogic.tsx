@@ -79,8 +79,15 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
          */
         loadSharedMetricSuccess: () => {
             if (props.action === 'duplicate' && values.sharedMetric) {
+                // Generate a new UUID for the duplicated metric's query
+                const duplicatedQuery = {
+                    ...values.sharedMetric.query,
+                    uuid: crypto.randomUUID(),
+                }
+
                 actions.setSharedMetric({
                     ...values.sharedMetric,
+                    query: duplicatedQuery,
                     name: `${values.sharedMetric.name} (duplicate)`,
                     id: undefined,
                 })

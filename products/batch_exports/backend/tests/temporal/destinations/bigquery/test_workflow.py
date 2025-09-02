@@ -8,14 +8,16 @@ NOTE: Once all batch exports have been moved to use the internal stage, the
 `use_internal_stage` parameter can be dropped with only the `True` case remaining.
 """
 
+import uuid
 import asyncio
 import datetime as dt
-import unittest.mock
-import uuid
 
 import pytest
-import pytest_asyncio
+import unittest.mock
+
 from django.test import override_settings
+
+import pytest_asyncio
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
@@ -29,33 +31,23 @@ from posthog.batch_exports.service import (
     BigQueryBatchExportInputs,
 )
 from posthog.constants import BATCH_EXPORTS_TASK_QUEUE
-from posthog.temporal.tests.utils.models import (
-    acreate_batch_export,
-    adelete_batch_export,
-    afetch_batch_export_runs,
-)
-from products.batch_exports.backend.temporal.batch_exports import (
-    finish_batch_export_run,
-    start_batch_export_run,
-)
+from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
+
+from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
     BigQueryBatchExportWorkflow,
     BigQueryInsertInputs,
     insert_into_bigquery_activity,
     insert_into_bigquery_activity_from_stage,
 )
-from products.batch_exports.backend.temporal.pipeline.internal_stage import (
-    insert_into_internal_stage_activity,
-)
+from products.batch_exports.backend.temporal.pipeline.internal_stage import insert_into_internal_stage_activity
 from products.batch_exports.backend.tests.temporal.destinations.bigquery.utils import (
     SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS,
     TEST_MODELS,
     TEST_TIME,
     assert_clickhouse_records_in_bigquery,
 )
-from products.batch_exports.backend.tests.temporal.utils import (
-    mocked_start_batch_export_run,
-)
+from products.batch_exports.backend.tests.temporal.utils import mocked_start_batch_export_run
 
 pytestmark = [
     SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS,

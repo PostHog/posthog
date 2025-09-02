@@ -1,9 +1,11 @@
 import secrets
-from typing import cast
 from datetime import timedelta
-from django.utils import timezone
+from typing import cast
+
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
+
 import structlog
 
 from posthog.models.insight import Insight

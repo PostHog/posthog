@@ -1,13 +1,12 @@
+from enum import Enum
+from typing import Self
+
 from django.db import models
 
-from posthog.models.utils import UUIDTModel
-from posthog.models.team import Team
-from posthog.models.activity_logging.model_activity import ModelActivityMixin
-
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
-
-from typing import Self
-from enum import Enum
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.team import Team
+from posthog.models.utils import UUIDTModel
 
 
 class DateRangeExportSource(str, Enum):

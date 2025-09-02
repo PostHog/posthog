@@ -1,21 +1,23 @@
 from datetime import timedelta
 from typing import TYPE_CHECKING, Optional
 
-import structlog
 from django.db import models
 from django.utils import timezone
+
+import structlog
 from rest_framework import exceptions
 
-from ee.models.explicit_team_membership import ExplicitTeamMembership
-from ee.models.rbac.access_control import AccessControl
 from posthog.constants import INVITE_DAYS_VALIDITY
 from posthog.email import is_email_available
-from posthog.helpers.email_utils import EmailValidationHelper, EmailNormalizer
+from posthog.helpers.email_utils import EmailNormalizer, EmailValidationHelper
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.utils import UUIDTModel, sane_repr
 from posthog.utils import absolute_uri
+
+from ee.models.explicit_team_membership import ExplicitTeamMembership
+from ee.models.rbac.access_control import AccessControl
 
 if TYPE_CHECKING:
     from posthog.models import User
@@ -177,8 +179,8 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
         return self.created_at < timezone.now() - timedelta(INVITE_DAYS_VALIDITY)
 
     def delete(self, *args, **kwargs):
-        from posthog.models.signals import model_activity_signal
         from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
+        from posthog.models.signals import model_activity_signal
 
         model_activity_signal.send(
             sender=self.__class__,

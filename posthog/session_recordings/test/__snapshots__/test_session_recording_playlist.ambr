@@ -969,6 +969,7 @@
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
          "posthog_sessionrecording"."storage_version",
+         "posthog_sessionrecording"."retention_period_days",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",

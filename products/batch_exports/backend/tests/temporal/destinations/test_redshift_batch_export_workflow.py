@@ -1,20 +1,22 @@
-import ast
-import collections.abc
-import dataclasses
-import datetime as dt
-import json
-import operator
 import os
-import unittest.mock
+import ast
+import json
 import uuid
+import datetime as dt
+import operator
 import warnings
+import dataclasses
+import collections.abc
 
-import psycopg
 import pytest
-import pytest_asyncio
-import temporalio.common
+import unittest.mock
+
 from django.conf import settings
 from django.test import override_settings
+
+import psycopg
+import pytest_asyncio
+import temporalio.common
 from psycopg import sql
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
@@ -23,26 +25,16 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog import constants
-from posthog.batch_exports.service import (
-    BackfillDetails,
-    BatchExportModel,
-    BatchExportSchema,
-)
+from posthog.batch_exports.service import BackfillDetails, BatchExportModel, BatchExportSchema
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
-from posthog.temporal.tests.utils.models import (
-    acreate_batch_export,
-    adelete_batch_export,
-    afetch_batch_export_runs,
-)
+from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
 from posthog.temporal.tests.utils.persons import (
     generate_test_person_distinct_id2_in_clickhouse,
     generate_test_persons_in_clickhouse,
 )
-from products.batch_exports.backend.temporal.batch_exports import (
-    finish_batch_export_run,
-    start_batch_export_run,
-)
+
+from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.destinations.redshift_batch_export import (
     RedshiftBatchExportInputs,
     RedshiftBatchExportWorkflow,
@@ -52,14 +44,8 @@ from products.batch_exports.backend.temporal.destinations.redshift_batch_export 
     redshift_default_fields,
 )
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
-from products.batch_exports.backend.temporal.spmc import (
-    Producer,
-    RecordBatchQueue,
-    RecordBatchTaskError,
-)
-from products.batch_exports.backend.temporal.temporary_file import (
-    remove_escaped_whitespace_recursive,
-)
+from products.batch_exports.backend.temporal.spmc import Producer, RecordBatchQueue, RecordBatchTaskError
+from products.batch_exports.backend.temporal.temporary_file import remove_escaped_whitespace_recursive
 from products.batch_exports.backend.tests.temporal.utils import (
     FlakyClickHouseClient,
     get_record_batch_from_queue,

@@ -1,25 +1,23 @@
-from typing import cast
 from collections.abc import Iterable
+from typing import cast
 
 from posthog.hogql import ast
+from posthog.hogql.database.schema.exchange_rate import EXCHANGE_RATE_DECIMAL_PRECISION, convert_currency_call
+
 from posthog.temporal.data_imports.sources.stripe.constants import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
 )
 from posthog.warehouse.models.table import DataWarehouseTable
-from posthog.hogql.database.schema.exchange_rate import (
-    EXCHANGE_RATE_DECIMAL_PRECISION,
-    convert_currency_call,
-)
-from products.revenue_analytics.backend.views.sources.helpers import (
-    is_zero_decimal_in_stripe,
-    currency_aware_divider,
-    currency_aware_amount,
-    extract_json_string,
-    extract_json_uint,
-)
 
 from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHandle, view_prefix_for_source
+from products.revenue_analytics.backend.views.sources.helpers import (
+    currency_aware_amount,
+    currency_aware_divider,
+    extract_json_string,
+    extract_json_uint,
+    is_zero_decimal_in_stripe,
+)
 
 AVERAGE_DAYS_PER_MONTH = 30.44
 AVERAGE_DAYS_PER_MONTH_AST_CONSTANT = ast.Constant(value=AVERAGE_DAYS_PER_MONTH)
@@ -189,6 +187,11 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
                 ),
                 ast.Alias(alias="product_id", expr=ast.Field(chain=["product_id"])),
                 ast.Alias(alias="customer_id", expr=ast.Field(chain=["customer_id"])),
+                ast.Alias(alias="group_0_key", expr=ast.Constant(value=None)),
+                ast.Alias(alias="group_1_key", expr=ast.Constant(value=None)),
+                ast.Alias(alias="group_2_key", expr=ast.Constant(value=None)),
+                ast.Alias(alias="group_3_key", expr=ast.Constant(value=None)),
+                ast.Alias(alias="group_4_key", expr=ast.Constant(value=None)),
                 ast.Alias(alias="invoice_id", expr=ast.Field(chain=["invoice", "id"])),
                 ast.Alias(alias="subscription_id", expr=ast.Field(chain=["subscription_id"])),
                 ast.Alias(alias="session_id", expr=ast.Constant(value=None)),
@@ -360,6 +363,11 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
                 ast.Alias(alias="is_recurring", expr=ast.Constant(value=False)),
                 ast.Alias(alias="product_id", expr=ast.Constant(value=None)),
                 ast.Alias(alias="customer_id", expr=ast.Field(chain=["customer_id"])),
+                ast.Alias(alias="group_0_key", expr=ast.Constant(value=None)),
+                ast.Alias(alias="group_1_key", expr=ast.Constant(value=None)),
+                ast.Alias(alias="group_2_key", expr=ast.Constant(value=None)),
+                ast.Alias(alias="group_3_key", expr=ast.Constant(value=None)),
+                ast.Alias(alias="group_4_key", expr=ast.Constant(value=None)),
                 ast.Alias(alias="invoice_id", expr=ast.Field(chain=["invoice_id"])),  # Will be empty
                 ast.Alias(alias="subscription_id", expr=ast.Constant(value=None)),
                 ast.Alias(alias="session_id", expr=ast.Constant(value=None)),

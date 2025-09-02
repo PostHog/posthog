@@ -973,9 +973,9 @@ const destinationDefinitions: DestinationConfig[] = [
 
     // Productivity
     {
-        name: 'ClickUp',
-        id: 'coming-soon-clickup',
-        icon_url: '/static/coming-soon-destinations/ClickUp.svg',
+        name: 'Google Sheets',
+        id: 'coming-soon-google-sheets',
+        icon_url: '/static/coming-soon-destinations/Google_Sheets.svg',
         category: ['Productivity'],
     },
     {

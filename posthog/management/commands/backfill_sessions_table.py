@@ -2,15 +2,16 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Optional
 
-import structlog
 from django.core.management.base import BaseCommand
+
+import structlog
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models.property.util import get_property_string_expr
-from datetime import datetime, timedelta
 
 logger = structlog.get_logger(__name__)
 

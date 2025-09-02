@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import pyarrow as pa
 import pytest
+
+import pyarrow as pa
 
 from posthog.temporal.data_imports.sources.common.sql import Column, Table, TableReference
 

@@ -47,82 +47,84 @@ export function HogFunctionMetrics({ id }: HogFunctionMetricsLogicProps): JSX.El
     })
 
     return (
-        <BindLogic logic={hogFunctionMetricsLogic} props={{ id }}>
-            <div className="deprecated-space-y-4">
-                <AppMetricsTotals />
+        <>
+            <BindLogic logic={hogFunctionMetricsLogic} props={{ id }}>
+                <div className="deprecated-space-y-4">
+                    <AppMetricsTotals />
 
-                <div className="flex gap-2 items-center">
-                    <h2 className="mb-0">Delivery trends</h2>
-                    <div className="flex-1" />
-                    <LemonDropdown
-                        closeOnClickInside={false}
-                        matchWidth={false}
-                        placement="right-end"
-                        overlay={
-                            <div className="overflow-hidden deprecated-space-y-2 max-w-100">
-                                {ALL_METRIC_TYPES.filter(
-                                    ({ value }) =>
-                                        (value !== 'fetch' || type !== 'transformation') &&
-                                        (value !== 'dropped' || type === 'transformation')
-                                ).map(({ label, value }) => {
-                                    return (
-                                        <LemonButton
-                                            key={value}
-                                            fullWidth
-                                            icon={
-                                                <LemonCheckbox
-                                                    checked={filters?.name?.split(',').includes(value)}
-                                                    className="pointer-events-none"
-                                                />
-                                            }
-                                            onClick={() => {
-                                                setFilters({
-                                                    name: filters?.name?.split(',').includes(value)
-                                                        ? filters.name
-                                                              .split(',')
-                                                              .filter((t) => t != value)
-                                                              .join(',')
-                                                        : filters.name + ',' + value,
-                                                })
-                                            }}
-                                        >
-                                            {label}
-                                        </LemonButton>
-                                    )
-                                })}
-                            </div>
-                        }
-                    >
-                        <LemonButton size="small" type="secondary">
-                            Filters
-                        </LemonButton>
-                    </LemonDropdown>
-                    <LemonSelect
-                        options={[
-                            { label: 'Hourly', value: 'hour' },
-                            { label: 'Daily', value: 'day' },
-                            { label: 'Weekly', value: 'week' },
-                        ]}
-                        size="small"
-                        value={filters.interval}
-                        onChange={(value) => setFilters({ interval: value })}
-                    />
-                    <DateFilter
-                        dateTo={filters.before}
-                        dateFrom={filters.after}
-                        onChange={(from, to) => setFilters({ after: from || undefined, before: to || undefined })}
-                        allowedRollingDateOptions={['days', 'weeks', 'months', 'years']}
-                        makeLabel={(key) => (
-                            <>
-                                <IconCalendar /> {key}
-                            </>
-                        )}
-                    />
+                    <div className="flex gap-2 items-center">
+                        <h2 className="mb-0">Delivery trends</h2>
+                        <div className="flex-1" />
+                        <LemonDropdown
+                            closeOnClickInside={false}
+                            matchWidth={false}
+                            placement="right-end"
+                            overlay={
+                                <div className="overflow-hidden deprecated-space-y-2 max-w-100">
+                                    {ALL_METRIC_TYPES.filter(
+                                        ({ value }) =>
+                                            (value !== 'fetch' || type !== 'transformation') &&
+                                            (value !== 'dropped' || type === 'transformation')
+                                    ).map(({ label, value }) => {
+                                        return (
+                                            <LemonButton
+                                                key={value}
+                                                fullWidth
+                                                icon={
+                                                    <LemonCheckbox
+                                                        checked={filters?.name?.split(',').includes(value)}
+                                                        className="pointer-events-none"
+                                                    />
+                                                }
+                                                onClick={() => {
+                                                    setFilters({
+                                                        name: filters?.name?.split(',').includes(value)
+                                                            ? filters.name
+                                                                  .split(',')
+                                                                  .filter((t) => t != value)
+                                                                  .join(',')
+                                                            : filters.name + ',' + value,
+                                                    })
+                                                }}
+                                            >
+                                                {label}
+                                            </LemonButton>
+                                        )
+                                    })}
+                                </div>
+                            }
+                        >
+                            <LemonButton size="small" type="secondary">
+                                Filters
+                            </LemonButton>
+                        </LemonDropdown>
+                        <LemonSelect
+                            options={[
+                                { label: 'Hourly', value: 'hour' },
+                                { label: 'Daily', value: 'day' },
+                                { label: 'Weekly', value: 'week' },
+                            ]}
+                            size="small"
+                            value={filters.interval}
+                            onChange={(value) => setFilters({ interval: value })}
+                        />
+                        <DateFilter
+                            dateTo={filters.before}
+                            dateFrom={filters.after}
+                            onChange={(from, to) => setFilters({ after: from || undefined, before: to || undefined })}
+                            allowedRollingDateOptions={['days', 'weeks', 'months', 'years']}
+                            makeLabel={(key) => (
+                                <>
+                                    <IconCalendar /> {key}
+                                </>
+                            )}
+                        />
+                    </div>
+
+                    <AppMetricsGraph />
                 </div>
-
-                <AppMetricsGraph />
-            </div>
-        </BindLogic>
+            </BindLogic>
+        </>
     )
 }
 

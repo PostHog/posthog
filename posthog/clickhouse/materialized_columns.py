@@ -4,7 +4,6 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
 from posthog.settings import EE_AVAILABLE
 
-
 ColumnName = str
 TablesWithMaterializedColumns = TableWithProperties
 

@@ -1,6 +1,8 @@
-from posthog.models.batch_imports import BatchImport, ContentType, BatchImportConfigBuilder
-from posthog.test.base import APIBaseTest, BaseTest
 from datetime import datetime, timedelta
+
+from posthog.test.base import APIBaseTest, BaseTest
+
+from posthog.models.batch_imports import BatchImport, BatchImportConfigBuilder, ContentType
 
 
 class TestBatchImportModel(BaseTest):
@@ -144,7 +146,7 @@ class TestBatchImportAPI(APIBaseTest):
 
     def test_can_create_import_when_other_team_has_running_import(self):
         """Test that creating a new batch import succeeds when another team has a running import"""
-        from posthog.models import Team, Organization
+        from posthog.models import Organization, Team
 
         other_org = Organization.objects.create(name="Other Org")
         other_team = Team.objects.create(organization=other_org, name="Other Team")

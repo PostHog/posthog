@@ -11,8 +11,11 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info, warn};
 
+use crate::checkpoint_manager::CheckpointManager;
 use crate::kafka::message::{AckableMessage, MessageProcessor};
+use crate::kafka::types::Partition;
 use crate::rocksdb::deduplication_store::{DeduplicationStore, DeduplicationStoreConfig};
+use tokio::sync::Mutex as TokioMutex;
 
 /// Context for a Kafka message being processed
 struct MessageContext<'a> {
@@ -29,6 +32,7 @@ pub struct DeduplicationConfig {
     pub producer_config: ClientConfig,
     pub store_config: DeduplicationStoreConfig,
     pub producer_send_timeout: Duration,
+    pub flush_interval: Duration,
 }
 
 /// Processor that handles deduplication of events using per-partition stores
@@ -42,12 +46,15 @@ pub struct DeduplicationProcessor {
 
     /// Per-partition deduplication stores using DashMap for better concurrent performance
     /// Key: (topic, partition)
-    stores: Arc<DashMap<(String, i32), Arc<DeduplicationStore>>>,
+    stores: Arc<DashMap<Partition, DeduplicationStore>>,
+
+    /// Checkpoint manager for periodic flushing and checkpointing
+    checkpoint_manager: Arc<TokioMutex<CheckpointManager>>,
 }
 
 impl DeduplicationProcessor {
     /// Create a new deduplication processor
-    pub fn new(config: DeduplicationConfig) -> Result<Self> {
+    pub fn new(config: DeduplicationConfig) -> Result<Arc<Self>> {
         let producer: Option<FutureProducer> = match &config.output_topic {
             Some(topic) => Some(config.producer_config.create().with_context(|| {
                 format!("Failed to create Kafka producer for output topic '{topic}'")
@@ -55,25 +62,34 @@ impl DeduplicationProcessor {
             None => None,
         };
 
-        Ok(Self {
+        let stores = Arc::new(DashMap::new());
+
+        // Create checkpoint manager with the stores
+        let mut checkpoint_manager = CheckpointManager::new(stores.clone(), config.flush_interval);
+
+        // Start the periodic flush task
+        checkpoint_manager.start();
+        info!(
+            "Started checkpoint manager with flush interval: {:?}",
+            config.flush_interval
+        );
+
+        Ok(Arc::new(Self {
             config,
             producer,
-            stores: Arc::new(DashMap::new()),
-        })
+            stores,
+            checkpoint_manager: Arc::new(TokioMutex::new(checkpoint_manager)),
+        }))
     }
 
     /// Get or create a deduplication store for a specific partition
-    async fn get_or_create_store(
-        &self,
-        topic: &str,
-        partition: i32,
-    ) -> Result<Arc<DeduplicationStore>> {
-        let partition_key = (topic.to_string(), partition);
+    async fn get_or_create_store(&self, topic: &str, partition: i32) -> Result<DeduplicationStore> {
+        let partition_key = Partition::new(topic.to_string(), partition);
 
         // Use DashMap's entry API for atomic get-or-create operation
         let store = self
             .stores
-            .entry(partition_key.clone())
+            .entry(partition_key)
             .or_try_insert_with(|| {
                 // Create new store for this partition
                 let store_path = format!(
@@ -94,7 +110,6 @@ impl DeduplicationProcessor {
 
                 DeduplicationStore::new(partition_config, topic.to_string(), partition)
                     .with_context(|| format!("Failed to create deduplication store for {topic}:{partition} at path {store_path_str}"))
-                    .map(Arc::new)
             })?
             .clone();
 
@@ -209,7 +224,7 @@ impl MessageProcessor for DeduplicationProcessor {
         let partition = message.kafka_message().partition();
         let offset = message.kafka_message().offset();
 
-        debug!(
+        info!(
             "Processing message from topic {} partition {} offset {}",
             topic, partition, offset
         );
@@ -344,17 +359,27 @@ impl DeduplicationProcessor {
     }
 
     /// Clean up stores for revoked partitions
-    pub async fn cleanup_stores(&self, revoked_partitions: &[(String, i32)]) {
-        for (topic, partition) in revoked_partitions {
-            let partition_key = (topic.clone(), *partition);
-            if let Some(_store) = self.stores.remove(&partition_key) {
+    pub async fn cleanup_stores(&self, revoked_partitions: &[Partition]) {
+        for partition in revoked_partitions {
+            if let Some(_store) = self.stores.remove(partition) {
                 info!(
                     "Cleaned up deduplication store for revoked partition {}:{}",
-                    topic, partition
+                    partition.topic(),
+                    partition.partition_number()
                 );
                 // Store will be dropped when Arc goes out of scope
             }
         }
+    }
+
+    /// Stop the checkpoint manager (called during shutdown)
+    pub async fn shutdown(&self) {
+        info!("Shutting down deduplication processor");
+
+        let mut manager = self.checkpoint_manager.lock().await;
+        manager.stop().await;
+
+        info!("Deduplication processor shut down");
     }
 }
 
@@ -382,6 +407,7 @@ mod tests {
             producer_config,
             store_config,
             producer_send_timeout: Duration::from_secs(5),
+            flush_interval: Duration::from_secs(120),
         };
 
         (config, temp_dir)
@@ -416,15 +442,15 @@ mod tests {
 
         // We can't easily test the full processor without Kafka running,
         // but we can test the store management logic separately
-        let stores: Arc<DashMap<(String, i32), Arc<DeduplicationStore>>> = Arc::new(DashMap::new());
+        let stores: Arc<DashMap<Partition, DeduplicationStore>> = Arc::new(DashMap::new());
 
         // Test that stores map starts empty
         assert_eq!(stores.len(), 0);
 
         // Test cleanup with empty stores
-        let revoked = vec![("test-topic".to_string(), 0)];
-        for (topic, partition) in &revoked {
-            stores.remove(&(topic.clone(), *partition));
+        let revoked = vec![Partition::new("test-topic".to_string(), 0)];
+        for partition in &revoked {
+            stores.remove(partition);
         }
 
         assert_eq!(stores.len(), 0);

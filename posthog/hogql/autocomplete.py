@@ -1,11 +1,21 @@
 import json
+from collections.abc import Callable
 from copy import deepcopy
 from typing import Optional, cast
-from collections.abc import Callable
 
+from django.db import models
 from django.db.models.functions.comparison import Coalesce
 
-from posthog.exceptions_capture import capture_exception
+from posthog.schema import (
+    AutocompleteCompletionItem,
+    AutocompleteCompletionItemKind,
+    HogLanguage,
+    HogQLAutocomplete,
+    HogQLAutocompleteResponse,
+)
+
+from posthog.hogql import ast
+from posthog.hogql.base import AST, CTE, ConstantType
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import HOGQL_CHARACTERS_TO_BE_WRAPPED, Database, create_hogql_database
 from posthog.hogql.database.models import (
@@ -25,27 +35,20 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES
-from posthog.hogql.parser import parse_select, parse_expr, parse_string_template, parse_program
-from posthog.hogql import ast
-from posthog.hogql.base import AST, CTE, ConstantType
+from posthog.hogql.parser import parse_expr, parse_program, parse_select, parse_string_template
 from posthog.hogql.resolver import resolve_types, resolve_types_from_table
+from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
+
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import get_query_runner
-from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.property_definition import PropertyDefinition
 from posthog.models.team.team import Team
-from posthog.schema import (
-    HogQLAutocomplete,
-    HogQLAutocompleteResponse,
-    AutocompleteCompletionItem,
-    AutocompleteCompletionItemKind,
-    HogLanguage,
-)
+
 from common.hogvm.python.stl import STL
 from common.hogvm.python.stl.bytecode import BYTECODE_STL
-from django.db import models
 
 ALL_HOG_FUNCTIONS = sorted(list(STL.keys()) + list(BYTECODE_STL.keys()))
 MATCH_ANY_CHARACTER = "$$_POSTHOG_ANY_$$"

@@ -1,10 +1,10 @@
 from typing import Any
+
+from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest import mock
 
 from parameterized import parameterized
 from rest_framework import status
-
-from posthog.test.base import APIBaseTest, QueryMatchingTest
 
 
 class TestComments(APIBaseTest, QueryMatchingTest):

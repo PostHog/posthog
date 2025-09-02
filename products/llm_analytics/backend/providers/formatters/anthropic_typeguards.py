@@ -1,10 +1,11 @@
 from typing import Any, TypeGuard
+
 from anthropic.types import (
-    TextBlockParam,
+    Base64ImageSourceParam,
     ImageBlockParam,
+    TextBlockParam,
     ToolResultBlockParam,
     ToolUseBlockParam,
-    Base64ImageSourceParam,
     URLImageSourceParam,
 )
 

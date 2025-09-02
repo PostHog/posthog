@@ -1,24 +1,26 @@
-import unittest
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 
-from posthog.clickhouse.client import sync_execute
+import unittest
+from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, QueryMatchingTest, snapshot_clickhouse_queries
+
+from parameterized import parameterized
+
+from posthog.schema import BaseMathType, DateRange, EventsNode, HogQLQueryModifiers, TrendsQuery
+
 from posthog.hogql.ast import SelectQuery
-from posthog.hogql.database.schema.web_analytics_preaggregated import (
-    WebStatsCombinedTable,
-)
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.schema.web_analytics_preaggregated import WebStatsCombinedTable
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.transforms.preaggregated_table_transformation import do_preaggregated_table_transforms
-from posthog.hogql.context import HogQLContext
+
+from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
-from posthog.schema import TrendsQuery, DateRange, HogQLQueryModifiers, EventsNode, BaseMathType
-from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, BaseTest, QueryMatchingTest, snapshot_clickhouse_queries
-from parameterized import parameterized
 from posthog.hogql_queries.web_analytics.pre_aggregated.properties import (
     EVENT_PROPERTY_TO_FIELD,
     SESSION_PROPERTY_TO_FIELD,
 )
+from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 
 class TestPreaggregatedTableTransformation(BaseTest, QueryMatchingTest):
@@ -245,6 +247,9 @@ class TestPreaggregatedTableTransformation(BaseTest, QueryMatchingTest):
 
     def test_all_supported_event_properties_are_in_taxonomy(self):
         for property_name in EVENT_PROPERTY_TO_FIELD.keys():
+            # Skip custom metadata properties that are customer-specific
+            if property_name.startswith("metadata.loggedIn") or property_name.startswith("metadata.backend"):
+                continue
             assert property_name in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].keys()
 
     def test_all_supported_session_properties_are_in_taxonomy(self):
@@ -741,7 +746,35 @@ class TestPreaggregatedTableTransformationIntegration(APIBaseTest, ClickhouseTes
         if not period_bucket:
             period_bucket = f"toStartOfDay(toDateTime('{self.TEST_DATA_DATE.strftime('%Y-%m-%d')}'))"
         sql = f"""
-     INSERT INTO web_stats_daily SELECT
+     INSERT INTO web_stats_daily (
+         period_bucket,
+         team_id,
+         host,
+         device_type,
+         pathname,
+         entry_pathname,
+         end_pathname,
+         browser,
+         os,
+         viewport_width,
+         viewport_height,
+         referring_domain,
+         utm_source,
+         utm_medium,
+         utm_campaign,
+         utm_term,
+         utm_content,
+         country_code,
+         city_name,
+         region_code,
+         region_name,
+         has_gclid,
+         has_gad_source_paid_search,
+         has_fbclid,
+         persons_uniq_state,
+         sessions_uniq_state,
+         pageviews_count_state
+     ) SELECT
          {period_bucket} as period_bucket,
          {self.team.id} as team_id,
          '' as host,

@@ -1,16 +1,18 @@
 from typing import cast
 
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
 from posthog.schema import (
     CachedRevenueAnalyticsTopCustomersQueryResponse,
-    RevenueAnalyticsTopCustomersQueryResponse,
-    RevenueAnalyticsTopCustomersQuery,
     ResolvedDateRangeResponse,
+    RevenueAnalyticsTopCustomersQuery,
+    RevenueAnalyticsTopCustomersQueryResponse,
 )
 
-from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
+
 from products.revenue_analytics.backend.views import RevenueAnalyticsCustomerView, RevenueAnalyticsRevenueItemView
+
+from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
 
 
 class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalyticsTopCustomersQueryResponse]):

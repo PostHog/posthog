@@ -1,6 +1,8 @@
 import { S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
 import { CODES, Message, TopicPartition, TopicPartitionOffset, features, librdkafkaVersion } from 'node-rdkafka'
 
+import { instrumentFn } from '~/common/tracing/tracing-utils'
+
 import { buildIntegerMatcher } from '../../../config/config'
 import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS_V2_TEST } from '../../../config/kafka-topics'
 import { KafkaConsumer } from '../../../kafka/consumer'
@@ -8,15 +10,17 @@ import { KafkaProducerWrapper } from '../../../kafka/producer'
 import {
     PluginServerService,
     PluginsServerConfig,
+    RedisPool,
     SessionRecordingV2MetadataSwitchoverDate,
     ValueMatcher,
 } from '../../../types'
 import { PostgresRouter } from '../../../utils/db/postgres'
+import { createRedisPool } from '../../../utils/db/redis'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
-import { parseSessionRecordingV2MetadataSwitchoverDate, runInstrumentedFunction } from '../../utils'
+import { parseSessionRecordingV2MetadataSwitchoverDate } from '../../utils'
 import {
     KAFKA_CONSUMER_GROUP_ID,
     KAFKA_CONSUMER_GROUP_ID_OVERFLOW,
@@ -26,8 +30,9 @@ import {
 import { KafkaMessageParser } from './kafka/message-parser'
 import { KafkaOffsetManager } from './kafka/offset-manager'
 import { SessionRecordingIngesterMetrics } from './metrics'
+import { RetentionAwareStorage } from './retention/retention-aware-batch-writer'
+import { RetentionService } from './retention/retention-service'
 import { BlackholeSessionBatchFileStorage } from './sessions/blackhole-session-batch-writer'
-import { S3SessionBatchFileStorage } from './sessions/s3-session-batch-writer'
 import { SessionBatchFileStorage } from './sessions/session-batch-file-storage'
 import { SessionBatchManager } from './sessions/session-batch-manager'
 import { SessionBatchRecorder } from './sessions/session-batch-recorder'
@@ -50,6 +55,7 @@ export class SessionRecordingIngester {
     private readonly promiseScheduler: PromiseScheduler
     private readonly sessionBatchManager: SessionBatchManager
     private readonly kafkaParser: KafkaMessageParser
+    private readonly redisPool: RedisPool
     private readonly teamFilter: TeamFilter
     private readonly libVersionMonitor?: LibVersionMonitor
     private readonly fileStorage: SessionBatchFileStorage
@@ -104,13 +110,20 @@ export class SessionRecordingIngester {
         }
 
         this.kafkaParser = new KafkaMessageParser()
-        this.teamFilter = new TeamFilter(new TeamService(postgres))
+
+        this.redisPool = createRedisPool(this.config, 'session-recording')
+
+        const teamService = new TeamService(postgres)
+
+        this.teamFilter = new TeamFilter(teamService)
         if (ingestionWarningProducer) {
             const captureWarning: CaptureIngestionWarningFn = async (teamId, type, details, debounce) => {
                 await captureIngestionWarning(ingestionWarningProducer, teamId, type, details, debounce)
             }
             this.libVersionMonitor = new LibVersionMonitor(captureWarning)
         }
+
+        const retentionService = new RetentionService(this.redisPool, teamService)
 
         const offsetManager = new KafkaOffsetManager(this.commitOffsets.bind(this), this.topic)
         const metadataStore = new SessionMetadataStore(
@@ -123,11 +136,12 @@ export class SessionRecordingIngester {
             { messageLimit: this.config.SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT }
         )
         this.fileStorage = s3Client
-            ? new S3SessionBatchFileStorage(
+            ? new RetentionAwareStorage(
                   s3Client,
                   this.config.SESSION_RECORDING_V2_S3_BUCKET,
                   this.config.SESSION_RECORDING_V2_S3_PREFIX,
-                  this.config.SESSION_RECORDING_V2_S3_TIMEOUT_MS
+                  this.config.SESSION_RECORDING_V2_S3_TIMEOUT_MS,
+                  retentionService
               )
             : new BlackholeSessionBatchFileStorage()
 
@@ -161,11 +175,13 @@ export class SessionRecordingIngester {
             })
         }
 
-        await runInstrumentedFunction({
-            statsKey: `recordingingesterv2.handleEachBatch`,
-            sendException: false,
-            func: async () => this.processBatchMessages(messages),
-        })
+        await instrumentFn(
+            {
+                key: `recordingingesterv2.handleEachBatch`,
+                sendException: false,
+            },
+            async () => this.processBatchMessages(messages)
+        )
     }
 
     private async processBatchMessages(messages: Message[]): Promise<void> {
@@ -178,32 +194,28 @@ export class SessionRecordingIngester {
         SessionRecordingIngesterMetrics.observeKafkaBatchSize(batchSize)
         SessionRecordingIngesterMetrics.observeKafkaBatchSizeKb(batchSizeKb)
 
-        const processedMessages = await runInstrumentedFunction({
-            statsKey: `recordingingesterv2.handleEachBatch.parseBatch`,
-            func: async () => {
-                const parsedMessages = await this.kafkaParser.parseBatch(messages)
-                const messagesWithTeam = await this.teamFilter.filterBatch(parsedMessages)
-                const processedMessages = this.libVersionMonitor
-                    ? await this.libVersionMonitor.processBatch(messagesWithTeam)
-                    : messagesWithTeam
-                return processedMessages
-            },
+        const processedMessages = await instrumentFn(`recordingingesterv2.handleEachBatch.parseBatch`, async () => {
+            const parsedMessages = await this.kafkaParser.parseBatch(messages)
+            const messagesWithTeam = await this.teamFilter.filterBatch(parsedMessages)
+            const processedMessages = this.libVersionMonitor
+                ? await this.libVersionMonitor.processBatch(messagesWithTeam)
+                : messagesWithTeam
+
+            return processedMessages
         })
 
         this.kafkaConsumer.heartbeat()
 
-        await runInstrumentedFunction({
-            statsKey: `recordingingesterv2.handleEachBatch.processMessages`,
-            func: async () => this.processMessages(processedMessages),
-        })
+        await instrumentFn(`recordingingesterv2.handleEachBatch.processMessages`, async () =>
+            this.processMessages(processedMessages)
+        )
 
         this.kafkaConsumer.heartbeat()
 
         if (this.sessionBatchManager.shouldFlush()) {
-            await runInstrumentedFunction({
-                statsKey: `recordingingesterv2.handleEachBatch.flush`,
-                func: async () => this.sessionBatchManager.flush(),
-            })
+            await instrumentFn(`recordingingesterv2.handleEachBatch.flush`, async () =>
+                this.sessionBatchManager.flush()
+            )
         }
     }
 
@@ -335,12 +347,9 @@ export class SessionRecordingIngester {
     }
 
     private async commitOffsets(offsets: TopicPartitionOffset[]): Promise<void> {
-        await runInstrumentedFunction({
-            statsKey: `recordingingesterv2.handleEachBatch.flush.commitOffsets`,
-            func: async () => {
-                this.kafkaConsumer.offsetsStore(offsets)
-                return Promise.resolve()
-            },
+        await instrumentFn(`recordingingesterv2.handleEachBatch.flush.commitOffsets`, () => {
+            this.kafkaConsumer.offsetsStore(offsets)
+            return Promise.resolve()
         })
     }
 }

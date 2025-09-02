@@ -1,9 +1,10 @@
-import datetime as dt
 import json
 import uuid
+import datetime as dt
 from dataclasses import dataclass
 
 import pytest
+
 import pytest_asyncio
 from temporalio import activity, workflow
 from temporalio.client import WorkflowFailureError
@@ -12,19 +13,11 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog import constants
-from posthog.batch_exports.service import (
-    BaseBatchExportInputs,
-    BatchExportInsertInputs,
-    BatchExportModel,
-)
-from posthog.models import (
-    BatchExport,
-    BatchExportDestination,
-)
+from posthog.batch_exports.service import BaseBatchExportInputs, BatchExportInsertInputs, BatchExportModel
+from posthog.models import BatchExport, BatchExportDestination
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.tests.utils.models import (
-    afetch_batch_export_runs,
-)
+from posthog.temporal.tests.utils.models import afetch_batch_export_runs
+
 from products.batch_exports.backend.temporal.batch_exports import (
     StartBatchExportRunInputs,
     finish_batch_export_run,
@@ -32,13 +25,9 @@ from products.batch_exports.backend.temporal.batch_exports import (
     start_batch_export_run,
 )
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
-from products.batch_exports.backend.temporal.pipeline.internal_stage import (
-    insert_into_internal_stage_activity,
-)
+from products.batch_exports.backend.temporal.pipeline.internal_stage import insert_into_internal_stage_activity
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
-from products.batch_exports.backend.temporal.utils import (
-    handle_non_retryable_errors,
-)
+from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 

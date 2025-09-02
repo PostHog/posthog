@@ -6,8 +6,6 @@ from rest_framework import exceptions, mixins, permissions, serializers, viewset
 from posthog.cloud_utils import is_cloud
 from posthog.models.instance_setting import (
     get_instance_setting as get_instance_setting_raw,
-)
-from posthog.models.instance_setting import (
     set_instance_setting as set_instance_setting_raw,
 )
 from posthog.permissions import IsStaffUser
@@ -94,9 +92,7 @@ class InstanceSettingsSerializer(serializers.Serializer):
 
             # TODO: Move to top-level imports once CH is moved out of `ee`
             from posthog.clickhouse.client import sync_execute
-            from posthog.session_recordings.sql.session_recording_event_sql import (
-                UPDATE_RECORDINGS_TABLE_TTL_SQL,
-            )
+            from posthog.session_recordings.sql.session_recording_event_sql import UPDATE_RECORDINGS_TABLE_TTL_SQL
 
             sync_execute(UPDATE_RECORDINGS_TABLE_TTL_SQL(), {"weeks": new_value_parsed})
 
@@ -108,9 +104,7 @@ class InstanceSettingsSerializer(serializers.Serializer):
 
             # TODO: Move to top-level imports once CH is moved out of `ee`
             from posthog.clickhouse.client import sync_execute
-            from posthog.models.performance.sql import (
-                UPDATE_PERFORMANCE_EVENTS_TABLE_TTL_SQL,
-            )
+            from posthog.models.performance.sql import UPDATE_PERFORMANCE_EVENTS_TABLE_TTL_SQL
 
             sync_execute(UPDATE_PERFORMANCE_EVENTS_TABLE_TTL_SQL(), {"weeks": new_value_parsed})
 

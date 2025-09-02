@@ -1,15 +1,17 @@
 from typing import cast
 
 from django.db import IntegrityError
+
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 
-from ee.models.rbac.role import Role, RoleMembership
 from posthog.api.organization_member import OrganizationMemberSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import OrganizationMembership
 from posthog.models.user import User
+
+from ee.models.rbac.role import Role, RoleMembership
 
 
 class RolePermissions(BasePermission):

@@ -968,7 +968,7 @@ export function KeaDevtools({
                 title="Kea Devtools"
                 style={{
                     position: 'fixed',
-                    right: offset,
+                    left: offset,
                     bottom: offset,
                     width: buttonSize,
                     height: buttonSize,

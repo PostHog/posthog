@@ -1,21 +1,23 @@
-from django.db import models, transaction
-from django.contrib.postgres.fields import ArrayField
-from django.conf import settings
-from rest_framework.exceptions import ValidationError
-from django_deprecate_fields import deprecate_field
+from uuid import UUID
 
-from posthog.models.utils import UUIDTModel
-from ee.models.rbac.role import Role
-from posthog.models.team import Team
-from posthog.models.user import User
-from posthog.models.user_group import UserGroup
-from posthog.models.integration import Integration
-from posthog.models.error_tracking.sql import INSERT_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES
-from posthog.storage import object_storage
+from django.conf import settings
+from django.contrib.postgres.fields import ArrayField
+from django.db import models, transaction
+
+from django_deprecate_fields import deprecate_field
+from rest_framework.exceptions import ValidationError
 
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT
-from uuid import UUID
+from posthog.models.error_tracking.sql import INSERT_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES
+from posthog.models.integration import Integration
+from posthog.models.team import Team
+from posthog.models.user import User
+from posthog.models.user_group import UserGroup
+from posthog.models.utils import UUIDTModel
+from posthog.storage import object_storage
+
+from ee.models.rbac.role import Role
 
 
 class ErrorTrackingIssueManager(models.Manager):

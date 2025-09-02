@@ -23,6 +23,8 @@ dependencies = [
     "dagster-cloud==1.10.18",
     "dagster-aws==0.26.18",
     "dagster-celery==0.26.18",
+    "dagster-docker==0.26.18",
+    "dagster-pipes==1.10.18",
     "dagster-postgres==0.26.18",
     "dagster-slack==0.26.18",
     "dagster-webserver==1.10.18",
@@ -160,6 +162,7 @@ dependencies = [
     "django-admin-inline-paginator===0.4.0",
     "fastavro>=1.12.0",
     "pydantic-avro>=0.9.0",
+    "playwright>=1.54.0",
 ]
 
 [dependency-groups]
@@ -168,8 +171,9 @@ dev = [
     "autoevals==0.0.129",
     "black~=23.9.1",
     "boto3-stubs[s3]>=1.34.84",
-    "braintrust==0.2.0",
-    "braintrust-langchain==0.0.2",
+    "braintrust==0.2.4",
+    "braintrust-langchain==0.0.4",
+    "dagster-dg-cli>=1.10.18",
     "datamodel-code-generator==0.28.5",
     "deepdiff>=8.5.0",
     "django-linear-migrations==2.16.*",
@@ -207,7 +211,7 @@ dev = [
     "responses==0.23.1",
     "ruff~=0.8.1",
     "sqlalchemy==2.0.38",
-    "stpyv8==13.1.201.22",
+    "stpyv8==13.1.201.22; sys_platform != 'linux' or (platform_machine != 'aarch64' and platform_machine != 'arm64')",
     "syrupy~=4.6.0",
     "tach~=0.20.0",
     "types-aioboto3[s3]>=14.3.0",
@@ -274,6 +278,7 @@ select = [
     "DJ012",
     "E",
     "F",
+    "I",
     "RUF005",
     "RUF013",
     "RUF015",
@@ -291,44 +296,36 @@ max-complexity = 10
 
 [tool.ruff.lint.isort]
 combine-as-imports = true
-
-[tool.ruff.lint.per-file-ignores]
-"./posthog/queries/column_optimizer/column_optimizer.py" = ["F401"]
-"./posthog/migrations/0027_move_elements_to_group.py" = ["T201"]
-"./posthog/queries/cohort_query.py" = ["F401"]
-"./posthog/client.py" = ["T201"]
-"./posthog/async_migrations/test/test_migrations_not_required.py" = ["T201"]
-"__init__.py" = ["F401"]
-"./posthog/api/capture.py" = ["T201"]
-"./ee/clickhouse/generate_local.py" = ["T201"]
-"./posthog/management/commands/merge_distinct_emails.py" = ["T201"]
-"./posthog/demo/matrix/matrix.py" = ["T201"]
-"./posthog/migrations/0038_migrate_actions_to_precalculate_events.py" = ["T201"]
-"./posthog/settings/overrides.py" = ["T201"]
-"./bin/hobby-ci.py" = ["T201"]
-"./posthog/management/commands/migrate_elementgroup.py" = ["T201"]
-"./posthog/models/plugin.py" = ["T201"]
-"./docker-compose-config.py" = ["T201"]
-"./posthog/management/commands/backfill_persons_and_groups_on_events.py" = [
-    "T201",
+force-wrap-aliases = true
+length-sort-straight = true
+split-on-trailing-comma = false
+section-order = [
+    "future",
+    "standard-library",
+    "testing",
+    "django",
+    "third-party",
+    "posthog.schema",
+    "posthog.hogql",
+    "posthog",
+    "products",
+    "first-party",
+    "local-folder",
 ]
-"./posthog/management/commands/generate_demo_data.py" = ["T201"]
-"./posthog/apps.py" = ["T201"]
-"./posthog/management/commands/partition.py" = ["T201"]
-"./posthog/management/commands/migrate_clickhouse.py" = ["T201"]
-"./posthog/email.py" = ["T201"]
-"./posthog/hogql/grammar/HogQLParser.py" = ["F401", "F841", "E711"]
-"./posthog/celery.py" = ["T201"]
-"./posthog/hogql/grammar/HogQLLexer.py" = ["F401"]
-"./posthog/utils.py" = ["T201"]
-"./posthog/management/commands/sync_feature_flags.py" = ["T201"]
-"./cypress/wait.py" = ["T201"]
-"./posthog/management/commands/notify_helm_install.py" = ["T201", "T203"]
-"./gunicorn.config.py" = ["T201"]
-"./posthog/management/commands/run_async_migrations.py" = ["T201"]
-"./posthog/management/commands/test_migrations_are_safe.py" = ["T201"]
-"./posthog/management/commands/api_keys.py" = ["T201"]
-"./posthog/demo/matrix/manager.py" = ["T201"]
+
+[tool.ruff.lint.isort.sections]
+"django" = ["django"] # Group all Django imports into a separate section.
+"testing" = [ # Group all testing imports into a separate section.
+    "freezegun",
+    "pytest",
+    "unittest",
+    "posthog.test.base",
+]
+# Separate groups for our own stuff
+"posthog.schema" = ["posthog.schema"]
+"posthog.hogql" = ["posthog.hogql"]
+"posthog" = ["posthog"]
+"products" = ["products"]
 
 [tool.dagster]
 python_version = "3.11"

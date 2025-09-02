@@ -1,13 +1,14 @@
-import datetime as dt
 import json
-import typing as t
 import uuid
+import typing as t
+import datetime as dt
 from dataclasses import dataclass
+
+from django.db import connection
 
 import grpc.aio
 import temporalio.common
 from asgiref.sync import sync_to_async
-from django.db import connection
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 

@@ -3,8 +3,14 @@ from decimal import Decimal
 from pathlib import Path
 
 from freezegun import freeze_time
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    snapshot_clickhouse_queries,
+)
 
-from posthog.models.utils import uuid7
 from posthog.schema import (
     CurrencyCode,
     DateRange,
@@ -14,19 +20,15 @@ from posthog.schema import (
     RevenueAnalyticsGrowthRateQueryResponse,
     RevenueAnalyticsPropertyFilter,
 )
+
+from posthog.models.utils import uuid7
 from posthog.temporal.data_imports.sources.stripe.constants import (
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
     PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
 )
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    snapshot_clickhouse_queries,
-)
 from posthog.warehouse.models import ExternalDataSchema
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
+
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_growth_rate_query_runner import (
     RevenueAnalyticsGrowthRateQueryRunner,
 )
@@ -181,38 +183,38 @@ class TestRevenueAnalyticsGrowthRateQueryRunner(ClickhouseTestMixin, APIBaseTest
         self.assertEqual(
             results,
             [
-                (date(2025, 1, 1), Decimal("4399.7680983332"), None, None, None, None),
+                (date(2025, 1, 1), Decimal("650.2098683332"), None, None, None, None),
                 (
                     date(2025, 2, 1),
-                    Decimal("9969.4591383332"),
-                    Decimal("4399.7680983332"),
-                    Decimal("1.2659055921"),
-                    Decimal("1.2659055921"),
-                    Decimal("1.2659055921"),
+                    Decimal("2510.1847083332"),
+                    Decimal("650.2098683332"),
+                    Decimal("2.8605761471"),
+                    Decimal("2.8605761471"),
+                    Decimal("2.8605761471"),
                 ),
                 (
                     date(2025, 3, 1),
-                    Decimal("9492.7415583332"),
-                    Decimal("9969.4591383332"),
-                    Decimal("-0.0478177976"),
-                    Decimal("0.6090438972"),
-                    Decimal("0.6090438972"),
+                    Decimal("2113.2388583332"),
+                    Decimal("2510.1847083332"),
+                    Decimal("-0.15813412"),
+                    Decimal("1.3512210136"),
+                    Decimal("1.3512210136"),
                 ),
                 (
                     date(2025, 4, 1),
-                    Decimal("13348.7630483332"),
-                    Decimal("9492.7415583332"),
-                    Decimal("0.4062073602"),
-                    Decimal("0.5414317182"),
-                    Decimal("0.5414317182"),
+                    Decimal("2418.3065483332"),
+                    Decimal("2113.2388583332"),
+                    Decimal("0.14436025"),
+                    Decimal("0.9489340924"),
+                    Decimal("0.9489340924"),
                 ),
                 (
                     date(2025, 5, 1),
-                    Decimal("8900.0246133332"),
-                    Decimal("13348.7630483332"),
-                    Decimal("-0.3332697133"),
-                    Decimal("0.0083732831"),
-                    Decimal("0.3227563603"),
+                    Decimal("1727.0246133332"),
+                    Decimal("2418.3065483332"),
+                    Decimal("-0.2858537249"),
+                    Decimal("-0.099875865"),
+                    Decimal("0.6402371381"),
                 ),
             ],
         )
@@ -225,14 +227,14 @@ class TestRevenueAnalyticsGrowthRateQueryRunner(ClickhouseTestMixin, APIBaseTest
         self.assertEqual(
             results,
             [
-                (date(2025, 2, 1), Decimal("9969.4591383332"), None, None, None, None),
+                (date(2025, 2, 1), Decimal("2510.1847083332"), None, None, None, None),
                 (
                     date(2025, 3, 1),
-                    Decimal("9492.7415583332"),
-                    Decimal("9969.4591383332"),
-                    Decimal("-0.0478177976"),
-                    Decimal("-0.0478177976"),
-                    Decimal("-0.0478177976"),
+                    Decimal("2113.2388583332"),
+                    Decimal("2510.1847083332"),
+                    Decimal("-0.15813412"),
+                    Decimal("-0.15813412"),
+                    Decimal("-0.15813412"),
                 ),
             ],
         )

@@ -1,10 +1,5 @@
-from posthog.hogql.database.models import (
-    DateDatabaseField,
-    IntegerDatabaseField,
-    FloatDatabaseField,
-)
+from posthog.hogql.database.models import DateDatabaseField, FloatDatabaseField, IntegerDatabaseField, SavedQuery
 from posthog.hogql.database.s3_table import S3Table
-from posthog.hogql.database.models import SavedQuery
 
 
 def create_aapl_stock_s3_table(name="aapl_stock") -> S3Table:

@@ -1,25 +1,41 @@
 import dataclasses
-from typing import Literal, Optional, Any, TypedDict, cast
+from typing import Any, Literal, Optional, TypedDict, cast
 
-from posthog.constants import AUTOCAPTURE_EVENT
-from posthog.hogql.parser import parse_select
-from posthog.hogql.property import property_to_expr
-from posthog.hogql_queries.insights.funnels import FunnelUDF
-from posthog.hogql_queries.insights.funnels.funnel_event_query import FunnelEventQuery
-from posthog.hogql_queries.insights.funnels.funnel_persons import FunnelActors
-from posthog.hogql_queries.insights.funnels.funnel_strict_actors import FunnelStrictActors
-from posthog.hogql_queries.insights.funnels.funnel_unordered_actors import FunnelUnorderedActors
-from posthog.models.action.action import Action
-from posthog.models.element.element import chain_to_elements
-from posthog.models.event.util import ElementSerializer
 from rest_framework.exceptions import ValidationError
+
+from posthog.schema import (
+    ActionsNode,
+    CachedFunnelCorrelationResponse,
+    CorrelationType,
+    EventDefinition,
+    EventOddsRatioSerialized,
+    EventsNode,
+    FunnelCorrelationActorsQuery,
+    FunnelCorrelationQuery,
+    FunnelCorrelationResponse,
+    FunnelCorrelationResult,
+    FunnelCorrelationResultsType,
+    FunnelsActorsQuery,
+    FunnelsQuery,
+    HogQLQueryModifiers,
+    HogQLQueryResponse,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import to_printed_hogql
+from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
+
+from posthog.constants import AUTOCAPTURE_EVENT
+from posthog.hogql_queries.insights.funnels import FunnelUDF
+from posthog.hogql_queries.insights.funnels.funnel_event_query import FunnelEventQuery
+from posthog.hogql_queries.insights.funnels.funnel_persons import FunnelActors
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+from posthog.hogql_queries.insights.funnels.funnel_strict_actors import FunnelStrictActors
+from posthog.hogql_queries.insights.funnels.funnel_unordered_actors import FunnelUnorderedActors
 from posthog.hogql_queries.insights.funnels.utils import (
     funnel_window_interval_unit_to_sql,
     get_funnel_actor_class,
@@ -27,25 +43,11 @@ from posthog.hogql_queries.insights.funnels.utils import (
 )
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import Team
+from posthog.models.action.action import Action
+from posthog.models.element.element import chain_to_elements
+from posthog.models.event.util import ElementSerializer
 from posthog.models.property.util import get_property_string_expr
 from posthog.queries.util import correct_result_for_sampling
-from posthog.schema import (
-    ActionsNode,
-    CorrelationType,
-    EventDefinition,
-    EventsNode,
-    FunnelCorrelationActorsQuery,
-    FunnelCorrelationQuery,
-    FunnelCorrelationResponse,
-    CachedFunnelCorrelationResponse,
-    FunnelCorrelationResult,
-    FunnelCorrelationResultsType,
-    FunnelsActorsQuery,
-    FunnelsQuery,
-    HogQLQueryModifiers,
-    HogQLQueryResponse,
-    EventOddsRatioSerialized,
-)
 
 
 class EventOddsRatio(TypedDict):

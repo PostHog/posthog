@@ -1,12 +1,14 @@
+import re
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Optional
-from collections.abc import Callable, Iterable
+
+from posthog.schema import DatabaseSchemaManagedViewTableKind
 
 from posthog.hogql import ast
+
 from posthog.models.team.team import Team
-from posthog.schema import DatabaseSchemaManagedViewTableKind
 from posthog.warehouse.models.external_data_source import ExternalDataSource
-import re
 
 
 @dataclass
