@@ -4,15 +4,15 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { BatchExportBackfills } from 'scenes/data-pipelines/batch-exports/BatchExportBackfills'
 import { BatchExportRuns } from 'scenes/data-pipelines/batch-exports/BatchExportRuns'
+import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { BatchExportService, Breadcrumb } from '~/types'
 
-import { PipelineNodeLogs } from '../legacy-plugins/PipelineNodeLogs'
-import { PipelineNodeMetrics } from '../legacy-plugins/PipelineNodeMetrics'
 import { BatchExportConfiguration } from './BatchExportConfiguration'
 import type { batchExportSceneLogicType } from './BatchExportSceneType'
+import { BatchExportsMetrics } from './BatchExportsMetrics'
 import { BatchExportConfigurationLogicProps } from './batchExportConfigurationLogic'
 
 const BATCH_EXPORT_SCENE_TABS = ['configuration', 'metrics', 'logs', 'runs', 'backfills'] as const
@@ -112,14 +112,14 @@ export function BatchExportScene(): JSX.Element {
             ? {
                   label: 'Metrics',
                   key: 'metrics',
-                  content: <PipelineNodeMetrics id={id} />,
+                  content: <BatchExportsMetrics id={id} />,
               }
             : null,
         id
             ? {
                   label: 'Logs',
                   key: 'logs',
-                  content: <PipelineNodeLogs id={id} />,
+                  content: <LogsViewer sourceType="batch_export" sourceId={id} instanceLabel="run" />,
               }
             : null,
         id
