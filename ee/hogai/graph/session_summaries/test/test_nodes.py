@@ -14,6 +14,7 @@ from posthog.schema import (
     AssistantToolCallMessage,
     FilterLogicalOperator,
     HumanMessage,
+    MaxInnerUniversalFiltersGroup,
     MaxOuterUniversalFiltersGroup,
     MaxRecordingUniversalFilters,
     RecordingDurationFilter,
@@ -22,7 +23,6 @@ from posthog.schema import (
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
 from posthog.models import SessionRecording
-from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.temporal.ai.session_summary.summarize_session_group import SessionSummaryStreamUpdate
@@ -627,19 +627,71 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
         # Convert custom filters to recordings query
         recordings_query = self.node._convert_current_filters_to_recordings_query(custom_filters)
 
-        query_runner = SessionRecordingListFromQuery(
-            query=recordings_query,
-            team=self.team,
-            hogql_query_modifiers=None,
-        )
-        results = query_runner.run()
+        # Use the node's method to get session IDs
+        session_ids = self.node._get_session_ids_with_filters(recordings_query)
 
         # All 4 sessions should match since they all have:
-        # - $os: "Mac OS X" in events
+        # - $os: "Mac OS X" in person properties
         # - $ai_generation events
         # - active_seconds > 6 (7, 8, 10, 9 seconds respectively)
-        session_ids = [r["session_id"] for r in results.results]
 
+        self.assertEqual(len(session_ids), 4)
+        self.assertIn(self.session_id_1, session_ids)
+        self.assertIn(self.session_id_2, session_ids)
+        self.assertIn(self.session_id_3, session_ids)
+        self.assertIn(self.session_id_4, session_ids)
+
+    def test_use_current_filters_with_date_range(self) -> None:
+        """Test using current filters with specific date range."""
+        # Custom filters with date range that includes our sessions (Aug 28-30)
+        custom_filters = {
+            "date_from": "2025-08-27T00:00:00",
+            "date_to": "2025-08-31T23:59:59",
+            "duration": [{"key": "active_seconds", "operator": "gt", "type": "recording", "value": 4}],
+            "filter_group": {"type": "AND", "values": [{"type": "AND", "values": []}]},
+            "filter_test_accounts": False,
+            "order": "start_time",
+            "order_direction": "DESC",
+        }
+
+        # Convert custom filters to recordings query
+        recordings_query = self.node._convert_current_filters_to_recordings_query(custom_filters)
+
+        # Use the node's method to get session IDs
+        session_ids = self.node._get_session_ids_with_filters(recordings_query)
+
+        # All 4 sessions should match since they all have:
+        # - dates within Aug 27-31 range (sessions are on Aug 28-30)
+        # - active_seconds > 4 (7, 8, 10, 9 seconds respectively)
+        self.assertEqual(len(session_ids), 4)
+        self.assertIn(self.session_id_1, session_ids)
+        self.assertIn(self.session_id_2, session_ids)
+        self.assertIn(self.session_id_3, session_ids)
+        self.assertIn(self.session_id_4, session_ids)
+
+    def test_generate_filters_last_10_days(self) -> None:
+        """Test converting generated filters for 'last 10 days' query."""
+        # Simulate filters that would be generated for "last 10 days"
+        # Since we're frozen at 2025-09-03, last 10 days would be Aug 24 - Sep 3
+        generated_filters = MaxRecordingUniversalFilters(
+            date_from="2025-08-24T00:00:00",
+            date_to="2025-09-03T23:59:59",
+            duration=[RecordingDurationFilter(key="active_seconds", operator="gt", value=5)],
+            filter_group=MaxOuterUniversalFiltersGroup(
+                type=FilterLogicalOperator.AND_,
+                values=[MaxInnerUniversalFiltersGroup(type=FilterLogicalOperator.AND_, values=[])],
+            ),
+        )
+
+        # Convert the generated filters to recordings query using the node's method
+        recordings_query = self.node._convert_max_filters_to_recordings_query(generated_filters)
+
+        # Use the node's method to get session IDs
+        session_ids = self.node._get_session_ids_with_filters(recordings_query)
+
+        # All 4 sessions should match since they all have:
+        # - dates within Aug 24 - Sep 3 range (sessions are on Aug 28-30)
+        # - active_seconds > 5 (7, 8, 10, 9 seconds respectively)
         self.assertEqual(len(session_ids), 4)
         self.assertIn(self.session_id_1, session_ids)
         self.assertIn(self.session_id_2, session_ids)
