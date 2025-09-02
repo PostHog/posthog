@@ -151,8 +151,8 @@ export const billingLogic = kea<billingLogicType>([
         reportBillingShown: true,
         registerInstrumentationProps: true,
         reportCreditsCTAShown: (creditOverview: any) => ({ creditOverview }),
-        setRedirectPath: true,
-        setIsOnboarding: true,
+        setRedirectPath: (redirectPath: string) => ({ redirectPath }),
+        setIsOnboarding: (isOnboarding: boolean) => ({ isOnboarding }),
         determineBillingAlert: true,
         setUnsubscribeError: (error: null | UnsubscribeError) => ({ error }),
         resetUnsubscribeError: true,
@@ -212,17 +212,13 @@ export const billingLogic = kea<billingLogicType>([
         redirectPath: [
             '' as string,
             {
-                setRedirectPath: () => {
-                    return window.location.pathname.includes('/onboarding')
-                        ? window.location.pathname + window.location.search
-                        : ''
-                },
+                setRedirectPath: (_, { redirectPath }) => redirectPath,
             },
         ],
         isOnboarding: [
             false,
             {
-                setIsOnboarding: () => window.location.pathname.includes('/onboarding'),
+                setIsOnboarding: (_, { isOnboarding }) => isOnboarding,
             },
         ],
         unsubscribeError: [
@@ -902,7 +898,7 @@ export const billingLogic = kea<billingLogicType>([
             })
         },
     })),
-    urlToAction(({ actions }) => ({
+    urlToAction(({ actions, values }) => ({
         // IMPORTANT: This needs to be above the "*" so it takes precedence
         '/*/billing': (_params, _search, hash) => {
             if (hash.license) {
@@ -923,12 +919,28 @@ export const billingLogic = kea<billingLogicType>([
                 })
             }
 
-            actions.setRedirectPath()
-            actions.setIsOnboarding()
+            const redirectPath = window.location.pathname.includes('/onboarding')
+                ? window.location.pathname + window.location.search
+                : ''
+            if (values.redirectPath !== redirectPath) {
+                actions.setRedirectPath(redirectPath)
+            }
+            const isOnboarding = window.location.pathname.includes('/onboarding')
+            if (values.isOnboarding !== isOnboarding) {
+                actions.setIsOnboarding(isOnboarding)
+            }
         },
         '*': () => {
-            actions.setRedirectPath()
-            actions.setIsOnboarding()
+            const redirectPath = window.location.pathname.includes('/onboarding')
+                ? window.location.pathname + window.location.search
+                : ''
+            if (values.redirectPath !== redirectPath) {
+                actions.setRedirectPath(redirectPath)
+            }
+            const isOnboarding = window.location.pathname.includes('/onboarding')
+            if (values.isOnboarding !== isOnboarding) {
+                actions.setIsOnboarding(isOnboarding)
+            }
         },
     })),
 ])

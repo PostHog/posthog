@@ -14,6 +14,7 @@ import { CampaignSceneHeader } from './CampaignSceneHeader'
 import { CampaignWorkflow } from './CampaignWorkflow'
 import { campaignLogic } from './campaignLogic'
 import { CampaignSceneLogicProps, CampaignTab, campaignSceneLogic } from './campaignSceneLogic'
+import { renderWorkflowLogMessage } from './logs/log-utils'
 
 export const scene: SceneExport<CampaignSceneLogicProps> = {
     component: CampaignScene,
@@ -25,7 +26,7 @@ export function CampaignScene(props: CampaignSceneLogicProps): JSX.Element {
     const { currentTab } = useValues(campaignSceneLogic)
 
     const logic = campaignLogic(props)
-    const { campaignLoading } = useValues(logic)
+    const { campaignLoading, campaign } = useValues(logic)
 
     if (campaignLoading) {
         return <SpinnerOverlay sceneLevel />
@@ -46,7 +47,14 @@ export function CampaignScene(props: CampaignSceneLogicProps): JSX.Element {
             ? {
                   label: 'Logs',
                   key: 'logs',
-                  content: <LogsViewer sourceType="hog_flow" sourceId={props.id} />,
+                  content: (
+                      <LogsViewer
+                          sourceType="hog_flow"
+                          sourceId={props.id}
+                          instanceLabel="workflow run"
+                          renderMessage={(m) => renderWorkflowLogMessage(campaign, m)}
+                      />
+                  ),
               }
             : null,
         props.id && props.id !== 'new'

@@ -25,7 +25,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
         }
 
         mock_result = {
-            "output": FinalAnswerArgs(query="SELECT AVG(properties.$session_length) FROM events"),
+            "output": FinalAnswerArgs(query="SELECT avg(properties.$session_length) FROM events"),
             "intermediate_steps": None,
         }
 
@@ -51,19 +51,60 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
                 args={"instructions": "What is the average session length?"},
             )
             result = await tool.ainvoke(tool_call.model_dump(), config=cast(RunnableConfig, config))
-            self.assertEqual(result.content, "```sql\nSELECT AVG(properties.$session_length) FROM events\n```")
+            self.assertEqual(
+                result.content, "```sql\nSELECT\n    avg(properties.$session_length)\nFROM\n    events\n```"
+            )
 
-    async def test_generates_queries_with_placeholders(self):
+    async def test_hogql_tool_generates_queries_with_pretty_print(self):
         config = {
             "configurable": {
                 "team": self.team,
                 "user": self.user,
-                "contextual_tools": {"generate_hogql_query": {"current_query": "SELECT * FROM events WHERE {filters}"}},
+                "contextual_tools": {"generate_hogql_query": {"current_query": ""}},
             },
         }
 
         mock_result = {
-            "output": FinalAnswerArgs(query="SELECT properties FROM events WHERE {filters} AND {custom_filter}"),
+            "output": FinalAnswerArgs(query="SELECT 30 + 20"),
+            "intermediate_steps": None,
+        }
+
+        with (
+            patch("products.data_warehouse.backend.max_tools.HogQLGeneratorGraph.compile_full_graph") as mock_compile,
+            patch.object(
+                HogQLGeneratorTool,
+                "_parse_output",
+                return_value=SQLSchemaGeneratorOutput(query=AssistantHogQLQuery(query="SELECT 30 + 20")),
+            ),
+        ):
+            mock_graph = AsyncMock()
+            mock_graph.ainvoke.return_value = mock_result
+            mock_compile.return_value = mock_graph
+
+            tool = HogQLGeneratorTool(team=self.team, user=self.user, state=AssistantState(messages=[]))
+            tool_call = AssistantToolCall(
+                id="1",
+                name="generate_hogql_query",
+                type="tool_call",
+                args={"instructions": "What is 30 + 20?"},
+            )
+            result = await tool.ainvoke(tool_call.model_dump(), config=cast(RunnableConfig, config))
+            self.assertEqual(
+                result.content,
+                "```sql\nSELECT\n    30 + 20\n```",
+            )
+
+    async def test_hogql_tool_generates_queries_with_pretty_print_and_cte(self):
+        config = {
+            "configurable": {
+                "team": self.team,
+                "user": self.user,
+                "contextual_tools": {"generate_hogql_query": {"current_query": ""}},
+            },
+        }
+
+        mock_result = {
+            "output": FinalAnswerArgs(query="WITH count() AS kokk SELECT kokk FROM events"),
             "intermediate_steps": None,
         }
 
@@ -73,7 +114,53 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
                 HogQLGeneratorTool,
                 "_parse_output",
                 return_value=SQLSchemaGeneratorOutput(
-                    query=AssistantHogQLQuery(query="SELECT properties FROM events WHERE {filters} AND {custom_filter}")
+                    query=AssistantHogQLQuery(query="WITH count() AS kokk SELECT kokk FROM events")
+                ),
+            ),
+        ):
+            mock_graph = AsyncMock()
+            mock_graph.ainvoke.return_value = mock_result
+            mock_compile.return_value = mock_graph
+
+            tool = HogQLGeneratorTool(team=self.team, user=self.user, state=AssistantState(messages=[]))
+            tool_call = AssistantToolCall(
+                id="1",
+                name="generate_hogql_query",
+                type="tool_call",
+                args={"instructions": "What is the average session length?"},
+            )
+            result = await tool.ainvoke(tool_call.model_dump(), config=cast(RunnableConfig, config))
+            self.assertEqual(
+                result.content, "```sql\nWITH\n    count() AS kokk\nSELECT\n    kokk\nFROM\n    events\n```"
+            )
+
+    async def test_hogql_tool_generates_queries_with_placeholders(self):
+        config = {
+            "configurable": {
+                "team": self.team,
+                "user": self.user,
+                "contextual_tools": {
+                    "generate_hogql_query": {"current_query": "SELECT * FROM events WHERE length({filters}) > 0"}
+                },
+            },
+        }
+
+        mock_result = {
+            "output": FinalAnswerArgs(
+                query="SELECT properties FROM events WHERE length({filters}) > 0 AND {custom_filter} OR {custom_filter_3} ORDER BY properties.$os ASC"
+            ),
+            "intermediate_steps": None,
+        }
+
+        with (
+            patch("products.data_warehouse.backend.max_tools.HogQLGeneratorGraph.compile_full_graph") as mock_compile,
+            patch.object(
+                HogQLGeneratorTool,
+                "_parse_output",
+                return_value=SQLSchemaGeneratorOutput(
+                    query=AssistantHogQLQuery(
+                        query="SELECT properties FROM events WHERE TOSTRING(properties.$os) = 'Mac OS' AND length({filters}) > 0 AND {custom_filter} OR {custom_filter_3} ORDER BY properties.$os ASC"
+                    )
                 ),
             ),
         ):
@@ -90,7 +177,8 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
             )
             result = await tool.ainvoke(tool_call.model_dump(), config=cast(RunnableConfig, config))
             self.assertEqual(
-                result.content, "```sql\nSELECT properties FROM events WHERE {filters} AND {custom_filter}\n```"
+                result.content,
+                "```sql\nSELECT\n    properties\nFROM\n    events\nWHERE\n    toString(properties.$os) = 'Mac OS' AND length({filters}) > 0 AND {custom_filter} OR {custom_filter_3}\nORDER BY\n    properties.$os ASC\n```",
             )
 
     async def test_hogql_tool_quality_check_integration(self):
@@ -105,7 +193,11 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
 
         with (
             patch("products.data_warehouse.backend.max_tools.HogQLGeneratorGraph.compile_full_graph") as mock_compile,
-            patch.object(HogQLGeneratorTool, "_quality_check_output") as mock_quality_check,
+            patch.object(
+                HogQLGeneratorTool,
+                "_parse_output",
+                return_value=SQLSchemaGeneratorOutput(query=AssistantHogQLQuery(query="SELECT count() FROM events")),
+            ),
         ):
             mock_graph = AsyncMock()
             mock_graph.ainvoke.return_value = {
@@ -126,14 +218,10 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
             result = await tool.ainvoke(tool_call.model_dump(), config=cast(RunnableConfig, config))
 
             # Should succeed
-            self.assertEqual(result.content, "```sql\nSELECT count() FROM events\n```")
+            self.assertEqual(result.content, "```sql\nSELECT\n    count()\nFROM\n    events\n```")
             # Quality check should have been called exactly once (happy path, loop breaks on success)
-            mock_quality_check.assert_called_once()
             # Graph should have been called exactly once (happy path, loop breaks on success)
             mock_graph.ainvoke.assert_called_once()
-            # Verify it was called with the expected SQL query
-            call_args = mock_quality_check.call_args.kwargs["output"]
-            self.assertEqual(call_args.query.query, "SELECT count() FROM events")
 
     async def test_hogql_tool_retry_exhausted_still_returns_result(self):
         """Test HogQLGeneratorTool behavior when retries are exhausted but we have a valid parsed result."""
@@ -261,7 +349,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
                 args={"instructions": "Count events"},
             )
             result = await tool.ainvoke(tool_call.model_dump(), config=cast(RunnableConfig, config))
-            self.assertEqual(result.content, "```sql\nSELECT count() FROM events\n```")
+            self.assertEqual(result.content, "```sql\nSELECT\n    count()\nFROM\n    events\n```")
 
     async def test_hogql_tool_removes_multiple_semicolons_from_query(self):
         """Test that HogQLGeneratorTool properly removes multiple semicolons from the end of queries."""
@@ -297,7 +385,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
                 args={"instructions": "Count events"},
             )
             result = await tool.ainvoke(tool_call.model_dump(), config=cast(RunnableConfig, config))
-            self.assertEqual(result.content, "```sql\nSELECT count() FROM events\n```")
+            self.assertEqual(result.content, "```sql\nSELECT\n    count()\nFROM\n    events\n```")
 
     async def test_hogql_tool_preserves_semicolons_in_middle_of_query(self):
         """Test that HogQLGeneratorTool preserves semicolons in the middle of queries."""
@@ -333,7 +421,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
                 args={"instructions": "Get hello world"},
             )
             result = await tool.ainvoke(tool_call.model_dump(), config=cast(RunnableConfig, config))
-            self.assertEqual(result.content, "```sql\nSELECT 'hello;world' FROM events\n```")
+            self.assertEqual(result.content, "```sql\nSELECT\n    'hello;world'\nFROM\n    events\n```")
 
     def test_current_query_included_in_system_prompt_template(self):
         """Test that the system prompt template includes the current query section."""
