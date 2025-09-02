@@ -37,6 +37,13 @@ class VercelIntegration:
             raise exceptions.NotFound("Resource not found")
 
     @staticmethod
+    def _validate_resource_belongs_to_installation(
+        resource: Integration, installation: OrganizationIntegration
+    ) -> None:
+        if resource.team.organization != installation.organization:
+            raise exceptions.ValidationError({"resource": "Resource does not belong to this installation."})
+
+    @staticmethod
     def get_vercel_plans() -> list[dict[str, Any]]:
         # TODO: Retrieve through billing service instead.
         return [
@@ -267,6 +274,7 @@ class VercelIntegration:
     def get_resource(resource_id: str, installation_id: str) -> dict[str, Any]:
         resource = VercelIntegration._get_resource(resource_id)
         installation = VercelIntegration._get_installation(installation_id)
+        VercelIntegration._validate_resource_belongs_to_installation(resource, installation)
         return VercelIntegration._build_resource_response(resource, installation)
 
     @staticmethod
@@ -274,6 +282,7 @@ class VercelIntegration:
         logger.info("Starting Vercel resource update", resource_id=resource_id, installation_id=installation_id)
         resource = VercelIntegration._get_resource(resource_id)
         installation = VercelIntegration._get_installation(installation_id)
+        VercelIntegration._validate_resource_belongs_to_installation(resource, installation)
 
         updated_config = resource.config.copy()
         updated_config.update(resource_data)
@@ -290,8 +299,7 @@ class VercelIntegration:
 
         if installation_id:
             installation = VercelIntegration._get_installation(installation_id)
-            if resource.team.organization != installation.organization:
-                raise exceptions.ValidationError({"resource": "Resource does not belong to this installation."})
+            VercelIntegration._validate_resource_belongs_to_installation(resource, installation)
 
         resource.delete()
         logger.info("Successfully deleted Vercel resource", resource_id=resource_id)
