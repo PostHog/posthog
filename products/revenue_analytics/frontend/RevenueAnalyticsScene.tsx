@@ -18,6 +18,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { ProductKey } from '~/types'
 
+import { Onboarding } from './Onboarding'
 import { RevenueAnalyticsFilters } from './RevenueAnalyticsFilters'
 import { REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID, revenueAnalyticsLogic } from './revenueAnalyticsLogic'
 import { revenueAnalyticsSettingsLogic } from './settings/revenueAnalyticsSettingsLogic'
@@ -131,7 +132,6 @@ const RevenueAnalyticsSceneContent = (): JSX.Element => {
     }
 
     // Hasn't connected any revenue sources or events yet, so we'll show the onboarding
-
     if (!hasRevenueTables && !hasRevenueEvents) {
         return <Onboarding />
     }
