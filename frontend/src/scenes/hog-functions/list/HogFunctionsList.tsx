@@ -99,9 +99,29 @@ export function HogFunctionList({
                 title: 'Last 7 days',
                 width: 0,
                 render: (_, hogFunction) => {
+                    if (hogFunction.id.startsWith('batch-export-')) {
+                        // TODO: Make this less hacky, maybe with some extended type for managing these values
+                        return (
+                            <Link to={urlForHogFunction(hogFunction) + '?tab=metrics'}>
+                                <AppMetricsSparkline
+                                    logicKey={hogFunction.id.replace('batch-export-', '')}
+                                    forceParams={{
+                                        appSource: 'batch_export',
+                                        appSourceId: hogFunction.id,
+                                        metricKind: ['success', 'failure'],
+                                        breakdownBy: 'metric_kind',
+                                        interval: 'day',
+                                        dateFrom: '-7d',
+                                    }}
+                                />
+                            </Link>
+                        )
+                    }
+
                     if (isManualFunction(hogFunction) || hogFunction.type === 'site_app') {
                         return <>N/A</>
                     }
+
                     return (
                         <Link to={urlForHogFunction(hogFunction) + '?tab=metrics'}>
                             <AppMetricsSparkline
