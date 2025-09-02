@@ -412,10 +412,12 @@ export const sceneLogic = kea<sceneLogicType>([
                 }
 
                 // Check if the current team is unavailable for project-based scenes
+                // Allow settings and danger zone to be opened
                 if (
                     isCurrentTeamUnavailable &&
                     sceneId &&
                     sceneConfigurations[sceneId]?.projectBased &&
+                    !location.pathname.startsWith('/settings') &&
                     location.pathname !== urls.settings('user-danger-zone')
                 ) {
                     return Scene.ErrorProjectUnavailable
@@ -699,7 +701,7 @@ export const sceneLogic = kea<sceneLogicType>([
                             user.organization.membership_level &&
                             user.organization.membership_level >= TeamMembershipLevel.Admin
                         ) {
-                            // Allow org and account settings to be opened, otherwise route to project creation
+                            // Allow settings to be opened, otherwise route to project creation
                             if (
                                 location.pathname !== urls.projectCreateFirst() &&
                                 !location.pathname.startsWith('/settings')

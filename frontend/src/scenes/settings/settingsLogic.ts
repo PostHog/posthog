@@ -87,7 +87,7 @@ export const settingsLogic = kea<settingsLogicType>([
             },
         ],
         sections: [
-            (s) => [s.doesMatchFlags, s.featureFlags, s.isCloudOrDev, teamLogic.selectors.currentTeam],
+            (s) => [s.doesMatchFlags, s.featureFlags, s.isCloudOrDev, s.currentTeam],
             (doesMatchFlags, featureFlags, isCloudOrDev, currentTeam): SettingSection[] => {
                 const sections = SETTINGS_MAP.filter(doesMatchFlags).filter((section) => {
                     if (section.hideSelfHost && !isCloudOrDev) {
@@ -123,7 +123,7 @@ export const settingsLogic = kea<settingsLogicType>([
             },
         ],
         selectedLevel: [
-            (s) => [s.selectedLevelRaw, s.selectedSectionIdRaw, s.featureFlags, teamLogic.selectors.currentTeam],
+            (s) => [s.selectedLevelRaw, s.selectedSectionIdRaw, s.featureFlags, s.currentTeam],
             (selectedLevelRaw, selectedSectionIdRaw, featureFlags, currentTeam): SettingLevelId => {
                 // As of middle of September 2024, `details` and `danger-zone` are the only sections present
                 // at both Environment and Project levels. Others we want to redirect based on the feature flag.
