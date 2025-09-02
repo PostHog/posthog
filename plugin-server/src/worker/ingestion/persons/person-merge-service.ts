@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
-import { Properties } from '@posthog/plugin-scaffold'
+import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 
 import { InternalPerson } from '../../../types'
 import { timeoutGuard } from '../../../utils/db/utils'
@@ -525,6 +525,132 @@ export class PersonMergeService {
             // For now, re-throw other errors to maintain backward compatibility
             throw error
         }
+    }
+
+    /**
+     * Handle identify or alias operations using result types and action-based error handling
+     * This is the new interface that will gradually replace handleIdentifyOrAlias
+     */
+    async handleIdentifyOrAliasWithResult(): Promise<[InternalPerson | undefined, Promise<void>]> {
+        const result = await this.handleIdentifyOrAliasAsResult()
+
+        if (result.success) {
+            return [result.person, result.kafkaAck]
+        }
+
+        // Use the action-based error handling
+        const [person, kafkaAck] = await this.handleMergeResult(result, this.context.event)
+        return [person || undefined, kafkaAck || Promise.resolve()]
+    }
+
+    /**
+     * Internal method that returns result types for identify/alias operations
+     */
+    private async handleIdentifyOrAliasAsResult(): Promise<PersonMergeResult> {
+        // For now, wrap the existing exception-based method and convert to result types
+        try {
+            const [person, kafkaAck] = await this.handleIdentifyOrAlias()
+            if (!person) {
+                // No person returned - this means no merge was needed, which is a success case
+                // We need to get the current person from context or create a placeholder
+                throw new Error('No person returned from handleIdentifyOrAlias - this case needs proper handling')
+            }
+            return createMergeSuccess(person, kafkaAck)
+        } catch (error) {
+            if (error instanceof PersonMergeLimitExceededError) {
+                return createMergeError(error)
+            }
+            // Re-throw other errors for now
+            throw error
+        }
+    }
+
+    /**
+     * Handles merge result by taking appropriate action based on error type and merge mode
+     * This implements the consumer-driven action logic
+     */
+    async handleMergeResult(
+        result: PersonMergeResult,
+        event: PluginEvent
+    ): Promise<[InternalPerson | null, Promise<void> | null]> {
+        if (result.success) {
+            return [result.person, result.kafkaAck]
+        }
+
+        const error = result.error
+        const mergeMode = this.context.mergeMode
+
+        if (error instanceof PersonMergeLimitExceededError) {
+            logger.info('Merge limit exceeded, determining action based on mode', {
+                team_id: event.team_id,
+                distinct_id: event.distinct_id,
+                mergeMode: mergeMode.type,
+            })
+
+            switch (mergeMode.type) {
+                case 'ASYNC':
+                    logger.info(`Redirecting to async topic: ${mergeMode.topic}`)
+                    await this.redirectToAsyncMerge(event, mergeMode.topic)
+                    return [null, null] // Event redirected, no person to return
+
+                case 'LIMIT':
+                    logger.warn(`Merge limit exceeded, sending to DLQ`)
+                    throw error // Let the pipeline handle DLQ routing
+
+                case 'SYNC':
+                    // This shouldn't happen in SYNC mode, but if it does, process normally
+                    logger.warn('Unexpected limit exceeded in SYNC mode, continuing')
+                    throw error
+            }
+        } else {
+            // For other error types, use the existing exception-based handling
+            logger.warn('Non-limit merge error, re-throwing', {
+                errorType: error.type,
+                message: error.message,
+            })
+            throw error
+        }
+    }
+
+    /**
+     * Redirects an event to the async merge topic for later processing
+     * The event is sent in the exact same format as received
+     */
+    private async redirectToAsyncMerge(event: PluginEvent, asyncTopic: string): Promise<void> {
+        // Send event in the same capture format that the ingestion pipeline expects
+        const token = this.context.team.api_token
+        const captureEvent = {
+            uuid: event.uuid,
+            distinct_id: event.distinct_id,
+            ip: event.ip,
+            now: event.now,
+            token: token,
+            data: JSON.stringify({
+                ...event,
+                // Add a marker to indicate this is a redirected async merge event
+                properties: {
+                    ...event.properties,
+                    $async_merge_redirected: true,
+                },
+            }),
+        }
+
+        await this.context.kafkaProducer.produce({
+            topic: asyncTopic,
+            key: `${token}:${event.distinct_id}`,
+            value: Buffer.from(JSON.stringify(captureEvent)),
+            headers: {
+                distinct_id: event.distinct_id,
+                token: token,
+            },
+        })
+
+        logger.info('Event redirected to async merge topic', {
+            team_id: event.team_id,
+            distinct_id: event.distinct_id,
+            event: event.event,
+            topic: asyncTopic,
+        })
     }
 
     private isMergeAllowed(mergeFrom: InternalPerson): boolean {
