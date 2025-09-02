@@ -137,8 +137,8 @@ class ResourcePayloadSerializer(serializers.Serializer):
 
 
 def validate_resource_id(resource_id: str | None) -> str:
-    if not resource_id:
-        raise exceptions.ValidationError({"resource_id": "Missing resource_id in URL."})
+    if not resource_id or not resource_id.isdigit() or int(resource_id) <= 0:
+        raise exceptions.ValidationError({"resource_id": "Invalid Resource ID"})
     return resource_id
 
 
