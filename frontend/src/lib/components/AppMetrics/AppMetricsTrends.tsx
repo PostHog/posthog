@@ -13,7 +13,7 @@ export function AppMetricsTrends({
     loading: boolean
 }) {
     return (
-        <div className="relatie border rounded min-h-[20rem] h-[70vh] bg-white">
+        <div className="relative border rounded min-h-[20rem] h-[70vh] bg-white">
             {loading ? (
                 <SpinnerOverlay />
             ) : !appMetricsTrends ? (
