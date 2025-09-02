@@ -569,7 +569,11 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         multipart = request.query_params.get("multipart", False)
         release_id = request.query_params.get("release_id", None)
 
-        posthoganalytics.capture("error_tracking_symbol_set_deprecated_create_requested", {"team_id": self.team.id})
+        posthoganalytics.capture(
+            "error_tracking_symbol_set_deprecated_create_requested",
+            distinct_id=request.user.pk,
+            properties={"team_id": self.team.id},
+        )
 
         if not chunk_id:
             return Response({"detail": "chunk_id query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
