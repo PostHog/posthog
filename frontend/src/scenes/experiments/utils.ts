@@ -578,6 +578,7 @@ export function getAllowedMathTypes(metricType: ExperimentMetricType): Experimen
                 ExperimentMetricMathType.Sum,
                 ExperimentMetricMathType.UniqueUsers,
                 ExperimentMetricMathType.UniqueGroup,
+                ExperimentMetricMathType.UniqueSessions,
                 ExperimentMetricMathType.Avg,
                 ExperimentMetricMathType.Min,
                 ExperimentMetricMathType.Max,
