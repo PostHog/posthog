@@ -209,7 +209,7 @@ export const errorTrackingIssueCorrelationQuery = ({
 }
 
 export const errorTrackingIssueFingerprintsQuery = (issue: ErrorTrackingRelationalIssue): HogQLQueryString => {
-    return hogql`SELECT properties.$exception_fingerprint, count(), groupUniqArray(properties.$exception_type), groupUniqArray(properties.$exception_message)
+    return hogql`SELECT properties.$exception_fingerprint, count(), groupUniqArray(properties.$exception_types[1]), groupUniqArray(properties.$exception_values[1])
 FROM events
 WHERE event = '$exception' and issue_id = ${issue.id} and timestamp >= toDateTime(${issue.first_seen})
 GROUP BY properties.$exception_fingerprint
