@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useCallback, useState } from 'react'
+import { useCallback } from 'react'
 
 import { IconComment, IconEmoji } from '@posthog/icons'
 
@@ -42,10 +42,8 @@ export function EmojiCommentRow({ onSelectEmoji }: { onSelectEmoji?: () => void 
 }
 
 export function CommentOnRecordingButton(): JSX.Element {
-    const { setIsCommenting } = useActions(sessionRecordingPlayerLogic)
-    const { isCommenting } = useValues(sessionRecordingPlayerLogic)
-
-    const [quickEmojiIsOpen, setQuickEmojiIsOpen] = useState<boolean>(false)
+    const { setIsCommenting, setQuickEmojiIsOpen } = useActions(sessionRecordingPlayerLogic)
+    const { isCommenting, quickEmojiIsOpen } = useValues(sessionRecordingPlayerLogic)
 
     const {
         sessionPlayerData: { sessionRecordingId },
@@ -80,6 +78,19 @@ export function CommentOnRecordingButton(): JSX.Element {
                     }
                     setQuickEmojiIsOpen(!quickEmojiIsOpen)
                 },
+                tooltip: (
+                    <>
+                        {quickEmojiIsOpen ? (
+                            <>
+                                Stop commenting emoji <KeyboardShortcut e />
+                            </>
+                        ) : (
+                            <>
+                                Comment emoji on this recording <KeyboardShortcut e />
+                            </>
+                        )}
+                    </>
+                ),
                 dropdown: {
                     placement: 'bottom-end',
                     overlay: (

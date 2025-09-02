@@ -87,7 +87,7 @@ function CinemaMode(): JSX.Element {
                 onClick={handleCinemaMode}
                 tooltip={
                     <>
-                        <span>{!isCinemaMode ? 'Enter' : 'Exit'}</span> cinema mode
+                        <span>{!isCinemaMode ? 'Enter' : 'Exit'}</span> cinema mode <KeyboardShortcut t />
                     </>
                 }
                 status={isCinemaMode ? 'danger' : 'default'}
@@ -107,7 +107,7 @@ function Clip(): JSX.Element {
             onClick={() => takeScreenshot(ExporterFormat.GIF)}
             tooltip={
                 <>
-                    Get a GIF from now -2.5s to now +2.5s{' '}
+                    Get a GIF from now -2.5s to now +2.5s <KeyboardShortcut x />
                     <LemonTag type="warning" size="small">
                         BETA
                     </LemonTag>
@@ -127,7 +127,11 @@ function Screenshot(): JSX.Element {
         <LemonButton
             size="xsmall"
             onClick={() => takeScreenshot(ExporterFormat.PNG)}
-            tooltip="Take a screenshot of this point in the recording"
+            tooltip={
+                <>
+                    Take a screenshot of this point in the recording <KeyboardShortcut s />
+                </>
+            }
             icon={<IconCamera className="text-2xl" />}
             data-attr="replay-screenshot-png"
             tooltipPlacement="top"
