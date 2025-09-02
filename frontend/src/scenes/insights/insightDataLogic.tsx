@@ -1,5 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
-import { actionToUrl, router } from 'kea-router'
+import 'kea-router'
 
 import { objectsEqual } from 'lib/utils'
 import { DATAWAREHOUSE_EDITOR_ITEM_ID } from 'scenes/data-warehouse/utils'
@@ -24,7 +24,7 @@ import { insightDataTimingLogic } from './insightDataTimingLogic'
 import { insightLogic } from './insightLogic'
 import { insightSceneLogic } from './insightSceneLogic'
 import { insightUsageLogic } from './insightUsageLogic'
-import { crushDraftQueryForLocalStorage, crushDraftQueryForURL, isQueryTooLarge } from './utils'
+import { crushDraftQueryForLocalStorage, isQueryTooLarge } from './utils'
 import { compareQuery } from './utils/queryUtils'
 
 export const insightDataLogic = kea<insightDataLogicType>([
@@ -36,8 +36,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
         values: [
             insightLogic,
             ['insight', 'savedInsight'],
-            insightSceneLogic,
-            ['insightId', 'insightMode', 'activeSceneId'],
             teamLogic,
             ['currentTeamId'],
             dataNodeLogic({
@@ -226,7 +224,9 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 return
             }
             // don't save for saved insights
-            if (insightSceneLogic.values.insightId !== 'new') {
+            const tabId = sceneLogic.values.activeTabId
+            const insightId = insightSceneLogic.findMounted({ tabId })?.values.insightId
+            if (insightId && insightId !== 'new' && !insightId.startsWith('new-')) {
                 return
             }
 
@@ -245,25 +245,4 @@ export const insightDataLogic = kea<insightDataLogicType>([
             actions.setQuery(props.cachedInsight.query)
         }
     }),
-    actionToUrl(({ values }) => ({
-        setQuery: ({ query }) => {
-            if (
-                values.queryChanged &&
-                sceneLogic.values.activeSceneId === Scene.Insight &&
-                insightSceneLogic.values.insightId === 'new'
-            ) {
-                // query is changed and we are in edit mode
-                return [
-                    router.values.currentLocation.pathname,
-                    {
-                        ...router.values.currentLocation.searchParams,
-                    },
-                    {
-                        ...router.values.currentLocation.hashParams,
-                        q: crushDraftQueryForURL(query),
-                    },
-                ]
-            }
-        },
-    })),
 ])

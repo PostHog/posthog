@@ -7,10 +7,8 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { objectsEqual } from 'lib/utils'
 import { DashboardLoadAction, RefreshStatus, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 
-import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
 import { ActionType, DashboardType, EventDefinition, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import type { maxContextLogicType } from './maxContextLogicType'
@@ -58,8 +56,8 @@ export const maxContextLogic = kea<maxContextLogicType>([
     path(['scenes', 'max', 'maxContextLogic']),
     connect(() => ({
         values: [
-            insightSceneLogic,
-            ['filtersOverride', 'variablesOverride'],
+            // insightSceneLogic,
+            // ['filtersOverride', 'variablesOverride'],
             sceneLogic,
             ['activeSceneId', 'activeSceneLogic', 'activeLoadedScene'],
         ],
@@ -456,17 +454,17 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 s.contextDashboards,
                 s.contextEvents,
                 s.contextActions,
-                s.filtersOverride,
-                s.variablesOverride,
+                // s.filtersOverride,
+                // s.variablesOverride,
             ],
             (
                 hasData: boolean,
                 contextInsights: MaxInsightContext[],
                 contextDashboards: MaxDashboardContext[],
                 contextEvents: MaxEventContext[],
-                contextActions: MaxActionContext[],
-                filtersOverride: DashboardFilter,
-                variablesOverride: Record<string, HogQLVariable> | null
+                contextActions: MaxActionContext[]
+                // filtersOverride: DashboardFilter,
+                // variablesOverride: Record<string, HogQLVariable> | null
             ): MaxUIContext | null => {
                 const context: MaxUIContext = {}
 
@@ -495,13 +493,13 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 }
 
                 // Add global filters and variables override if present
-                if (filtersOverride) {
-                    context.filters_override = filtersOverride
-                }
-
-                if (variablesOverride) {
-                    context.variables_override = variablesOverride
-                }
+                // if (filtersOverride) {
+                //     context.filters_override = filtersOverride
+                // }
+                //
+                // if (variablesOverride) {
+                //     context.variables_override = variablesOverride
+                // }
 
                 // Deduplicate dashboards by ID
                 if (context.dashboards) {
