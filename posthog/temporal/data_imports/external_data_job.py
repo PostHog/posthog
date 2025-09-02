@@ -462,9 +462,9 @@ def user_friendly_error_message(source_type: str, schema_name: str, raw_error: s
             return "Chargebee authentication failed. Please check your API key and site name."
 
     if source_type == ExternalDataSourceType.GOOGLESHEETS:
-        if any(keyword in error_lower for keyword in ["must be real number, not str"]):
-            return "Inport failed: all cells in a numerical column must have a value and not be blank"
-        if any(keyword in error_lower for keyword in ["the header row in the worksheet contains duplicates"]):
-            return "Inport failed: There exists duplicate column headers. Please make sure all column headers have values and aren't duplicated."
+        if "must be real number, not str" in error_lower:
+            return "Import failed: all cells in a numerical column must have a value and not be blank"
+        if "the header row in the worksheet contains duplicates" in error_lower:
+            return "Import failed: There exists duplicate column headers. Please make sure all column headers have values and aren't duplicated."
 
     return raw_error
