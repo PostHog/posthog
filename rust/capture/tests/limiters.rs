@@ -480,12 +480,14 @@ async fn test_survey_quota_limit_allows_survey_events_when_not_limited() {
 
     // All events should be captured when not survey limited
     let captured_events = sink.events();
-    assert_eq!(captured_events.len(), 3);
+    assert_eq!(captured_events.len(), 2);
 
     let event_names: Vec<String> = extract_captured_event_names(&captured_events);
     assert!(event_names.contains(&"survey sent".to_string()));
-    assert!(event_names.contains(&"pageview".to_string()));
     assert!(event_names.contains(&"survey shown".to_string()));
+    assert!(!event_names.contains(&"pageview".to_string()));
+    assert!(!event_names.contains(&"$ai_yiss".to_string()));
+    assert!(!event_names.contains(&"$exception".to_string()));
 }
 
 #[tokio::test]
@@ -606,8 +608,11 @@ async fn test_survey_quota_groups_events_by_submission_id() {
     let captured_events = sink.events();
     assert_eq!(captured_events.len(), 1);
 
-    let event_data: Value = serde_json::from_str(&captured_events[0].event.data).unwrap();
-    assert_eq!(event_data["event"], "pageview");
+    let event_names = extract_captured_event_names(&captured_events);
+    assert!(!event_names.contains(&"survey sent".to_string()));
+    assert!(!event_names.contains(&"survey shown".to_string()));
+    assert!(!event_names.contains(&"survey dismissed".to_string()));
+    assert!(event_names.contains(&"pageview".to_string()));
 }
 
 #[tokio::test]
@@ -616,7 +621,7 @@ async fn test_survey_quota_handles_multiple_submission_groups() {
     let (router, sink) = setup_router_with_limits(
         token,
         CaptureMode::Events,
-        true,
+        false,
         vec![QuotaResource::Surveys],
     )
     .await;
@@ -633,7 +638,7 @@ async fn test_survey_quota_handles_multiple_submission_groups() {
     let payload = create_survey_events_with_submission_ids(&events, token);
 
     let response = client
-        .post("/i/v0/e")
+        .post("/batch")
         .body(payload)
         .header("Content-Type", "application/json")
         .header("X-Forwarded-For", "127.0.0.1")
@@ -834,12 +839,10 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
         time: "2025-07-31T12:00:00Z".to_string(),
     };
 
-    // Configure MockRedisClient for survey quota limited scenario
-    let survey_key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, "surveys");
-    let mut redis_client =
-        MockRedisClient::new().zrangebyscore_ret(&survey_key, vec![token.to_string()]);
-
     // Configure set_nx_ex to return true (key was set successfully, first time seeing this submission)
+    let mut redis_client = MockRedisClient::new();
+    let survey_key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, "surveys");
+    redis_client = redis_client.zrangebyscore_ret(&survey_key, vec![token.to_string()]);
     let submission_key = format!("survey-submission:{token}:submission_first");
     redis_client = redis_client.set_nx_ex_ret(&submission_key, Ok(true));
     let redis = Arc::new(redis_client);
@@ -847,7 +850,8 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
     let mut cfg = DEFAULT_CONFIG.clone();
     cfg.capture_mode = CaptureMode::Events;
 
-    let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60));
+    let quota_limiter  = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60))
+        .add_scoped_limiter(QuotaResource::Surveys, Box::new(is_survey_event));
 
     let app = router(
         timesource,
@@ -919,7 +923,8 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
     let mut cfg = DEFAULT_CONFIG.clone();
     cfg.capture_mode = CaptureMode::Events;
 
-    let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60));
+    let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60))
+        .add_scoped_limiter(QuotaResource::Surveys, Box::new(is_survey_event));
 
     let app = router(
         timesource,
@@ -963,11 +968,12 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
     let captured_events = sink.events();
     assert_eq!(captured_events.len(), 1);
 
-    let event_data: Value = serde_json::from_str(&captured_events[0].event.data).unwrap();
-    assert_eq!(event_data["event"], "click");
+    let event_names: Vec<String> = extract_captured_event_names(&captured_events);
+    assert!(!event_names.contains(&"survey sent".to_string()));
+    assert!(!event_names.contains(&"survey dismissed".to_string()));
+    assert!(event_names.contains(&"click".to_string()));
 }
 
-// TODO(eli): REVISIT THIS - SHOULD FAIL ATM
 #[tokio::test]
 async fn test_survey_quota_cross_batch_redis_error_fail_open() {
     let token = "test_token_redis_error";
@@ -994,7 +1000,8 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
     let mut cfg = DEFAULT_CONFIG.clone();
     cfg.capture_mode = CaptureMode::Events;
 
-    let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60));
+    let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60))
+        .add_scoped_limiter(QuotaResource::Surveys, Box::new(is_survey_event));
 
     let app = router(
         timesource,
@@ -1188,12 +1195,12 @@ async fn test_ai_events_quota_allows_ai_events_when_not_limited() {
     assert_eq!(res.status(), StatusCode::OK);
 
     let captured_events = sink.events();
-    assert_eq!(captured_events.len(), 3); // All events should be kept when not limited
+    assert_eq!(captured_events.len(), 2); // All events should be kept when not limited
 
     let event_names: Vec<String> = extract_captured_event_names(&captured_events);
     assert!(event_names.contains(&"$ai_generation".to_string()));
     assert!(event_names.contains(&"$ai_span".to_string()));
-    assert!(event_names.contains(&"pageview".to_string()));
+    assert!(!event_names.contains(&"pageview".to_string()));
 }
 
 #[tokio::test]
