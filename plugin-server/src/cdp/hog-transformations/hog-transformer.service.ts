@@ -90,7 +90,7 @@ export class HogTransformerService {
         await Promise.allSettled([
             this.hogFunctionMonitoringService
                 .queueInvocationResults(results)
-                .then(() => this.hogFunctionMonitoringService.produceQueuedMessages()),
+                .then(() => this.hogFunctionMonitoringService.flush()),
 
             shouldRunHogWatcher
                 ? this.hogWatcher.observeResults(results).catch((error) => {

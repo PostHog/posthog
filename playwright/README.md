@@ -5,7 +5,7 @@
 to run the new playwright tests, run the following command:
 
 ```bash
-START_PLAYWRIGHT=1 ./bin/e2e-test-runner
+./bin/e2e-test-runner
 ```
 
 to run the new playwright tests against an already locally running PostHog instance

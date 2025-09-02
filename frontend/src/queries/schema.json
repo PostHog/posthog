@@ -12167,7 +12167,8 @@
                 "GoogleSheets",
                 "MongoDB",
                 "TemporalIO",
-                "DoIt"
+                "DoIt",
+                "LinkedinAds"
             ],
             "type": "string"
         },

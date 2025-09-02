@@ -23,6 +23,7 @@ import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { EncryptedFields } from './cdp/encryption-utils'
 import { IntegrationManagerService } from './cdp/services/managers/integration-manager.service'
 import { CyclotronJobQueueKind, CyclotronJobQueueSource } from './cdp/types'
+import { InternalCaptureService } from './common/services/internal-capture'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { ActionManagerCDP } from './utils/action-manager-cdp'
@@ -83,7 +84,6 @@ export enum PluginServerMode {
     cdp_internal_events = 'cdp-internal-events',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     cdp_behavioural_events = 'cdp-behavioural-events',
-    cdp_aggregation_writer = 'cdp-aggregation-writer',
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
     cdp_api = 'cdp-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
@@ -118,7 +118,6 @@ export type CdpConfig = {
     CDP_WATCHER_DISABLED_TEMPORARY_TTL: number // How long a function should be temporarily disabled for
     CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: number // How many times a function can be disabled before it is disabled permanently
     CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS: boolean // If true then degraded functions will be automatically disabled
-    CDP_AGGREGATION_WRITER_ENABLED: boolean // If true then the CDP aggregation writer consumer will be enabled
     CDP_WATCHER_SEND_EVENTS: boolean // If true then the watcher will send events to posthog for messaging
     CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS: number // How long to buffer results before observing them
     CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS: number // How many results to buffer before observing them
@@ -219,7 +218,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PERSONS_MIGRATION_DATABASE_URL: string // Read-write Postgres database for persons during dual write/migration
     PERSONS_MIGRATION_READONLY_DATABASE_URL: string // Optional read-only replica to the persons Postgres database during dual write/migration
     PLUGIN_STORAGE_DATABASE_URL: string // Optional read-write Postgres database for plugin storage
-    COUNTERS_DATABASE_URL: string // Optional read-write Postgres database for counters
     POSTGRES_CONNECTION_POOL_SIZE: number
     POSTHOG_DB_NAME: string | null
     POSTHOG_DB_USER: string
@@ -316,6 +314,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
     CAPTURE_CONFIG_REDIS_HOST: string | null // Redis cluster to use to coordinate with capture (overflow, routing)
     LAZY_LOADER_DEFAULT_BUFFER_MS: number
+    CAPTURE_INTERNAL_URL: string
 
     // local directory might be a volume mount or a directory on disk (e.g. in local dev)
     SESSION_RECORDING_LOCAL_DIRECTORY: string
@@ -443,6 +442,7 @@ export interface Hub extends PluginsServerConfig {
     pubSub: PubSub
     integrationManager: IntegrationManagerService
     quotaLimiting: QuotaLimiting
+    internalCaptureService: InternalCaptureService
 }
 
 export interface PluginServerCapabilities {
@@ -462,7 +462,6 @@ export interface PluginServerCapabilities {
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerHogFlow?: boolean
     cdpBehaviouralEvents?: boolean
-    cdpAggregationWriter?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
 }
