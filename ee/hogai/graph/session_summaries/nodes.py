@@ -130,27 +130,27 @@ class SessionSummarizationNode(AssistantNode):
         return max_filters
 
     def _convert_max_filters_to_recordings_query(
-        self, max_filters: MaxRecordingUniversalFilters, limit: int = MAX_SESSIONS_TO_SUMMARIZE
+        self, replay_filters: MaxRecordingUniversalFilters, limit: int = MAX_SESSIONS_TO_SUMMARIZE
     ) -> RecordingsQuery:
         """Convert Max-generated filters into recordings query format"""
         properties = []
-        if max_filters.filter_group and max_filters.filter_group.values:
-            for inner_group in max_filters.filter_group.values:
+        if replay_filters.filter_group and replay_filters.filter_group.values:
+            for inner_group in replay_filters.filter_group.values:
                 if hasattr(inner_group, "values"):
                     properties.extend(inner_group.values)
         recordings_query = RecordingsQuery(
-            date_from=max_filters.date_from,
-            date_to=max_filters.date_to,
+            date_from=replay_filters.date_from,
+            date_to=replay_filters.date_to,
             properties=properties,
-            filter_test_accounts=max_filters.filter_test_accounts,
-            order=max_filters.order,
+            filter_test_accounts=replay_filters.filter_test_accounts,
+            order=replay_filters.order,
             # Handle duration filters
             having_predicates=(
                 [
                     {"key": "duration", "type": "recording", "operator": dur.operator, "value": dur.value}
-                    for dur in (max_filters.duration or [])
+                    for dur in (replay_filters.duration or [])
                 ]
-                if max_filters.duration
+                if replay_filters.duration
                 else None
             ),
             limit=limit,
