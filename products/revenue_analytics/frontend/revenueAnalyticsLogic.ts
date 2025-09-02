@@ -104,7 +104,8 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
         setMRRMode: (mrrMode: MRRMode) => ({ mrrMode }),
         setInsightsDisplayMode: (displayMode: DisplayMode) => ({ displayMode }),
         setTopCustomersDisplayMode: (displayMode: DisplayMode) => ({ displayMode }),
-        setBreakdown: (breakdown: RevenueAnalyticsBreakdown[]) => ({ breakdown }),
+        addBreakdown: (breakdown: RevenueAnalyticsBreakdown) => ({ breakdown }),
+        removeBreakdown: (breakdown: RevenueAnalyticsBreakdown) => ({ breakdown }),
     }),
     reducers(() => ({
         dateFilter: [
@@ -123,11 +124,24 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             persistConfig,
             { setRevenueAnalyticsFilters: (_, { revenueAnalyticsFilters }) => revenueAnalyticsFilters },
         ],
-        breakdown: [
+        breakdownProperties: [
             [] as RevenueAnalyticsBreakdown[],
             persistConfig,
             {
-                setBreakdown: (_, { breakdown }) => breakdown,
+                addBreakdown: (state, { breakdown }) => {
+                    if (state.length >= 2) {
+                        return state
+                    }
+
+                    if (state.some((b) => b.property === breakdown.property && b.type === breakdown.type)) {
+                        return state
+                    }
+
+                    return [...state, breakdown]
+                },
+                removeBreakdown: (state, { breakdown }) => {
+                    return state.filter((b) => b.property !== breakdown.property || b.type !== breakdown.type)
+                },
             },
         ],
         mrrMode: [
@@ -208,7 +222,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
         ],
 
         queries: [
-            (s) => [s.dateFilter, s.revenueAnalyticsFilter, s.topCustomersDisplayMode, s.breakdown],
+            (s) => [s.dateFilter, s.revenueAnalyticsFilter, s.topCustomersDisplayMode, s.breakdownProperties],
             (
                 dateFilter,
                 revenueAnalyticsFilter,
