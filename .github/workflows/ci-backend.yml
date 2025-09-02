@@ -285,13 +285,11 @@ jobs:
                   # Run Django migrations first (excluding managed=False models)
                   python manage.py migrate
                   # Then run persons migrations using sqlx
-                    sqlx migrate run --source rust/persons_migrations/
+                  sqlx migrate run --source rust/persons_migrations/
 
             - name: Check migrations
               run: |
-                  # Check sqlx persons migrations
-                    sqlx migrate info --source rust/persons_migrations/
-                  # Check Django migrations (will not create migrations for managed=False models)
+                  sqlx migrate info --source rust/persons_migrations/
                   python manage.py makemigrations --check --dry-run
                   git fetch origin master
                   # Check migration safety using old SQL-based checker (still uses stdin from git diff)

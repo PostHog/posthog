@@ -1,48 +1,38 @@
 #!/bin/bash
 set -e
 
-# Default behavior: run all migrations
 MIGRATION_TYPE="${1:-all}"
 
-# Function to run persons migrations
 run_persons_migrations() {
     echo "Running persons migrations..."
     
-    # Use environment variable or default
     PERSONS_DATABASE_NAME=${PERSONS_DATABASE_NAME:-posthog}
     PERSONS_DATABASE_URL=${PERSONS_DATABASE_URL:-postgres://posthog:posthog@localhost:5432/$PERSONS_DATABASE_NAME}
     
     echo "Performing persons migrations for $PERSONS_DATABASE_URL"
     
-    # Create database if it doesn't exist
-    sqlx database create -D "$PERSONS_DATABASE_URL" 2>/dev/null || true
+    sqlx database create -D "$PERSONS_DATABASE_URL"
     
-    # Run migrations
     sqlx migrate run -D "$PERSONS_DATABASE_URL" --source /migrations/persons_migrations/
     
     echo "Persons migrations completed successfully"
 }
 
-# Function to run cyclotron migrations
 run_cyclotron_migrations() {
     echo "Running cyclotron migrations..."
     
-    # Use environment variable or default
     CYCLOTRON_DATABASE_NAME=${CYCLOTRON_DATABASE_NAME:-cyclotron}
     CYCLOTRON_DATABASE_URL=${CYCLOTRON_DATABASE_URL:-postgres://posthog:posthog@localhost:5432/$CYCLOTRON_DATABASE_NAME}
     
     echo "Performing cyclotron migrations for $CYCLOTRON_DATABASE_URL"
     
-    # Create database if it doesn't exist
-    sqlx database create -D "$CYCLOTRON_DATABASE_URL" 2>/dev/null || true
+    sqlx database create -D "$CYCLOTRON_DATABASE_URL"
     
-    # Run migrations
     sqlx migrate run -D "$CYCLOTRON_DATABASE_URL" --source /migrations/cyclotron-core/migrations/
     
     echo "Cyclotron migrations completed successfully"
 }
 
-# Main execution logic
 case "$MIGRATION_TYPE" in
     persons)
         run_persons_migrations
