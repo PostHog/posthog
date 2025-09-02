@@ -39,8 +39,8 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
     const metrics = getOrderedMetrics(!!isSecondary)
 
     // Get results and errors for the ordered metrics
-    const results = metrics.map((metric) => resultsMap.get(metric.uuid))
-    const errors = metrics.map((metric) => errorsMap.get(metric.uuid))
+    const results = metrics.map((metric) => resultsMap.get(metric.uuid!))
+    const errors = metrics.map((metric) => errorsMap.get(metric.uuid!))
 
     const showResultDetails = metrics.length === 1 && results[0] && hasMinimumExposureForResults && !isSecondary
 
@@ -99,7 +99,7 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                 <>
                     <MetricsTable
                         metrics={metrics}
-                        results={results}
+                        results={results as any}
                         errors={errors}
                         isSecondary={!!isSecondary}
                         getInsightType={getInsightType}
@@ -110,8 +110,9 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                             <ResultDetails
                                 metric={metrics[0] as ExperimentMetric}
                                 result={{
-                                    ...results[0],
+                                    ...results[0]!,
                                     metric: metrics[0] as ExperimentMetric,
+                                    is_cached: results[0]?.is_cached ?? false,
                                 }}
                                 experiment={experiment}
                                 isSecondary={!!isSecondary}

@@ -10,16 +10,16 @@ import type { ExperimentIdType } from '~/types'
 import type { experimentSummaryLogicType } from './experimentSummaryLogicType'
 
 export function formatExperimentResultsForAI(
-    primaryMetrics: CachedNewExperimentQueryResponse[],
-    secondaryMetrics: CachedNewExperimentQueryResponse[]
+    primaryMetrics: Map<string, CachedNewExperimentQueryResponse>,
+    secondaryMetrics: Map<string, CachedNewExperimentQueryResponse>
 ): string {
     const lines: string[] = []
 
     // Format primary metrics
-    if (primaryMetrics.length > 0) {
+    if (primaryMetrics.size > 0) {
         lines.push('## Primary Metrics')
-        primaryMetrics.forEach((metric, index) => {
-            lines.push(`### Metric ${index + 1}`)
+        Array.from(primaryMetrics.entries()).forEach(([uuid, metric], index) => {
+            lines.push(`### Metric ${index + 1} (UUID: ${uuid})`)
             lines.push('```json')
             lines.push(JSON.stringify(metric, null, 2))
             lines.push('```')
@@ -28,10 +28,10 @@ export function formatExperimentResultsForAI(
     }
 
     // Format secondary metrics
-    if (secondaryMetrics.length > 0) {
+    if (secondaryMetrics.size > 0) {
         lines.push('## Secondary Metrics')
-        secondaryMetrics.forEach((metric, index) => {
-            lines.push(`### Metric ${index + 1}`)
+        Array.from(secondaryMetrics.entries()).forEach(([uuid, metric], index) => {
+            lines.push(`### Metric ${index + 1} (UUID: ${uuid})`)
             lines.push('```json')
             lines.push(JSON.stringify(metric, null, 2))
             lines.push('```')
