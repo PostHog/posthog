@@ -266,10 +266,10 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
             [
                 ("John Doe", "cus_1", Decimal("529.8954508132"), "all"),
                 ("Jane Doe", "cus_2", Decimal("222.6060849997"), "all"),
-                ("John Smith", "cus_3", Decimal("13092.275165"), "all"),
+                ("John Smith", "cus_3", Decimal("1923.372205"), "all"),
                 ("Jane Smith", "cus_4", Decimal("170.9565"), "all"),
                 ("John Doe Jr", "cus_5", Decimal("1379.39181"), "all"),
-                ("John Doe Jr Jr", "cus_6", Decimal("8756.78246"), "all"),
+                ("John Doe Jr Jr", "cus_6", Decimal("1337.35006"), "all"),
             ],
         )
 

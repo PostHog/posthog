@@ -367,6 +367,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             access_secret=access_secret,
             fields=fields,
             structure=", ".join(structure),
+            table_id=str(self.id),
         )
 
     def get_clickhouse_column_type(self, column_name: str) -> Optional[str]:

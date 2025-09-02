@@ -10,7 +10,7 @@ import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/data
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { InsightLogicProps } from '~/types'
 
-import revenueAnalyticsRevenueQueryMock from '../../__mocks__/RevenueAnalyticsRevenueQuery.json'
+import RevenueAnalyticsMRRQueryMock from '../../__mocks__/RevenueAnalyticsMRRQuery.json'
 import { MRRBreakdownModalContent } from './MRRBreakdownModal'
 import { mrrBreakdownModalLogic } from './mrrBreakdownModalLogic'
 
@@ -22,9 +22,6 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-01-28', // To stabilize relative dates
         featureFlags: [FEATURE_FLAGS.REVENUE_ANALYTICS, FEATURE_FLAGS.MRR_BREAKDOWN_REVENUE_ANALYTICS],
-        testOptions: {
-            allowImagesWithoutWidth: true,
-        },
     },
 }
 export default meta
@@ -33,7 +30,7 @@ export function MRRBreakdownModal(): JSX.Element {
     const { openModal } = useActions(mrrBreakdownModalLogic)
 
     useEffect(() => {
-        openModal(revenueAnalyticsRevenueQueryMock.results.mrr)
+        openModal(RevenueAnalyticsMRRQueryMock.results)
     }, [openModal])
 
     const insightProps = { dashboardItemId: 'MRRBreakdownModal' } as InsightLogicProps

@@ -1,6 +1,6 @@
 import json
 import dataclasses
-from datetime import datetime
+from datetime import datetime, time, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 from uuid import UUID
@@ -67,6 +67,8 @@ ActivityScope = Literal[
     "AlertConfiguration",
     "Threshold",
     "AlertSubscription",
+    "ExternalDataSource",
+    "ExternalDataSchema",
 ]
 ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
 
@@ -114,12 +116,18 @@ class ActivityDetailEncoder(json.JSONEncoder):
             return obj.__dict__
         if isinstance(obj, datetime):
             return obj.isoformat()
+        if isinstance(obj, time):
+            return obj.isoformat()
+        if isinstance(obj, timedelta):
+            return str(obj)
         if isinstance(obj, UUIDT):
             return str(obj)
         if isinstance(obj, UUID):
             return str(obj)
         if hasattr(obj, "__class__") and obj.__class__.__name__ == "User":
             return {"first_name": obj.first_name, "email": obj.email}
+        if hasattr(obj, "__class__") and obj.__class__.__name__ == "DataWarehouseTable":
+            return obj.name
         if isinstance(obj, float):
             # more precision than we'll need but avoids rounding too unnecessarily
             return format(obj, ".6f").rstrip("0").rstrip(".")
@@ -221,6 +229,9 @@ field_with_masked_contents: dict[ActivityScope, list[str]] = {
     "Subscription": [
         "target_value",
     ],
+    "ExternalDataSource": [
+        "job_inputs",
+    ],
 }
 
 field_name_overrides: dict[ActivityScope, dict[str, str]] = {
@@ -239,6 +250,12 @@ field_name_overrides: dict[ActivityScope, dict[str, str]] = {
     },
     "BatchExport": {
         "paused": "enabled",
+    },
+    "ExternalDataSource": {
+        "job_inputs": "configuration",
+    },
+    "ExternalDataSchema": {
+        "should_sync": "enabled",
     },
 }
 
@@ -432,6 +449,17 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "bytecode",
         "bytecode_error",
         "steps_json",
+    ],
+    "ExternalDataSource": [
+        "connection_id",
+        "destination_id",
+        "are_tables_created",
+    ],
+    "ExternalDataSchema": [
+        "status",
+        "sync_type_config",
+        "latest_error",
+        "last_synced_at",
     ],
 }
 
@@ -746,8 +774,9 @@ def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
 
     try:
         serialized_data = ActivityLogSerializer(instance).data
+        # We need to serialize the detail object using the encoder to avoid unsupported types like timedelta
+        serialized_data["detail"] = json.loads(json.dumps(serialized_data["detail"], cls=ActivityDetailEncoder))
         # TODO: Move this into the producer to support dataclasses
-        serialized_data["detail"] = dataclasses.asdict(serialized_data["detail"])
         user_data = UserBasicSerializer(instance.user).data if instance.user else None
 
         if created and instance.team_id is not None:

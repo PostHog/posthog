@@ -1,6 +1,7 @@
 import { Counter, Histogram } from 'prom-client'
 
-import { runInstrumentedFunction } from '../../../main/utils'
+import { instrumentFn } from '~/common/tracing/tracing-utils'
+
 import { Hub, TimestampFormat } from '../../../types'
 import { safeClickhouseString } from '../../../utils/db/utils'
 import { logger } from '../../../utils/logger'
@@ -15,8 +16,7 @@ import {
     MetricLogSource,
     MinimalAppMetric,
 } from '../../types'
-import { fixLogDeduplication } from '../../utils'
-import { convertToCaptureEvent } from '../../utils'
+import { convertToCaptureEvent, fixLogDeduplication } from '../../utils'
 
 const counterHogFunctionMetric = new Counter({
     name: 'cdp_hog_function_metric',
@@ -118,71 +118,66 @@ export class HogFunctionMonitoringService {
     }
 
     async queueInvocationResults(results: CyclotronJobInvocationResult[]): Promise<void> {
-        return await runInstrumentedFunction({
-            statsKey: `cdpConsumer.handleEachBatch.produceResults`,
-            func: async () => {
-                await Promise.all(
-                    results.map(async (result) => {
-                        const source = 'hogFunction' in result.invocation ? 'hog_function' : 'hog_flow'
+        return await instrumentFn(`cdpConsumer.handleEachBatch.produceResults`, async () => {
+            await Promise.all(
+                results.map(async (result) => {
+                    const source = 'hogFunction' in result.invocation ? 'hog_function' : 'hog_flow'
 
-                        this.queueLogs(
-                            result.logs.map((logEntry) => ({
-                                ...logEntry,
+                    this.queueLogs(
+                        result.logs.map((logEntry) => ({
+                            ...logEntry,
+                            team_id: result.invocation.teamId,
+                            log_source: source,
+                            log_source_id: result.invocation.functionId,
+                            instance_id: result.invocation.id,
+                        })),
+                        source
+                    )
+
+                    if (result.metrics) {
+                        this.queueAppMetrics(result.metrics, source)
+                    }
+
+                    if (result.finished || result.error) {
+                        // Process each timing entry individually instead of totaling them
+                        const timings = isHogFunctionResult(result) ? (result.invocation.state?.timings ?? []) : []
+                        for (const timing of timings) {
+                            // Record metrics for this timing entry
+                            hogFunctionExecutionTimeSummary.labels({ kind: timing.kind }).observe(timing.duration_ms)
+                        }
+
+                        this.queueAppMetric(
+                            {
                                 team_id: result.invocation.teamId,
-                                log_source: source,
-                                log_source_id: result.invocation.functionId,
-                                instance_id: result.invocation.id,
-                            })),
+                                app_source_id: result.invocation.functionId,
+                                metric_kind: result.error ? 'failure' : 'success',
+                                metric_name: result.error ? 'failed' : 'succeeded',
+                                count: 1,
+                            },
                             source
                         )
+                    }
 
-                        if (result.metrics) {
-                            this.queueAppMetrics(result.metrics, source)
+                    // PostHog capture events
+                    const capturedEvents = result.capturedPostHogEvents
+
+                    for (const event of capturedEvents ?? []) {
+                        const team = await this.hub.teamManager.getTeam(event.team_id)
+                        if (!team) {
+                            continue
                         }
-
-                        if (result.finished || result.error) {
-                            // Process each timing entry individually instead of totaling them
-                            const timings = isHogFunctionResult(result) ? (result.invocation.state?.timings ?? []) : []
-                            for (const timing of timings) {
-                                // Record metrics for this timing entry
-                                hogFunctionExecutionTimeSummary
-                                    .labels({ kind: timing.kind })
-                                    .observe(timing.duration_ms)
-                            }
-
-                            this.queueAppMetric(
-                                {
-                                    team_id: result.invocation.teamId,
-                                    app_source_id: result.invocation.functionId,
-                                    metric_kind: result.error ? 'failure' : 'success',
-                                    metric_name: result.error ? 'failed' : 'succeeded',
-                                    count: 1,
-                                },
-                                source
-                            )
-                        }
-
-                        // PostHog capture events
-                        const capturedEvents = result.capturedPostHogEvents
-
-                        for (const event of capturedEvents ?? []) {
-                            const team = await this.hub.teamManager.getTeam(event.team_id)
-                            if (!team) {
-                                continue
-                            }
-                            this.messagesToProduce.push({
-                                topic: this.hub.HOG_FUNCTION_MONITORING_EVENTS_PRODUCED_TOPIC,
-                                value: convertToCaptureEvent(event, team),
-                                key: `${team.api_token}:${event.distinct_id}`,
-                                headers: {
-                                    distinct_id: event.distinct_id,
-                                    token: team.api_token,
-                                },
-                            })
-                        }
-                    })
-                )
-            },
+                        this.messagesToProduce.push({
+                            topic: this.hub.HOG_FUNCTION_MONITORING_EVENTS_PRODUCED_TOPIC,
+                            value: convertToCaptureEvent(event, team),
+                            key: `${team.api_token}:${event.distinct_id}`,
+                            headers: {
+                                distinct_id: event.distinct_id,
+                                token: team.api_token,
+                            },
+                        })
+                    }
+                })
+            )
         })
     }
 }

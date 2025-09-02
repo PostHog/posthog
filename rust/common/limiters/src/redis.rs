@@ -45,6 +45,7 @@ pub enum QuotaResource {
     Replay,
     FeatureFlags,
     Surveys,
+    LLMEvents,
 }
 
 impl QuotaResource {
@@ -56,6 +57,7 @@ impl QuotaResource {
             Self::Replay => "replay",
             Self::FeatureFlags => "feature_flag_requests",
             Self::Surveys => "surveys",
+            Self::LLMEvents => "llm_events",
         }
     }
 }

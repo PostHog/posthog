@@ -35,7 +35,7 @@ class Command(BaseCommand):
 
         self.stdout.write("Starting HogFunction refresh...")
 
-        queryset = HogFunction.objects.filter(deleted=False).select_related("team")
+        queryset = HogFunction.objects.filter(deleted=False, type__in=["destination"]).select_related("team")
 
         if hog_function_id:
             queryset = queryset.filter(id=hog_function_id)
@@ -65,28 +65,16 @@ class Command(BaseCommand):
             for hog_function in page.object_list:
                 try:
                     total_processed += 1
-
-                    # Re-save the HogFunction to trigger filter recompilation
-                    # This will call the save() method which should regenerate filters
                     hog_function.save()
                     total_updated += 1
-
-                    self.stdout.write(
-                        f"Refreshed HogFunction {hog_function.id} "
-                        f"(team: {hog_function.team_id}, name: '{hog_function.name}', "
-                        f"enabled: {hog_function.enabled})"
-                    )
-
                 except Exception as e:
                     error_count += 1
                     logger.error(
                         "Error refreshing HogFunction",
                         hog_function_id=hog_function.id,
-                        team_id=hog_function.team_id,
                         error=str(e),
                         exc_info=True,
                     )
-                    self.stdout.write(self.style.ERROR(f"Error refreshing HogFunction {hog_function.id}: {str(e)}"))
 
         # Output summary
         duration = time.time() - start_time

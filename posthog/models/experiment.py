@@ -56,6 +56,8 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
 
     metrics = models.JSONField(default=list, null=True, blank=True)
     metrics_secondary = models.JSONField(default=list, null=True, blank=True)
+    primary_metrics_ordered_uuids = models.JSONField(default=None, null=True, blank=True)
+    secondary_metrics_ordered_uuids = models.JSONField(default=None, null=True, blank=True)
     saved_metrics: models.ManyToManyField = models.ManyToManyField(
         "ExperimentSavedMetric", blank=True, related_name="experiments", through="ExperimentToSavedMetric"
     )

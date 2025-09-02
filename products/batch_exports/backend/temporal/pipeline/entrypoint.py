@@ -74,14 +74,18 @@ async def execute_batch_export_using_internal_stage(
 
     if interval == "hour":
         # TODO - we should reduce this to 1 hour once we are more confident about hitting 1 hour SLAs.
-        start_to_close_timeout = dt.timedelta(hours=2)
+        # TODO: Review timeouts for internal stage activity.
+        main_activity_start_to_close_timeout = dt.timedelta(hours=2)
+        stage_activity_start_to_close_timeout = dt.timedelta(hours=1)
     elif interval == "day":
-        start_to_close_timeout = dt.timedelta(days=1)
+        main_activity_start_to_close_timeout = dt.timedelta(days=1)
+        stage_activity_start_to_close_timeout = main_activity_start_to_close_timeout
     elif interval.startswith("every"):
         _, value, unit = interval.split(" ")
         kwargs = {unit: int(value)}
         # TODO: Consider removing this 20 minute minimum once we are more confident about hitting 5 minute or lower SLAs.
-        start_to_close_timeout = max(dt.timedelta(minutes=20), dt.timedelta(**kwargs))
+        main_activity_start_to_close_timeout = max(dt.timedelta(minutes=20), dt.timedelta(**kwargs))
+        stage_activity_start_to_close_timeout = main_activity_start_to_close_timeout
     else:
         raise ValueError(f"Unsupported interval: '{interval}'")
 
@@ -101,7 +105,7 @@ async def execute_batch_export_using_internal_stage(
                 batch_export_schema=inputs.batch_export_schema,
                 destination_default_fields=inputs.destination_default_fields,
             ),
-            start_to_close_timeout=start_to_close_timeout,
+            start_to_close_timeout=stage_activity_start_to_close_timeout,
             heartbeat_timeout=dt.timedelta(seconds=heartbeat_timeout_seconds) if heartbeat_timeout_seconds else None,
             retry_policy=RetryPolicy(
                 initial_interval=dt.timedelta(seconds=initial_retry_interval_seconds),
@@ -113,7 +117,7 @@ async def execute_batch_export_using_internal_stage(
         result = await workflow.execute_activity(
             activity,
             inputs,
-            start_to_close_timeout=start_to_close_timeout,
+            start_to_close_timeout=main_activity_start_to_close_timeout,
             heartbeat_timeout=dt.timedelta(seconds=heartbeat_timeout_seconds) if heartbeat_timeout_seconds else None,
             retry_policy=RetryPolicy(
                 initial_interval=dt.timedelta(seconds=initial_retry_interval_seconds),

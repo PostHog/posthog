@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { RefObject, useEffect, useRef, useState } from 'react'
 
-import { IconCheckbox, IconChevronRight, IconExternal, IconFolderPlus, IconPlusSmall } from '@posthog/icons'
+import { IconCheckbox, IconChevronRight, IconFolderPlus, IconPlusSmall } from '@posthog/icons'
 
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
@@ -64,10 +64,6 @@ export interface ProjectTreeProps {
 
 export const PROJECT_TREE_KEY = 'project-tree'
 let counter = 0
-
-export const isExternalLinkItem = (item: TreeDataItem): boolean => {
-    return item.record?.href && typeof item.record.href === 'string' && item.record.href.startsWith('https://')
-}
 
 export function ProjectTree({
     logicKey,
@@ -461,14 +457,9 @@ export function ProjectTree({
                     return
                 }
                 if (item?.record?.href) {
-                    const href =
+                    router.actions.push(
                         typeof item.record.href === 'function' ? item.record.href(item.record.ref) : item.record.href
-                    // Check if it's an external link
-                    if (typeof href === 'string' && href.startsWith('https://')) {
-                        window.open(href, '_blank')
-                    } else {
-                        router.actions.push(href)
-                    }
+                    )
                 }
 
                 if (item?.record?.path) {
@@ -555,7 +546,7 @@ export function ProjectTree({
                 return false
             }}
             itemContextMenu={(item) => {
-                if (item.id.startsWith('project-folder-empty/') || isExternalLinkItem(item)) {
+                if (item.id.startsWith('project-folder-empty/')) {
                     return undefined
                 }
 
@@ -566,7 +557,7 @@ export function ProjectTree({
                 )
             }}
             itemSideAction={(item) => {
-                if (item.id.startsWith('project-folder-empty/') || isExternalLinkItem(item)) {
+                if (item.id.startsWith('project-folder-empty/')) {
                     return undefined
                 }
 
@@ -808,8 +799,6 @@ export function ProjectTree({
                                 ))}
                             </>
                         )}
-
-                        {isExternalLinkItem(item) && <IconExternal className="size-4 text-tertiary relative" />}
                     </span>
                 )
             }}

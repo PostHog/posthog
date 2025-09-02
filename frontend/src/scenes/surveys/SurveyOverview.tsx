@@ -74,7 +74,7 @@ export function SurveyOverview({ onTabChange }: { onTabChange?: (tab: string) =>
             >
                 <FirstSurveyHelper onTabChange={onTabChange} />
             </FlaggedFeature>
-            <div className="flex gap-4">
+            <div className="flex flex-col xl:grid xl:grid-cols-[1fr_400px] gap-x-4">
                 <dl className="flex flex-col gap-4 flex-1 overflow-hidden">
                     <SurveyOption label="Display mode">
                         <div className="flex flex-col">
@@ -151,33 +151,31 @@ export function SurveyOverview({ onTabChange }: { onTabChange?: (tab: string) =>
                     <LemonDivider />
                     <SurveyDisplaySummary id={survey.id} survey={survey} targetingFlagFilters={targetingFlagFilters} />
                 </dl>
-                <div className="flex flex-col items-center">
-                    {survey.type !== SurveyType.API ? (
-                        <SurveyFormAppearance
-                            previewPageIndex={selectedPageIndex || 0}
-                            survey={survey}
-                            handleSetSelectedPageIndex={(preview) => setSelectedPageIndex(preview)}
-                        />
-                    ) : (
-                        <div className="mt-2 space-y-2">
-                            <div className="p-4 border rounded">
-                                <div className="flex flex-row items-center w-full gap-1">
-                                    Learn how to set up API surveys{' '}
-                                    <Link
-                                        data-attr="survey-doc-link"
-                                        target="_blank"
-                                        to="https://posthog.com/docs/surveys/implementing-custom-surveys"
-                                        targetBlankIcon
-                                    >
-                                        in the docs
-                                    </Link>
-                                </div>
+                {survey.type !== SurveyType.API ? (
+                    <SurveyFormAppearance
+                        previewPageIndex={selectedPageIndex || 0}
+                        survey={survey}
+                        handleSetSelectedPageIndex={(preview) => setSelectedPageIndex(preview)}
+                    />
+                ) : (
+                    <div className="mt-2 space-y-2">
+                        <div className="p-4 border rounded">
+                            <div className="flex flex-row items-center w-full gap-1">
+                                Learn how to set up API surveys{' '}
+                                <Link
+                                    data-attr="survey-doc-link"
+                                    target="_blank"
+                                    to="https://posthog.com/docs/surveys/implementing-custom-surveys"
+                                    targetBlankIcon
+                                >
+                                    in the docs
+                                </Link>
                             </div>
-
-                            <SurveyAPIEditor survey={survey} />
                         </div>
-                    )}
-                </div>
+
+                        <SurveyAPIEditor survey={survey} />
+                    </div>
+                )}
             </div>
         </div>
     )

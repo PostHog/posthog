@@ -5,11 +5,13 @@ from typing import Literal, Optional, Union, cast
 from zoneinfo import ZoneInfo
 
 from posthog.schema import (
+    IntervalType,
+    RevenueAnalyticsGrossRevenueQuery,
     RevenueAnalyticsGroupBy,
     RevenueAnalyticsGrowthRateQuery,
     RevenueAnalyticsMetricsQuery,
+    RevenueAnalyticsMRRQuery,
     RevenueAnalyticsOverviewQuery,
-    RevenueAnalyticsRevenueQuery,
     RevenueAnalyticsTopCustomersQuery,
 )
 
@@ -73,9 +75,10 @@ class RevenueSubqueries:
 class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
     query: Union[
         RevenueAnalyticsMetricsQuery,
+        RevenueAnalyticsMRRQuery,
+        RevenueAnalyticsGrossRevenueQuery,
         RevenueAnalyticsGrowthRateQuery,
         RevenueAnalyticsOverviewQuery,
-        RevenueAnalyticsRevenueQuery,
         RevenueAnalyticsTopCustomersQuery,
     ]
 
@@ -302,7 +305,8 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
             date_range=self.query.dateRange,
             team=self.team,
             timezone_info=timezone_info,
-            interval=self.query.interval if hasattr(self.query, "interval") else None,
+            # Can only be either day | month only, simpler implementation
+            interval=IntervalType(self.query.interval) if hasattr(self.query, "interval") else None,
             now=datetime.now(timezone_info),
             earliest_timestamp_fallback=EARLIEST_TIMESTAMP,
         )

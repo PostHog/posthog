@@ -3,7 +3,6 @@ import { useActions } from 'kea'
 import { IconCopy, IconPencil } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonTag } from '@posthog/lemon-ui'
 
-import { EXPERIMENT_MAX_PRIMARY_METRICS, EXPERIMENT_MAX_SECONDARY_METRICS } from 'scenes/experiments/constants'
 import { modalsLogic } from 'scenes/experiments/modalsLogic'
 import { urls } from 'scenes/urls'
 
@@ -13,18 +12,16 @@ import { MetricTitle } from './MetricTitle'
 import { getMetricTag } from './utils'
 
 export const MetricHeader = ({
-    metricIndex,
+    displayOrder,
     metric,
     metricType,
     isPrimaryMetric,
-    canDuplicateMetric = true,
     onDuplicateMetricClick,
 }: {
-    metricIndex: number
+    displayOrder?: number
     metric: any
     metricType: any
     isPrimaryMetric: boolean
-    canDuplicateMetric?: boolean
     onDuplicateMetricClick: (metric: ExperimentMetric) => void
 }): JSX.Element => {
     /**
@@ -48,7 +45,7 @@ export const MetricHeader = ({
             <div className="deprecated-space-y-1">
                 <div className="flex items-start justify-between gap-2 min-w-0">
                     <div className="text-xs font-semibold flex items-start min-w-0 flex-1">
-                        <span className="mr-1 flex-shrink-0">{metricIndex + 1}.</span>
+                        {displayOrder !== undefined && <span className="mr-1 flex-shrink-0">{displayOrder + 1}.</span>}
                         <div className="min-w-0 flex-1">
                             <MetricTitle metric={metric} metricType={metricType} />
                         </div>
@@ -62,15 +59,19 @@ export const MetricHeader = ({
                                 icon={<IconPencil fontSize="12" />}
                                 tooltip="Edit"
                                 onClick={() => {
-                                    const openModal = isPrimaryMetric
-                                        ? metric.isSharedMetric
+                                    if (metric.isSharedMetric) {
+                                        const openSharedModal = isPrimaryMetric
                                             ? openPrimarySharedMetricModal
-                                            : openPrimaryMetricModal
-                                        : metric.isSharedMetric
-                                          ? openSecondarySharedMetricModal
-                                          : openSecondaryMetricModal
-
-                                    openModal(metric.isSharedMetric ? metric.sharedMetricId : metricIndex)
+                                            : openSecondarySharedMetricModal
+                                        openSharedModal(metric.sharedMetricId)
+                                    } else {
+                                        const openMetricModal = isPrimaryMetric
+                                            ? openPrimaryMetricModal
+                                            : openSecondaryMetricModal
+                                        if (metric.uuid) {
+                                            openMetricModal(metric.uuid)
+                                        }
+                                    }
                                 }}
                             />
                             <LemonButton
@@ -79,15 +80,6 @@ export const MetricHeader = ({
                                 size="xsmall"
                                 icon={<IconCopy fontSize="12" />}
                                 tooltip="Duplicate"
-                                disabledReason={
-                                    canDuplicateMetric
-                                        ? undefined
-                                        : `You can only have up to ${
-                                              isPrimaryMetric
-                                                  ? EXPERIMENT_MAX_PRIMARY_METRICS
-                                                  : EXPERIMENT_MAX_SECONDARY_METRICS
-                                          } ${isPrimaryMetric ? 'primary' : 'secondary'} metrics.`
-                                }
                                 onClick={() => {
                                     /**
                                      * For shared metrics we open the duplicate form

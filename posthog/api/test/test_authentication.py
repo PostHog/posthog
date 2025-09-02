@@ -8,8 +8,10 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
 from django.conf import settings
+from django.contrib.sessions.middleware import SessionMiddleware
 from django.core import mail
 from django.core.cache import cache
+from django.test import RequestFactory
 from django.utils import timezone
 
 from django_otp.oath import totp
@@ -23,7 +25,7 @@ from rest_framework.test import APIRequestFactory
 from social_django.models import UserSocialAuth
 from two_factor.utils import totp_digits
 
-from posthog.api.authentication import password_reset_token_generator
+from posthog.api.authentication import password_reset_token_generator, post_login, social_login_notification
 from posthog.auth import OAuthAccessTokenAuthentication, ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
 from posthog.models import User
 from posthog.models.instance_setting import set_instance_setting
@@ -1303,3 +1305,81 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
                 team_id=self.user.current_team_id,
                 access_method="oauth",
             )
+
+
+class TestOAuthLoginNotification(APIBaseTest):
+    CONFIG_AUTO_LOGIN = False
+
+    @staticmethod
+    def _build_strategy(rf: RequestFactory, user_agent: str, ip: str):
+        req = rf.get("/", HTTP_USER_AGENT=user_agent, REMOTE_ADDR=ip)
+
+        class Strategy:
+            def __init__(self, r):
+                self.request = r
+
+            def session_get(self, key, default=None):
+                return None
+
+        return Strategy(req)
+
+    def test_notification_sent_on_new_device_login(self):
+        user = User.objects.create(email="test@gmail.com", distinct_id=str(uuid.uuid4()))
+        rf = RequestFactory()
+        Backend = type("Backend", (), {"name": "google-oauth2"})
+        ua1, ip1 = "BrowserA/99.0 (X11; Linux x86_64)", "1.1.1.1"
+
+        # test SMTP email notification
+        set_instance_setting("EMAIL_HOST", "localhost")
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, CUSTOMER_IO_API_KEY=None):
+            social_login_notification(self._build_strategy(rf, ua1, ip1), Backend(), user)
+            assert len(mail.outbox) == 1
+
+    def test_notification_not_sent_on_same_device_second_login(self):
+        user = User.objects.create(email="test@gmail.com", distinct_id=str(uuid.uuid4()))
+        rf = RequestFactory()
+        Backend = type("Backend", (), {"name": "google-oauth2"})
+        ua1, ip1 = "BrowserA/99.0 (X11; Linux x86_64)", "1.1.1.1"
+
+        # test SMTP email notification
+        set_instance_setting("EMAIL_HOST", "localhost")
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, CUSTOMER_IO_API_KEY=None):
+            social_login_notification(self._build_strategy(rf, ua1, ip1), Backend(), user)
+            assert len(mail.outbox) == 1
+            social_login_notification(self._build_strategy(rf, ua1, ip1), Backend(), user)
+            assert len(mail.outbox) == 1
+
+    def test_notification_sent_on_second_distinct_device_login(self):
+        user = User.objects.create(email="test@gmail.com", distinct_id=str(uuid.uuid4()))
+        rf = RequestFactory()
+        Backend = type("Backend", (), {"name": "google-oauth2"})
+        ua1, ip1 = "BrowserA/99.0 (X11; Linux x86_64)", "1.1.1.1"
+        ua2, ip2 = "BrowserB/100.0 (Macintosh; Intel Mac OS X)", "2.2.2.2"
+
+        # test SMTP email notification
+        set_instance_setting("EMAIL_HOST", "localhost")
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, CUSTOMER_IO_API_KEY=None):
+            social_login_notification(self._build_strategy(rf, ua1, ip1), Backend(), user)
+            assert len(mail.outbox) == 1
+            social_login_notification(self._build_strategy(rf, ua2, ip2), Backend(), user)
+            assert len(mail.outbox) == 2
+
+    def test_signup_then_same_device_login_no_notification(self):
+        user = User.objects.create(email="test@gmail.com", distinct_id=str(uuid.uuid4()))
+        rf = RequestFactory()
+        Backend = type("Backend", (), {"name": "google-oauth2"})
+        ua1, ip1 = "BrowserA/99.0 (X11; Linux x86_64)", "1.1.1.1"
+
+        # test SMTP email notification
+        set_instance_setting("EMAIL_HOST", "localhost")
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, CUSTOMER_IO_API_KEY=None):
+            # simulating signup with post_login signal
+            req_signup = rf.get("/", HTTP_USER_AGENT=ua1, REMOTE_ADDR=ip1)
+            middleware = SessionMiddleware(lambda r: r)
+            middleware.process_request(req_signup)
+            req_signup.session.save()
+            post_login(None, user, req_signup)
+            assert len(mail.outbox) == 0
+
+            social_login_notification(self._build_strategy(rf, ua1, ip1), Backend(), user)
+            assert len(mail.outbox) == 0

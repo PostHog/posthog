@@ -10,7 +10,7 @@ import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { smoothingOptions } from './smoothings'
 
 export function SmoothingFilter(): JSX.Element | null {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, editingDisabledReason } = useValues(insightLogic)
     const { isTrends, interval, trendsFilter } = useValues(trendsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
@@ -48,6 +48,7 @@ export function SmoothingFilter(): JSX.Element | null {
             data-attr="smoothing-filter"
             options={options}
             size="small"
+            disabledReason={editingDisabledReason}
         />
     ) : (
         <></>

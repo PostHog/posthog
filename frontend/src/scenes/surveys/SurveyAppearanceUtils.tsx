@@ -26,7 +26,7 @@ export function PresentationTypeCard({
     return (
         <div
             className={clsx(
-                'border rounded relative px-4 py-2 overflow-hidden h-[180px] w-[200px]',
+                'border rounded relative px-4 py-2 overflow-hidden h-[180px] w-full',
                 active ? 'border-accent' : 'border-primary',
                 disabled && 'opacity-50'
             )}

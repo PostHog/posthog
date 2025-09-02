@@ -406,11 +406,11 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "data": [
                         0,
                         0,
-                        Decimal("1463.3544316666"),
-                        Decimal("1521.2505041666"),
-                        Decimal("1568.4581424999"),
-                        Decimal("2211.3701474999"),
-                        Decimal("1481.5565833333"),
+                        Decimal("213.5016883333"),
+                        Decimal("278.0380991666"),
+                        Decimal("338.5410258333"),
+                        Decimal("389.6273974999"),
+                        Decimal("286.0565833333"),
                         Decimal("8.1692499999"),
                         Decimal("12.2538749999"),
                         Decimal("12.2538749999"),
@@ -441,7 +441,7 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         None,
                         None,
                         None,
-                        Decimal("2963.1131666666"),
+                        Decimal("572.1131666666"),
                         Decimal("24.5077500021"),
                         None,
                         None,
@@ -547,8 +547,8 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "days": days,
                     "labels": labels,
                     "data": [
-                        Decimal("2211.3701474999"),
-                        Decimal("1481.5565833333"),
+                        Decimal("389.6273974999"),
+                        Decimal("286.0565833333"),
                         Decimal("8.1692499999"),
                         Decimal("12.2538749999"),
                     ],
@@ -562,7 +562,7 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "label": "LTV | stripe.posthog_test",
                     "days": days,
                     "labels": labels,
-                    "data": [None, Decimal("2963.1131666666"), Decimal("24.5077500021"), None],
+                    "data": [None, Decimal("572.1131666666"), Decimal("24.5077500021"), None],
                     "action": {
                         "days": action_days,
                         "id": "LTV | stripe.posthog_test",
@@ -732,11 +732,11 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     [
                         0,
                         0,
-                        Decimal("4365.555545"),
-                        Decimal("4365.555545"),
-                        Decimal("4361.164075"),
-                        Decimal("4361.164075"),
-                        Decimal("8729.34175"),
+                        Decimal("615.997315"),
+                        Decimal("615.997315"),
+                        Decimal("691.377575"),
+                        Decimal("691.377575"),
+                        Decimal("1556.34175"),
                     ],
                     "ARPU | stripe.posthog_test - Product C",
                 ),
@@ -751,10 +751,7 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     [0, 0, 0, Decimal("85.47825"), Decimal("85.47825"), Decimal("83.16695"), 0],
                     "ARPU | stripe.posthog_test - Product D",
                 ),
-                (
-                    [0, 0, 0, None, None, None, 0],
-                    "LTV | stripe.posthog_test - Product D",
-                ),
+                ([0, 0, 0, None, None, None, 0], "LTV | stripe.posthog_test - Product D"),
                 ([0, 0, 0, 1, 1, 1, 1], "Subscription Count | stripe.posthog_test - Product E"),
                 ([0, 0, 0, 1, 0, 0, 0], "New Subscription Count | stripe.posthog_test - Product E"),
                 ([0, 0, 0, 0, 0, 0, 1], "Churned Subscription Count | stripe.posthog_test - Product E"),
@@ -765,10 +762,7 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     [0, 0, 0, Decimal("273.57025"), Decimal("273.57025"), Decimal("79.69203"), 0],
                     "ARPU | stripe.posthog_test - Product E",
                 ),
-                (
-                    [0, 0, 0, None, None, None, 0],
-                    "LTV | stripe.posthog_test - Product E",
-                ),
+                ([0, 0, 0, None, None, None, 0], "LTV | stripe.posthog_test - Product E"),
                 ([0, 0, 0, 1, 1, 1, 1], "Subscription Count | stripe.posthog_test - Product F"),
                 ([0, 0, 0, 1, 0, 0, 0], "New Subscription Count | stripe.posthog_test - Product F"),
                 ([0, 0, 0, 0, 0, 0, 1], "Churned Subscription Count | stripe.posthog_test - Product F"),
@@ -776,13 +770,10 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ([0, 0, 0, 1, 0, 0, 0], "New Customer Count | stripe.posthog_test - Product F"),
                 ([0, 0, 0, 0, 0, 0, 1], "Churned Customer Count | stripe.posthog_test - Product F"),
                 (
-                    [0, 0, 0, Decimal("4378.39123"), Decimal("4378.39123"), Decimal("8719.69008"), 0],
+                    [0, 0, 0, Decimal("668.67503"), Decimal("668.67503"), Decimal("1459.02008"), 0],
                     "ARPU | stripe.posthog_test - Product F",
                 ),
-                (
-                    [0, 0, 0, None, None, None, 0],
-                    "LTV | stripe.posthog_test - Product F",
-                ),
+                ([0, 0, 0, None, None, None, 0], "LTV | stripe.posthog_test - Product F"),
             ],
         )
 
@@ -797,11 +788,11 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [
                 0,
                 0,
-                Decimal("4365.555545"),
-                Decimal("4365.555545"),
-                Decimal("4361.164075"),
-                Decimal("4361.164075"),
-                Decimal("8729.34175"),
+                Decimal("615.997315"),
+                Decimal("615.997315"),
+                Decimal("691.377575"),
+                Decimal("691.377575"),
+                Decimal("1556.34175"),
             ],  # ARPU
             [0, 0, None, None, None, None, None],  # LTV
         ]
@@ -861,11 +852,11 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 [
                     0,
                     0,
-                    Decimal("2186.8790016666"),
-                    Decimal("2186.8790016666"),
-                    Decimal("2292.3579666666"),
-                    Decimal("2184.6832666666"),
-                    Decimal("4426.7538541666"),
+                    Decimal("312.0998866666"),
+                    Decimal("312.0998866666"),
+                    Decimal("457.4647166666"),
+                    Decimal("349.7900166666"),
+                    Decimal("840.2538541666"),
                 ],  # ARPU
                 [0, 0, None, None, None, None, None],  # LTV
             ],

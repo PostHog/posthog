@@ -169,10 +169,16 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                 argMinIf(properties.$ai_output_state,
                          timestamp, event = '$ai_trace'
                 ) AS output_state,
-                argMinIf(
-                    ifNull(properties.$ai_span_name, properties.$ai_trace_name),
-                    timestamp,
-                    event = '$ai_trace'
+                ifNull(
+                    argMinIf(
+                        ifNull(properties.$ai_span_name, properties.$ai_trace_name),
+                        timestamp,
+                        event = '$ai_trace'
+                    ),
+                    argMin(
+                        ifNull(properties.$ai_span_name, properties.$ai_trace_name),
+                        timestamp,
+                    )
                 ) AS trace_name
             FROM events
             WHERE event IN (

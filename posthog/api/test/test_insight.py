@@ -3791,3 +3791,70 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         updated_metadata = insight.query_metadata
         self.assertIsNotNone(updated_metadata)
         self.assertEqual(initial_metadata, updated_metadata)
+
+    def test_funnel_breakdown_override(self):
+        _create_person(team=self.team, distinct_ids=["person_1"])
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="person_1",
+            properties={"$browser": "Chrome", "$geoip_country_code": "US"},
+        )
+
+        insight = Insight.objects.create(
+            query={
+                "kind": NodeKind.INSIGHT_VIZ_NODE.value,
+                "source": {
+                    "kind": InsightNodeKind.FUNNELS_QUERY.value,
+                    "series": [
+                        {
+                            "kind": NodeKind.EVENTS_NODE.value,
+                            "event": "$pageview",
+                            "name": "$pageview",
+                        },
+                        {
+                            "kind": NodeKind.EVENTS_NODE.value,
+                            "event": "$pageview",
+                            "name": "$pageview",
+                        },
+                    ],
+                    "breakdownFilter": {
+                        "breakdown": "$geoip_country_code",
+                        "breakdown_type": "event",
+                    },
+                },
+            },
+            team=self.team,
+            created_by=self.user,
+        )
+
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="Test Dashboard",
+            created_by=self.user,
+            filters={
+                "breakdown_filter": {
+                    "breakdown": "$browser",
+                    "breakdown_type": "event",
+                }
+            },
+        )
+
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/?refresh=force_blocking&from_dashboard={dashboard.id}"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        response_data = response.json()
+        query_source = response_data["query"]["source"]
+
+        # Verify breakdown filter is applied correctly
+        breakdown_filter = query_source["breakdownFilter"]
+        self.assertEqual(breakdown_filter.get("breakdown"), "$browser")
+        self.assertEqual(breakdown_filter.get("breakdown_type"), "event")
+
+        # Verify the breakdown filter is applied in the result
+        self.assertIn("result", response_data)
+        self.assertEqual(response_data["result"][0][0]["breakdown"], ["Chrome"])

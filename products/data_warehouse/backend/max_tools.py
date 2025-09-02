@@ -9,9 +9,12 @@ from posthog.schema import AssistantHogQLQuery
 
 from posthog.models import Team, User
 
-from products.data_warehouse.backend.prompts import HOGQL_GENERATOR_USER_PROMPT, SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
+from products.data_warehouse.backend.prompts import (
+    HOGQL_GENERATOR_USER_PROMPT,
+    SQL_ASSISTANT_ROOT_SYSTEM_PROMPT,
+    TIME_PERIOD_PROMPT,
+)
 
-from ee.hogai.graph.query_planner.prompts import PROPERTY_FILTERS_EXPLANATION_PROMPT
 from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.graph.schema_generator.utils import SchemaGeneratorOutput
 from ee.hogai.graph.sql.mixins import HogQLGeneratorMixin
@@ -82,8 +85,8 @@ class HogQLGeneratorNode(
 
         combined_messages = [
             *system_prompt.messages,
-            ("system", PROPERTY_FILTERS_EXPLANATION_PROMPT),
             *taxonomy_system_messages,
+            ("system", TIME_PERIOD_PROMPT),
             ("human", state.change or ""),
             *(state.tool_progress_messages or []),
         ]
@@ -146,12 +149,11 @@ class HogQLGeneratorTool(HogQLGeneratorMixin, MaxTool):
                 else:
                     output = result_so_far["output"]
                     assert output is not None
+
                     final_result = self._parse_output(output)
                     # If quality check raises, we will still iterate if we've got any attempts left,
                     # however if we don't have any more attempts, we're okay to use `resulting_query` (instead of throwing)
-                    await self._quality_check_output(
-                        output=final_result,
-                    )
+                    final_result.query.query = await self._quality_check_output(output=final_result)
                     final_error = None
                     break  # All good, let's go
             except PydanticOutputParserException as e:

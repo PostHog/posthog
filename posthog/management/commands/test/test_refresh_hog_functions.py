@@ -64,37 +64,37 @@ class TestRefreshHogFunctions(BaseTest):
 
     @patch("posthog.models.hog_functions.hog_function.reload_hog_functions_on_workers")
     def test_refresh_all_hog_functions(self, mock_reload):
-        """Test refreshing all non-deleted HogFunctions (both enabled and disabled) across all teams."""
+        """Test refreshing all non-deleted destination HogFunctions (both enabled and disabled) across all teams."""
 
         out = StringIO()
         call_command("refresh_hog_functions", stdout=out)
 
-        # Should have refreshed 4 non-deleted functions
-        # (hog_function1, hog_function2, hog_function3, disabled_function)
-        # The deleted_function should be excluded
-        assert mock_reload.call_count == 4
+        # Should have refreshed 3 destination functions
+        # (hog_function1, hog_function3, disabled_function)
+        # The transformation hog_function2 and deleted_function should be excluded
+        assert mock_reload.call_count == 3
 
         output = out.getvalue()
-        self.assertIn("Found 4 HogFunctions to process", output)
-        self.assertIn("Processed: 4", output)
-        self.assertIn("Updated: 4", output)
+        self.assertIn("Found 3 HogFunctions to process", output)
+        self.assertIn("Processed: 3", output)
+        self.assertIn("Updated: 3", output)
         self.assertIn("Errors: 0", output)
 
     @patch("posthog.models.hog_functions.hog_function.reload_hog_functions_on_workers")
     def test_refresh_by_team_id(self, mock_reload):
-        """Test refreshing HogFunctions for a specific team."""
+        """Test refreshing destination HogFunctions for a specific team."""
 
         out = StringIO()
         call_command("refresh_hog_functions", team_id=self.team.id, stdout=out)
 
-        # Should have refreshed functions from team1 (hog_function1, hog_function2, disabled_function)
-        # The deleted_function should be excluded
-        assert mock_reload.call_count == 3
+        # Should have refreshed destination functions from team1 (hog_function1, disabled_function)
+        # The transformation hog_function2 and deleted_function should be excluded
+        assert mock_reload.call_count == 2
 
         output = out.getvalue()
         self.assertIn(f"Processing HogFunctions for team: {self.team.id}", output)
-        self.assertIn("Found 3 HogFunctions to process", output)
-        self.assertIn("Updated: 3", output)
+        self.assertIn("Found 2 HogFunctions to process", output)
+        self.assertIn("Updated: 2", output)
 
     @patch("posthog.models.hog_functions.hog_function.reload_hog_functions_on_workers")
     def test_refresh_by_hog_function_id(self, mock_reload):

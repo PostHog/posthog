@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import React, { PropsWithChildren, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 
-import { IconInfo, IconX } from '@posthog/icons'
+import { IconListCheck, IconX } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
@@ -160,8 +160,8 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                         >
                             <div className="h-[var(--scene-layout-header-height)] flex items-center justify-between gap-2 -mx-2 px-4 py-1 border-b border-primary shrink-0">
                                 <div className="flex items-center gap-2">
-                                    <IconInfo className="size-5 text-tertiary" />
-                                    <h4 className="text-base font-medium text-primary m-0">Info</h4>
+                                    <IconListCheck className="size-5 text-tertiary" />
+                                    <h4 className="text-base font-medium text-primary m-0">Info & actions</h4>
                                 </div>
 
                                 {scenePanelOpen && (
@@ -174,17 +174,17 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                                         }
                                         tooltip={
                                             !scenePanelOpen
-                                                ? 'Open info panel'
+                                                ? 'Open Info & actions panel'
                                                 : scenePanelIsRelative
-                                                  ? 'Force close info panel'
-                                                  : 'Close info panel'
+                                                  ? 'Force close Info & actions panel'
+                                                  : 'Close Info & actions panel'
                                         }
                                         aria-label={
                                             !scenePanelOpen
-                                                ? 'Open info panel'
+                                                ? 'Open Info & actions panel'
                                                 : scenePanelIsRelative
-                                                  ? 'Force close info panel'
-                                                  : 'Close info panel'
+                                                  ? 'Force close Info & actions panel'
+                                                  : 'Close Info & actions panel'
                                         }
                                     >
                                         <IconX className="size-4" />

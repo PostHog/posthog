@@ -7,6 +7,7 @@ import structlog
 import temporalio
 
 from posthog.helpers.encrypted_fields import EncryptedJSONField
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
@@ -15,7 +16,7 @@ from posthog.warehouse.types import ExternalDataSourceType
 logger = structlog.get_logger(__name__)
 
 
-class ExternalDataSource(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
+class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"
         PAUSED = "Paused", "Paused"

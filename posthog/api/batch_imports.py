@@ -16,6 +16,12 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
+from posthog.models.activity_logging.batch_import_utils import (
+    extract_batch_import_info,
+    get_batch_import_created_by_info,
+    get_batch_import_detail_name,
+)
+from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
 from posthog.models.batch_imports import BatchImport, ContentType, DateRangeExportSource
 from posthog.models.signals import model_activity_signal
 from posthog.models.user import User
@@ -170,6 +176,8 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
     access_key = serializers.CharField(write_only=True, required=True)
     secret_key = serializers.CharField(write_only=True, required=True)
     is_eu_region = serializers.BooleanField(write_only=True, required=False, default=False)
+    import_events = serializers.BooleanField(write_only=True, required=False, default=True)
+    generate_identify_events = serializers.BooleanField(write_only=True, required=False, default=True)
 
     class Meta:
         model = BatchImport
@@ -189,6 +197,8 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
             "access_key",
             "secret_key",
             "is_eu_region",
+            "import_events",
+            "generate_identify_events",
         ]
         read_only_fields = [
             "id",
@@ -218,6 +228,17 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
                     "Date range cannot exceed 1 year. Please create multiple migration jobs for longer periods."
                 )
 
+        # For Amplitude, ensure at least one of import_events or generate_identify_events is enabled
+        source_type = data.get("source_type")
+        if source_type == "amplitude":
+            import_events = data.get("import_events", True)
+            generate_identify_events = data.get("generate_identify_events", True)
+
+            if not import_events and not generate_identify_events:
+                raise serializers.ValidationError(
+                    "At least one of 'Import events' or 'Generate identify events' must be enabled for Amplitude migrations."
+                )
+
         return data
 
     def create(self, validated_data: dict, **kwargs) -> BatchImport:
@@ -231,14 +252,24 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
                 created_by_id=self.context["request"].user.id,
             )
 
-            batch_import.config.json_lines(ContentType(validated_data["content_type"])).from_date_range(
+            config_builder = batch_import.config.json_lines(
+                ContentType(validated_data["content_type"])
+            ).from_date_range(
                 start_date=validated_data["start_date"].isoformat(),
                 end_date=validated_data["end_date"].isoformat(),
                 access_key=validated_data["access_key"],
                 secret_key=validated_data["secret_key"],
                 export_source=DateRangeExportSource(source_type),
                 is_eu_region=validated_data.get("is_eu_region", False),
-            ).to_kafka(
+            )
+
+            # Only apply import_events and generate_identify_events for Amplitude
+            if source_type == "amplitude":
+                config_builder = config_builder.with_import_events(
+                    validated_data.get("import_events", True)
+                ).with_generate_identify_events(validated_data.get("generate_identify_events", True))
+
+            config_builder.to_kafka(
                 topic=BatchImportKafkaTopic.HISTORICAL,
                 send_rate=1000,
                 transaction_timeout_seconds=60,
@@ -438,12 +469,6 @@ class BatchImportContext(ActivityContextBase):
 def handle_batch_import_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
-    from posthog.models.activity_logging.batch_import_utils import (
-        extract_batch_import_info,
-        get_batch_import_created_by_info,
-        get_batch_import_detail_name,
-    )
-
     # Use after_update for create/update, before_update for delete
     batch_import = after_update or before_update
 
@@ -482,19 +507,12 @@ def handle_batch_import_change(
 
 @receiver(pre_delete, sender=BatchImport)
 def handle_batch_import_delete(sender, instance, **kwargs):
-    """Handle BatchImport deletion activity logging"""
-    from posthog.models.activity_logging.batch_import_utils import (
-        extract_batch_import_info,
-        get_batch_import_created_by_info,
-    )
-    from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
-
     user = get_current_user()
     was_impersonated = get_was_impersonated()
 
     source_type, content_type, start_date, end_date = extract_batch_import_info(instance)
     created_by_user_id, created_by_user_email, created_by_user_name = get_batch_import_created_by_info(instance)
-    detail_name = f"Batch import ({source_type} {content_type}) was deleted"
+    detail_name = get_batch_import_detail_name(source_type, content_type)
 
     context = BatchImportContext(
         source_type=source_type,
