@@ -52,8 +52,7 @@ pub struct CaptureQuotaLimiter {
     redis_client: Arc<dyn Client + Send + Sync>,
 
     // these are scoped to a specific event subset (e.g. survey events, AI events, etc.)
-    // and ONLY filter out those events if the quota is exceeded. Add new scoped limiters
-    // to this list as needed
+    // and ONLY filter out those events if the quota is exceeded
     scoped_limiters: Vec<Box<dyn ScopedLimiterTrait>>,
 
     // this is the global billing limiter - if a token matches this limiter bucket,
@@ -120,7 +119,7 @@ impl CaptureQuotaLimiter {
         context: &ProcessingContext,
         events: Vec<RawEvent>,
     ) -> Result<Vec<RawEvent>, CaptureError> {
-        // in the future, we make bucket quotas by more than token (team)
+        // in the future, we may bucket quotas by more than token (team)
         // so we accept the whole ProcessingContext here
         let token = context.token.as_str();
 
