@@ -18,8 +18,13 @@ from ee.vercel.integration import VercelIntegration
 
 
 class TestVercelIntegration(TestCase):
+    TEST_INSTALLATION_ID = "icfg_9bceb8ccT32d3U417ezb5c8p"
+    NONEXISTENT_INSTALLATION_ID = "icfg_nonexistent123456789012"
+    NEW_INSTALLATION_ID = "icfg_987654321abcdef123456789"
+    DIFFERENT_INSTALLATION_ID = "icfg_different123456789012345"
+
     def setUp(self):
-        self.installation_id = "inst_123456789"
+        self.installation_id = self.TEST_INSTALLATION_ID
         self.user = User.objects.create_user(email="test@example.com", password="testpass", first_name="Test")
         self.organization = Organization.objects.create(name="Test Org")
         self.user.join(organization=self.organization, level=OrganizationMembership.Level.OWNER)
@@ -50,7 +55,7 @@ class TestVercelIntegration(TestCase):
 
     def test_get_installation_not_found(self):
         with self.assertRaises(NotFound) as context:
-            VercelIntegration._get_installation("inst_nonexistent")
+            VercelIntegration._get_installation(self.NONEXISTENT_INSTALLATION_ID)
         assert str(context.exception) == "Installation not found"
 
     def test_get_vercel_plans_structure(self):
@@ -79,7 +84,7 @@ class TestVercelIntegration(TestCase):
         assert updated_installation.config["billing_plan_id"] == "free"
 
     def test_update_installation_not_found(self):
-        VercelIntegration.update_installation("inst_nonexistent", "pro200")
+        VercelIntegration.update_installation(self.NONEXISTENT_INSTALLATION_ID, "pro200")
 
     @patch("django.conf.settings.DEBUG", True)
     def test_delete_installation_dev_mode(self):
@@ -97,7 +102,7 @@ class TestVercelIntegration(TestCase):
 
     def test_delete_installation_not_found(self):
         with self.assertRaises(NotFound):
-            VercelIntegration.delete_installation("inst_nonexistent")
+            VercelIntegration.delete_installation(self.NONEXISTENT_INSTALLATION_ID)
 
     def test_get_product_plans_posthog(self):
         result = VercelIntegration.get_product_plans("posthog")
@@ -120,7 +125,7 @@ class TestVercelIntegration(TestCase):
 
     @patch("ee.vercel.integration.report_user_signed_up")
     def test_upsert_installation_new_user_new_org(self, mock_report):
-        new_installation_id = "inst_987654321"
+        new_installation_id = self.NEW_INSTALLATION_ID
 
         VercelIntegration.upsert_installation(new_installation_id, self.payload)
 
@@ -144,7 +149,7 @@ class TestVercelIntegration(TestCase):
         existing_user = User.objects.create_user(
             email=self.payload["account"]["contact"]["email"], password="existing", first_name="Existing"
         )
-        new_installation_id = "inst_987654321"
+        new_installation_id = self.NEW_INSTALLATION_ID
 
         VercelIntegration.upsert_installation(new_installation_id, self.payload)
 
@@ -163,7 +168,7 @@ class TestVercelIntegration(TestCase):
             mock_create.side_effect = IntegrityError("Duplicate key")
 
             with self.assertRaises(ValidationError) as context:
-                VercelIntegration.upsert_installation("inst_new", self.payload)
+                VercelIntegration.upsert_installation(self.NEW_INSTALLATION_ID, self.payload)
 
             detail = context.exception.detail
             if isinstance(detail, dict):
@@ -171,7 +176,7 @@ class TestVercelIntegration(TestCase):
             mock_capture.assert_called_once()
 
     def test_upsert_installation_creates_org_with_fallback_name(self):
-        new_installation_id = "inst_987654321"
+        new_installation_id = self.NEW_INSTALLATION_ID
         payload_without_name = self.payload.copy()
         del payload_without_name["account"]["name"]
 
@@ -181,7 +186,7 @@ class TestVercelIntegration(TestCase):
         assert new_installation.organization.name == f"Vercel Installation {new_installation_id}"
 
     def test_upsert_installation_creates_user_with_fallback_name(self):
-        new_installation_id = "inst_987654321"
+        new_installation_id = self.NEW_INSTALLATION_ID
         payload_without_name = self.payload.copy()
         del payload_without_name["account"]["contact"]["name"]
 
@@ -190,23 +195,9 @@ class TestVercelIntegration(TestCase):
         new_user = User.objects.get(email=payload_without_name["account"]["contact"]["email"])
         assert new_user.first_name == ""
 
-    def test_get_resource_exists(self):
-        team = Team.objects.create(organization=self.organization, name="Test Team")
-        resource = Integration.objects.create(
-            team=team,
-            kind=Integration.IntegrationKind.VERCEL,
-            integration_id=str(team.pk),
-            config={"productId": "posthog", "name": "Test Resource"},
-            created_by=self.user,
-        )
-
-        result = VercelIntegration._get_resource(str(resource.pk))
-        assert result.pk == resource.pk
-        assert result.team == team
-
     def test_get_resource_not_found(self):
         with self.assertRaises(NotFound):
-            VercelIntegration._get_resource("123123")
+            VercelIntegration.get_resource("999999")
 
     def test_create_resource(self):
         resource_data = {
@@ -231,7 +222,7 @@ class TestVercelIntegration(TestCase):
         assert resource.team.organization == self.organization
         assert resource.created_by == self.installation.created_by
 
-    def test_get_resource_with_installation(self):
+    def test_get_resource(self):
         team = Team.objects.create(organization=self.organization, name="Test Team")
         resource = Integration.objects.create(
             team=team,
@@ -241,7 +232,7 @@ class TestVercelIntegration(TestCase):
             created_by=self.user,
         )
 
-        result = VercelIntegration.get_resource(str(resource.pk), self.installation_id)
+        result = VercelIntegration.get_resource(str(resource.pk))
 
         assert result["id"] == str(resource.pk)
         assert result["productId"] == "posthog"
@@ -261,7 +252,7 @@ class TestVercelIntegration(TestCase):
         )
 
         update_data = {"name": "Updated Name", "metadata": {"new": "value"}}
-        result = VercelIntegration.update_resource(str(resource.pk), self.installation_id, update_data)
+        result = VercelIntegration.update_resource(str(resource.pk), update_data)
 
         resource.refresh_from_db()
         assert resource.config["name"] == "Updated Name"
@@ -280,7 +271,7 @@ class TestVercelIntegration(TestCase):
             created_by=self.user,
         )
         resource_id = str(resource.pk)
-        VercelIntegration.delete_resource(resource_id, self.installation_id)
+        VercelIntegration.delete_resource(resource_id)
         assert not Integration.objects.filter(pk=resource_id).exists()
 
     def test_delete_resource_not_found(self):
@@ -298,30 +289,6 @@ class TestVercelIntegration(TestCase):
             VercelIntegration.create_resource(self.installation_id, resource_data)
 
         assert "name" in str(context.exception.detail)
-
-    def test_delete_resource_wrong_installation(self):
-        different_org = Organization.objects.create(name="Different Org")
-        different_installation = OrganizationIntegration.objects.create(
-            organization=different_org,
-            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
-            integration_id="inst_different",
-            config={"billing_plan_id": "free"},
-            created_by=self.user,
-        )
-
-        team = Team.objects.create(organization=self.organization, name="Test Team")
-        resource = Integration.objects.create(
-            team=team,
-            kind=Integration.IntegrationKind.VERCEL,
-            integration_id=str(team.pk),
-            config={"productId": "posthog", "name": "Test Resource"},
-            created_by=self.user,
-        )
-
-        with self.assertRaises(exceptions.ValidationError) as context:
-            VercelIntegration.delete_resource(str(resource.pk), different_installation.integration_id)
-
-        assert "Resource does not belong to this installation" in str(context.exception.detail)
 
     def test_build_secrets(self):
         team = Team.objects.create(organization=self.organization, name="Test Team", api_token="test_api_token")
