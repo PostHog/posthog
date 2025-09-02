@@ -294,7 +294,14 @@ async fn test_no_billing_limit_retains_all_events() {
     let (router, sink) = setup_router_with_limits(token, CaptureMode::Events, false, vec![]).await; // Not limited
     let client = TestClient::new(router);
 
-    let events = ["pageview", "$exception", "click", "survey sent", "pageleave", "$ai_foobar"];
+    let events = [
+        "pageview",
+        "$exception",
+        "click",
+        "survey sent",
+        "pageleave",
+        "$ai_foobar",
+    ];
     let payload = create_batch_payload_with_token(&events, token);
 
     let response = client
@@ -850,7 +857,7 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
     let mut cfg = DEFAULT_CONFIG.clone();
     cfg.capture_mode = CaptureMode::Events;
 
-    let quota_limiter  = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60))
+    let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60))
         .add_scoped_limiter(QuotaResource::Surveys, Box::new(is_survey_event));
 
     let app = router(
