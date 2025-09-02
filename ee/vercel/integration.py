@@ -1,3 +1,4 @@
+import copy
 from typing import Any
 
 from django.conf import settings
@@ -284,7 +285,7 @@ class VercelIntegration:
         installation = VercelIntegration._get_installation(installation_id)
         VercelIntegration._validate_resource_belongs_to_installation(resource, installation)
 
-        updated_config = resource.config.copy()
+        updated_config = copy.deepcopy(resource.config)
         updated_config.update(resource_data)
         resource.config = updated_config
         resource.save(update_fields=["config"])
