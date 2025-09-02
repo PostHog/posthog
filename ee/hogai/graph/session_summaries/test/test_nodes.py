@@ -1,4 +1,5 @@
 from collections.abc import AsyncGenerator, Awaitable, Callable
+from datetime import UTC, datetime
 from typing import Any, cast
 
 from freezegun import freeze_time
@@ -498,8 +499,8 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
             team_id=self.team.pk,
             session_id=self.session_id_1,
             distinct_id="filter-user-1",
-            first_timestamp=timezone.datetime(2025, 8, 28, 10, 0, 0, tzinfo=timezone.utc),
-            last_timestamp=timezone.datetime(2025, 8, 28, 10, 30, 0, tzinfo=timezone.utc),
+            first_timestamp=datetime(2025, 8, 28, 10, 0, 0, tzinfo=UTC),
+            last_timestamp=datetime(2025, 8, 28, 10, 30, 0, tzinfo=UTC),
             first_url="https://example.com/page1",
             active_milliseconds=7000,  # 7 seconds active
         )
@@ -508,8 +509,8 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
             team_id=self.team.pk,
             session_id=self.session_id_2,
             distinct_id="filter-user-2",
-            first_timestamp=timezone.datetime(2025, 8, 28, 15, 0, 0, tzinfo=timezone.utc),
-            last_timestamp=timezone.datetime(2025, 8, 28, 15, 45, 0, tzinfo=timezone.utc),
+            first_timestamp=datetime(2025, 8, 28, 15, 0, 0, tzinfo=UTC),
+            last_timestamp=datetime(2025, 8, 28, 15, 45, 0, tzinfo=UTC),
             first_url="https://example.com/page2",
             active_milliseconds=8000,  # 8 seconds active
         )
@@ -518,8 +519,8 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
             team_id=self.team.pk,
             session_id=self.session_id_3,
             distinct_id="filter-user-3",
-            first_timestamp=timezone.datetime(2025, 8, 29, 11, 0, 0, tzinfo=timezone.utc),
-            last_timestamp=timezone.datetime(2025, 8, 29, 11, 20, 0, tzinfo=timezone.utc),
+            first_timestamp=datetime(2025, 8, 29, 11, 0, 0, tzinfo=UTC),
+            last_timestamp=datetime(2025, 8, 29, 11, 20, 0, tzinfo=UTC),
             first_url="https://example.com/page3",
             active_milliseconds=10000,  # 10 seconds active
         )
@@ -528,8 +529,8 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
             team_id=self.team.pk,
             session_id=self.session_id_4,
             distinct_id="filter-user-4",
-            first_timestamp=timezone.datetime(2025, 8, 30, 9, 0, 0, tzinfo=timezone.utc),
-            last_timestamp=timezone.datetime(2025, 8, 30, 9, 25, 0, tzinfo=timezone.utc),
+            first_timestamp=datetime(2025, 8, 30, 9, 0, 0, tzinfo=UTC),
+            last_timestamp=datetime(2025, 8, 30, 9, 25, 0, tzinfo=UTC),
             first_url="https://example.com/page4",
             active_milliseconds=9000,  # 9 seconds active
         )
@@ -537,7 +538,7 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
         # Events for session 1
         _create_event(
             distinct_id="filter-user-1",
-            timestamp=timezone.datetime(2025, 8, 28, 10, 5, 0, tzinfo=timezone.utc),
+            timestamp=datetime(2025, 8, 28, 10, 5, 0, tzinfo=UTC),
             team=self.team,
             event="$pageview",
             properties={
@@ -548,7 +549,7 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
         )
         _create_event(
             distinct_id="filter-user-1",
-            timestamp=timezone.datetime(2025, 8, 28, 10, 10, 0, tzinfo=timezone.utc),
+            timestamp=datetime(2025, 8, 28, 10, 10, 0, tzinfo=UTC),
             team=self.team,
             event="$ai_generation",
             properties={"$session_id": self.session_id_1},
@@ -557,7 +558,7 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
         # Events for session 2
         _create_event(
             distinct_id="filter-user-2",
-            timestamp=timezone.datetime(2025, 8, 28, 15, 5, 0, tzinfo=timezone.utc),
+            timestamp=datetime(2025, 8, 28, 15, 5, 0, tzinfo=UTC),
             team=self.team,
             event="$pageview",
             properties={
@@ -568,7 +569,7 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
         )
         _create_event(
             distinct_id="filter-user-2",
-            timestamp=timezone.datetime(2025, 8, 28, 15, 15, 0, tzinfo=timezone.utc),
+            timestamp=datetime(2025, 8, 28, 15, 15, 0, tzinfo=UTC),
             team=self.team,
             event="$ai_generation",
             properties={"$session_id": self.session_id_2},
@@ -577,7 +578,7 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
         # Events for session 3
         _create_event(
             distinct_id="filter-user-3",
-            timestamp=timezone.datetime(2025, 8, 29, 11, 5, 0, tzinfo=timezone.utc),
+            timestamp=datetime(2025, 8, 29, 11, 5, 0, tzinfo=UTC),
             team=self.team,
             event="$pageview",
             properties={
@@ -588,7 +589,7 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
         )
         _create_event(
             distinct_id="filter-user-3",
-            timestamp=timezone.datetime(2025, 8, 29, 11, 10, 0, tzinfo=timezone.utc),
+            timestamp=datetime(2025, 8, 29, 11, 10, 0, tzinfo=UTC),
             team=self.team,
             event="$ai_generation",
             properties={"$session_id": self.session_id_3},
@@ -597,7 +598,7 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
         # Events for session 4
         _create_event(
             distinct_id="filter-user-4",
-            timestamp=timezone.datetime(2025, 8, 30, 9, 5, 0, tzinfo=timezone.utc),
+            timestamp=datetime(2025, 8, 30, 9, 5, 0, tzinfo=UTC),
             team=self.team,
             event="$pageview",
             properties={
@@ -608,7 +609,7 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
         )
         _create_event(
             distinct_id="filter-user-4",
-            timestamp=timezone.datetime(2025, 8, 30, 9, 10, 0, tzinfo=timezone.utc),
+            timestamp=datetime(2025, 8, 30, 9, 10, 0, tzinfo=UTC),
             team=self.team,
             event="$ai_generation",
             properties={"$session_id": self.session_id_4},
