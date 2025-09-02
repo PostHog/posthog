@@ -296,6 +296,7 @@ def funnel_breakdown_test_factory(
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results = sort_breakdown_funnel_results(results)
 
             self._assert_funnel_breakdown_result_is_correct(
                 results[0],
@@ -409,6 +410,7 @@ def funnel_breakdown_test_factory(
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results = sort_breakdown_funnel_results(results)
 
             self._assert_funnel_breakdown_result_is_correct(
                 results[0],
@@ -664,6 +666,7 @@ def funnel_breakdown_test_factory(
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results = sort_breakdown_funnel_results(results)
 
             self._assert_funnel_breakdown_result_is_correct(
                 results[0],
@@ -1110,6 +1113,7 @@ def funnel_breakdown_test_factory(
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results = sort_breakdown_funnel_results(results)
 
             self.assertEqual(len(results), 2)
 

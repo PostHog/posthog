@@ -159,16 +159,20 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(result.results), len(test_groups), "Should match all groups")
         self.assertEqual(result.columns, ["group_name", "key"])
+        
+        # First result should always be exact match
         self.assertEqual(result.results[0][0], "test")
         self.assertEqual(result.results[0][1], "exact")
-        self.assertEqual(result.results[1][0], "testable")
-        self.assertEqual(result.results[1][1], "prefix2")
-        self.assertEqual(result.results[2][0], "testing")
-        self.assertEqual(result.results[2][1], "prefix")
-        self.assertEqual(result.results[3][0], "best_test_ever")
-        self.assertEqual(result.results[3][1], "contains2")
-        self.assertEqual(result.results[4][0], "my_test_group")
-        self.assertEqual(result.results[4][1], "contains")
+        
+        # Next two are prefix matches - order between them is non-deterministic
+        prefix_results = sorted([(r[0], r[1]) for r in result.results[1:3]], key=lambda x: x[0])
+        self.assertEqual(prefix_results[0], ("testable", "prefix2"))
+        self.assertEqual(prefix_results[1], ("testing", "prefix"))
+        
+        # Last two are contains matches - order between them is non-deterministic
+        contains_results = sorted([(r[0], r[1]) for r in result.results[3:5]], key=lambda x: x[0])
+        self.assertEqual(contains_results[0], ("best_test_ever", "contains2"))
+        self.assertEqual(contains_results[1], ("my_test_group", "contains"))
 
     @freeze_time("2025-01-01")
     @snapshot_clickhouse_queries
