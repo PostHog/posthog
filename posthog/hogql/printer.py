@@ -144,12 +144,7 @@ def prepare_ast_for_printing(
         with context.timings.measure("resolve_in_cohorts_conjoined"):
             resolve_in_cohorts_conjoined(node, dialect, context, stack)
     with context.timings.measure("resolve_types"):
-        node = resolve_types(
-            node,
-            context,
-            dialect=dialect,
-            scopes=[node.type for node in stack] if stack else None,
-        )
+        node = resolve_types(node, context, dialect=dialect, scopes=[node.type for node in stack] if stack else None)
 
     if dialect == "clickhouse":
         with context.timings.measure("resolve_property_types"):
@@ -310,15 +305,6 @@ class _Printer(Visitor[str]):
 
         return response
 
-    def visit_cte(self, node: ast.CTE):
-        """Visit a Common Table Expression (WITH clause entry)."""
-        if node.cte_type == "column":
-            # WITH column_expr AS alias_name
-            return f"{self.visit(node.expr)} AS {node.name}"
-        else:
-            # WITH alias_name AS (SELECT ...)
-            return f"{node.name} AS {self.visit(node.expr)}"
-
     def visit_select_set_query(self, node: ast.SelectSetQuery):
         self._indent -= 1
         ret = self.visit(node.initial_select_query)
@@ -450,14 +436,7 @@ class _Printer(Visitor[str]):
         space = f"\n{self.indent(1)}" if self.pretty else " "
         comma = f",\n{self.indent(1)}" if self.pretty else ", "
 
-        with_clause = None
-        # Build WITH clause if CTEs exist
-        if node.ctes and self.context.readable_print:
-            cte_strings = [self.visit(cte) for cte in node.ctes.values()]
-            with_clause = f"WITH{space}{comma.join(cte_strings)}"
-
         clauses = [
-            with_clause if with_clause else None,
             f"SELECT{space}{'DISTINCT ' if node.distinct else ''}{comma.join(columns)}",
             f"FROM{space}{space.join(joined_tables)}" if len(joined_tables) > 0 else None,
             array_join if array_join else None,
@@ -635,8 +614,6 @@ class _Printer(Visitor[str]):
         return self.visit(node.expr)
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
-        if self.context.readable_print:
-            return f"{self.visit(node.left)} {node.op} {self.visit(node.right)}"
         if node.op == ast.ArithmeticOperationOp.Add:
             return f"plus({self.visit(node.left)}, {self.visit(node.right)})"
         elif node.op == ast.ArithmeticOperationOp.Sub:
@@ -653,15 +630,11 @@ class _Printer(Visitor[str]):
     def visit_and(self, node: ast.And):
         if len(node.exprs) == 1:
             return self.visit(node.exprs[0])
-        if self.context.readable_print:
-            return f" AND ".join([f"{self.visit(expr)}" for expr in node.exprs])
         return f"and({', '.join([self.visit(expr) for expr in node.exprs])})"
 
     def visit_or(self, node: ast.Or):
         if len(node.exprs) == 1:
             return self.visit(node.exprs[0])
-        if self.context.readable_print:
-            return f" OR ".join([f"{self.visit(expr)}" for expr in node.exprs])
         return f"or({', '.join([self.visit(expr) for expr in node.exprs])})"
 
     def visit_not(self, node: ast.Not):
@@ -833,94 +806,6 @@ class _Printer(Visitor[str]):
 
         return None  # nothing to optimize
 
-    def __get_sql_op(self, op: ast.CompareOperationOp, left: str, right: str) -> str:
-        match op:
-            case ast.CompareOperationOp.Eq:
-                return f"{left} = {right}"
-            case ast.CompareOperationOp.NotEq:
-                return f"{left} != {right}"
-            case ast.CompareOperationOp.Like:
-                return f"{left} LIKE {right}"
-            case ast.CompareOperationOp.NotLike:
-                return f"{left} NOT LIKE {right}"
-            case ast.CompareOperationOp.ILike:
-                return f"{left} ILIKE {right}"
-            case ast.CompareOperationOp.NotILike:
-                return f"{left} NOT ILIKE {right}"
-            case ast.CompareOperationOp.In:
-                return f"{left} IN {right}"
-            case ast.CompareOperationOp.NotIn:
-                return f"{left} NOT IN {right}"
-            case ast.CompareOperationOp.GlobalIn:
-                return f"{left} GLOBAL IN {right}"
-            case ast.CompareOperationOp.GlobalNotIn:
-                return f"{left} GLOBAL NOT IN {right}"
-            case ast.CompareOperationOp.Regex:
-                return f"{left} REGEXP {right}"
-            case ast.CompareOperationOp.NotRegex:
-                return f"{left} NOT REGEXP {right}"
-            case ast.CompareOperationOp.IRegex:
-                return f"{left} IREGEXP {right}"
-            case ast.CompareOperationOp.NotIRegex:
-                return f"{left} NOT IREGEXP {right}"
-            case ast.CompareOperationOp.Gt:
-                return f"{left} > {right}"
-            case ast.CompareOperationOp.GtEq:
-                return f"{left} >= {right}"
-            case ast.CompareOperationOp.Lt:
-                return f"{left} < {right}"
-            case ast.CompareOperationOp.LtEq:
-                return f"{left} <= {right}"
-            case ast.CompareOperationOp.InCohort:
-                return f"{left} IN COHORT {right}"
-            case ast.CompareOperationOp.NotInCohort:
-                return f"{left} NOT IN COHORT {right}"
-        raise ImpossibleASTError(f"Unknown CompareOperationOp: {op.name}")
-
-    def __get_clickhouse_op(self, op: ast.CompareOperationOp, left: str, right: str) -> str:
-        match op:
-            case ast.CompareOperationOp.Eq:
-                return f"equals({left}, {right})"
-            case ast.CompareOperationOp.NotEq:
-                return f"notEquals({left}, {right})"
-            case ast.CompareOperationOp.Like:
-                return f"like({left}, {right})"
-            case ast.CompareOperationOp.NotLike:
-                return f"notLike({left}, {right})"
-            case ast.CompareOperationOp.ILike:
-                return f"ilike({left}, {right})"
-            case ast.CompareOperationOp.NotILike:
-                return f"notILike({left}, {right})"
-            case ast.CompareOperationOp.In:
-                return f"in({left}, {right})"
-            case ast.CompareOperationOp.NotIn:
-                return f"notIn({left}, {right})"
-            case ast.CompareOperationOp.GlobalIn:
-                return f"globalIn({left}, {right})"
-            case ast.CompareOperationOp.GlobalNotIn:
-                return f"globalNotIn({left}, {right})"
-            case ast.CompareOperationOp.Regex:
-                return f"match({left}, {right})"
-            case ast.CompareOperationOp.NotRegex:
-                return f"not(match({left}, {right}))"
-            case ast.CompareOperationOp.IRegex:
-                return f"match({left}, concat('(?i)', {right}))"
-            case ast.CompareOperationOp.NotIRegex:
-                return f"not(match({left}, concat('(?i)', {right})))"
-            case ast.CompareOperationOp.Gt:
-                return f"greater({left}, {right})"
-            case ast.CompareOperationOp.GtEq:
-                return f"greaterOrEquals({left}, {right})"
-            case ast.CompareOperationOp.Lt:
-                return f"less({left}, {right})"
-            case ast.CompareOperationOp.LtEq:
-                return f"lessOrEquals({left}, {right})"
-            case ast.CompareOperationOp.InCohort:
-                return f"{left} IN COHORT {right}"
-            case ast.CompareOperationOp.NotInCohort:
-                return f"{left} NOT IN COHORT {right}"
-        raise ImpossibleASTError(f"Unknown CompareOperationOp: {op.name}")
-
     def visit_compare_operation(self, node: ast.CompareOperation):
         # If either side of the operation is a property that is part of a property group, special optimizations may
         # apply here to ensure that data skipping indexes can be used when possible.
@@ -950,55 +835,76 @@ class _Printer(Visitor[str]):
         value_if_one_side_is_null = False
         value_if_both_sides_are_null = False
 
-        # Different output formats for readable_print and clickhouse
-        op = (
-            self.__get_sql_op(node.op, left, right)
-            if self.context.readable_print
-            else self.__get_clickhouse_op(node.op, left, right)
-        )
-
         if node.op == ast.CompareOperationOp.Eq:
+            op = f"equals({left}, {right})"
             constant_lambda = lambda left_op, right_op: left_op == right_op
             value_if_both_sides_are_null = True
         elif node.op == ast.CompareOperationOp.NotEq:
+            op = f"notEquals({left}, {right})"
             constant_lambda = lambda left_op, right_op: left_op != right_op
             value_if_one_side_is_null = True
         elif node.op == ast.CompareOperationOp.Like:
+            op = f"like({left}, {right})"
             value_if_both_sides_are_null = True
         elif node.op == ast.CompareOperationOp.NotLike:
+            op = f"notLike({left}, {right})"
             value_if_one_side_is_null = True
         elif node.op == ast.CompareOperationOp.ILike:
+            op = f"ilike({left}, {right})"
             value_if_both_sides_are_null = True
         elif node.op == ast.CompareOperationOp.NotILike:
+            op = f"notILike({left}, {right})"
             value_if_one_side_is_null = True
         elif node.op == ast.CompareOperationOp.In:
+            op = f"in({left}, {right})"
             return op
         elif node.op == ast.CompareOperationOp.NotIn:
+            op = f"notIn({left}, {right})"
             return op
+        elif node.op == ast.CompareOperationOp.GlobalIn:
+            op = f"globalIn({left}, {right})"
+        elif node.op == ast.CompareOperationOp.GlobalNotIn:
+            op = f"globalNotIn({left}, {right})"
         elif node.op == ast.CompareOperationOp.Regex:
+            op = f"match({left}, {right})"
             value_if_both_sides_are_null = True
         elif node.op == ast.CompareOperationOp.NotRegex:
+            op = f"not(match({left}, {right}))"
             value_if_one_side_is_null = True
         elif node.op == ast.CompareOperationOp.IRegex:
+            op = f"match({left}, concat('(?i)', {right}))"
             value_if_both_sides_are_null = True
         elif node.op == ast.CompareOperationOp.NotIRegex:
+            op = f"not(match({left}, concat('(?i)', {right})))"
             value_if_one_side_is_null = True
         elif node.op == ast.CompareOperationOp.Gt:
+            op = f"greater({left}, {right})"
             constant_lambda = lambda left_op, right_op: (
                 left_op > right_op if left_op is not None and right_op is not None else False
             )
         elif node.op == ast.CompareOperationOp.GtEq:
+            op = f"greaterOrEquals({left}, {right})"
             constant_lambda = lambda left_op, right_op: (
                 left_op >= right_op if left_op is not None and right_op is not None else False
             )
         elif node.op == ast.CompareOperationOp.Lt:
+            op = f"less({left}, {right})"
             constant_lambda = lambda left_op, right_op: (
                 left_op < right_op if left_op is not None and right_op is not None else False
             )
         elif node.op == ast.CompareOperationOp.LtEq:
+            op = f"lessOrEquals({left}, {right})"
             constant_lambda = lambda left_op, right_op: (
                 left_op <= right_op if left_op is not None and right_op is not None else False
             )
+        # only used for hogql direct printing (no prepare called)
+        elif node.op == ast.CompareOperationOp.InCohort:
+            op = f"{left} IN COHORT {right}"
+        # only used for hogql direct printing (no prepare called)
+        elif node.op == ast.CompareOperationOp.NotInCohort:
+            op = f"{left} NOT IN COHORT {right}"
+        else:
+            raise ImpossibleASTError(f"Unknown CompareOperationOp: {node.op.name}")
 
         # Try to see if we can take shortcuts
 
@@ -1487,10 +1393,6 @@ class _Printer(Visitor[str]):
             raise QueryError(f"Unsupported function call '{node.name}(...)'")
 
     def visit_placeholder(self, node: ast.Placeholder):
-        if self.context.keep_placeholders and node.chain:
-            field = ".".join([self._print_hogql_identifier_or_index(identifier) for identifier in node.chain])
-            return f"{{{field}}}"
-
         if node.field is None:
             raise QueryError("You can not use placeholders here")
         raise QueryError(f"Unresolved placeholder: {{{node.field}}}")
@@ -1969,7 +1871,9 @@ class _Printer(Visitor[str]):
     def _create_default_window_frame(self, node: ast.WindowFunction):
         # For lag/lead functions, we need to order by the first argument by default
         order_by: Optional[list[ast.OrderExpr]] = None
-        if node.exprs is not None and len(node.exprs) > 0:
+        if node.over_expr and node.over_expr.order_by:
+            order_by = [cast(ast.OrderExpr, clone_expr(expr)) for expr in node.over_expr.order_by]
+        elif node.exprs is not None and len(node.exprs) > 0:
             order_by = [ast.OrderExpr(expr=clone_expr(node.exprs[0]), order="ASC")]
 
         # Preserve existing PARTITION BY if provided via an existing OVER () clause

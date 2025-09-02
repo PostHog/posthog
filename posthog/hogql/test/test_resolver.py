@@ -789,18 +789,3 @@ class TestResolver(BaseTest):
         query = "SELECT arrayMap(a -> concat(a, e.event), ['str']) FROM events e"
         resolve_types(self._select(query), self.context, dialect="hogql")
         resolve_types(self._select(query), self.context, dialect="clickhouse")
-
-    def test_keep_placeholders(self):
-        """Test that placeholders are preserved when loose_syntax is enabled."""
-        query = "SELECT {variables.f} FROM events"
-        resolve_types(
-            self._select(query),
-            HogQLContext(
-                database=self.database,
-                team_id=self.team.pk,
-                enable_select_queries=True,
-                keep_placeholders=True,
-                readable_print=True,
-            ),
-            dialect="hogql",
-        )
