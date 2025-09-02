@@ -23,10 +23,13 @@ export type MergeAction = 'drop' | 'ignore' | 'dlq' | 'redirect'
 /**
  * Base class for all person merge errors
  */
-export abstract class PersonMergeError {
+export abstract class PersonMergeError extends Error {
     abstract readonly type: string
 
-    constructor(public readonly message: string) {}
+    constructor(message: string) {
+        super(message)
+        this.name = this.constructor.name
+    }
 }
 
 /**
@@ -35,10 +38,7 @@ export abstract class PersonMergeError {
 export class PersonMergeLimitExceededError extends PersonMergeError {
     readonly type = 'LIMIT_EXCEEDED' as const
 
-    constructor(
-        message: string,
-        public readonly distinctIdCount: number
-    ) {
+    constructor(message: string) {
         super(message)
     }
 }

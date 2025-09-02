@@ -14,21 +14,21 @@ import { PersonContext } from './person-context'
 import { PersonCreateService } from './person-create-service'
 // Import result types for future use (currently unused to maintain backward compatibility)
 import {
+    PersonMergeLimitExceededError,
+    PersonMergeResult,
     MergeAction as _MergeAction,
     MergeMode as _MergeMode,
     PersonMergeError as _PersonMergeError,
     PersonMergeIllegalDistinctIdError as _PersonMergeIllegalDistinctIdError,
-    PersonMergeLimitExceededError as _PersonMergeLimitExceededError,
     PersonMergeMergeNotAllowedError as _PersonMergeMergeNotAllowedError,
     PersonMergePersonNotFoundError as _PersonMergePersonNotFoundError,
     PersonMergeRaceConditionError as _PersonMergeRaceConditionError,
-    PersonMergeResult as _PersonMergeResult,
-    createMergeError as _createMergeError,
-    createMergeSuccess as _createMergeSuccess,
     determineMergeMode as _determineMergeMode,
     isAsyncMode as _isAsyncMode,
     isLimitMode as _isLimitMode,
     isSyncMode as _isSyncMode,
+    createMergeError,
+    createMergeSuccess,
 } from './person-merge-types'
 import { applyEventPropertyUpdates, computeEventPropertyUpdates } from './person-update'
 import { PersonsStoreTransaction } from './persons-store-transaction'
@@ -43,16 +43,15 @@ import { PersonsStoreTransaction } from './persons-store-transaction'
 //
 //   // Consumer decides the action based on error type, merge mode, and context
 //   if (error instanceof PersonMergeLimitExceededError) {
-//     logger.info(`Merge limit exceeded with ${error.distinctIdCount} distinct IDs, mode: ${mergeMode.type}`)
+//     logger.info(`Merge limit exceeded, mode: ${mergeMode.type}`)
 //
-//     // Check if distinct ID count exceeds the configured limit
-//     const exceedsLimit = mergeMode.type === 'LIMIT' && error.distinctIdCount > mergeMode.limit ||
-//                         mergeMode.type === 'ASYNC' && error.distinctIdCount > mergeMode.limit
+//     // Action depends on the configured merge mode
+//     const shouldRedirect = mergeMode.type === 'ASYNC' || mergeMode.type === 'LIMIT'
 //
-//     if (exceedsLimit) {
+//     if (shouldRedirect) {
 //       switch (mergeMode.type) {
 //         case 'ASYNC':
-//           logger.info(`Redirecting to async topic: ${mergeMode.topic}, limit: ${mergeMode.limit}`)
+//           logger.info(`Redirecting to async topic: ${mergeMode.topic}`)
 //           await this.redirectToAsyncMerge(event, mergeMode.topic)
 //           break
 //         case 'LIMIT':
@@ -61,8 +60,8 @@ import { PersonsStoreTransaction } from './persons-store-transaction'
 //           break
 //       }
 //     } else {
-//       // Within limits, process normally with batching
-//       logger.info(`Processing with batching, distinct IDs: ${error.distinctIdCount}`)
+//       // SYNC mode - continue with normal processing
+//       logger.info(`Processing with sync mode`)
 //       // Continue with normal processing
 //     }
 //   } else if (error instanceof PersonMergeRaceConditionError) {
@@ -125,14 +124,6 @@ export class MergeRaceConditionError extends Error {
     constructor(message: string) {
         super(message)
         this.name = 'MergeRaceConditionError'
-    }
-}
-
-// TODO: This will be replaced with PersonMergeResult in future commits
-export class PersonMergeLimitExceededError extends Error {
-    constructor(message: string) {
-        super(message)
-        this.name = 'PersonMergeLimitExceededError'
     }
 }
 
@@ -499,6 +490,39 @@ export class PersonMergeService {
                 })
                 return [mergeInto, Promise.resolve()] // We're returning the original person tied to distinct_id used for the event
             }
+            throw error
+        }
+    }
+
+    /**
+     * Merge persons using result types instead of exceptions
+     * This is the new interface that will gradually replace the exception-based mergePeople method
+     */
+    public async mergePeopleWithResult({
+        mergeInto,
+        mergeIntoDistinctId,
+        otherPerson,
+        otherPersonDistinctId,
+    }: {
+        mergeInto: InternalPerson
+        mergeIntoDistinctId: string
+        otherPerson: InternalPerson
+        otherPersonDistinctId: string
+    }): Promise<PersonMergeResult> {
+        try {
+            const [person, kafkaAck] = await this.mergePeople({
+                mergeInto,
+                mergeIntoDistinctId,
+                otherPerson,
+                otherPersonDistinctId,
+            })
+            return createMergeSuccess(person, kafkaAck)
+        } catch (error) {
+            if (error instanceof PersonMergeLimitExceededError) {
+                // Use the distinctIdCount from the caught error directly
+                return createMergeError(error)
+            }
+            // For now, re-throw other errors to maintain backward compatibility
             throw error
         }
     }
