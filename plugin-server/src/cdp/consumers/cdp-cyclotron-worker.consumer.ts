@@ -114,7 +114,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             return Promise.allSettled([
                 this.hogFunctionMonitoringService
                     .queueInvocationResults(invocationResults)
-                    .then(() => this.hogFunctionMonitoringService.produceQueuedMessages())
+                    .then(() => this.hogFunctionMonitoringService.flush())
                     .catch((err) => {
                         captureException(err)
                         logger.error('Error processing invocation results', { err })
