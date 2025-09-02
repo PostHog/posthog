@@ -90,7 +90,12 @@ export const variableModalLogic = kea<variableModalLogicType>([
     props({ key: '' } as AddVariableLogicProps),
     key((props) => props.key),
     connect(() => ({
-        actions: [variableDataLogic, ['getVariables'], variablesLogic, ['addVariable', 'updateVariableValue']],
+        actions: [
+            variableDataLogic,
+            ['getVariables'],
+            variablesLogic,
+            ['addVariable', 'updateInternalSelectedVariable'],
+        ],
     })),
     actions({
         openNewVariableModal: (variableType: VariableType) => ({ variableType }),
@@ -155,10 +160,12 @@ export const variableModalLogic = kea<variableModalLogicType>([
                     const variable = await api.insightVariables.create(values.variable)
                     actions.addVariable({ variableId: variable.id, code_name: variable.code_name })
                 } else {
-                    await api.insightVariables.update(values.variable.id, values.variable)
+                    const variable = await api.insightVariables.update(values.variable.id, values.variable)
                     if (values.variableType !== values.variable.type) {
-                        const { id, default_value } = values.variable
-                        actions.updateVariableValue(id, default_value, false)
+                        actions.updateInternalSelectedVariable({
+                            variableId: variable.id,
+                            code_name: variable.code_name,
+                        })
                     }
                 }
                 actions.getVariables()
