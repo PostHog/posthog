@@ -9,7 +9,7 @@ import api from '~/lib/api'
 import { DatasetItem } from '~/types'
 
 import type { datasetItemModalLogicType } from './datasetItemModalLogicType'
-import { EMPTY_JSON, corseJsonToObject, isStringJsonObject, prettifyJson } from './utils'
+import { EMPTY_JSON, coerceJsonToObject, isStringJsonObject, prettifyJson } from './utils'
 
 export type TraceMetadata = Required<Pick<DatasetItem, 'ref_trace_id' | 'ref_span_id' | 'ref_trace_timestamp'>>
 
@@ -86,9 +86,9 @@ export const datasetItemModalLogic = kea<datasetItemModalLogicType>([
                     if (!props.datasetItem) {
                         await api.datasetItems.create({
                             dataset: props.datasetId,
-                            input: corseJsonToObject(formValues.input),
-                            output: corseJsonToObject(formValues.output),
-                            metadata: corseJsonToObject(formValues.metadata),
+                            input: coerceJsonToObject(formValues.input),
+                            output: coerceJsonToObject(formValues.output),
+                            metadata: coerceJsonToObject(formValues.metadata),
                         })
                         lemonToast.success('Dataset item created successfully')
                         if (values.shouldCloseModal) {
@@ -99,9 +99,9 @@ export const datasetItemModalLogic = kea<datasetItemModalLogicType>([
                         actions.setShouldCloseModal(true)
                     } else {
                         const updatedItem = await api.datasetItems.update(props.datasetItem.id, {
-                            input: corseJsonToObject(formValues.input),
-                            output: corseJsonToObject(formValues.output),
-                            metadata: corseJsonToObject(formValues.metadata),
+                            input: coerceJsonToObject(formValues.input),
+                            output: coerceJsonToObject(formValues.output),
+                            metadata: coerceJsonToObject(formValues.metadata),
                         })
                         lemonToast.success('Dataset item updated successfully')
                         props.closeModal(true)
