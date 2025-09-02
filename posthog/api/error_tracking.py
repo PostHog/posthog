@@ -7,6 +7,7 @@ from django.db import transaction
 from django.http import JsonResponse
 
 import structlog
+import posthoganalytics
 from loginas.utils import is_impersonated_session
 from rest_framework import request, serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
@@ -561,11 +562,14 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         ErrorTrackingStackFrame.objects.filter(team=self.team, symbol_set=symbol_set).delete()
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
 
+    # DEPRECATED: newer versions of the CLI use bulk uploads
     def create(self, request, *args, **kwargs) -> Response:
         # pull the symbol set reference from the query params
         chunk_id = request.query_params.get("chunk_id", None)
         multipart = request.query_params.get("multipart", False)
         release_id = request.query_params.get("release_id", None)
+
+        posthoganalytics.capture("error_tracking_symbol_set_deprecated_create_requested", {"team_id": self.team.id})
 
         if not chunk_id:
             return Response({"detail": "chunk_id query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
