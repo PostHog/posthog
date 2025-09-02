@@ -54,6 +54,13 @@ impl<P: MessageProcessor + Clone + 'static> ProcessorPool<P> {
                 info!("Worker {} started", i);
                 while let Some(msg) = rx.recv().await {
                     if let Err(e) = processor.process_message(msg).await {
+                        // TODO: Implement Dead Letter Queue (DLQ) handling
+                        // Future implementation should:
+                        // Retry messages that fail
+                        // Send failed messages to a DLQ topic
+                        // Allow configuration of error handling strategy (drop/retry/DLQ)
+                        // Emit metrics for failed message processing
+                        // For now, we just log the error and continue processing
                         error!("Worker {} failed to process message: {}", i, e);
                     }
                 }
@@ -81,41 +88,19 @@ impl<P: MessageProcessor + Clone + 'static> ProcessorPool<P> {
 
                 // Send to the selected worker
                 if let Err(send_error) = worker_senders[worker_id].send(msg) {
-                    // This is critical - a worker channel closed unexpectedly
-                    let mut failed_msg = send_error.0;
-                    let msg_offset = failed_msg.kafka_message().offset();
-                    
+                    // Worker channel closed - this means the worker panicked
+                    let msg_offset = send_error.0.kafka_message().offset();
+
                     error!(
-                        "Worker {} channel closed unexpectedly, attempting to redirect message with offset: {}",
+                        "CRITICAL: Worker {} channel closed (worker likely panicked), message offset: {}. Shutting down.",
                         worker_id, msg_offset
                     );
 
-                    // Try to send to another worker as a fallback
-                    let mut sent = false;
-                    for (idx, sender) in worker_senders.iter().enumerate() {
-                        if idx != worker_id {
-                            match sender.send(failed_msg) {
-                                Ok(()) => {
-                                    error!("Successfully redirected message {} to worker {}", msg_offset, idx);
-                                    sent = true;
-                                    break;
-                                }
-                                Err(e) => {
-                                    // Get the message back to try the next worker
-                                    failed_msg = e.0;
-                                }
-                            }
-                        }
-                    }
-
-                    if !sent {
-                        error!(
-                            "CRITICAL: Unable to deliver message with offset {}, all workers unavailable",
-                            msg_offset
-                        );
-                        // Message is lost - in production this should trigger an alert
-                        break;
-                    }
+                    // Don't try to recover - fail fast and let the system restart
+                    panic!(
+                        "Worker {} died unexpectedly while processing messages",
+                        worker_id
+                    );
                 }
             }
 
@@ -649,44 +634,45 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_channel_resilience() {
-        // Test that messages can be redirected if a worker fails
+    async fn test_worker_failure_causes_panic() {
+        // Test that the router panics when a worker dies (fail-fast behavior)
         let processor = TestProcessor::new(Duration::from_millis(10));
         let (sender, pool) = ProcessorPool::new(processor.clone(), 4);
-        let handles = pool.start();
+        let mut handles = pool.start();
 
-        // Send some messages
+        // Send some messages to ensure system is working
         for i in 0..5 {
             let msg = create_test_message(None, i).await;
             sender.send(msg).unwrap();
         }
 
-        // Abort one worker to simulate failure
+        // Wait for initial messages to be processed
+        sleep(Duration::from_millis(100)).await;
+
+        // Abort worker 0 to simulate failure
         handles[0].abort();
 
-        // Send more messages
-        for i in 5..10 {
-            let msg = create_test_message(None, i).await;
-            sender.send(msg).unwrap();
-        }
+        // The router handle is the last one
+        let router_handle = handles.pop().unwrap();
 
-        // Wait for processing
-        sleep(Duration::from_millis(500)).await;
+        // Send a message that would go to worker 0
+        // This should cause the router to panic
+        let msg = create_test_message(None, 100).await;
+        sender.send(msg).unwrap();
 
-        let (worker_counts, _, _) = processor.get_stats().await;
-        let total_processed: usize = worker_counts.values().sum();
+        // Router should panic and exit
+        let router_result = tokio::time::timeout(Duration::from_secs(1), router_handle).await;
 
-        // Some messages might be lost due to the aborted worker,
-        // but we should still process most of them
+        // Verify router task panicked or exited
         assert!(
-            total_processed >= 7,
-            "Should have processed at least 7 messages despite worker failure, got {}",
-            total_processed
+            router_result.is_ok(),
+            "Router should have exited after worker failure"
         );
 
+        // Clean up
         drop(sender);
         for handle in handles {
-            let _ = handle.await; // Some might be already aborted
+            handle.abort();
         }
     }
 }

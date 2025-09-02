@@ -252,21 +252,32 @@ impl MessageProcessor for DeduplicationProcessor {
                 }
             }
             Err(e) => {
-                error!(
-                    "Failed to parse CapturedEvent from {}:{} offset {}: {}",
+                // TODO: When DLQ is implemented, send unparseable messages there
+                // For now, we just log and skip messages we can't parse (e.g., those with null ip field)
+                warn!(
+                    "Failed to parse CapturedEvent from {}:{} offset {}: {}. Skipping message.",
                     topic, partition, offset, e
                 );
-                // Nack the message so it can be handled by error recovery/DLQ
-                message
-                    .nack(format!("Failed to parse CapturedEvent JSON: {e}"))
-                    .await;
-                return Err(anyhow::anyhow!(
-                    "Failed to parse CapturedEvent from {}:{} offset {}: {}",
-                    topic,
-                    partition,
-                    offset,
-                    e
-                ));
+                // Ack the message to continue processing
+                message.ack().await;
+                return Ok(());
+
+                // Original error handling - keeping for reference when DLQ is implemented:
+                // error!(
+                //     "Failed to parse CapturedEvent from {}:{} offset {}: {}",
+                //     topic, partition, offset, e
+                // );
+                // // Nack the message so it can be handled by error recovery/DLQ
+                // message
+                //     .nack(format!("Failed to parse CapturedEvent JSON: {e}"))
+                //     .await;
+                // return Err(anyhow::anyhow!(
+                //     "Failed to parse CapturedEvent from {}:{} offset {}: {}",
+                //     topic,
+                //     partition,
+                //     offset,
+                //     e
+                // ));
             }
         };
 
