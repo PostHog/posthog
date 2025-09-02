@@ -41,7 +41,7 @@ export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }):
             <CyclotronJobInputs
                 configuration={{
                     inputs: node.data.config.inputs as Record<string, CyclotronJobInputType>,
-                    inputs_schema: template.inputs_schema ?? [],
+                    inputs_schema: template?.inputs_schema ?? [],
                 }}
                 showSource={false}
                 sampleGlobalsWithInputs={null} // TODO: Load this based on the trigger event
