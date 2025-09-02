@@ -1,10 +1,8 @@
 from collections.abc import AsyncGenerator, Awaitable, Callable
-from datetime import datetime, timedelta
 from typing import Any, cast
-from uuid import UUID
 
 from freezegun import freeze_time
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, snapshot_clickhouse_queries
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.utils import timezone
@@ -23,14 +21,12 @@ from posthog.schema import (
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
-from posthog.constants import INSIGHT_FUNNELS
-from posthog.models import Filter, SessionRecording
+from posthog.models import SessionRecording
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.temporal.ai.session_summary.summarize_session_group import SessionSummaryStreamUpdate
 from posthog.temporal.ai.session_summary.types.group import SessionSummaryStep
 
-from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
 from ee.hogai.graph.session_summaries.nodes import SessionSummarizationNode
 from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -451,123 +447,6 @@ class TestSessionSummarizationNode(BaseTest):
         self.assertEqual(message.content, "No sessions were found.")
 
 
-class TestBasicLogic(ClickhouseTestMixin, BaseTest):
-    @snapshot_clickhouse_queries
-    @freeze_time("2021-01-02 00:00:00.000Z")
-    def test_yop_yop(self):
-        p1 = _create_person(distinct_ids=["user_1"], team=self.team, properties={"foo": "bar"})
-        _create_event(
-            event="$pageview",
-            distinct_id="user_1",
-            team=self.team,
-            timestamp=timezone.now(),
-            properties={"$session_id": "s2", "$window_id": "w1"},
-            event_uuid="11111111-1111-1111-1111-111111111111",
-        )
-        _create_event(
-            event="insight loaded",
-            distinct_id="user_1",
-            team=self.team,
-            timestamp=(timezone.now() + timedelta(minutes=2)),
-            properties={"$session_id": "s2", "$window_id": "w2"},
-            event_uuid="31111111-1111-1111-1111-111111111111",
-        )
-        _create_event(
-            event="insight analyzed",
-            distinct_id="user_1",
-            team=self.team,
-            timestamp=(timezone.now() + timedelta(minutes=3)),
-            properties={"$session_id": "s2", "$window_id": "w2"},
-            event_uuid="21111111-1111-1111-1111-111111111111",
-        )
-
-        timestamp = datetime(2021, 1, 2, 0, 0, 0)
-        produce_replay_summary(
-            team_id=self.team.pk,
-            session_id="s2",
-            distinct_id="user_1",
-            first_timestamp=timestamp,
-            last_timestamp=timestamp,
-        )
-
-        # Success filter
-        filter = Filter(
-            data={
-                "insight": INSIGHT_FUNNELS,
-                "date_from": "2021-01-01",
-                "date_to": "2021-01-08",
-                "funnel_correlation_type": "events",
-                "events": [
-                    {"id": "$pageview", "order": 0},
-                    {"id": "insight analyzed", "order": 1},
-                ],
-                "include_recordings": "true",
-                "funnel_correlation_person_entity": {
-                    "id": "insight loaded",
-                    "type": "events",
-                },
-                "funnel_correlation_person_converted": "True",
-            }
-        )
-        _, results, _ = FunnelCorrelationActors(filter, self.team).get_actors()
-
-        self.assertEqual(results[0]["id"], p1.uuid)
-        self.assertEqual(
-            results[0]["matched_recordings"],
-            [
-                {
-                    "events": [
-                        {
-                            "timestamp": timezone.now() + timedelta(minutes=3),
-                            "uuid": UUID("21111111-1111-1111-1111-111111111111"),
-                            "window_id": "w2",
-                        }
-                    ],
-                    "session_id": "s2",
-                }
-            ],
-        )
-
-        # Drop off filter
-        filter = Filter(
-            data={
-                "insight": INSIGHT_FUNNELS,
-                "date_from": "2021-01-01",
-                "date_to": "2021-01-08",
-                "funnel_correlation_type": "events",
-                "events": [
-                    {"id": "$pageview", "order": 0},
-                    {"id": "insight analyzed", "order": 1},
-                    {"id": "insight updated", "order": 2},
-                ],
-                "include_recordings": "true",
-                "funnel_correlation_person_entity": {
-                    "id": "insight loaded",
-                    "type": "events",
-                },
-                "funnel_correlation_person_converted": "False",
-            }
-        )
-        _, results, _ = FunnelCorrelationActors(filter, self.team).get_actors()
-
-        self.assertEqual(results[0]["id"], p1.uuid)
-        self.assertEqual(
-            results[0]["matched_recordings"],
-            [
-                {
-                    "events": [
-                        {
-                            "timestamp": timezone.now() + timedelta(minutes=3),
-                            "uuid": UUID("21111111-1111-1111-1111-111111111111"),
-                            "window_id": "w2",
-                        }
-                    ],
-                    "session_id": "s2",
-                }
-            ],
-        )
-
-
 class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest):
     @freeze_time("2025-09-03T12:00:00")
     def setUp(self) -> None:
@@ -590,7 +469,6 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
         self.session_id_4 = str(uuid7())
 
         # Create persons for each distinct_id
-        from posthog.test.base import _create_person
 
         _create_person(distinct_ids=["filter-user-1"], team=self.team, immediate=True)
         _create_person(distinct_ids=["filter-user-2"], team=self.team, immediate=True)
