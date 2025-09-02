@@ -296,7 +296,7 @@ class VercelIntegration:
     @staticmethod
     def _build_resource_response(resource: Integration, installation: OrganizationIntegration) -> dict[str, Any]:
         billing_plans = VercelIntegration.get_vercel_plans()
-        current_plan_id = installation.config.get("billing_plan_id", "free")
+        current_plan_id = installation.config.get("billing_plan_id", "free")  # TODO: Replace with billing service
         current_plan = next((plan for plan in billing_plans if plan["id"] == current_plan_id), None)
 
         return {
