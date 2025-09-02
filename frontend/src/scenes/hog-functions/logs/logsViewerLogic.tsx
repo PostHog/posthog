@@ -60,12 +60,12 @@ export type GroupedLogEntry = {
     entries: LogEntry[]
 }
 
-type LogEntryParams = {
+export type LogEntryParams = {
     sourceType: 'hog_function' | 'hog_flow'
     sourceId: string
     levels: LogEntryLevel[]
     searchGroups: string[]
-    date_from?: string
+    dateFrom?: string
     date_to?: string
     order: 'ASC' | 'DESC'
 }
@@ -111,7 +111,7 @@ const loadLogs = async (request: LogEntryParams): Promise<LogEntry[]> => {
     const response = await api.queryHogQL(query, {
         refresh: 'force_blocking',
         filtersOverride: {
-            date_from: request.date_from ?? '-7d',
+            date_from: request.dateFrom ?? '-7d',
             date_to: request.date_to,
         },
     })
@@ -146,7 +146,7 @@ const loadGroupedLogs = async (request: LogEntryParams): Promise<LogEntry[]> => 
     const response = await api.queryHogQL(query, {
         refresh: 'force_blocking',
         filtersOverride: {
-            date_from: request.date_from ?? '-7d',
+            date_from: request.dateFrom ?? '-7d',
             date_to: request.date_to,
         },
     })
@@ -350,7 +350,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
 
                     const logParams: LogEntryParams = {
                         ...values.logEntryParams,
-                        date_from: toAbsoluteClickhouseTimestamp(values.newestLogTimestamp),
+                        dateFrom: toAbsoluteClickhouseTimestamp(values.newestLogTimestamp),
                         order: 'ASC',
                     }
 
@@ -423,7 +423,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     searchGroups: searchGroups,
                     sourceType: props.sourceType,
                     sourceId: props.sourceId,
-                    date_from: filters.date_from,
+                    dateFrom: filters.date_from,
                     date_to: filters.date_to,
                     order: 'DESC',
                 }
