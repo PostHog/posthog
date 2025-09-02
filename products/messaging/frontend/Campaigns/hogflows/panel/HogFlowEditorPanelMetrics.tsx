@@ -34,21 +34,20 @@ export function HogFlowEditorPanelMetrics(): JSX.Element | null {
     const { appMetricsTrendsLoading, appMetricsTrends, params, currentTeam, getDateRangeAbsolute } = useValues(logic)
 
     useEffect(() => {
-        if (appMetricsTrendsLoading) {
-            // Bit hacky - whenever we load something from the metrics panel, also trigger loading the
-            loadActionMetricsById(
-                {
-                    ...params,
-                    instanceId: undefined,
-                    breakdownBy: ['instance_id', 'metric_name'],
-                    metricName: ['succeeded', 'failed', 'filtered'],
-                    dateFrom: getDateRangeAbsolute().dateFrom.toISOString(),
-                    dateTo: getDateRangeAbsolute().dateTo.toISOString(),
-                },
-                currentTeam?.timezone ?? 'UTC'
-            )
-        }
-    }, [appMetricsTrendsLoading, appMetricsTrends])
+        // Bit hacky - whenever we load something from the metrics panel, also trigger loading the
+        loadActionMetricsById(
+            {
+                appSource: params.appSource,
+                appSourceId: params.appSourceId,
+                instanceId: undefined,
+                breakdownBy: ['instance_id', 'metric_name'],
+                metricName: ['succeeded', 'failed', 'filtered'],
+                dateFrom: getDateRangeAbsolute().dateFrom.toISOString(),
+                dateTo: getDateRangeAbsolute().dateTo.toISOString(),
+            },
+            currentTeam?.timezone ?? 'UTC'
+        )
+    }, [params.appSource, params.appSourceId, params.dateFrom, params.dateTo])
 
     return (
         <>
