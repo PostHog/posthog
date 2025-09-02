@@ -26,6 +26,11 @@
             "description": "The current assignee of an issue.",
             "label": "Issue assignee"
         },
+        "first_seen": {
+            "description": "The first time the issue was seen.",
+            "label": "Issue first seen",
+            "type": "DateTime"
+        },
         "issue_description": {
             "description": "The description of an issue.",
             "label": "Issue description"
@@ -3956,6 +3961,10 @@
             "description": "Number of clicks during the session",
             "label": "Clicks"
         },
+        "comment_text": {
+            "description": "Search for text within comments on the recording",
+            "label": "Comment text"
+        },
         "console_error_count": {
             "description": "Number of console errors during the session",
             "label": "Errors"
@@ -3981,10 +3990,6 @@
         "visited_page": {
             "description": "URL a user visited during their session",
             "label": "Visited page"
-        },
-        "comment_text": {
-            "description": "Search for text within comments on the recording",
-            "label": "Comment text"
         }
     },
     "revenue_analytics_properties": {
