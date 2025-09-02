@@ -68,10 +68,11 @@ A FAIL means:
 - Features are generic or unrelated to the actual product
 - Content is purely marketing speak without concrete functionality
 
-Input: {{input}}
-Output: {{output}}
+<input>{{input}}</input>
+<expected_output>{{expected}}</expected_output>
+<actual_output>{{output}}</actual_output>
 
-Does the output contain identifiable product features? Be brutal.
+Compare the output to the expected content. Does the output contain identifiable product features like those shown in the expected example? Be brutal.
 - pass: Contains specific, identifiable product features
 - fail: No identifiable product features found""",
             choice_scores={
@@ -101,10 +102,11 @@ A FAIL means:
 - Only vague business descriptions without monetization details
 - No pricing or business model information found
 
-Input: {{input}}
-Output: {{output}}
+<input>{{input}}</input>
+<expected_output>{{expected}}</expected_output>
+<actual_output>{{output}}</actual_output>
 
-Does the output contain business model information? Be brutal
+Compare the output to the expected content. Does the output contain business model information like that shown in the expected example? Be brutal
 - pass: Contains business model or monetization information
 - fail: No business model information found""",
             choice_scores={
@@ -137,10 +139,11 @@ A FAIL means:
 
 Note: Not all products will have technical details in their public materials, so this may legitimately fail.
 
-Input: {{input}}
-Output: {{output}}
+<input>{{input}}</input>
+<expected_output>{{expected}}</expected_output>
+<actual_output>{{output}}</actual_output>
 
-Does the output contain technical implementation details? Be brutal
+Compare the output to the expected content. Does the output contain technical implementation details like those shown in the expected example? Be brutal
 - pass: Contains specific technical details
 - fail: No technical details found""",
             choice_scores={
@@ -181,10 +184,11 @@ A FAIL occurs if ANY of the following is true:
 
 Note: The format requirements are specifically defined in the memory initialization prompt and must be followed exactly.
 
-Input: {{input}}
-Output: {{output}}
+<input>{{input}}</input>
+<expected_output>{{expected}}</expected_output>
+<actual_output>{{output}}</actual_output>
 
-Does the output follow the exact required formatting structure with proper opening, #### headers, and bullet points? Be brutal
+Compare the output to the expected content format. Does the output follow the exact required formatting structure with proper opening, #### headers, and bullet points like shown in the expected example? Be brutal
 - pass: Follows all required formatting specifications exactly
 - fail: Missing required formatting elements or includes prohibited content""",
             choice_scores={
