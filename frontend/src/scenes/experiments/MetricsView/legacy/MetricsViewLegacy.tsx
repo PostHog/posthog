@@ -28,7 +28,12 @@ export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): J
 
     const results = isSecondary ? legacySecondaryMetricsResults : legacyPrimaryMetricsResults
 
-    const errors = isSecondary ? secondaryMetricsResultsErrors : primaryMetricsResultsErrors
+    // Convert Map-based errors to array for legacy view
+    const errorsMap = isSecondary ? secondaryMetricsResultsErrors : primaryMetricsResultsErrors
+    const errors = metrics.map((metric) => {
+        const uuid = metric.uuid || metric.query?.uuid
+        return uuid ? errorsMap.get(uuid) : null
+    })
     const hasSomeResults = results?.some((result) => result?.insight)
 
     let metrics = isSecondary ? experiment.metrics_secondary : experiment.metrics

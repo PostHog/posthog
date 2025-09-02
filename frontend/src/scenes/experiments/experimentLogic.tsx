@@ -154,8 +154,8 @@ interface MetricLoadingConfig {
             | null
         )[]
     ) => void
-    onSetResults: (results: CachedNewExperimentQueryResponse[]) => void
-    onSetErrors: (errors: any[]) => void
+    onSetResults: (results: Map<string, CachedNewExperimentQueryResponse>) => void
+    onSetErrors: (errors: Map<string, any>) => void
     onTimeout: (experimentId: Experiment['id'], metric: any) => void
 }
 
@@ -175,11 +175,17 @@ const loadMetrics = async ({
         | null
     )[] = []
 
-    const results: CachedNewExperimentQueryResponse[] = []
-    const currentErrors = new Array(metrics.length).fill(null)
+    const results = new Map<string, CachedNewExperimentQueryResponse>()
+    const currentErrors = new Map<string, any>()
 
     return await Promise.all(
         metrics.map(async (metric, index) => {
+            const metricUuid = metric.uuid || metric.query?.uuid || `temp-uuid-${index}`
+            if (!metricUuid) {
+                console.warn('Metric missing UUID', metric)
+                return
+            }
+
             try {
                 let queryWithExperimentId
                 if (metric.kind === NodeKind.ExperimentMetric) {
@@ -213,7 +219,7 @@ const loadMetrics = async ({
                                 fakeInsightId: Math.random().toString(36).substring(2, 15),
                             } as CachedLegacyExperimentQueryResponse & { fakeInsightId: string }
                         } else if (isNewExperimentResponse(typedResponse)) {
-                            results[index] = typedResponse
+                            results.set(metricUuid, typedResponse)
                         }
                     }
                 } else {
@@ -226,17 +232,17 @@ const loadMetrics = async ({
                     }
                 }
                 onSetLegacyResults([...legacyResults])
-                onSetResults([...results])
+                onSetResults(new Map(results))
             } catch (error: any) {
                 const errorDetailMatch = error.detail?.match(/\{.*\}/)
                 const errorDetail = errorDetailMatch ? JSON.parse(errorDetailMatch[0]) : error.detail || error.message
 
-                currentErrors[index] = {
+                currentErrors.set(metricUuid, {
                     detail: errorDetail,
                     statusCode: error.status,
                     hasDiagnostics: !!errorDetailMatch,
-                }
-                onSetErrors(currentErrors)
+                })
+                onSetErrors(new Map(currentErrors))
 
                 if (errorDetail === QUERY_TIMEOUT_ERROR_MESSAGE) {
                     onTimeout(experimentId, metric)
@@ -244,7 +250,7 @@ const loadMetrics = async ({
 
                 legacyResults[index] = null
                 onSetLegacyResults([...legacyResults])
-                onSetResults([...results])
+                onSetResults(new Map(results))
             }
         })
     )
@@ -475,13 +481,13 @@ export const experimentLogic = kea<experimentLogicType>([
                 | null
             )[]
         ) => ({ results }),
-        setPrimaryMetricsResults: (results: CachedNewExperimentQueryResponse[]) => ({ results }),
+        setPrimaryMetricsResults: (results: Map<string, CachedNewExperimentQueryResponse>) => ({ results }),
         setPrimaryMetricsResultsLoading: (loading: boolean) => ({ loading }),
         loadPrimaryMetricsResults: (refresh?: boolean) => ({ refresh }),
-        setPrimaryMetricsResultsErrors: (errors: any[]) => ({ errors }),
-        setSecondaryMetricsResults: (results: CachedNewExperimentQueryResponse[]) => ({ results }),
+        setPrimaryMetricsResultsErrors: (errors: Map<string, any>) => ({ errors }),
+        setSecondaryMetricsResults: (results: Map<string, CachedNewExperimentQueryResponse>) => ({ results }),
         loadSecondaryMetricsResults: (refresh?: boolean) => ({ refresh }),
-        setSecondaryMetricsResultsErrors: (errors: any[]) => ({ errors }),
+        setSecondaryMetricsResultsErrors: (errors: Map<string, any>) => ({ errors }),
         setSecondaryMetricsResultsLoading: (loading: boolean) => ({ loading }),
         setLegacySecondaryMetricsResults: (
             results: (
@@ -727,11 +733,11 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         primaryMetricsResults: [
-            [] as CachedNewExperimentQueryResponse[],
+            new Map() as Map<string, CachedNewExperimentQueryResponse>,
             {
                 setPrimaryMetricsResults: (_, { results }) => results,
-                loadPrimaryMetricsResults: () => [],
-                loadExperiment: () => [],
+                loadPrimaryMetricsResults: () => new Map(),
+                loadExperiment: () => new Map(),
             },
         ],
         primaryMetricsResultsLoading: [
@@ -741,11 +747,11 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         primaryMetricsResultsErrors: [
-            [] as any[],
+            new Map() as Map<string, any>,
             {
                 setPrimaryMetricsResultsErrors: (_, { errors }) => errors,
-                loadPrimaryMetricsResults: () => [],
-                loadExperiment: () => [],
+                loadPrimaryMetricsResults: () => new Map(),
+                loadExperiment: () => new Map(),
             },
         ],
         // SECONDARY METRICS
@@ -761,11 +767,11 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         secondaryMetricsResults: [
-            [] as CachedNewExperimentQueryResponse[],
+            new Map() as Map<string, CachedNewExperimentQueryResponse>,
             {
                 setSecondaryMetricsResults: (_, { results }) => results,
-                loadSecondaryMetricsResults: () => [],
-                loadExperiment: () => [],
+                loadSecondaryMetricsResults: () => new Map(),
+                loadExperiment: () => new Map(),
             },
         ],
         secondaryMetricsResultsLoading: [
@@ -775,11 +781,11 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         secondaryMetricsResultsErrors: [
-            [] as any[],
+            new Map() as Map<string, any>,
             {
                 setSecondaryMetricsResultsErrors: (_, { errors }) => errors,
-                loadSecondaryMetricsResults: () => [],
-                loadExperiment: () => [],
+                loadSecondaryMetricsResults: () => new Map(),
+                loadExperiment: () => new Map(),
             },
         ],
         editingPrimaryMetricUuid: [
@@ -1285,7 +1291,7 @@ export const experimentLogic = kea<experimentLogicType>([
         loadPrimaryMetricsResults: async ({ refresh }: { refresh?: boolean }) => {
             actions.setPrimaryMetricsResultsLoading(true)
             actions.setLegacyPrimaryMetricsResults([])
-            actions.setPrimaryMetricsResults([])
+            actions.setPrimaryMetricsResults(new Map())
 
             let metrics = values.experiment?.metrics
             const sharedMetrics = values.experiment?.saved_metrics
@@ -1310,7 +1316,7 @@ export const experimentLogic = kea<experimentLogicType>([
         loadSecondaryMetricsResults: async ({ refresh }: { refresh?: boolean }) => {
             actions.setSecondaryMetricsResultsLoading(true)
             actions.setLegacySecondaryMetricsResults([])
-            actions.setSecondaryMetricsResults([])
+            actions.setSecondaryMetricsResults(new Map())
 
             let secondaryMetrics = values.experiment?.metrics_secondary
             const sharedMetrics = values.experiment?.saved_metrics

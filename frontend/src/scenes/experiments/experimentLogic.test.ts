@@ -130,7 +130,7 @@ describe('experimentLogic', () => {
                 .toMatchValues({
                     legacyPrimaryMetricsResults: [],
                     primaryMetricsResultsLoading: true,
-                    primaryMetricsResultsErrors: [],
+                    primaryMetricsResultsErrors: new Map(),
                 })
 
             await promise
@@ -146,18 +146,20 @@ describe('experimentLogic', () => {
                         null,
                     ],
                     primaryMetricsResultsLoading: false,
-                    primaryMetricsResultsErrors: [
-                        null,
-                        {
-                            detail: {
-                                'no-control-variant': true,
-                                'no-test-variant': true,
-                                'no-exposures': false,
+                    primaryMetricsResultsErrors: new Map([
+                        [
+                            'temp-uuid-1',
+                            {
+                                detail: {
+                                    'no-control-variant': true,
+                                    'no-test-variant': true,
+                                    'no-exposures': false,
+                                },
+                                hasDiagnostics: true,
+                                statusCode: 400,
                             },
-                            hasDiagnostics: true,
-                            statusCode: 400,
-                        },
-                    ],
+                        ],
+                    ]),
                 })
         })
     })
@@ -205,7 +207,7 @@ describe('experimentLogic', () => {
                 .toMatchValues({
                     legacySecondaryMetricsResults: [],
                     secondaryMetricsResultsLoading: true,
-                    secondaryMetricsResultsErrors: [],
+                    secondaryMetricsResultsErrors: new Map(),
                 })
 
             await promise
@@ -221,18 +223,20 @@ describe('experimentLogic', () => {
                         },
                     ],
                     secondaryMetricsResultsLoading: false,
-                    secondaryMetricsResultsErrors: [
-                        {
-                            detail: {
-                                'no-control-variant': true,
-                                'no-test-variant': true,
-                                'no-exposures': false,
+                    secondaryMetricsResultsErrors: new Map([
+                        [
+                            'cbdd02f8-4a27-4017-a8d8-5f989b304ada',
+                            {
+                                detail: {
+                                    'no-control-variant': true,
+                                    'no-test-variant': true,
+                                    'no-exposures': false,
+                                },
+                                hasDiagnostics: true,
+                                statusCode: 400,
                             },
-                            hasDiagnostics: true,
-                            statusCode: 400,
-                        },
-                        null,
-                    ],
+                        ],
+                    ]),
                 })
         })
     })

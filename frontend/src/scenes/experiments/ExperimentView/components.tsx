@@ -323,7 +323,7 @@ export function PageHeaderCustom(): JSX.Element {
         !isExperimentDraft &&
         !isSingleVariantShipped &&
         hasMinimumExposureForResults &&
-        (legacyPrimaryMetricsResults.length > 0 || primaryMetricsResults.length > 0)
+        (legacyPrimaryMetricsResults.length > 0 || primaryMetricsResults.size > 0)
 
     return (
         <PageHeader
