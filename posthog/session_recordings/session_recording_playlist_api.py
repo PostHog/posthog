@@ -1,6 +1,7 @@
 import json
 from typing import Any, Optional, cast
 
+from django.contrib.auth.models import AnonymousUser
 from django.db import IntegrityError
 from django.db.models import Q, QuerySet
 from django.utils.timezone import now
@@ -482,7 +483,7 @@ class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
     @action(methods=["POST"], detail=True)
     def playlist_viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         playlist = self.get_object()
-        user = request.user
+        user = cast(User | AnonymousUser, request.user)
         team = self.team
 
         if user.is_anonymous:

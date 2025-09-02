@@ -6,6 +6,7 @@ import { Counter } from 'prom-client'
 // eslint-disable-next-line no-restricted-imports
 import {
     Agent,
+    Dispatcher,
     type HeadersInit,
     RequestInfo,
     RequestInit,
@@ -170,9 +171,23 @@ class SecureAgent extends Agent {
     }
 }
 
-const sharedSecureAgent = new SecureAgent()
+// Safe way to use the same helpers for talking to internal endpoints such as other services
+class InsecureAgent extends Agent {
+    constructor() {
+        super({
+            keepAliveTimeout: 10_000,
+            connections: 500,
+            connect: {
+                timeout: defaultConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
+            },
+        })
+    }
+}
 
-export async function fetch(url: string, options: FetchOptions = {}): Promise<FetchResponse> {
+const sharedSecureAgent = new SecureAgent()
+const sharedInsecureAgent = new InsecureAgent()
+
+export async function _fetch(url: string, options: FetchOptions = {}, dispatcher: Dispatcher): Promise<FetchResponse> {
     let parsed: URL
     try {
         parsed = new URL(url)
@@ -190,7 +205,7 @@ export async function fetch(url: string, options: FetchOptions = {}): Promise<Fe
         method: options.method ?? 'GET',
         headers: options.headers,
         body: options.body,
-        dispatcher: sharedSecureAgent,
+        dispatcher,
         maxRedirections: 0, // No redirects allowed by default
         signal: options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined,
     })
@@ -209,6 +224,14 @@ export async function fetch(url: string, options: FetchOptions = {}): Promise<Fe
         json: async () => parseJSON(await result.body.text()),
         text: async () => await result.body.text(),
     }
+}
+
+export async function internalFetch(url: string, options: FetchOptions = {}): Promise<FetchResponse> {
+    return await _fetch(url, options, sharedInsecureAgent)
+}
+
+export async function fetch(url: string, options: FetchOptions = {}): Promise<FetchResponse> {
+    return await _fetch(url, options, sharedSecureAgent)
 }
 
 // Legacy fetch implementation that exposes the entire fetch implementation

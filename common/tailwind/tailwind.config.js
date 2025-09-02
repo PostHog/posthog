@@ -316,7 +316,7 @@ const deprecatedColors = {
 
 const config = {
     content: [
-        // Starting all paths with '../.." to share this between frontend/, cypress/, playwright/ and common/storybook/
+        // Starting all paths with '../.." to share this between frontend/, playwright/ and common/storybook/
         '../../frontend/src/**/*.{ts,tsx}',
         '../../ee/frontend/**/*.{ts,tsx}',
         '../../frontend/src/index.html',

@@ -1142,6 +1142,11 @@ class ExperimentExposureTimeSeries(BaseModel):
     variant: str
 
 
+class ExperimentMetricGoal(StrEnum):
+    INCREASE = "increase"
+    DECREASE = "decrease"
+
+
 class ExperimentMetricMathType(StrEnum):
     TOTAL = "total"
     SUM = "sum"
@@ -1213,6 +1218,8 @@ class ExternalDataSourceType(StrEnum):
     VITALLY = "Vitally"
     BIG_QUERY = "BigQuery"
     CHARGEBEE = "Chargebee"
+    REVENUE_CAT = "RevenueCat"
+    POLAR = "Polar"
     GOOGLE_ADS = "GoogleAds"
     META_ADS = "MetaAds"
     KLAVIYO = "Klaviyo"
@@ -1224,6 +1231,7 @@ class ExternalDataSourceType(StrEnum):
     MONGO_DB = "MongoDB"
     TEMPORAL_IO = "TemporalIO"
     DO_IT = "DoIt"
+    LINKEDIN_ADS = "LinkedinAds"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -1305,7 +1313,6 @@ class FileSystemIconType(StrEnum):
     INSIGHT_LIFECYCLE = "insightLifecycle"
     INSIGHT_STICKINESS = "insightStickiness"
     INSIGHT_HOG_QL = "insightHogQL"
-    CODE = "code"
 
 
 class FileSystemImport(BaseModel):
@@ -2235,6 +2242,7 @@ class RetentionPeriod(StrEnum):
 class RetentionType(StrEnum):
     RETENTION_RECURRING = "retention_recurring"
     RETENTION_FIRST_TIME = "retention_first_time"
+    RETENTION_FIRST_EVER_OCCURRENCE = "retention_first_ever_occurrence"
 
 
 class RevenueAnalyticsGoal(BaseModel):
@@ -2848,6 +2856,8 @@ class YAxisSettings(BaseModel):
         extra="forbid",
     )
     scale: Optional[Scale] = None
+    showGridLines: Optional[bool] = None
+    showTicks: Optional[bool] = None
     startAtZero: Optional[bool] = Field(default=None, description="Whether the Y axis should start at zero")
 
 
@@ -3407,6 +3417,9 @@ class ChartSettings(BaseModel):
     seriesBreakdownColumn: Optional[str] = None
     showLegend: Optional[bool] = None
     showTotalRow: Optional[bool] = None
+    showXAxisBorder: Optional[bool] = None
+    showXAxisTicks: Optional[bool] = None
+    showYAxisBorder: Optional[bool] = None
     stackBars100: Optional[bool] = Field(default=None, description="Whether we fill the bars to 100% in stacked mode")
     xAxis: Optional[ChartAxis] = None
     yAxis: Optional[list[ChartAxis]] = None
@@ -3688,6 +3701,7 @@ class ExperimentMetricBaseProperties(BaseModel):
     )
     conversion_window: Optional[int] = None
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
+    goal: Optional[ExperimentMetricGoal] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     name: Optional[str] = None
     response: Optional[dict[str, Any]] = None
@@ -11489,6 +11503,7 @@ class ExperimentRatioMetric(BaseModel):
     conversion_window: Optional[int] = None
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
     denominator: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
+    goal: Optional[ExperimentMetricGoal] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     metric_type: Literal["ratio"] = "ratio"
     name: Optional[str] = None
@@ -12351,6 +12366,7 @@ class ExperimentFunnelMetric(BaseModel):
     conversion_window: Optional[int] = None
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
     funnel_order_type: Optional[StepOrderValue] = None
+    goal: Optional[ExperimentMetricGoal] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     metric_type: Literal["funnel"] = "funnel"
     name: Optional[str] = None
@@ -12366,6 +12382,7 @@ class ExperimentMeanMetric(BaseModel):
     )
     conversion_window: Optional[int] = None
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
+    goal: Optional[ExperimentMetricGoal] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     lower_bound_percentile: Optional[float] = None
     metric_type: Literal["mean"] = "mean"

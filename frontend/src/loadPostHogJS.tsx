@@ -1,16 +1,9 @@
-import posthog, { CaptureResult } from 'posthog-js'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { getISOWeekString, inStorybook, inStorybookTestRunner } from 'lib/utils'
-
-interface WindowWithCypressCaptures extends Window {
-    // our Cypress tests will use this to check what events were sent to PostHog
-    _cypress_posthog_captures?: CaptureResult[]
-    // cypress puts this on the window, so we can check for it to see if Cypress is running
-    Cypress?: any
-}
 
 export function loadPostHogJS(): void {
     if (window.JS_POSTHOG_API_KEY) {
@@ -24,14 +17,6 @@ export function loadPostHogJS(): void {
             opt_in_site_apps: true,
             api_transport: 'fetch',
             disable_surveys: window.IMPERSONATED_SESSION,
-            before_send: (payload) => {
-                const win = window as WindowWithCypressCaptures
-                if (win.Cypress && payload) {
-                    win._cypress_posthog_captures = win._cypress_posthog_captures || []
-                    win._cypress_posthog_captures.push(payload)
-                }
-                return payload
-            },
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true
@@ -66,18 +51,6 @@ export function loadPostHogJS(): void {
                             }
                         }, tenMinuteInMs)
                     }
-                }
-
-                const Cypress = (window as WindowWithCypressCaptures).Cypress
-
-                if (Cypress) {
-                    Object.entries(Cypress.env()).forEach(([key, value]) => {
-                        if (key.startsWith('POSTHOG_PROPERTY_')) {
-                            loadedInstance.register_for_session({
-                                [key.replace('POSTHOG_PROPERTY_', 'E2E_TESTING_').toLowerCase()]: value,
-                            })
-                        }
-                    })
                 }
 
                 // This is a helpful flag to set to automatically reset the recording session on load for testing multiple recordings

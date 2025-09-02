@@ -1082,7 +1082,6 @@ dependencies = [
  "common-dns",
  "common-kafka",
  "common-metrics",
- "common-redis",
  "common-types",
  "envconfig",
  "fernet",

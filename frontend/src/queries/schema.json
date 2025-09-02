@@ -6832,6 +6832,15 @@
                 "showTotalRow": {
                     "type": "boolean"
                 },
+                "showXAxisBorder": {
+                    "type": "boolean"
+                },
+                "showXAxisTicks": {
+                    "type": "boolean"
+                },
+                "showYAxisBorder": {
+                    "type": "boolean"
+                },
                 "stackBars100": {
                     "description": "Whether we fill the bars to 100% in stacked mode",
                     "type": "boolean"
@@ -11291,6 +11300,9 @@
                 "funnel_order_type": {
                     "$ref": "#/definitions/StepOrderValue"
                 },
+                "goal": {
+                    "$ref": "#/definitions/ExperimentMetricGoal"
+                },
                 "kind": {
                     "const": "ExperimentMetric",
                     "type": "string"
@@ -11500,6 +11512,9 @@
                 "conversion_window_unit": {
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
                 },
+                "goal": {
+                    "$ref": "#/definitions/ExperimentMetricGoal"
+                },
                 "kind": {
                     "const": "ExperimentMetric",
                     "type": "string"
@@ -11576,6 +11591,9 @@
                 "conversion_window_unit": {
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
                 },
+                "goal": {
+                    "$ref": "#/definitions/ExperimentMetricGoal"
+                },
                 "kind": {
                     "const": "ExperimentMetric",
                     "type": "string"
@@ -11596,6 +11614,10 @@
             },
             "required": ["kind"],
             "type": "object"
+        },
+        "ExperimentMetricGoal": {
+            "enum": ["increase", "decrease"],
+            "type": "string"
         },
         "ExperimentMetricMathType": {
             "enum": ["total", "sum", "unique_session", "min", "max", "avg", "dau", "unique_group", "hogql"],
@@ -11771,6 +11793,9 @@
                 },
                 "denominator": {
                     "$ref": "#/definitions/ExperimentMetricSource"
+                },
+                "goal": {
+                    "$ref": "#/definitions/ExperimentMetricGoal"
                 },
                 "kind": {
                     "const": "ExperimentMetric",
@@ -12146,6 +12171,8 @@
                 "Vitally",
                 "BigQuery",
                 "Chargebee",
+                "RevenueCat",
+                "Polar",
                 "GoogleAds",
                 "MetaAds",
                 "Klaviyo",
@@ -12156,7 +12183,8 @@
                 "GoogleSheets",
                 "MongoDB",
                 "TemporalIO",
-                "DoIt"
+                "DoIt",
+                "LinkedinAds"
             ],
             "type": "string"
         },
@@ -12312,8 +12340,7 @@
                 "insightUserPaths",
                 "insightLifecycle",
                 "insightStickiness",
-                "insightHogQL",
-                "code"
+                "insightHogQL"
             ],
             "type": "string"
         },
@@ -21538,7 +21565,7 @@
             "type": "object"
         },
         "RetentionType": {
-            "enum": ["retention_recurring", "retention_first_time"],
+            "enum": ["retention_recurring", "retention_first_time", "retention_first_ever_occurrence"],
             "type": "string"
         },
         "RetentionValue": {
@@ -26547,6 +26574,12 @@
                 "scale": {
                     "enum": ["linear", "logarithmic"],
                     "type": "string"
+                },
+                "showGridLines": {
+                    "type": "boolean"
+                },
+                "showTicks": {
+                    "type": "boolean"
                 },
                 "startAtZero": {
                     "description": "Whether the Y axis should start at zero",
