@@ -107,7 +107,7 @@ export class HogTransformerService {
                 return typeof val === 'string' ? geoipLookup.city(val) : null
             },
             cleanNullValues,
-            posthogCapture: () => {
+            postHogCapture: () => {
                 throw new Error('posthogCapture is not supported in transformations')
             },
         }
