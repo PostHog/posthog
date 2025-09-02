@@ -12167,7 +12167,8 @@
                 "GoogleSheets",
                 "MongoDB",
                 "TemporalIO",
-                "DoIt"
+                "DoIt",
+                "LinkedinAds"
             ],
             "type": "string"
         },
@@ -12323,8 +12324,7 @@
                 "insightUserPaths",
                 "insightLifecycle",
                 "insightStickiness",
-                "insightHogQL",
-                "code"
+                "insightHogQL"
             ],
             "type": "string"
         },

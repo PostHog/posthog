@@ -89,8 +89,8 @@ jobs:
               id: pnpm-cache
               with:
                   path: ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
-                  key: ${{ runner.os }}-pnpm-cypress-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: ${{ runner.os }}-pnpm-cypress-
+                  key: ${{ runner.os }}-pnpm-frontend-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: ${{ runner.os }}-pnpm-frontend-
 
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.frontend == 'true'
@@ -144,8 +144,8 @@ jobs:
               id: pnpm-cache
               with:
                   path: ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
-                  key: ${{ runner.os }}-pnpm-cypress-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: ${{ runner.os }}-pnpm-cypress-
+                  key: ${{ runner.os }}-pnpm-frontend-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: ${{ runner.os }}-pnpm-frontend-
 
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.frontend == 'true'
@@ -207,8 +207,8 @@ jobs:
               id: pnpm-cache
               with:
                   path: ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
-                  key: ${{ runner.os }}-pnpm-cypress-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: ${{ runner.os }}-pnpm-cypress-
+                  key: ${{ runner.os }}-pnpm-frontend-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: ${{ runner.os }}-pnpm-frontend-
 
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.frontend == 'true'

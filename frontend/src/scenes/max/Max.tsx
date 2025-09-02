@@ -1,4 +1,3 @@
-import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import React from 'react'
 
@@ -6,10 +5,8 @@ import {
     IconArrowLeft,
     IconChevronLeft,
     IconClockRewind,
-    IconCornerDownRight,
     IconExpand45,
     IconLock,
-    IconMinus,
     IconPlus,
     IconShare,
     IconSidePanel,
@@ -20,7 +17,6 @@ import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconArrowUp } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -50,8 +46,6 @@ export const scene: SceneExport = {
 
 export function Max(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { isFloatingMaxExpanded, floatingMaxPosition } = useValues(maxGlobalLogic)
-    const { setIsFloatingMaxExpanded } = useActions(maxGlobalLogic)
     const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { closeSidePanel } = useActions(sidePanelLogic)
 
@@ -59,28 +53,17 @@ export function Max(): JSX.Element {
         return <NotFound object="page" caption="You don't have access to AI features yet." />
     }
 
-    if (isFloatingMaxExpanded || (sidePanelOpen && selectedTab === SidePanelTab.Max)) {
+    if (sidePanelOpen && selectedTab === SidePanelTab.Max) {
         return (
             <div className="flex flex-col items-center justify-center w-full grow">
-                {isFloatingMaxExpanded ? (
-                    <IconCornerDownRight
-                        className={clsx(
-                            'text-3xl text-muted mb-2',
-                            floatingMaxPosition?.side === 'left' && '-scale-x-100'
-                        )}
-                    />
-                ) : (
-                    <IconSidePanel className="text-3xl text-muted mb-2" />
-                )}
-                <h3 className="text-xl font-bold mb-1">
-                    Max is currently {isFloatingMaxExpanded ? 'floating' : 'in the sidebar'}
-                </h3>
+                <IconSidePanel className="text-3xl text-muted mb-2" />
+                <h3 className="text-xl font-bold mb-1">Max is currently in the sidebar</h3>
                 <p className="text-sm text-muted mb-2">You can navigate freely around the app, or…</p>
                 <LemonButton
                     type="secondary"
                     size="xsmall"
-                    onClick={() => (isFloatingMaxExpanded ? setIsFloatingMaxExpanded(false) : closeSidePanel())}
-                    sideIcon={isFloatingMaxExpanded ? <IconArrowUp /> : <IconArrowLeft />}
+                    onClick={() => closeSidePanel()}
+                    sideIcon={<IconArrowLeft />}
                 >
                     Get him in here
                 </LemonButton>
@@ -106,7 +89,6 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
         conversation,
     } = useValues(maxLogic)
     const { startNewConversation, toggleConversationHistory, goBack } = useActions(maxLogic)
-    const { setIsFloatingMaxExpanded } = useActions(maxGlobalLogic)
 
     const threadProps: MaxThreadLogicProps = {
         conversationId: threadLogicKey,
@@ -114,7 +96,6 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
     }
 
     const { closeSidePanel } = useActions(sidePanelLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const headerButtons = (
         <>
@@ -156,30 +137,13 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                     tooltipPlacement="bottom"
                 />
             )}
-            {featureFlags[FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG] && (
-                <LemonButton
-                    size="small"
-                    sideIcon={<IconMinus />}
-                    onClick={() => {
-                        closeSidePanel()
-                        setIsFloatingMaxExpanded(true)
-                    }}
-                    tooltip="Minimize to floating Max"
-                />
-            )}
         </>
     )
 
     return (
         <>
             {sidePanel && (
-                <SidePanelPaneHeader
-                    className="transition-all duration-200"
-                    onClose={() => {
-                        startNewConversation()
-                        setIsFloatingMaxExpanded(false)
-                    }}
-                >
+                <SidePanelPaneHeader className="transition-all duration-200" onClose={() => startNewConversation()}>
                     <div className="flex flex-1">
                         <div className="flex items-center flex-1">
                             <AnimatedBackButton in={!backButtonDisabled}>
@@ -251,17 +215,6 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                             tooltip="Open as main focus"
                             tooltipPlacement="bottom-end"
                         />
-                        {featureFlags[FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG] && (
-                            <LemonButton
-                                size="small"
-                                sideIcon={<IconMinus />}
-                                onClick={() => {
-                                    closeSidePanel()
-                                    setIsFloatingMaxExpanded(true)
-                                }}
-                                tooltip="Minimize to floating Max"
-                            />
-                        )}
                     </div>
                 </SidePanelPaneHeader>
             )}

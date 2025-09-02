@@ -116,7 +116,9 @@ export function DashboardEditBar(): JSX.Element {
                             ...groupsTaxonomicTypes,
                             TaxonomicFilterGroupType.Cohorts,
                             TaxonomicFilterGroupType.Elements,
+                            TaxonomicFilterGroupType.SessionProperties,
                             TaxonomicFilterGroupType.HogQLExpression,
+                            TaxonomicFilterGroupType.DataWarehousePersonProperties,
                         ]}
                     />
                 </div>

@@ -1226,6 +1226,7 @@ class ExternalDataSourceType(StrEnum):
     MONGO_DB = "MongoDB"
     TEMPORAL_IO = "TemporalIO"
     DO_IT = "DoIt"
+    LINKEDIN_ADS = "LinkedinAds"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -1307,7 +1308,6 @@ class FileSystemIconType(StrEnum):
     INSIGHT_LIFECYCLE = "insightLifecycle"
     INSIGHT_STICKINESS = "insightStickiness"
     INSIGHT_HOG_QL = "insightHogQL"
-    CODE = "code"
 
 
 class FileSystemImport(BaseModel):

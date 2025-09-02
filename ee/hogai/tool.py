@@ -50,12 +50,44 @@ class search_insights(BaseModel):
 
 class session_summarization(BaseModel):
     """
-    Analyze sessions by finding relevant sessions based on user query and summarizing their events.
-    Use this tool for summarizing sessions, when users ask to summarize (e.g. watch, analyze) specific sessions (e.g. replays, recordings)
+    - Summarize session recordings to find patterns and issues by summarizing sessions' events.
+    - When to use the tool:
+      * When the user asks to summarize session recordings
+        - "summarize" synonyms: "watch", "analyze", "review", and similar
+        - "session recordings" synonyms: "sessions", "recordings", "replays", "user sessions", and similar
+    - When NOT to use the tool:
+      * When the user asks to find, search for, or look up session recordings, but doesn't ask to summarize them
+      * When users asks to update, change, or adjust session recordings filters
     """
 
     session_summarization_query: str = Field(
-        description="The user's complete query for session summarization. This will be used to find relevant sessions. Examples: 'summarize sessions from yesterday', 'watch what user X did on the checkout page', 'analyze mobile user sessions from last week'"
+        description="""
+        - The user's complete query for session recordings summarization.
+        - This will be used to find relevant session recordings.
+        - Always pass the user's complete, unmodified query.
+        - Examples:
+          * 'summarize all session recordings from yesterday'
+          * 'analyze mobile user session recordings from last week, even if 1 second'
+          * 'watch last 300 session recordings of MacOS users from US'
+          * and similar
+        """
+    )
+    should_use_current_filters: bool = Field(
+        description="""
+        - Whether to use current filters from user's UI to find relevant session recordings.
+        - IMPORTANT: Should be always `false` if the current filters or `search_session_recordings` tool are not present in the conversation history.
+        - Examples:
+          * Set to `true` if one of the conditions is met:
+            - the user wants to summarize "current/selected/opened/my/all/these" session recordings
+            - the user wants to use "current/these" filters
+            - the user's query specifies filters identical to the current filters
+            - if the user's query doesn't specify any filters/conditions
+            - the user refers to what they're "looking at" or "viewing"
+          * Set to `false` if one of the conditions is met:
+            - no current filters or `search_session_recordings` tool are present in the conversation
+            - the user specifies date/time period different from the current filters
+            - the user specifies conditions (user, device, id, URL, etc.) not present in the current filters
+        """,
     )
 
 
