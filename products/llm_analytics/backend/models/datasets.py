@@ -40,4 +40,4 @@ class DatasetItem(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFi
     metadata = models.JSONField(null=True, blank=True)
     ref_trace_id = models.CharField(max_length=255, null=True, blank=True)
     ref_timestamp = models.DateTimeField(null=True, blank=True)
-    ref_child_id = models.CharField(max_length=255, null=True, blank=True)
+    ref_source_id = models.CharField(max_length=255, null=True, blank=True)

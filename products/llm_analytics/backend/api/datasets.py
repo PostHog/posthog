@@ -96,7 +96,7 @@ class DatasetItemSerializer(serializers.ModelSerializer):
             "metadata",
             "ref_trace_id",
             "ref_timestamp",
-            "ref_child_id",
+            "ref_source_id",
             "deleted",
             "created_at",
             "updated_at",
