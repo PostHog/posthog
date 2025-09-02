@@ -32,7 +32,11 @@ export function LLMAnalyticsDatasetsScene(): JSX.Element {
             key: 'name',
             width: '20%',
             render: function renderName(_, dataset) {
-                return <Link to={urls.llmAnalyticsDataset(dataset.id)}>{dataset.name}</Link>
+                return (
+                    <Link to={urls.llmAnalyticsDataset(dataset.id)} data-testid="dataset-link">
+                        {dataset.name}
+                    </Link>
+                )
             },
         },
         {
@@ -47,7 +51,7 @@ export function LLMAnalyticsDatasetsScene(): JSX.Element {
         {
             title: 'Created by',
             dataIndex: 'created_by',
-            render: function renderCreatedBy(_: any, item) {
+            render: function renderCreatedBy(_, item) {
                 const { created_by } = item
                 return (
                     <div className="flex flex-row items-center flex-nowrap">
@@ -93,7 +97,11 @@ export function LLMAnalyticsDatasetsScene(): JSX.Element {
         <>
             <PageHeader
                 buttons={
-                    <LemonButton type="primary" to={urls.llmAnalyticsDataset('new')}>
+                    <LemonButton
+                        type="primary"
+                        to={urls.llmAnalyticsDataset('new')}
+                        data-testid="create-dataset-button"
+                    >
                         New dataset
                     </LemonButton>
                 }
@@ -106,6 +114,7 @@ export function LLMAnalyticsDatasetsScene(): JSX.Element {
                         value={filters.search}
                         onChange={(value) => setFilters({ search: value })}
                         className="max-w-md"
+                        data-testid="search-datasets-input"
                     />
                     <div className="text-muted-alt">{datasetCountLabel}</div>
                 </div>

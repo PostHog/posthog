@@ -134,7 +134,9 @@ export enum ShownAsValue {
 
 // Retention constants
 export const RETENTION_RECURRING = 'retention_recurring'
-export const RETENTION_FIRST_TIME = 'retention_first_time'
+// hasn't been renamed to 'retention_first_occurrence_matching_filters' until schema migration
+export const RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS = 'retention_first_time'
+export const RETENTION_FIRST_EVER_OCCURRENCE = 'retention_first_ever_occurrence'
 
 export const WEBHOOK_SERVICES: Record<string, string> = {
     Slack: 'slack.com',

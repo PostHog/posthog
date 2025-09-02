@@ -1,20 +1,16 @@
 import { actions, afterMount, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 
-import api, { CountedPaginatedResponse } from '~/lib/api'
+import api from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
-import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
-import { objectsEqual } from '~/lib/utils'
-import { sceneLogic } from '~/scenes/sceneLogic'
 import { urls } from '~/scenes/urls'
-import { Breadcrumb, Dataset, DatasetItem } from '~/types'
+import { Breadcrumb, Dataset } from '~/types'
 
-import { truncateValue } from '../utils'
 import type { llmAnalyticsDatasetLogicType } from './llmAnalyticsDatasetLogicType'
 import { llmAnalyticsDatasetsLogic } from './llmAnalyticsDatasetsLogic'
-import { EMPTY_JSON, corseJsonToObject, isStringJsonObject, prettifyJson } from './utils'
+import { EMPTY_JSON, coerceJsonToObject, isStringJsonObject, prettifyJson } from './utils'
 
 export interface DatasetLogicProps {
     datasetId: string | 'new'
@@ -31,22 +27,10 @@ export interface DatasetFormValues {
     metadata: string | null
 }
 
-export interface DatasetItemsFilters {
-    page: number
-    limit: number
-}
-
 export const DATASET_ITEMS_PER_PAGE = 50
 
 export function isDataset(dataset: Dataset | DatasetFormValues | null): dataset is Dataset {
     return dataset !== null && 'id' in dataset
-}
-
-function cleanFilters(values: Partial<DatasetItemsFilters>): DatasetItemsFilters {
-    return {
-        page: parseInt(String(values.page)) || 1,
-        limit: parseInt(String(values.limit)) || DATASET_ITEMS_PER_PAGE,
-    }
 }
 
 export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
@@ -61,11 +45,8 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
         editDataset: (editing: boolean) => ({ editing }),
         deleteDataset: true,
         setActiveTab: (tab: DatasetTab) => ({ tab }),
-        setFilters: (filters: Partial<DatasetItemsFilters>, debounce: boolean = true) => ({ filters, debounce }),
-        deleteDatasetItem: (itemId: string) => ({ itemId }),
-        triggerDatasetItemModal: (open: boolean) => ({ open }),
-        setSelectedDatasetItem: (datasetItem: DatasetItem) => ({ datasetItem }),
-        closeModalAndRefetchDatasetItems: (refetchDatasetItems?: boolean) => ({ refetchDatasetItems }),
+        // beforeUnmount doesn't work as expected for scenes.
+        onUnmount: true,
     }),
 
     reducers({
@@ -90,76 +71,15 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
                 setActiveTab: (_, { tab }) => tab,
             },
         ],
-
-        rawFilters: [
-            null as Partial<DatasetItemsFilters> | null,
-            {
-                setFilters: (state, { filters }) =>
-                    cleanFilters({
-                        ...state,
-                        ...filters,
-                        // Reset page on filter change except if it's page that's being updated
-                        ...('page' in filters ? {} : { page: 1 }),
-                    }),
-            },
-        ],
-
-        isDatasetItemModalOpen: [
-            false as boolean,
-            {
-                triggerDatasetItemModal: (_, { open }) => open,
-                closeModalAndRefetchDatasetItems: () => false,
-            },
-        ],
-
-        selectedDatasetItem: [
-            null as DatasetItem | null,
-            {
-                setSelectedDatasetItem: (_, { datasetItem }) => datasetItem,
-                // Reset the selected dataset item when the modal is closed
-                triggerDatasetItemModal: (state, { open }) => (open ? state : null),
-                closeModalAndRefetchDatasetItems: () => null,
-            },
-        ],
     }),
 
-    loaders(({ props, values }) => ({
+    loaders(({ props }) => ({
         dataset: {
             __default: null as Dataset | DatasetFormValues | null,
             loadDataset: () => {
                 return api.datasets.get(props.datasetId)
             },
         },
-
-        datasetItems: [
-            { results: [], count: 0, offset: 0 } as CountedPaginatedResponse<DatasetItem>,
-            {
-                loadDatasetItems: async (debounce: boolean = false, breakpoint) => {
-                    if (debounce && values.datasetItems.results.length > 0) {
-                        await breakpoint(300)
-                    }
-
-                    const { filters } = values
-
-                    // Scroll to top if the page changed, except if changed via back/forward
-                    if (
-                        sceneLogic.findMounted()?.values.activeSceneId === 'LLMAnalyticsDatasets' &&
-                        router.values.lastMethod !== 'POP' &&
-                        values.datasetItems.results.length > 0 &&
-                        values.rawFilters?.page !== filters.page
-                    ) {
-                        window.scrollTo(0, 0)
-                    }
-
-                    const response = await api.datasetItems.list({
-                        dataset: props.datasetId,
-                        offset: Math.max(0, (filters.page - 1) * DATASET_ITEMS_PER_PAGE),
-                        limit: DATASET_ITEMS_PER_PAGE,
-                    })
-                    return response
-                },
-            },
-        ],
     })),
 
     forms(({ actions, props }) => ({
@@ -181,14 +101,14 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
                         savedDataset = await api.datasets.create({
                             name: formValues.name,
                             description: formValues.description,
-                            metadata: corseJsonToObject(formValues.metadata),
+                            metadata: coerceJsonToObject(formValues.metadata),
                         })
                         lemonToast.success('Dataset created successfully')
                         router.actions.replace(urls.llmAnalyticsDataset(savedDataset.id))
                     } else {
                         savedDataset = await api.datasets.update(props.datasetId, {
                             ...formValues,
-                            metadata: corseJsonToObject(formValues.metadata),
+                            metadata: coerceJsonToObject(formValues.metadata),
                         })
                         lemonToast.success('Dataset updated successfully')
                     }
@@ -217,26 +137,6 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
             (dataset, datasetLoading) => !dataset && datasetLoading,
         ],
 
-        filters: [
-            (s) => [s.rawFilters],
-            (rawFilters: Partial<DatasetItemsFilters> | null): DatasetItemsFilters => cleanFilters(rawFilters || {}),
-        ],
-
-        datasetItemsCount: [
-            (s) => [s.datasetItems],
-            (datasetItems: CountedPaginatedResponse<DatasetItem>) => datasetItems.count,
-        ],
-
-        pagination: [
-            (s) => [s.filters, s.datasetItemsCount],
-            (filters: DatasetItemsFilters, count: number): PaginationManual => ({
-                controlled: true,
-                pageSize: filters.limit,
-                currentPage: filters.page,
-                entryCount: count,
-            }),
-        ],
-
         breadcrumbs: [
             (s) => [s.dataset],
             (dataset): Breadcrumb[] => [
@@ -250,7 +150,7 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
         ],
     }),
 
-    listeners(({ actions, props, values, selectors, asyncActions }) => ({
+    listeners(({ actions, props, values }) => ({
         deleteDataset: async () => {
             if (props.datasetId !== 'new') {
                 try {
@@ -271,96 +171,19 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
             }
         },
 
-        deleteDatasetItem: async ({ itemId }) => {
-            if (props.datasetId !== 'new') {
-                try {
-                    await api.datasetItems.update(itemId, { deleted: true })
-                    lemonToast.info(`Dataset item ${truncateValue(itemId)} has been deleted.`, {
-                        button: {
-                            label: 'Undo',
-                            dataAttr: 'undo-delete-dataset-item',
-                            action: async () => {
-                                await api.datasetItems.update(itemId, { deleted: false })
-                                await asyncActions.loadDatasetItems(false)
-                            },
-                        },
-                    })
-                    await asyncActions.loadDatasetItems(false)
-                } catch {
-                    lemonToast.error('Failed to delete dataset item')
+        onUnmount: () => {
+            if (props.datasetId === 'new') {
+                // Reset form values when creating a new dataset
+                actions.setDatasetFormValues(DEFAULT_DATASET_FORM_VALUES)
+            } else {
+                // Set form values when editing an existing dataset
+                const existingDataset = findExistingDataset(props.datasetId)
+                if (existingDataset) {
+                    actions.setDatasetFormValues(getDatasetFormDefaults(existingDataset))
+                } else {
+                    actions.setDatasetFormValues(DEFAULT_DATASET_FORM_VALUES)
                 }
             }
-        },
-
-        loadDatasetSuccess: ({ dataset }) => {
-            // Set form defaults when dataset is loaded
-            actions.setDatasetFormValues(getDatasetFormDefaults(dataset))
-        },
-
-        setFilters: async ({ debounce }, _, __, previousState) => {
-            const oldFilters = selectors.filters(previousState)
-            const firstLoad = selectors.rawFilters(previousState) === null
-            const { filters } = values
-
-            if (firstLoad) {
-                return
-            }
-
-            if (!objectsEqual(oldFilters, filters)) {
-                await asyncActions.loadDatasetItems(debounce)
-            }
-        },
-
-        setActiveTab: ({ tab }) => {
-            if (tab === DatasetTab.Items && props.datasetId !== 'new') {
-                actions.loadDatasetItems(true)
-            }
-        },
-
-        closeModalAndRefetchDatasetItems: ({ refetchDatasetItems }) => {
-            if (refetchDatasetItems) {
-                actions.loadDatasetItems()
-            }
-        },
-    })),
-
-    urlToAction(({ actions, values }) => ({
-        [urls.llmAnalyticsDataset(':id')]: (_, searchParams) => {
-            if (
-                searchParams.tab &&
-                Object.values(DatasetTab).includes(searchParams.tab as DatasetTab) &&
-                searchParams.tab !== values.activeTab
-            ) {
-                actions.setActiveTab(searchParams.tab as DatasetTab)
-            }
-
-            // Set default filters if they're not set yet
-            const newFilters = cleanFilters(searchParams)
-            if (values.rawFilters === null || !objectsEqual(values.filters, newFilters)) {
-                actions.setFilters(newFilters, false)
-            }
-
-            // Open the dataset item modal if the item is set in the URL
-            if (searchParams.item) {
-                const item = values.datasetItems.results.find((item) => item.id === searchParams.item)
-                if (item) {
-                    actions.setSelectedDatasetItem(item)
-                    actions.triggerDatasetItemModal(true)
-                }
-            }
-        },
-    })),
-
-    actionToUrl(({ values }) => ({
-        closeModalAndRefetchDatasetItems: () => {
-            const searchParams = router.values.searchParams
-            const nextSearchParams = { ...searchParams, item: undefined }
-            return [
-                urls.llmAnalyticsDataset(isDataset(values.dataset) ? values.dataset.id : 'new'),
-                nextSearchParams,
-                {},
-                { replace: false },
-            ]
         },
     })),
 
@@ -372,24 +195,15 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
             dataset: DatasetFormValues | Dataset | null
             datasetForm: DatasetFormValues
         } => {
-            const defaultDataset: DatasetFormValues = {
-                name: '',
-                description: '',
-                metadata: '{\n  \n}',
-            }
-
             if (props.datasetId === 'new') {
                 return {
-                    dataset: defaultDataset,
-                    datasetForm: defaultDataset,
+                    dataset: DEFAULT_DATASET_FORM_VALUES,
+                    datasetForm: DEFAULT_DATASET_FORM_VALUES,
                 }
             }
 
             // Don't show a loader if the dataset has already been loaded.
-            const existingDataset = llmAnalyticsDatasetsLogic
-                .findMounted()
-                ?.values.datasets.results.find((dataset) => dataset.id === props.datasetId)
-
+            const existingDataset = findExistingDataset(props.datasetId)
             if (existingDataset) {
                 return {
                     dataset: existingDataset,
@@ -399,7 +213,7 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
 
             return {
                 dataset: null,
-                datasetForm: defaultDataset,
+                datasetForm: DEFAULT_DATASET_FORM_VALUES,
             }
         }
     ),
@@ -409,10 +223,15 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
         // Load dataset in any case, as it might be stale.
         if (!values.isNewDataset) {
             actions.loadDataset()
-            actions.loadDatasetItems()
         }
     }),
 ])
+
+const DEFAULT_DATASET_FORM_VALUES: DatasetFormValues = {
+    name: '',
+    description: '',
+    metadata: '{\n  \n}',
+}
 
 /**
  * Get default form values for a dataset.
@@ -425,4 +244,13 @@ function getDatasetFormDefaults(dataset: Dataset): DatasetFormValues {
         description: dataset.description || '',
         metadata: prettifyJson(dataset.metadata) || EMPTY_JSON,
     }
+}
+
+/**
+ * Find an existing dataset in the datasets logic.
+ * @param datasetId - The ID of the dataset to find
+ * @returns The dataset if found, undefined otherwise
+ */
+function findExistingDataset(datasetId: string): Dataset | undefined {
+    return llmAnalyticsDatasetsLogic.findMounted()?.values.datasets.results.find((dataset) => dataset.id === datasetId)
 }

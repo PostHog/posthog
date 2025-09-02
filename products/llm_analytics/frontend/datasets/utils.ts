@@ -5,7 +5,7 @@ export const EMPTY_JSON = '{\n  \n}'
  * @param maybeJson - The string to coerce
  * @returns The coerced JSON object or null
  */
-export function corseJsonToObject(maybeJson: string | null): Record<string, any> | null {
+export function coerceJsonToObject(maybeJson: string | null): Record<string, any> | null {
     if (!maybeJson) {
         return null
     }

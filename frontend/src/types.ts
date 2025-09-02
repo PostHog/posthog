@@ -21,7 +21,8 @@ import {
     OrganizationMembershipLevel,
     PROPERTY_MATCH_TYPE,
     PluginsAccessLevel,
-    RETENTION_FIRST_TIME,
+    RETENTION_FIRST_EVER_OCCURRENCE,
+    RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
     RETENTION_MEAN_NONE,
     RETENTION_RECURRING,
     ShownAsValue,
@@ -234,7 +235,6 @@ export enum ProductKey {
     MARKETING_ANALYTICS = 'marketing_analytics',
     MAX = 'max',
     LINKS = 'links',
-    MCP_SERVER = 'mcp_server',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -349,6 +349,7 @@ export interface UserType extends UserBaseType {
     pending_email?: string | null
     is_2fa_enabled: boolean
     has_social_auth: boolean
+    has_sso_enforcement: boolean
     has_seen_product_intro_for?: Record<string, boolean>
     scene_personalisation?: SceneDashboardChoice[]
     theme_mode?: UserTheme | null
@@ -2466,7 +2467,10 @@ export enum FunnelVizType {
     Trends = 'trends',
 }
 
-export type RetentionType = typeof RETENTION_RECURRING | typeof RETENTION_FIRST_TIME
+export type RetentionType =
+    | typeof RETENTION_RECURRING
+    | typeof RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS
+    | typeof RETENTION_FIRST_EVER_OCCURRENCE
 
 export enum RetentionPeriod {
     Hour = 'Hour',
@@ -5728,19 +5732,4 @@ export interface Dataset {
     created_at: string
     updated_at: string
     created_by: UserBasicType
-}
-
-export interface DatasetItem {
-    id: string
-    dataset: string
-    team: number
-    input: Record<string, any> | null
-    output: Record<string, any> | null
-    metadata: Record<string, any> | null
-    ref_trace_id: string | null
-    ref_trace_timestamp: string | null
-    ref_span_id: string | null
-    created_by: UserBasicType
-    updated_at: string
-    created_at: string
 }

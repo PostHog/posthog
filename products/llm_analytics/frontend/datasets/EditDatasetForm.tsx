@@ -20,6 +20,7 @@ export function EditDatasetForm(): JSX.Element {
                         value={datasetForm.name}
                         onChange={(value) => setDatasetFormValue('name', value)}
                         placeholder="Enter dataset name"
+                        data-testid="edit-dataset-name-input"
                     />
                 </LemonField>
 
@@ -29,6 +30,7 @@ export function EditDatasetForm(): JSX.Element {
                         placeholder="Describe what this dataset contains"
                         value={datasetForm.description}
                         onChange={(value) => setDatasetFormValue('description', value)}
+                        data-testid="edit-dataset-description-input"
                     />
                 </LemonField>
 
