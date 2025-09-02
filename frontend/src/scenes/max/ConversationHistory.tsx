@@ -71,7 +71,7 @@ export function ConversationHistory({ sidePanel = false }: ConversationHistoryPr
                                 type="primary"
                                 icon={<IconPlus />}
                                 onClick={() => {
-                                    updateHasSeenProductIntroFor(ProductKey.MAX, true)
+                                    updateHasSeenProductIntroFor(ProductKey.MAX)
                                     toggleConversationHistory()
                                 }}
                             >
