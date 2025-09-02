@@ -151,16 +151,20 @@ export const WithAccessControl = (): JSX.Element => {
             <LemonSelect
                 options={options}
                 placeholder="Enabled (editor ≥ viewer)"
-                userAccessLevel="editor"
-                minAccessLevel="viewer"
-                resourceType={AccessControlResourceType.Dashboard}
+                accessControl={{
+                    userLevel: 'editor',
+                    minLevel: 'viewer',
+                    resource: AccessControlResourceType.Dashboard,
+                }}
             />
             <LemonSelect
                 options={options}
                 placeholder="Disabled (viewer < editor)"
-                userAccessLevel="viewer"
-                minAccessLevel="editor"
-                resourceType={AccessControlResourceType.Dashboard}
+                accessControl={{
+                    userLevel: 'viewer',
+                    minLevel: 'editor',
+                    resource: AccessControlResourceType.Dashboard,
+                }}
             />
         </div>
     )

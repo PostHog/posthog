@@ -84,9 +84,11 @@ export interface LemonButtonPropsBase
     /** Whether to force the tooltip to be visible. */
     tooltipForceMount?: boolean
     /** Access control props for automatic permission checking */
-    userAccessLevel?: AccessControlLevel
-    minAccessLevel?: AccessControlLevel
-    resourceType?: AccessControlResourceType
+    accessControl?: {
+        userLevel: AccessControlLevel
+        minLevel: AccessControlLevel
+        resource: AccessControlResourceType
+    }
 }
 
 export type SideAction = Pick<
@@ -159,9 +161,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 buttonWrapper,
                 tooltipDocLink,
                 tooltipForceMount,
-                userAccessLevel,
-                minAccessLevel,
-                resourceType,
+                accessControl,
                 ...buttonProps
             },
             ref
@@ -203,14 +203,15 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
             }
 
             // Handle access control
-            if (userAccessLevel && minAccessLevel && resourceType) {
-                const hasAccess = accessLevelSatisfied(resourceType, userAccessLevel, minAccessLevel)
+            if (accessControl) {
+                const { userLevel, minLevel, resource } = accessControl
+                const hasAccess = accessLevelSatisfied(resource, userLevel, minLevel)
                 if (!hasAccess) {
                     disabled = true
                     if (!disabledReason) {
                         disabledReason = `You don't have sufficient permissions for this ${resourceTypeToString(
-                            resourceType
-                        )}. Your access level (${userAccessLevel}) doesn't meet the required level (${minAccessLevel}).`
+                            resource
+                        )}. Your access level (${userLevel}) doesn't meet the required level (${minLevel}).`
                     }
                 }
             }

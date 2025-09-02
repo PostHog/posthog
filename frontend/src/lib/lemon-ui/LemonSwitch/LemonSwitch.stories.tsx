@@ -126,17 +126,21 @@ export const WithAccessControl = (): JSX.Element => {
                 label="Enabled (admin ≥ admin)"
                 checked={true}
                 onChange={() => {}}
-                userAccessLevel="admin"
-                minAccessLevel="admin"
-                resourceType={AccessControlResourceType.Project}
+                accessControl={{
+                    userLevel: 'admin',
+                    minLevel: 'admin',
+                    resource: AccessControlResourceType.Project,
+                }}
             />
             <LemonSwitch
                 label="Disabled (viewer < admin)"
                 checked={false}
                 onChange={() => {}}
-                userAccessLevel="viewer"
-                minAccessLevel="admin"
-                resourceType={AccessControlResourceType.Project}
+                accessControl={{
+                    userLevel: 'viewer',
+                    minLevel: 'admin',
+                    resource: AccessControlResourceType.Project,
+                }}
             />
         </div>
     )

@@ -448,17 +448,21 @@ export const WithAccessControl = (): JSX.Element => {
         <div className="flex gap-2">
             <LemonButton
                 type="primary"
-                userAccessLevel="admin"
-                minAccessLevel="admin"
-                resourceType={AccessControlResourceType.Project}
+                accessControl={{
+                    userLevel: 'admin',
+                    minLevel: 'admin',
+                    resource: AccessControlResourceType.Project,
+                }}
             >
                 Enabled (admin ≥ admin)
             </LemonButton>
             <LemonButton
                 type="primary"
-                userAccessLevel="viewer"
-                minAccessLevel="admin"
-                resourceType={AccessControlResourceType.Project}
+                accessControl={{
+                    userLevel: 'viewer',
+                    minLevel: 'admin',
+                    resource: AccessControlResourceType.Project,
+                }}
             >
                 Disabled (viewer {'<'} admin)
             </LemonButton>
