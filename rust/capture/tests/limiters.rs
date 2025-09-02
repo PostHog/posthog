@@ -330,7 +330,7 @@ async fn test_no_billing_limit_retains_all_events() {
 }
 
 #[tokio::test]
-async fn test_billing_limit_on_i_endpoint() {
+async fn test_billing_limit_retains_scoped_limiter_events_iv0e_endpoint() {
     let token = "test_token_i_endpoint";
     let (router, sink) = setup_router_with_limits(token, CaptureMode::Events, true, vec![]).await;
     let client = TestClient::new(router);
@@ -371,6 +371,180 @@ async fn test_billing_limit_on_i_endpoint() {
     assert!(event_names.contains(&"$ai_foobar".to_string()));
     assert!(event_names.contains(&"survey sent".to_string()));
     assert!(event_names.contains(&"survey dismissed".to_string()));
+}
+
+#[tokio::test]
+async fn test_exception_limiter_filters_only_exception_events() {
+    let token = "test_token_survey_quota";
+    let (router, sink) = setup_router_with_limits(
+        token,
+        CaptureMode::Events,
+        false,
+        vec![QuotaResource::Exceptions],
+    )
+    .await;
+    let client = TestClient::new(router);
+
+    let events = [
+        "survey sent",
+        "pageview",
+        "$exception",
+        "click",
+        "$exception",
+        "$ai_your_absolutely_right",
+    ];
+    let payload = create_batch_payload_with_token(&events, token);
+
+    let response = client
+        .post("/e")
+        .body(payload)
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
+
+    // Should return OK even when survey limited
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // ALL survey events should be filtered out when quota exceeded, other events should be captured
+    let captured_events = sink.events();
+    assert_eq!(captured_events.len(), 4); // pageview, click, $exception
+
+    let event_names: Vec<String> = extract_captured_event_names(&captured_events);
+
+    // Non-survey events should be present
+    assert!(event_names.contains(&"pageview".to_string()));
+    assert!(event_names.contains(&"click".to_string()));
+    assert!(event_names.contains(&"$ai_your_absolutely_right".to_string()));
+    assert!(event_names.contains(&"survey sent".to_string()));
+
+    // All survey events should be filtered out when quota exceeded
+    assert!(!event_names.contains(&"$exception".to_string()));
+}
+
+#[tokio::test]
+async fn test_exception_limiter_returns_ok_when_only_exception_events() {
+    let token = "test_token_only_surveys";
+    let (router, sink) = setup_router_with_limits(
+        token,
+        CaptureMode::Events,
+        false,
+        vec![QuotaResource::Exceptions],
+    )
+    .await;
+    let client = TestClient::new(router);
+
+    // Only survey events in the payload
+    let events = ["$exception", "$exception", "$exception"];
+    let payload = create_batch_payload_with_token(&events, token);
+
+    let response = client
+        .post("/e")
+        .body(payload)
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
+
+    // Should return OK (legacy behavior - errors are converted to OK for v0 endpoints)
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // When quota exceeded, ALL survey events should be filtered out
+    let captured_events = sink.events();
+    assert_eq!(captured_events.len(), 0);
+}
+
+#[tokio::test]
+async fn test_exception_limiter_allows_exception_events_when_not_limited() {
+    let token = "test_token_survey_not_limited";
+    let (router, sink) = setup_router_with_limits(
+        token,
+        CaptureMode::Events,
+        true,
+        vec![QuotaResource::Surveys, QuotaResource::LLMEvents],
+    )
+    .await; // Not survey limited
+    let client = TestClient::new(router);
+
+    let events = [
+        "$ai_yiss",
+        "survey sent",
+        "pageview",
+        "$exception",
+        "click",
+        "$exception",
+    ];
+    let payload = create_batch_payload_with_token(&events, token);
+
+    let response = client
+        .post("/e")
+        .body(payload)
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
+
+    // Should return OK
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // All events should be captured when not survey limited
+    let captured_events = sink.events();
+    assert_eq!(captured_events.len(), 2);
+
+    let event_names: Vec<String> = extract_captured_event_names(&captured_events);
+    assert!(event_names.contains(&"$exception".to_string()));
+
+    assert!(!event_names.contains(&"survey sent".to_string()));
+    assert!(!event_names.contains(&"click".to_string()));
+    assert!(!event_names.contains(&"pageview".to_string()));
+    assert!(!event_names.contains(&"$ai_yiss".to_string()));
+}
+
+#[tokio::test]
+async fn test_both_billing_and_exception_limits_applied() {
+    let token = "test_token_both_limits";
+    let (router, sink) = setup_router_with_limits(
+        token,
+        CaptureMode::Events,
+        true,
+        vec![QuotaResource::Exceptions],
+    )
+    .await; // Both billing and survey limited
+    let client = TestClient::new(router);
+
+    let events = [
+        "$exception",
+        "survey sent",
+        "$ai_generation",
+        "pageview",
+        "click",
+    ];
+    let payload = create_batch_payload_with_token(&events, token);
+
+    let response = client
+        .post("/e")
+        .body(payload)
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
+
+    // Should return OK
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // First billing limit is applied (retains only $exception and survey events)
+    // Then survey limit is applied (filters out survey events)
+    // So only $exception should remain
+    let captured_events = sink.events();
+    assert_eq!(captured_events.len(), 2);
+
+    let event_names: Vec<String> = extract_captured_event_names(&captured_events);
+    assert!(event_names.contains(&"survey sent".to_string()));
+    assert!(event_names.contains(&"$ai_generation".to_string()));
+
+    assert!(!event_names.contains(&"$exception".to_string()));
+    assert!(!event_names.contains(&"click".to_string()));
+    assert!(!event_names.contains(&"pageview".to_string()));
 }
 
 #[tokio::test]
