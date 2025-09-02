@@ -60,7 +60,7 @@ export type GroupedLogEntry = {
     entries: LogEntry[]
 }
 
-type LogEntryParams = {
+export type LogEntryParams = {
     sourceType: 'hog_function' | 'hog_flow'
     sourceId: string
     levels: LogEntryLevel[]

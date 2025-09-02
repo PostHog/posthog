@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
 
 import { LemonSelect } from '@posthog/lemon-ui'
 
@@ -45,12 +44,7 @@ export function CampaignMetrics({ id }: CampaignMetricsProps): JSX.Element {
     const { campaign } = useValues(campaignLogic({ id }))
 
     const { appMetricsTrendsLoading, getSingleTrendSeries, appMetricsTrends, params } = useValues(logic)
-    const { loadAppMetricsTrends, loadAppMetricsTrendsPreviousPeriod, setParams } = useActions(logic)
-
-    useEffect(() => {
-        loadAppMetricsTrends()
-        loadAppMetricsTrendsPreviousPeriod()
-    }, [loadAppMetricsTrends, loadAppMetricsTrendsPreviousPeriod])
+    const { setParams } = useActions(logic)
 
     return (
         <div>
