@@ -2986,7 +2986,7 @@ export interface ResolvedDateRangeResponse {
 
 export type MultipleBreakdownType = Extract<
     BreakdownType,
-    'person' | 'event' | 'event_metadata' | 'group' | 'session' | 'hogql' | 'cohort'
+    'person' | 'event' | 'event_metadata' | 'group' | 'session' | 'hogql' | 'cohort' | 'revenue_analytics'
 >
 
 export interface Breakdown {

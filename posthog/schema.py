@@ -125,6 +125,7 @@ class AssistantEventMultipleBreakdownFilterType(StrEnum):
     EVENT_METADATA = "event_metadata"
     SESSION = "session"
     HOGQL = "hogql"
+    REVENUE_ANALYTICS = "revenue_analytics"
 
 
 class AssistantEventType(StrEnum):
@@ -1836,6 +1837,7 @@ class MultipleBreakdownType(StrEnum):
     GROUP = "group"
     SESSION = "session"
     HOGQL = "hogql"
+    REVENUE_ANALYTICS = "revenue_analytics"
 
 
 class NodeKind(StrEnum):

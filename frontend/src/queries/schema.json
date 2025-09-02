@@ -841,7 +841,7 @@
             "type": "object"
         },
         "AssistantEventMultipleBreakdownFilterType": {
-            "enum": ["cohort", "person", "event", "event_metadata", "session", "hogql"],
+            "enum": ["cohort", "person", "event", "event_metadata", "session", "hogql", "revenue_analytics"],
             "type": "string"
         },
         "AssistantEventType": {
@@ -16210,7 +16210,7 @@
             "type": "object"
         },
         "MultipleBreakdownType": {
-            "enum": ["cohort", "person", "event", "event_metadata", "group", "session", "hogql"],
+            "enum": ["cohort", "person", "event", "event_metadata", "group", "session", "hogql", "revenue_analytics"],
             "type": "string"
         },
         "NewExperimentQueryResponse": {
