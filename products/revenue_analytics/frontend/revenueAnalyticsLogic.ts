@@ -51,7 +51,7 @@ const INITIAL_DATE_FILTER = {
 }
 
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
-const persistConfig = { persist: true, prefix: `${teamId}__` }
+const persistConfig = { persist: true, prefix: `${teamId}_v2__` }
 
 const wrapWithDataTableNodeIfNeeded = (
     query: DataTableNode['source'],
