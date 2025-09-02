@@ -1,4 +1,5 @@
 import copy
+from dataclasses import asdict, dataclass
 from typing import Any
 
 from django.conf import settings
@@ -18,6 +19,43 @@ from posthog.models.user import User
 from posthog.utils import absolute_uri
 
 logger = structlog.get_logger(__name__)
+
+
+@dataclass
+class ResourceConfig:
+    productId: str
+    name: str
+    metadata: dict[str, Any]
+    billingPlanId: str
+    externalId: str | None = None
+    protocolSettings: dict[str, Any] | None = None
+
+
+@dataclass
+class InstallationCredentials:
+    access_token: str
+    token_type: str
+
+
+@dataclass
+class InstallationContact:
+    email: str
+    name: str | None = None
+
+
+@dataclass
+class InstallationAccount:
+    url: str
+    contact: InstallationContact
+    name: str | None = None
+
+
+@dataclass
+class InstallationConfig:
+    scopes: list[str]
+    acceptedPolicies: dict[str, Any]
+    credentials: InstallationCredentials
+    account: InstallationAccount
 
 
 class VercelIntegration:
@@ -102,6 +140,25 @@ class VercelIntegration:
 
     @staticmethod
     def upsert_installation(installation_id: str, payload: dict[str, Any]) -> None:
+        account_data = payload.get("account", {})
+        contact_data = account_data.get("contact", {})
+        credentials_data = payload.get("credentials", {})
+
+        contact = InstallationContact(email=contact_data["email"], name=contact_data.get("name"))
+
+        credentials = InstallationCredentials(
+            access_token=credentials_data["access_token"], token_type=credentials_data["token_type"]
+        )
+
+        account = InstallationAccount(url=account_data["url"], contact=contact, name=account_data.get("name"))
+
+        config = InstallationConfig(
+            scopes=payload["scopes"],
+            acceptedPolicies=payload["acceptedPolicies"],
+            credentials=credentials,
+            account=account,
+        )
+
         logger.info("Starting Vercel installation upsert process", installation_id=installation_id)
 
         # Check if there's already an OrganizationIntegration for this installation_id
@@ -115,30 +172,22 @@ class VercelIntegration:
             OrganizationIntegration.objects.filter(
                 kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
                 integration_id=installation_id,
-            ).update(config=payload)
+            ).update(config=asdict(config))
             logger.info("Vercel installation updated", installation_id=installation_id)
             return
 
-        email = payload.get("account", {}).get("contact", {}).get("email")
-        if not email:
-            logger.exception("Vercel installation payload missing email", installation_id=installation_id)
-            raise exceptions.ValidationError(
-                {"validation_error": "Email is required in the payload."},
-                code="invalid",
-            )
-
         # It's possible that there's already a user with this email signed up to PostHog,
         # either due to a reinstallation of the integration, or manual signup through PostHog itself.
-        user = User.objects.filter(email=email).first()
+        user = User.objects.filter(email=config.account.contact.email).first()
         user_created = False
 
         with transaction.atomic():
             try:
                 if not user:
                     user = User.objects.create_user(
-                        email=payload["account"]["contact"]["email"],
+                        email=config.account.contact.email,
                         password=None,
-                        first_name=payload["account"]["contact"].get("name", ""),
+                        first_name=config.account.contact.name or "",
                         is_staff=False,
                         is_email_verified=False,
                     )
@@ -147,7 +196,7 @@ class VercelIntegration:
                 # Through Vercel we can only create new organizations, not use existing ones.
                 # Note: We won't create a team here, that's done during Vercel resource creation.
                 organization = Organization.objects.create(
-                    name=payload["account"].get("name", f"Vercel Installation {installation_id}")
+                    name=config.account.name or f"Vercel Installation {installation_id}"
                 )
 
                 user.join(organization=organization, level=OrganizationMembership.Level.OWNER)
@@ -157,7 +206,7 @@ class VercelIntegration:
                     kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
                     integration_id=installation_id,
                     defaults={
-                        "config": payload,
+                        "config": asdict(config),
                         "created_by": user,
                     },
                 )
@@ -229,14 +278,13 @@ class VercelIntegration:
 
     @staticmethod
     def create_resource(installation_id: str, resource_data: dict[str, Any]) -> dict[str, Any]:
+        config = ResourceConfig(**resource_data)
+
         logger.info(
             "Starting Vercel resource creation",
             installation_id=installation_id,
-            resource_name=resource_data.get("name"),
+            resource_name=config.name,
         )
-
-        if not resource_data.get("name"):
-            raise exceptions.ValidationError({"name": "Resource name is required."})
 
         installation = VercelIntegration._get_installation(installation_id)
         organization: Organization = installation.organization
@@ -244,7 +292,7 @@ class VercelIntegration:
         team = Team.objects.create_with_data(
             initiating_user=installation.created_by or None,
             organization=organization,
-            name=resource_data["name"],
+            name=config.name,
             has_completed_onboarding_for={
                 "product_analytics": True
             },  # Mark one product as onboarded to show quick start sidebar
@@ -268,7 +316,7 @@ class VercelIntegration:
             team=team,
             kind=Integration.IntegrationKind.VERCEL,
             integration_id=str(team.pk),
-            config=resource_data,
+            config=asdict(config),
             created_by=installation.created_by,
         )
 
@@ -291,9 +339,13 @@ class VercelIntegration:
         logger.info("Starting Vercel resource update", resource_id=resource_id)
         resource, installation = VercelIntegration._get_resource_with_installation(resource_id)
 
+        # Validate the partial update data by merging with existing config
         updated_config = copy.deepcopy(resource.config)
         updated_config.update(resource_data)
-        resource.config = updated_config
+
+        # Validate and store the merged config as dataclass
+        validated_config = ResourceConfig(**updated_config)
+        resource.config = asdict(validated_config)
         resource.save(update_fields=["config"])
 
         logger.info("Successfully updated Vercel resource", resource_id=resource_id)

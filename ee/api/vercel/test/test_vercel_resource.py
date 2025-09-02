@@ -258,7 +258,17 @@ class TestVercelResourceAPI(VercelTestBase):
 
         mock_create.side_effect = ValidationError("Something went wrong")
 
-        data = {"productId": "posthog", "name": "Test"}
+        data = {"productId": "posthog", "name": "Test", "billingPlanId": "free", "metadata": {}}
+        url = f"{self.primary_resource['base_url']}/"
+
+        response = self.request("post", url, data)
+        self.assert_bad_request(response)
+
+    @patch("ee.vercel.integration.VercelIntegration.create_resource")
+    def test_invalid_resource_config_rejected(self, mock_create):
+        mock_create.side_effect = TypeError("ResourceConfig.__init__() missing required positional argument")
+
+        data = {"productId": "posthog"}  # Missing required fields
         url = f"{self.primary_resource['base_url']}/"
 
         response = self.request("post", url, data)
