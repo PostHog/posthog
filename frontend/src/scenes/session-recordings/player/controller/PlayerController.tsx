@@ -1,11 +1,10 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPause, IconPlay, IconRewindPlay, IconVideoCamera } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonTag } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { IconCamera, IconFullScreen, IconRecordingClip } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PlayerUpNext } from 'scenes/session-recordings/player/PlayerUpNext'
@@ -108,7 +107,7 @@ function Clip(): JSX.Element {
             onClick={() => takeScreenshot(ExporterFormat.GIF)}
             tooltip={
                 <>
-                    Get a 5s GIF of this point in the recording{' '}
+                    Get a GIF from now -2.5s to now +2.5s{' '}
                     <LemonTag type="warning" size="small">
                         BETA
                     </LemonTag>
@@ -165,7 +164,7 @@ export function PlayerController(): JSX.Element {
                             <Screenshot />
                             {featureFlags[FEATURE_FLAGS.REPLAY_EXPORT_SHORT_VIDEO] && <Clip />}
                             {playlistLogic ? <PlayerUpNext playlistLogic={playlistLogic} /> : undefined}
-                            <span className="text-muted text-xs px-1">|</span>
+                            <LemonDivider vertical />
                         </>
                     )}
                     <CinemaMode />
