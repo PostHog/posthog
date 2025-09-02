@@ -18,7 +18,7 @@ export function HogFlowEditorPanelMetrics(): JSX.Element | null {
     const { loadActionMetricsById } = useActions(hogFlowEditorLogic)
     const id = selectedNode?.data.id
 
-    const logicKey = `hog-flow-metrics-${id || 'all'}`
+    const logicKey = `hog-flow-metrics-${campaign.id}`
 
     const logic = appMetricsLogic({
         logicKey,

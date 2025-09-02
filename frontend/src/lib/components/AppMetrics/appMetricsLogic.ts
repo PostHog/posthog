@@ -1,10 +1,10 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { dateStringToDayJs } from 'lib/utils'
+import { dateStringToDayJs, objectsEqual } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { HogQLQueryString, hogql } from '~/queries/utils'
@@ -352,6 +352,12 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
             }
         },
     })),
+
+    propsChanged(({ actions, props }, oldProps) => {
+        if (props.forceParams && !objectsEqual(props.forceParams, oldProps.forceParams)) {
+            actions.setParams({ ...props.forceParams })
+        }
+    }),
 
     listeners(({ actions, values, props }) => ({
         setParams: async (_, breakpoint) => {
