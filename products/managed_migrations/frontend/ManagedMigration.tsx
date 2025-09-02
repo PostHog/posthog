@@ -4,8 +4,10 @@ import { Form } from 'kea-forms'
 import { LemonButton } from '@posthog/lemon-ui'
 import { LemonTable, LemonTag } from '@posthog/lemon-ui'
 
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
@@ -138,6 +140,28 @@ export function ManagedMigration(): JSX.Element {
                             label="Use EU region endpoint"
                         />
                     </LemonField>
+
+                    {managedMigration.source_type === 'amplitude' && (
+                        <FlaggedFeature flag={FEATURE_FLAGS.AMPLITUDE_BATCH_IMPORT_OPTIONS}>
+                            <LemonField name="import_events">
+                                <LemonCheckbox
+                                    checked={managedMigration.import_events !== false}
+                                    onChange={(checked) => setManagedMigrationValue('import_events', checked)}
+                                    label="Import events from Amplitude"
+                                />
+                            </LemonField>
+
+                            <LemonField name="generate_identify_events">
+                                <LemonCheckbox
+                                    checked={managedMigration.generate_identify_events !== false}
+                                    onChange={(checked) =>
+                                        setManagedMigrationValue('generate_identify_events', checked)
+                                    }
+                                    label="Generate identify events to link user IDs with device IDs"
+                                />
+                            </LemonField>
+                        </FlaggedFeature>
+                    )}
                 </>
             )}
 

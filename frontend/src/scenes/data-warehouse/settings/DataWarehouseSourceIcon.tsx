@@ -17,6 +17,7 @@ import IconGoogleAds from 'public/services/google-ads.png'
 import IconGoogleCloudStorage from 'public/services/google-cloud-storage.png'
 import IconHubspot from 'public/services/hubspot.png'
 import IconKlaviyo from 'public/services/klaviyo.png'
+import IconLinkedIn from 'public/services/linkedin.png'
 import IconMailchimp from 'public/services/mailchimp.png'
 import IconMailjet from 'public/services/mailjet.png'
 import IconMetaAds from 'public/services/meta-ads.png'
@@ -101,6 +102,7 @@ export const DATA_WAREHOUSE_SOURCE_ICON_MAP: Record<string, string> = {
     MongoDB: IconMongodb,
     TemporalIO: IconTemporalIO,
     DoIt: IconDoIt,
+    LinkedinAds: IconLinkedIn,
 }
 
 export function DataWarehouseSourceIcon({
