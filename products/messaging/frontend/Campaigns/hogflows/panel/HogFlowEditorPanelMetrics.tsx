@@ -52,7 +52,7 @@ export function HogFlowEditorPanelMetrics(): JSX.Element | null {
         params.appSourceId,
         params.dateFrom,
         params.dateTo,
-        currentTeam.timezone,
+        currentTeam?.timezone,
         loadActionMetricsById,
         getDateRangeAbsolute,
     ])
