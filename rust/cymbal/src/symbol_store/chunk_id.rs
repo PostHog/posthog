@@ -204,7 +204,7 @@ mod test {
 
     use crate::{
         config::Config,
-        error::Error,
+        error::ResolveError,
         frames::RawFrame,
         langs::js::RawJSFrame,
         symbol_store::{
@@ -227,7 +227,7 @@ mod test {
     impl Provider for UnimplementedProvider {
         type Ref = Url;
         type Set = OwnedSourceMapCache;
-        type Err = Error;
+        type Err = ResolveError;
 
         async fn lookup(&self, _team_id: i32, _r: Self::Ref) -> Result<Arc<Self::Set>, Self::Err> {
             unimplemented!()

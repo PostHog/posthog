@@ -10,13 +10,11 @@ use thiserror::Error;
 use uuid::Uuid;
 
 #[derive(Debug, Error)]
-pub enum Error {
+pub enum ResolveError {
     #[error(transparent)]
     UnhandledError(#[from] UnhandledError),
     #[error(transparent)]
     ResolutionError(#[from] FrameError),
-    #[error(transparent)]
-    EventError(#[from] EventError),
 }
 
 // An unhandled failure at some stage of the event pipeline, as
@@ -156,13 +154,13 @@ pub enum EventError {
     FilteredByTeamId,
 }
 
-impl From<JsResolveErr> for Error {
+impl From<JsResolveErr> for ResolveError {
     fn from(e: JsResolveErr) -> Self {
         FrameError::JavaScript(e).into()
     }
 }
 
-impl From<HermesError> for Error {
+impl From<HermesError> for ResolveError {
     fn from(e: HermesError) -> Self {
         FrameError::Hermes(e).into()
     }

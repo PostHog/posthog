@@ -2,7 +2,7 @@ use axum::async_trait;
 use posthog_symbol_data::{read_symbol_data, HermesMap};
 
 use crate::{
-    error::{Error, HermesError},
+    error::{HermesError, ResolveError},
     langs::hermes::HermesRef,
     symbol_store::{Fetcher, Parser},
 };
@@ -17,7 +17,7 @@ pub struct HermesMapProvider {}
 impl Fetcher for HermesMapProvider {
     type Ref = HermesRef;
     type Fetched = Vec<u8>;
-    type Err = Error;
+    type Err = ResolveError;
 
     async fn fetch(&self, _: i32, _: HermesRef) -> Result<Vec<u8>, Self::Err> {
         unreachable!("HermesRef is impossible to construct, so cannot be passed")
@@ -28,7 +28,7 @@ impl Fetcher for HermesMapProvider {
 impl Parser for HermesMapProvider {
     type Source = Vec<u8>;
     type Set = ParsedHermesMap;
-    type Err = Error;
+    type Err = ResolveError;
 
     async fn parse(&self, source: Vec<u8>) -> Result<ParsedHermesMap, Self::Err> {
         let map: HermesMap = read_symbol_data(source).map_err(HermesError::DataError)?;

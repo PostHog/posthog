@@ -1,5 +1,5 @@
 use crate::{
-    error::{Error, FrameError, JsResolveErr, UnhandledError},
+    error::{FrameError, JsResolveErr, ResolveError, UnhandledError},
     frames::{Context, ContextLine, Frame, FrameId},
     langs::CommonFrameMetadata,
     metric_consts::{FRAME_NOT_RESOLVED, FRAME_RESOLVED},
@@ -45,16 +45,15 @@ impl RawNodeFrame {
 
         match self.resolve_impl(team_id, catalog, chunk_id.clone()).await {
             Ok(frame) => Ok(frame),
-            Err(Error::ResolutionError(FrameError::JavaScript(e))) => Ok((self, e).into()),
-            Err(Error::ResolutionError(FrameError::MissingChunkIdData(chunk_id))) => {
+            Err(ResolveError::ResolutionError(FrameError::JavaScript(e))) => Ok((self, e).into()),
+            Err(ResolveError::ResolutionError(FrameError::MissingChunkIdData(chunk_id))) => {
                 Ok((self, JsResolveErr::NoSourcemapUploaded(chunk_id)).into())
             }
-            Err(Error::ResolutionError(FrameError::Hermes(e))) => {
+            Err(ResolveError::ResolutionError(FrameError::Hermes(e))) => {
                 // TODO - should be unreachable, specialize Error to encode that
                 Err(UnhandledError::from(FrameError::from(e)))
             }
-            Err(Error::UnhandledError(e)) => Err(e),
-            Err(Error::EventError(_)) => unreachable!(),
+            Err(ResolveError::UnhandledError(e)) => Err(e),
         }
     }
 
@@ -63,7 +62,7 @@ impl RawNodeFrame {
         team_id: i32,
         catalog: &C,
         chunk_id: String,
-    ) -> Result<Frame, Error>
+    ) -> Result<Frame, ResolveError>
     where
         C: SymbolCatalog<OrChunkId<Url>, OwnedSourceMapCache>,
     {

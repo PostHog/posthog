@@ -4,7 +4,7 @@ use sha2::{Digest, Sha512};
 use symbolic::sourcemapcache::{ScopeLookupResult, SourceLocation, SourcePosition};
 
 use crate::{
-    error::{Error, FrameError, JsResolveErr, UnhandledError},
+    error::{FrameError, JsResolveErr, ResolveError, UnhandledError},
     frames::{Frame, FrameId},
     langs::CommonFrameMetadata,
     metric_consts::{FRAME_NOT_RESOLVED, FRAME_RESOLVED},
@@ -45,22 +45,21 @@ impl RawJSFrame {
     {
         match self.resolve_impl(team_id, catalog).await {
             Ok(frame) => Ok(frame),
-            Err(Error::ResolutionError(FrameError::JavaScript(e))) => {
+            Err(ResolveError::ResolutionError(FrameError::JavaScript(e))) => {
                 Ok(self.handle_resolution_error(e))
             }
-            Err(Error::ResolutionError(FrameError::MissingChunkIdData(chunk_id))) => {
+            Err(ResolveError::ResolutionError(FrameError::MissingChunkIdData(chunk_id))) => {
                 Ok(self.handle_resolution_error(JsResolveErr::NoSourcemapUploaded(chunk_id)))
             }
-            Err(Error::ResolutionError(FrameError::Hermes(e))) => {
+            Err(ResolveError::ResolutionError(FrameError::Hermes(e))) => {
                 // TODO - should be unreachable, specialize Error to encode that
                 Err(UnhandledError::from(FrameError::from(e)))
             }
-            Err(Error::UnhandledError(e)) => Err(e),
-            Err(Error::EventError(_)) => unreachable!(),
+            Err(ResolveError::UnhandledError(e)) => Err(e),
         }
     }
 
-    async fn resolve_impl<C>(&self, team_id: i32, catalog: &C) -> Result<Frame, Error>
+    async fn resolve_impl<C>(&self, team_id: i32, catalog: &C) -> Result<Frame, ResolveError>
     where
         C: SymbolCatalog<OrChunkId<Url>, OwnedSourceMapCache>,
     {
