@@ -94,7 +94,6 @@ export const loadAppMetricsTotals = async (
         refresh: 'force_blocking',
     })
 
-    // Transform the response to match AppMetricsTotalsV2Response format
     const res: AppMetricsTotalsResponse = {}
 
     response.results?.forEach((result) => {

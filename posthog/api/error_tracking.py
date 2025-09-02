@@ -76,15 +76,13 @@ class ErrorTrackingExternalReferenceSerializer(serializers.ModelSerializer):
         fields = ["id", "integration", "integration_id", "config", "issue", "external_url"]
         read_only_fields = ["external_url"]
 
-    def get_external_url(self, reference: ErrorTrackingExternalReference) -> str:
-        external_context: dict[str, str] = reference.external_context or {}
+    def get_external_url(self, reference: ErrorTrackingExternalReference):
         if reference.integration.kind == Integration.IntegrationKind.LINEAR:
             url_key = LinearIntegration(reference.integration).url_key()
-            return f"https://linear.app/{url_key}/issue/{external_context['id']}"
+            return f"https://linear.app/{url_key}/issue/{reference.external_context['id']}"
         elif reference.integration.kind == Integration.IntegrationKind.GITHUB:
             org = GitHubIntegration(reference.integration).organization()
-            return f"https://github.com/{org}/{external_context['repository']}/issues/{external_context['number']}"
-        raise ValidationError("Provider not supported")
+            return f"https://github.com/{org}/{reference.external_context['repository']}/issues/{reference.external_context['number']}"
 
     def validate(self, data):
         issue = data["issue"]
@@ -581,8 +579,8 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             # file added to the request data by the FileUploadParser
             data = request.data["file"].read()
 
-        (_, content_hash) = upload_content(bytearray(data))
-        bulk_create_symbol_sets([chunk_id], self.team, release_id, content_hash)
+        (storage_ptr, content_hash) = upload_content(bytearray(data))
+        create_symbol_set(chunk_id, self.team, release_id, storage_ptr, content_hash)
 
         return Response({"ok": True}, status=status.HTTP_201_CREATED)
 
@@ -600,10 +598,18 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         if not chunk_id:
             return Response({"detail": "chunk_id query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        chunk_id_url_map = bulk_create_symbol_sets([chunk_id], self.team, release_id)
-        response = chunk_id_url_map.get(chunk_id)
+        file_key = generate_symbol_set_file_key()
+        presigned_url = object_storage.get_presigned_post(
+            file_key=file_key,
+            conditions=[["content-length-range", 0, ONE_HUNDRED_MEGABYTES]],
+            expiration=PRESIGNED_SINGLE_UPLOAD_TIMEOUT,
+        )
 
-        return Response(response, status=status.HTTP_201_CREATED)
+        symbol_set = create_symbol_set(chunk_id, self.team, release_id, file_key)
+
+        return Response(
+            {"presigned_url": presigned_url, "symbol_set_id": str(symbol_set.pk)}, status=status.HTTP_201_CREATED
+        )
 
     @action(methods=["PUT"], detail=True, parser_classes=[JSONParser])
     def finish_upload(self, request, **kwargs):
@@ -649,9 +655,9 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
     @action(methods=["POST"], detail=False, parser_classes=[JSONParser])
     def bulk_start_upload(self, request, **kwargs):
         # Extract a list of chunk IDs from the request json
-        chunk_ids: list[str] | None = request.data.get("chunk_ids")
+        chunk_ids = request.data.get("chunk_ids")
         # Grab the release ID from the request json
-        release_id: str | None = request.data.get("release_id", None)
+        release_id = request.data.get("release_id", None)
         if not chunk_ids:
             return Response({"detail": "chunk_ids query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -661,9 +667,19 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                 detail="Object storage must be available to allow source map uploads.",
             )
 
-        chunk_id_url_map = bulk_create_symbol_sets(chunk_ids, self.team, release_id)
+        # For each of the chunk IDs, make a new symbol set and presigned URL
+        id_url_map = {}
+        for chunk_id in chunk_ids:
+            file_key = generate_symbol_set_file_key()
+            presigned_url = object_storage.get_presigned_post(
+                file_key=file_key,
+                conditions=[["content-length-range", 0, ONE_HUNDRED_MEGABYTES]],
+                expiration=PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT,
+            )
+            symbol_set = create_symbol_set(chunk_id, self.team, release_id, file_key)
+            id_url_map[chunk_id] = {"presigned_url": presigned_url, "symbol_set_id": str(symbol_set.pk)}
 
-        return Response({"id_map": chunk_id_url_map}, status=status.HTTP_201_CREATED)
+        return Response({"id_map": id_url_map}, status=status.HTTP_201_CREATED)
 
     @action(methods=["POST"], detail=False, parser_classes=[JSONParser])
     def bulk_finish_upload(self, request, **kwargs):
@@ -680,11 +696,9 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                 detail="Object storage must be available to allow source map uploads.",
             )
 
-        symbol_set_ids = content_hashes.keys()
-        symbol_sets = ErrorTrackingSymbolSet.objects.filter(team=self.team, id__in=symbol_set_ids)
-
         try:
-            for symbol_set in symbol_sets:
+            for symbol_set_id, content_hash in content_hashes.items():
+                symbol_set = ErrorTrackingSymbolSet.objects.get(id=symbol_set_id, team=self.team)
                 s3_upload = None
                 if symbol_set.storage_ptr:
                     s3_upload = object_storage.head_object(file_key=symbol_set.storage_ptr)
@@ -706,8 +720,8 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                     )
 
                 if not symbol_set.content_hash:
-                    symbol_set.content_hash = content_hashes[str(symbol_set.id)]
-            ErrorTrackingSymbolSet.objects.bulk_update(symbol_sets, ["content_hash"])
+                    symbol_set.content_hash = content_hash
+                    symbol_set.save()
         except Exception:
             for id in content_hashes.keys():
                 # Try to clean up the symbol sets preemptively if the upload fails
@@ -924,67 +938,41 @@ class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Model
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
-def bulk_create_symbol_sets(
-    chunk_ids: list[str],
-    team: Team,
-    release_id: str | None,
-    content_hash: Optional[str] = None,
-) -> dict[str, dict[str, str]]:
-    release = create_release(team, release_id) if release_id else None
-
-    id_url_map: dict[str, dict[str, str]] = {}
+def create_symbol_set(
+    chunk_id: str, team: Team, release_id: str | None, storage_ptr: str, content_hash: Optional[str] = None
+):
+    if release_id:
+        objects = ErrorTrackingRelease.objects.all().filter(team=team, id=release_id)
+        if len(objects) < 1:
+            raise ValueError(f"Unknown release: {release_id}")
+        release = objects[0]
+    else:
+        release = None
 
     with transaction.atomic():
-        existing_symbol_sets = list(ErrorTrackingSymbolSet.objects.filter(team=team, ref__in=chunk_ids))
-        existing_symbol_set_refs = [s.ref for s in existing_symbol_sets]
-        missing_symbol_set_refs = list(set(chunk_ids) - set(existing_symbol_set_refs))
-
-        symbol_sets_to_be_created = []
-        for chunk_id in missing_symbol_set_refs:
-            storage_ptr = generate_symbol_set_file_key()
-            presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr)
-            id_url_map[chunk_id] = {"presigned_url": presigned_url}
-            symbol_sets_to_be_created.append(
-                ErrorTrackingSymbolSet(
-                    team=team,
-                    ref=chunk_id,
-                    release=release,
-                    storage_ptr=storage_ptr,
-                    content_hash=content_hash,
-                )
-            )
-
-        # create missing symbol sets
-        ErrorTrackingSymbolSet.objects.bulk_create(symbol_sets_to_be_created)
-
-        for symbol_set in symbol_sets_to_be_created:
-            id_url_map[symbol_set.ref]["symbol_set_id"] = str(symbol_set.id)
-
-        # update existing symbol sets
-        for symbol_set in existing_symbol_sets:
+        try:
+            symbol_set = ErrorTrackingSymbolSet.objects.get(team=team, ref=chunk_id)
             if symbol_set.release is None:
                 symbol_set.release = release
             elif symbol_set.release != release:
                 raise ValidationError(f"Symbol set has already been uploaded for a different release")
-
-            storage_ptr = generate_symbol_set_file_key()
-            presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr)
-            id_url_map[symbol_set.ref] = {"presigned_url": presigned_url, "symbol_set_id": str(symbol_set.id)}
             symbol_set.storage_ptr = storage_ptr
             symbol_set.content_hash = content_hash
-        ErrorTrackingSymbolSet.objects.bulk_update(existing_symbol_sets, ["release", "storage_ptr", "content_hash"])
+            symbol_set.save()
+
+        except ErrorTrackingSymbolSet.DoesNotExist:
+            symbol_set = ErrorTrackingSymbolSet.objects.create(
+                team=team,
+                ref=chunk_id,
+                release=release,
+                storage_ptr=storage_ptr,
+                content_hash=content_hash,
+            )
 
         # Delete any existing frames associated with this symbol set
-        ErrorTrackingStackFrame.objects.filter(team=team, symbol_set__ref__in=chunk_ids).delete()
+        ErrorTrackingStackFrame.objects.filter(team=team, symbol_set=symbol_set).delete()
 
-    return id_url_map
-
-
-def create_release(team: Team, release_id: str) -> ErrorTrackingRelease | None:
-    objects = ErrorTrackingRelease.objects.all().filter(team=team, id=release_id)
-    if len(objects) < 1:
-        raise ValueError(f"Unknown release: {release_id}")
-    return objects[0]
+        return symbol_set
 
 
 def upload_symbol_set(minified: UploadedFile, source_map: UploadedFile) -> tuple[str, str]:
@@ -1050,14 +1038,6 @@ def validate_bytecode(bytecode: list[Any]) -> None:
 
 def get_suppression_rules(team: Team):
     return list(ErrorTrackingSuppressionRule.objects.filter(team=team).values_list("filters", flat=True))
-
-
-def generate_symbol_set_upload_presigned_url(file_key: str):
-    return object_storage.get_presigned_post(
-        file_key=file_key,
-        conditions=[["content-length-range", 0, ONE_HUNDRED_MEGABYTES]],
-        expiration=PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT,
-    )
 
 
 def generate_symbol_set_file_key():

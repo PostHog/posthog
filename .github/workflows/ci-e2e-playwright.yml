@@ -31,7 +31,6 @@ env:
     CLICKHOUSE_SECURE: 'False'
     CLICKHOUSE_VERIFY: 'False'
     CLICKHOUSE_DATABASE: posthog_test
-    CYPRESS_BASE_URL: http://localhost:8000
     PGHOST: localhost
     PGUSER: posthog
     PGPASSWORD: posthog
@@ -418,8 +417,8 @@ jobs:
               id: pnpm-cache
               with:
                   path: ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
-                  key: ${{ runner.os }}-pnpm-cypress-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: ${{ runner.os }}-pnpm-cypress-
+                  key: ${{ runner.os }}-pnpm-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: ${{ runner.os }}-pnpm-playwright-
 
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.shouldRun == 'true'
@@ -490,8 +489,6 @@ jobs:
 
             - name: Run Playwright tests
               if: needs.changes.outputs.shouldRun == 'true'
-              env:
-                  START_PLAYWRIGHT: '1'
               run: pnpm --filter=@posthog/playwright exec playwright test
 
             # ── Artifacts on failure / always ─────────────────────────────────────

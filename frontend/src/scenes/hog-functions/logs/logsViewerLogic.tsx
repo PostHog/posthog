@@ -65,8 +65,8 @@ export type LogEntryParams = {
     sourceId: string
     levels: LogEntryLevel[]
     searchGroups: string[]
-    date_from?: string
-    date_to?: string
+    dateFrom?: string
+    dateTo?: string
     order: 'ASC' | 'DESC'
 }
 
@@ -111,8 +111,8 @@ const loadLogs = async (request: LogEntryParams): Promise<LogEntry[]> => {
     const response = await api.queryHogQL(query, {
         refresh: 'force_blocking',
         filtersOverride: {
-            date_from: request.date_from ?? '-7d',
-            date_to: request.date_to,
+            date_from: request.dateFrom ?? '-7d',
+            date_to: request.dateTo,
         },
     })
 
@@ -146,8 +146,8 @@ const loadGroupedLogs = async (request: LogEntryParams): Promise<LogEntry[]> => 
     const response = await api.queryHogQL(query, {
         refresh: 'force_blocking',
         filtersOverride: {
-            date_from: request.date_from ?? '-7d',
-            date_to: request.date_to,
+            date_from: request.dateFrom ?? '-7d',
+            date_to: request.dateTo,
         },
     })
 
@@ -281,7 +281,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     }
                     const logParams: LogEntryParams = {
                         ...values.logEntryParams,
-                        date_to: toAbsoluteClickhouseTimestamp(values.oldestLogTimestamp),
+                        dateTo: toAbsoluteClickhouseTimestamp(values.oldestLogTimestamp),
                     }
 
                     const results = await loadLogs(logParams)
@@ -316,7 +316,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     }
                     const logParams: LogEntryParams = {
                         ...values.logEntryParams,
-                        date_to: toAbsoluteClickhouseTimestamp(values.oldestLogTimestamp),
+                        dateTo: toAbsoluteClickhouseTimestamp(values.oldestLogTimestamp),
                     }
 
                     const results = await loadGroupedLogs(logParams)
@@ -350,7 +350,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
 
                     const logParams: LogEntryParams = {
                         ...values.logEntryParams,
-                        date_from: toAbsoluteClickhouseTimestamp(values.newestLogTimestamp),
+                        dateFrom: toAbsoluteClickhouseTimestamp(values.newestLogTimestamp),
                         order: 'ASC',
                     }
 
@@ -423,8 +423,8 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     searchGroups: searchGroups,
                     sourceType: props.sourceType,
                     sourceId: props.sourceId,
-                    date_from: filters.date_from,
-                    date_to: filters.date_to,
+                    dateFrom: filters.date_from,
+                    dateTo: filters.date_to,
                     order: 'DESC',
                 }
             },

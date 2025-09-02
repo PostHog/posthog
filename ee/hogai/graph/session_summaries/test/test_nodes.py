@@ -1,5 +1,5 @@
 from collections.abc import AsyncGenerator, Awaitable, Callable
-from typing import Any
+from typing import Any, cast
 
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
+from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import (
     AssistantToolCallMessage,
@@ -101,13 +102,17 @@ class TestSessionSummarizationNode(BaseTest):
         return mock_database_sync_to_async
 
     def _create_test_state(
-        self, query: str | None = None, root_tool_call_id: str | None = "test_tool_call_id"
+        self,
+        query: str | None = None,
+        root_tool_call_id: str | None = "test_tool_call_id",
+        should_use_current_filters: bool | None = None,
     ) -> AssistantState:
         """Helper to create a test AssistantState."""
         return AssistantState(
             messages=[HumanMessage(content="Test")],
             session_summarization_query=query,
             root_tool_call_id=root_tool_call_id,
+            should_use_current_filters=should_use_current_filters,
         )
 
     def test_create_error_response(self) -> None:
@@ -256,7 +261,25 @@ class TestSessionSummarizationNode(BaseTest):
         mock_get_stream_writer.return_value = None
         conversation = Conversation.objects.create(team=self.team, user=self.user)
 
-        state = self._create_test_state(query=None)
+        state = self._create_test_state(query=None, should_use_current_filters=False)
+
+        result = async_to_sync(self.node.arun)(state, {"configurable": {"thread_id": str(conversation.id)}})
+
+        self.assertIsInstance(result, PartialAssistantState)
+        self.assertIsNotNone(result)
+        assert result is not None
+        message = result.messages[0]
+        self.assertIsInstance(message, AssistantToolCallMessage)
+        assert isinstance(message, AssistantToolCallMessage)
+        self.assertIn("encountered an issue", message.content)
+
+    @patch("ee.hogai.graph.session_summaries.nodes.get_stream_writer")
+    def test_arun_no_use_current_filters_decision(self, mock_get_stream_writer: MagicMock) -> None:
+        """Test arun returns error when should_use_current_filters decision is not made."""
+        mock_get_stream_writer.return_value = None
+        conversation = Conversation.objects.create(team=self.team, user=self.user)
+
+        state = self._create_test_state(query="test query", should_use_current_filters=None)
 
         result = async_to_sync(self.node.arun)(state, {"configurable": {"thread_id": str(conversation.id)}})
 
@@ -281,7 +304,7 @@ class TestSessionSummarizationNode(BaseTest):
         mock_graph_instance, _ = self._create_mock_filter_graph(output_filters=None)
         mock_filter_graph_class.return_value = mock_graph_instance
 
-        state = self._create_test_state(query="test query")
+        state = self._create_test_state(query="test query", should_use_current_filters=False)
 
         result = async_to_sync(self.node.arun)(state, {"configurable": {"thread_id": str(conversation.id)}})
 
@@ -318,7 +341,7 @@ class TestSessionSummarizationNode(BaseTest):
 
         mock_db_sync.side_effect = self._create_mock_db_sync_to_async()
 
-        state = self._create_test_state(query="test query")
+        state = self._create_test_state(query="test query", should_use_current_filters=False)
 
         result = async_to_sync(self.node.arun)(state, {"configurable": {"thread_id": str(conversation.id)}})
 
@@ -377,7 +400,7 @@ class TestSessionSummarizationNode(BaseTest):
 
         mock_execute_summarize.side_effect = mock_summarize_side_effect
 
-        state = self._create_test_state(query="test query")
+        state = self._create_test_state(query="test query", should_use_current_filters=False)
 
         result = async_to_sync(self.node.arun)(state, {"configurable": {"thread_id": str(conversation.id)}})
 
@@ -404,7 +427,7 @@ class TestSessionSummarizationNode(BaseTest):
         # Mock filter generation to raise exception
         mock_filter_graph_class.side_effect = Exception("Test exception")
 
-        state = self._create_test_state(query="test query")
+        state = self._create_test_state(query="test query", should_use_current_filters=False)
 
         result = async_to_sync(self.node.arun)(state, {"configurable": {"thread_id": str(conversation.id)}})
 
@@ -417,3 +440,124 @@ class TestSessionSummarizationNode(BaseTest):
         assert isinstance(message, AssistantToolCallMessage)
         self.assertIn("encountered an issue", message.content)
         self.assertEqual(message.tool_call_id, "test_tool_call_id")
+
+    @patch("posthog.session_recordings.queries.session_recording_list_from_query.SessionRecordingListFromQuery")
+    @patch("ee.hogai.graph.session_summaries.nodes.database_sync_to_async")
+    @patch("ee.hogai.graph.session_summaries.nodes.get_stream_writer")
+    def test_arun_use_current_filters_true_no_context(
+        self,
+        mock_get_stream_writer: MagicMock,
+        mock_db_sync: MagicMock,
+        mock_query_runner_class: MagicMock,
+    ) -> None:
+        """Test arun returns error when should_use_current_filters=True but no context provided."""
+        mock_get_stream_writer.return_value = None
+        conversation = Conversation.objects.create(team=self.team, user=self.user)
+
+        state = self._create_test_state(query="test query", should_use_current_filters=True)
+
+        # No contextual tools provided
+        result = async_to_sync(self.node.arun)(state, {"configurable": {"thread_id": str(conversation.id)}})
+
+        self.assertIsInstance(result, PartialAssistantState)
+        self.assertIsNotNone(result)
+        assert result is not None
+        message = result.messages[0]
+        self.assertIsInstance(message, AssistantToolCallMessage)
+        assert isinstance(message, AssistantToolCallMessage)
+        self.assertIn("encountered an issue", message.content)
+
+    @patch("posthog.session_recordings.queries.session_recording_list_from_query.SessionRecordingListFromQuery")
+    @patch("ee.hogai.graph.session_summaries.nodes.database_sync_to_async")
+    @patch("ee.hogai.graph.session_summaries.nodes.get_stream_writer")
+    def test_arun_use_current_filters_true_with_context(
+        self,
+        mock_get_stream_writer: MagicMock,
+        mock_db_sync: MagicMock,
+        mock_query_runner_class: MagicMock,
+    ) -> None:
+        """Test arun uses current filters when should_use_current_filters=True and context is provided."""
+        mock_get_stream_writer.return_value = None
+        conversation = Conversation.objects.create(team=self.team, user=self.user)
+
+        # Mock empty session results for simplicity
+        mock_query_runner_class.return_value = self._create_mock_query_runner([])
+        mock_db_sync.side_effect = self._create_mock_db_sync_to_async()
+
+        state = self._create_test_state(query="test query", should_use_current_filters=True)
+
+        # Provide contextual filters - need to match MaxRecordingUniversalFilters structure
+        config = cast(
+            RunnableConfig,
+            {
+                "configurable": {
+                    "thread_id": str(conversation.id),
+                    "contextual_tools": {
+                        "search_session_recordings": {
+                            "current_filters": {
+                                "date_from": "-30d",
+                                "date_to": "2024-01-31",
+                                "filter_test_accounts": True,
+                                "duration": [],
+                                "filter_group": {"type": "AND", "values": []},
+                            }
+                        }
+                    },
+                }
+            },
+        )
+
+        result = async_to_sync(self.node.arun)(state, config)
+
+        # Should return "No sessions were found" message since we mocked empty results
+        self.assertIsInstance(result, PartialAssistantState)
+        self.assertIsNotNone(result)
+        assert result is not None
+        message = result.messages[0]
+        self.assertIsInstance(message, AssistantToolCallMessage)
+        assert isinstance(message, AssistantToolCallMessage)
+        self.assertEqual(message.content, "No sessions were found.")
+
+        # Verify that the query runner was called (meaning it used the current filters)
+        mock_query_runner_class.assert_called_once()
+
+    @patch("posthog.session_recordings.queries.session_recording_list_from_query.SessionRecordingListFromQuery")
+    @patch("ee.hogai.graph.session_summaries.nodes.database_sync_to_async")
+    @patch("products.replay.backend.max_tools.SessionReplayFilterOptionsGraph")
+    @patch("ee.hogai.graph.session_summaries.nodes.get_stream_writer")
+    def test_arun_use_current_filters_false_generates_filters(
+        self,
+        mock_get_stream_writer: MagicMock,
+        mock_filter_graph_class: MagicMock,
+        mock_db_sync: MagicMock,
+        mock_query_runner_class: MagicMock,
+    ) -> None:
+        """Test arun generates new filters when should_use_current_filters=False."""
+        mock_get_stream_writer.return_value = None
+        conversation = Conversation.objects.create(team=self.team, user=self.user)
+
+        # Setup filter generation mock
+        mock_filters = self._create_mock_filters()
+        mock_graph_instance, _ = self._create_mock_filter_graph(mock_filters)
+        mock_filter_graph_class.return_value = mock_graph_instance
+
+        # Mock empty session results
+        mock_query_runner_class.return_value = self._create_mock_query_runner([])
+        mock_db_sync.side_effect = self._create_mock_db_sync_to_async()
+
+        state = self._create_test_state(query="test query", should_use_current_filters=False)
+
+        result = async_to_sync(self.node.arun)(state, {"configurable": {"thread_id": str(conversation.id)}})
+
+        # Verify filter generation was called
+        mock_filter_graph_class.assert_called_once()
+        mock_graph_instance.compile_full_graph.assert_called_once()
+
+        # Should return "No sessions were found" message
+        self.assertIsInstance(result, PartialAssistantState)
+        self.assertIsNotNone(result)
+        assert result is not None
+        message = result.messages[0]
+        self.assertIsInstance(message, AssistantToolCallMessage)
+        assert isinstance(message, AssistantToolCallMessage)
+        self.assertEqual(message.content, "No sessions were found.")

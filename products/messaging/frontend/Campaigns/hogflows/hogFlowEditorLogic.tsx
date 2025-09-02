@@ -179,7 +179,6 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     const response = await loadAppMetricsTotals(params, timezone)
                     await breakpoint(10)
 
-                    // turn the response into the format we need
                     const res: Record<string, HogFlowEditorActionMetrics> = {}
                     Object.values(response).forEach((value) => {
                         const [instanceId, metricName] = value.breakdowns
