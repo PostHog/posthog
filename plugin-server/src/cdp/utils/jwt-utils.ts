@@ -1,12 +1,10 @@
 import jwt from 'jsonwebtoken'
 
-import { PluginsServerConfig } from '../../types'
-
 export class JWT {
     private secrets: string[] = []
 
-    constructor(config: PluginsServerConfig) {
-        const saltKeys = config.ENCRYPTION_SALT_KEYS.split(',').filter((key) => key)
+    constructor(commaSeparatedSaltKeys: string) {
+        const saltKeys = commaSeparatedSaltKeys.split(',').filter((key) => key)
         if (!saltKeys.length) {
             throw new Error('Encryption keys are not set')
         }

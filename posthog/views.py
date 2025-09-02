@@ -340,7 +340,7 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
                 "id": cat.id,
                 "name": cat.name,
                 "description": cat.public_description,
-                "status": preferences.get(cat.id),
+                "status": preferences.get(str(cat.id)),
             }
             for cat in categories
         ],

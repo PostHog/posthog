@@ -1,5 +1,4 @@
 import uuid
-from typing import Optional
 
 from django.db import models
 
@@ -45,21 +44,6 @@ class MessageRecipientPreference(UUIDTModel):
         status = self.preferences.get(str(category_id), PreferenceStatus.NO_PREFERENCE.value)
         return PreferenceStatus(status)
 
-    def get_all_preferences(self) -> dict[uuid.UUID, PreferenceStatus]:
-        """Get all preferences as a dictionary of UUID to PreferenceStatus"""
-        return {uuid.UUID(category_id): PreferenceStatus(status) for category_id, status in self.preferences.items()}
-
-    @classmethod
-    def get_or_create_for_identifier(
-        cls, team_id: int, identifier: str, defaults: Optional[dict[uuid.UUID, PreferenceStatus]] = None
-    ) -> "MessageRecipientPreference":
-        """Get or create preferences for an identifier"""
-        if defaults is None:
-            defaults = {}
-
-        preferences_dict = {str(category_id): status.value for category_id, status in defaults.items()}
-
-        instance, _ = cls.objects.get_or_create(
-            team_id=team_id, identifier=identifier, defaults={"preferences": preferences_dict}
-        )
-        return instance
+    def get_all_preferences(self) -> dict[str, PreferenceStatus]:
+        """Get all preferences as a dictionary of category ID to PreferenceStatus"""
+        return {str(category_id): PreferenceStatus(status) for category_id, status in self.preferences.items()}

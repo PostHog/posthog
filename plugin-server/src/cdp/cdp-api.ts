@@ -53,7 +53,7 @@ export class CdpApi {
         this.recipientsManager = new RecipientsManagerService(hub)
         this.hogExecutor = new HogExecutorService(hub)
 
-        this.recipientPreferencesService = new RecipientPreferencesService(this.recipientsManager)
+        this.recipientPreferencesService = new RecipientPreferencesService(this.hub, this.recipientsManager)
         this.hogFlowExecutor = new HogFlowExecutorService(
             hub,
             this.hogExecutor,
@@ -111,6 +111,7 @@ export class CdpApi {
         router.get('/api/hog_function_templates', this.getHogFunctionTemplates)
         router.post('/public/webhooks/:webhook_id', asyncHandler(this.postWebhook()))
         router.get('/public/webhooks/:webhook_id', asyncHandler(this.getWebhook()))
+        router.post('/public/m/generate_preferences_token', asyncHandler(this.generatePreferencesToken()))
         router.get('/public/m/validate_preferences_token/:token', asyncHandler(this.validatePreferencesToken()))
         router.get('/public/m/pixel', asyncHandler(this.getEmailTrackingPixel()))
         router.post('/public/m/mailjet_webhook', asyncHandler(this.postMailjetWebhook()))
@@ -565,6 +566,22 @@ export class CdpApi {
         () =>
         async (req: ModifiedRequest, res: express.Response): Promise<any> => {
             await this.emailTrackingService.handleEmailTrackingRedirect(req, res)
+        }
+
+    private generatePreferencesToken =
+        () =>
+        (req: ModifiedRequest, res: express.Response): any => {
+            const { team_id, identifier } = req.body
+
+            if (!team_id || !identifier) {
+                return res.status(400).json({ error: 'Team ID and identifier are required' })
+            }
+
+            const token = this.recipientPreferencesService.generatePreferencesToken({
+                team_id,
+                identifier,
+            })
+            return res.status(200).json({ token })
         }
 
     private validatePreferencesToken =

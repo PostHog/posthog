@@ -1,5 +1,4 @@
 import { Hub } from '~/types'
-import { parseJSON } from '~/utils/json-parse'
 import { logger } from '~/utils/logger'
 
 import { HogFlowAction } from '../../../schema/hogflow'
@@ -18,7 +17,7 @@ export class RecipientPreferencesService {
         protected hub: Hub,
         private recipientsManager: RecipientsManagerService
     ) {
-        this.jwt = new JWT(hub)
+        this.jwt = new JWT(hub.ENCRYPTION_SALT_KEYS)
     }
 
     public async shouldSkipAction(
@@ -93,7 +92,7 @@ export class RecipientPreferencesService {
                 return { valid: false }
             }
 
-const { team_id, identifier } = decoded as { team_id: number, identifier: string }
+            const { team_id, identifier } = decoded as { team_id: number; identifier: string }
             return { valid: true, team_id, identifier }
         } catch (error) {
             logger.error('Error validating preferences token:', error)
@@ -105,7 +104,7 @@ const { team_id, identifier } = decoded as { team_id: number, identifier: string
      * Generate a secure, time-limited token for accessing preferences
      * This mirrors the Django implementation in message_preferences.py
      */
-    private generatePreferencesToken(recipient: RecipientManagerRecipient): string {
+    public generatePreferencesToken(recipient: Pick<RecipientManagerRecipient, 'team_id' | 'identifier'>): string {
         // Only identifier is encoded, as per JWT class
         // If you want to encode more, update JWT class to accept an object
         return this.jwt.sign(
