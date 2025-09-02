@@ -1846,3 +1846,90 @@ export function IconVerticalAlignCenter(props: LemonIconProps): JSX.Element {
         </LemonIconBase>
     )
 }
+
+export function IconCamera(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 0 24 24" {...props}>
+            <path d="M0 0h24v24H0z" fill="none" />
+            <path
+                d="M5 7h1a2 2 0 0 0 2 -2a1 1 0 0 1 1 -1h6a1 1 0 0 1 1 1a2 2 0 0 0 2 2h1a2 2 0 0 1 2 2v9a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-9a2 2 0 0 1 2 -2"
+                stroke="currentColor"
+                strokeWidth="1.3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                fill="none"
+            />
+            <path
+                d="M9 13a3 3 0 1 0 6 0a3 3 0 0 0 -6 0"
+                stroke="currentColor"
+                strokeWidth="1.3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                fill="none"
+            />
+        </LemonIconBase>
+    )
+}
+
+export function IconRecordingClip(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 0 24 24" {...props}>
+            {/* Film frame, scaled down and shifted right */}
+            <g transform="translate(9 6) scale(0.66)">
+                <path d="M0 0h24v24H0z" fill="none" />
+                <path
+                    d="M4 6a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2z"
+                    stroke="currentColor"
+                    strokeWidth="1"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    fill="none"
+                />
+                <path d="M8 4v16" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+                <path d="M16 4v16" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+                <path d="M4 8h4" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+                <path d="M4 12h16" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+                <path d="M4 16h4" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+                <path d="M16 8h4" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+                <path d="M16 16h4" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+            </g>
+
+            {/* Scissors, shifted left */}
+            <g transform="translate(-2 0)">
+                <path d="M0 0h24v24H0z" fill="none" />
+                <path
+                    d="M6 7a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"
+                    stroke="currentColor"
+                    strokeWidth="1.3"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    fill="none"
+                />
+                <path
+                    d="M6 17a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"
+                    stroke="currentColor"
+                    strokeWidth="1.3"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    fill="none"
+                />
+                <path
+                    d="M8.6 8.6l10.4 10.4"
+                    stroke="currentColor"
+                    strokeWidth="1.3"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    fill="none"
+                />
+                <path
+                    d="M8.6 15.4l10.4 -10.4"
+                    stroke="currentColor"
+                    strokeWidth="1.3"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    fill="none"
+                />
+            </g>
+        </LemonIconBase>
+    )
+}

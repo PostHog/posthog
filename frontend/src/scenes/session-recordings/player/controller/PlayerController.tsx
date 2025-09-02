@@ -2,10 +2,12 @@ import { useActions, useValues } from 'kea'
 
 import { IconPause, IconPlay, IconRewindPlay, IconVideoCamera } from '@posthog/icons'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import { IconFullScreen } from 'lib/lemon-ui/icons'
+import { IconCamera, IconFullScreen, IconRecordingClip } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PlayerUpNext } from 'scenes/session-recordings/player/PlayerUpNext'
 import { CommentOnRecordingButton } from 'scenes/session-recordings/player/commenting/CommentOnRecordingButton'
 import {
@@ -14,7 +16,7 @@ import {
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
-import { SessionPlayerState } from '~/types'
+import { ExporterFormat, SessionPlayerState } from '~/types'
 
 import { playerSettingsLogic } from '../playerSettingsLogic'
 import { SeekSkip, Timestamp } from './PlayerControllerTime'
@@ -97,9 +99,45 @@ function CinemaMode(): JSX.Element {
     )
 }
 
+function Clip(): JSX.Element {
+    const { takeScreenshot } = useActions(sessionRecordingPlayerLogic)
+
+    return (
+        <LemonButton
+            size="xsmall"
+            onClick={() => takeScreenshot(ExporterFormat.GIF)}
+            tooltip={
+                <>
+                    Get a 5s GIF of this point in the recording{' '}
+                    <LemonTag type="warning" size="small">
+                        BETA
+                    </LemonTag>
+                </>
+            }
+            icon={<IconRecordingClip className="text-2xl" />}
+            data-attr="replay-screenshot-gif"
+        />
+    )
+}
+
+function Screenshot(): JSX.Element {
+    const { takeScreenshot } = useActions(sessionRecordingPlayerLogic)
+
+    return (
+        <LemonButton
+            size="xsmall"
+            onClick={() => takeScreenshot(ExporterFormat.PNG)}
+            tooltip="Take a screenshot of this point in the recording"
+            icon={<IconCamera className="text-2xl" />}
+            data-attr="replay-screenshot-gif"
+        />
+    )
+}
+
 export function PlayerController(): JSX.Element {
     const { playlistLogic, logicProps } = useValues(sessionRecordingPlayerLogic)
     const { isCinemaMode } = useValues(playerSettingsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const playerMode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
 
@@ -122,6 +160,8 @@ export function PlayerController(): JSX.Element {
                     {!isCinemaMode && playerMode === SessionRecordingPlayerMode.Standard && (
                         <>
                             <CommentOnRecordingButton />
+                            <Screenshot />
+                            {featureFlags[FEATURE_FLAGS.REPLAY_EXPORT_SHORT_VIDEO] && <Clip />}
                             {playlistLogic ? <PlayerUpNext playlistLogic={playlistLogic} /> : undefined}
                         </>
                     )}
