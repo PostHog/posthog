@@ -55,18 +55,23 @@ export class InternalCaptureService {
             throw new Error('Internal capture is not enabled due to missing configuration')
         }
         logger.debug('Capturing internal event', { event, url: this.config.CAPTURE_INTERNAL_URL })
-        const response = await internalFetch(this.config.CAPTURE_INTERNAL_URL, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(this.prepareEvent(event)),
-        })
-        logger.debug('Internal capture event captured', { status: response.status })
+        try {
+            const response = await internalFetch(this.config.CAPTURE_INTERNAL_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(this.prepareEvent(event)),
+            })
+            logger.debug('Internal capture event captured', { status: response.status })
 
-        internalCaptureCounter.inc({ status: response.status.toString() })
-
-        return response
+            internalCaptureCounter.inc({ status: response.status.toString() })
+            return response
+        } catch (e) {
+            internalCaptureCounter.inc({ status: 'error' })
+            logger.error('Error capturing internal event', { error: e })
+            throw e
+        }
     }
 
     async captureMany(events: InternalCaptureEvent[]): Promise<[null | Error, FetchResponse | undefined][]> {
