@@ -149,11 +149,12 @@ class HogQLGeneratorTool(HogQLGeneratorMixin, MaxTool):
                 else:
                     output = result_so_far["output"]
                     assert output is not None
-
                     final_result = self._parse_output(output)
                     # If quality check raises, we will still iterate if we've got any attempts left,
                     # however if we don't have any more attempts, we're okay to use `resulting_query` (instead of throwing)
-                    final_result.query.query = await self._quality_check_output(output=final_result)
+                    await self._quality_check_output(
+                        output=final_result,
+                    )
                     final_error = None
                     break  # All good, let's go
             except PydanticOutputParserException as e:

@@ -1,4 +1,5 @@
 import asyncio
+from typing import cast
 
 from langchain_core.prompts import ChatPromptTemplate
 
@@ -12,10 +13,9 @@ from posthog.hogql.errors import (
     NotImplementedError as HogQLNotImplementedError,
     ResolutionError,
 )
-from posthog.hogql.functions.mapping import find_function_name_case_insensitive
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import print_ast, print_prepared_ast
-from posthog.hogql.visitor import CloningVisitor
+from posthog.hogql.placeholders import find_placeholders, replace_placeholders
+from posthog.hogql.printer import print_ast
 
 from posthog.sync import database_sync_to_async
 
@@ -34,19 +34,6 @@ from .prompts import (
 SQLSchemaGeneratorOutput = SchemaGeneratorOutput[AssistantHogQLQuery]
 
 
-class LooseSyntaxVisitor(CloningVisitor):
-    """
-    Syntax guardrails for Max-generated SQL queries.
-    """
-
-    def visit_call(self, node: ast.Call):
-        """Convert case-insensitive function names to case-sensitive ones."""
-        corrected_name = find_function_name_case_insensitive(node.name)
-        if corrected_name != node.name:
-            node.name = corrected_name
-        return super().visit_call(node)
-
-
 class HogQLGeneratorMixin(AssistantContextMixin):
     _database_instance: Database | None = None
 
@@ -57,14 +44,7 @@ class HogQLGeneratorMixin(AssistantContextMixin):
         return self._database_instance
 
     def _get_default_hogql_context(self, database: Database):
-        hogql_context = HogQLContext(
-            team=self._team,
-            database=database,
-            enable_select_queries=True,
-            limit_top_select=False,
-            readable_print=True,
-            keep_placeholders=True,
-        )
+        hogql_context = HogQLContext(team=self._team, database=database, enable_select_queries=True)
         return hogql_context
 
     async def _construct_system_prompt(self) -> ChatPromptTemplate:
@@ -104,16 +84,19 @@ class HogQLGeneratorMixin(AssistantContextMixin):
         if not query:
             raise PydanticOutputParserException(llm_output="", validation_message="Output is empty")
         try:
-            # First pass to fix the query syntax
-            fixed_names_query = LooseSyntaxVisitor().visit(parse_select(query, placeholders={}))
-            normalized_query = print_prepared_ast(
-                fixed_names_query, context=hogql_context, dialect="hogql", pretty=True
-            )
+            parsed_query = parse_select(query, placeholders={})
 
-            # Validate that the query is valid
-            print_ast(fixed_names_query, context=hogql_context, dialect="hogql")
-            # Return the normalized query
-            return normalized_query
+            # Replace placeholders with dummy values to compile the generated query.
+            finder = find_placeholders(parsed_query)
+            if finder.placeholder_fields or finder.has_filters:
+                dummy_placeholders: dict[str, ast.Expr] = {
+                    str(field[0]): ast.Constant(value=1) for field in finder.placeholder_fields
+                }
+                if finder.has_filters:
+                    dummy_placeholders["filters"] = ast.Constant(value=1)
+                parsed_query = cast(ast.SelectQuery, replace_placeholders(parsed_query, dummy_placeholders))
+
+            print_ast(parsed_query, context=hogql_context, dialect="clickhouse")
         except (ExposedHogQLError, HogQLNotImplementedError, ResolutionError) as err:
             err_msg = str(err)
             if err_msg.startswith("no viable alternative"):
