@@ -2,7 +2,7 @@ import React, { useCallback, useLayoutEffect, useMemo, useState } from 'react'
 
 import { CodeEditor, CodeEditorProps } from 'lib/monaco/CodeEditor'
 
-import { corseJsonToObject } from '../datasets/utils'
+import { coerceJsonToObject } from '../datasets/utils'
 
 export interface JSONEditorProps {
     onChange?: (val: string | undefined) => void
@@ -39,12 +39,12 @@ export const JSONEditor = React.memo(
                     setHeight(lineHeight * (defaultNumberOfLines + 1))
                 }
             },
-            [valString, defaultNumberOfLines, lineHeight, maxNumberOfLines]
+            [defaultNumberOfLines, lineHeight, maxNumberOfLines]
         )
 
         // Reset height if the value was reset.
         useLayoutEffect(() => {
-            const obj = corseJsonToObject(value)
+            const obj = coerceJsonToObject(value)
             if (!obj && height !== defaultHeight) {
                 updateHeight(value)
             }

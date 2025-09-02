@@ -51,7 +51,7 @@ export function LLMAnalyticsDatasetsScene(): JSX.Element {
         {
             title: 'Created by',
             dataIndex: 'created_by',
-            render: function renderCreatedBy(_: any, item) {
+            render: function renderCreatedBy(_, item) {
                 const { created_by } = item
                 return (
                     <div className="flex flex-row items-center flex-nowrap">

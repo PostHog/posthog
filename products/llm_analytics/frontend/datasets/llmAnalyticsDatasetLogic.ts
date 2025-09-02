@@ -10,7 +10,7 @@ import { Breadcrumb, Dataset } from '~/types'
 
 import type { llmAnalyticsDatasetLogicType } from './llmAnalyticsDatasetLogicType'
 import { llmAnalyticsDatasetsLogic } from './llmAnalyticsDatasetsLogic'
-import { EMPTY_JSON, corseJsonToObject, isStringJsonObject, prettifyJson } from './utils'
+import { EMPTY_JSON, coerceJsonToObject, isStringJsonObject, prettifyJson } from './utils'
 
 export interface DatasetLogicProps {
     datasetId: string | 'new'
@@ -101,14 +101,14 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
                         savedDataset = await api.datasets.create({
                             name: formValues.name,
                             description: formValues.description,
-                            metadata: corseJsonToObject(formValues.metadata),
+                            metadata: coerceJsonToObject(formValues.metadata),
                         })
                         lemonToast.success('Dataset created successfully')
                         router.actions.replace(urls.llmAnalyticsDataset(savedDataset.id))
                     } else {
                         savedDataset = await api.datasets.update(props.datasetId, {
                             ...formValues,
-                            metadata: corseJsonToObject(formValues.metadata),
+                            metadata: coerceJsonToObject(formValues.metadata),
                         })
                         lemonToast.success('Dataset updated successfully')
                     }
