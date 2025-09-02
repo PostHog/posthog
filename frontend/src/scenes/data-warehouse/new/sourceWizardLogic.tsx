@@ -181,6 +181,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     props({} as SourceWizardLogicProps),
     actions({
         selectConnector: (connector: SourceConfig | null) => ({ connector }),
+        setInitialConnector: (connector: SourceConfig | null) => ({ connector }),
         toggleManualLinkFormVisible: (visible: boolean) => ({ visible }),
         handleRedirect: (source: ExternalDataSourceType, searchParams?: any) => ({ source, searchParams }),
         onClear: true,
@@ -247,6 +248,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             null as SourceConfig | null,
             {
                 selectConnector: (_, { connector }) => connector,
+                setInitialConnector: (_, { connector }) => connector,
             },
         ],
         isManualLinkFormVisible: [
@@ -262,6 +264,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 onBack: (state) => state - 1,
                 onClear: () => 1,
                 setStep: (_, { step }) => step,
+                setInitialConnector: () => 2,
             },
         ],
         databaseSchema: [

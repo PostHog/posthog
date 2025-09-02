@@ -101,7 +101,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         selectedConnector,
         connectors,
     } = useValues(sourceWizardLogic)
-    const { onBack, onSubmit, onClear, selectConnector, setStep } = useActions(sourceWizardLogic)
+    const { onBack, onSubmit, onClear, setInitialConnector } = useActions(sourceWizardLogic)
     const { tableLoading: manualLinkIsLoading } = useValues(dataWarehouseTableLogic)
 
     // Initialize wizard with initial source if provided
@@ -109,11 +109,10 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         if (props.initialSource && connectors.length > 0) {
             const initialConnector = connectors.find((c) => c.name === props.initialSource)
             if (initialConnector) {
-                selectConnector(initialConnector)
-                setStep(2) // Skip source selection, go directly to connection form
+                setInitialConnector(initialConnector)
             }
         }
-    }, [props.initialSource, connectors, selectConnector, setStep])
+    }, [props.initialSource, connectors, setInitialConnector])
 
     useEffect(() => onClear, [onClear])
 
