@@ -34,7 +34,7 @@ export function HogFlowEditorPanelMetrics(): JSX.Element | null {
     const { appMetricsTrendsLoading, appMetricsTrends, params, currentTeam, getDateRangeAbsolute } = useValues(logic)
 
     useEffect(() => {
-        // Bit hacky - whenever we load something from the metrics panel, also trigger loading the
+        // Bit hacky - we load the values here from the logic as connecting the logics together was weirdly tricky
         loadActionMetricsById(
             {
                 appSource: params.appSource,
@@ -47,7 +47,15 @@ export function HogFlowEditorPanelMetrics(): JSX.Element | null {
             },
             currentTeam?.timezone ?? 'UTC'
         )
-    }, [params.appSource, params.appSourceId, params.dateFrom, params.dateTo])
+    }, [
+        params.appSource,
+        params.appSourceId,
+        params.dateFrom,
+        params.dateTo,
+        currentTeam.timezone,
+        loadActionMetricsById,
+        getDateRangeAbsolute,
+    ])
 
     return (
         <>
