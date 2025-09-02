@@ -32,6 +32,7 @@ import {
     TargetPersonNotFoundError,
 } from '../../../src/worker/ingestion/persons/person-merge-service'
 import { PersonMergeService } from '../../../src/worker/ingestion/persons/person-merge-service'
+import { createDefaultSyncMergeMode } from '../../../src/worker/ingestion/persons/person-merge-types'
 import { PersonPropertyService } from '../../../src/worker/ingestion/persons/person-property-service'
 import { PersonsStoreForBatch } from '../../../src/worker/ingestion/persons/persons-store-for-batch'
 import { PostgresPersonRepository } from '../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
@@ -180,7 +181,8 @@ describe('PersonState.processEvent()', () => {
             processPerson,
             customHub ? customHub.db.kafkaProducer : hub.db.kafkaProducer,
             personsStore,
-            0
+            0,
+            createDefaultSyncMergeMode()
         )
         const processor = new PersonEventProcessor(
             context,
@@ -217,7 +219,8 @@ describe('PersonState.processEvent()', () => {
             processPerson,
             customHub ? customHub.db.kafkaProducer : hub.db.kafkaProducer,
             personsStore,
-            0
+            0,
+            createDefaultSyncMergeMode()
         )
         context.updateIsIdentified = updateIsIdentified
         return new PersonPropertyService(context)
@@ -244,6 +247,8 @@ describe('PersonState.processEvent()', () => {
             customHub ? customHub.db.kafkaProducer : hub.db.kafkaProducer
         )
 
+        const mergeMode = moveLimit > 0 ? { type: 'LIMIT' as const, limit: moveLimit } : createDefaultSyncMergeMode()
+
         const context = new PersonContext(
             fullEvent as any,
             team,
@@ -253,7 +258,7 @@ describe('PersonState.processEvent()', () => {
             customHub ? customHub.db.kafkaProducer : hub.db.kafkaProducer,
             personsStore,
             0,
-            moveLimit
+            mergeMode
         )
         return new PersonMergeService(context)
     }

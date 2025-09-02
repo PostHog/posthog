@@ -202,6 +202,12 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PERSON_PROPERTIES_TRIM_TARGET_BYTES: number // target size in bytes we trim JSON to before writing (customer-facing 512kb)
     // Limit per merge for moving distinct IDs. 0 disables limiting.
     PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: number
+    // Topic for async person merge processing
+    PERSON_MERGE_ASYNC_TOPIC: string
+    // Enable async person merge processing
+    PERSON_MERGE_ASYNC_ENABLED: boolean
+    // Batch size for sync person merge processing (0 = unlimited)
+    PERSON_MERGE_SYNC_BATCH_SIZE: number
     GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number // maximum number of concurrent updates to groups table per batch
     GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number // maximum number of retries for optimistic update
     GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number // starting interval for exponential backoff between retries for optimistic update

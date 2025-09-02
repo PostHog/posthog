@@ -19,11 +19,6 @@ export async function processPersonsStep(
     processPerson: boolean,
     personStoreBatch: PersonsStoreForBatch
 ): Promise<[PluginEvent, Person, Promise<void>]> {
-    const moveLimit =
-        runner.hub.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT === 0
-            ? undefined
-            : runner.hub.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT
-
     const context = new PersonContext(
         event,
         team,
@@ -33,7 +28,7 @@ export async function processPersonsStep(
         runner.hub.db.kafkaProducer,
         personStoreBatch,
         runner.hub.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
-        moveLimit
+        runner.mergeMode
     )
 
     const processor = new PersonEventProcessor(

@@ -16,6 +16,7 @@ import { BatchWritingPersonsStoreForBatch } from '../../../src/worker/ingestion/
 import { PersonContext } from '../../../src/worker/ingestion/persons/person-context'
 import { PersonEventProcessor } from '../../../src/worker/ingestion/persons/person-event-processor'
 import { PersonMergeService } from '../../../src/worker/ingestion/persons/person-merge-service'
+import { createDefaultSyncMergeMode } from '../../../src/worker/ingestion/persons/person-merge-types'
 import { PersonPropertyService } from '../../../src/worker/ingestion/persons/person-property-service'
 import { PostgresDualWritePersonRepository } from '../../../src/worker/ingestion/persons/repositories/postgres-dualwrite-person-repository'
 import { PostgresPersonRepository } from '../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
@@ -101,7 +102,8 @@ describe('PersonState dual-write compatibility', () => {
             processPerson,
             hub.db.kafkaProducer,
             personsStore,
-            0
+            0,
+            createDefaultSyncMergeMode()
         )
 
         const processor = new PersonEventProcessor(
@@ -527,7 +529,8 @@ describe('PersonState dual-write compatibility', () => {
                     true, // processPerson
                     hub.db.kafkaProducer,
                     personsStore,
-                    0 // deferredUpdatesStep
+                    0, // deferredUpdatesStep
+                    createDefaultSyncMergeMode()
                 )
 
                 const mergeService = new PersonMergeService(context)
@@ -615,7 +618,8 @@ describe('PersonState dual-write compatibility', () => {
                     true, // processPerson
                     hub.db.kafkaProducer,
                     personsStore,
-                    0 // deferredUpdatesStep
+                    0, // deferredUpdatesStep
+                    createDefaultSyncMergeMode()
                 )
 
                 const mergeService = new PersonMergeService(context)
@@ -771,7 +775,8 @@ describe('PersonState dual-write compatibility', () => {
                     true, // processPerson
                     hub.db.kafkaProducer,
                     personsStore,
-                    0 // deferredUpdatesStep
+                    0, // deferredUpdatesStep
+                    createDefaultSyncMergeMode()
                 )
 
                 const mergeService = new PersonMergeService(context)
@@ -927,7 +932,8 @@ describe('PersonState dual-write compatibility', () => {
                     true,
                     hub.db.kafkaProducer,
                     personsStore,
-                    0
+                    0,
+                    createDefaultSyncMergeMode()
                 )
 
                 const mergeService = new PersonMergeService(context)
@@ -1052,7 +1058,8 @@ describe('PersonState dual-write compatibility', () => {
                     true,
                     hub.db.kafkaProducer,
                     personsStore,
-                    0
+                    0,
+                    createDefaultSyncMergeMode()
                 )
 
                 const mergeService = new PersonMergeService(context)

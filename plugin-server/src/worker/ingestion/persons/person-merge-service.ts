@@ -15,6 +15,7 @@ import { PersonCreateService } from './person-create-service'
 // Import result types for future use (currently unused to maintain backward compatibility)
 import {
     MergeAction as _MergeAction,
+    MergeMode as _MergeMode,
     PersonMergeError as _PersonMergeError,
     PersonMergeIllegalDistinctIdError as _PersonMergeIllegalDistinctIdError,
     PersonMergeLimitExceededError as _PersonMergeLimitExceededError,
@@ -24,7 +25,10 @@ import {
     PersonMergeResult as _PersonMergeResult,
     createMergeError as _createMergeError,
     createMergeSuccess as _createMergeSuccess,
-    getRecommendedAction as _getRecommendedAction,
+    determineMergeMode as _determineMergeMode,
+    isAsyncMode as _isAsyncMode,
+    isLimitMode as _isLimitMode,
+    isSyncMode as _isSyncMode,
 } from './person-merge-types'
 import { applyEventPropertyUpdates, computeEventPropertyUpdates } from './person-update'
 import { PersonsStoreTransaction } from './persons-store-transaction'
@@ -35,20 +39,40 @@ import { PersonsStoreTransaction } from './persons-store-transaction'
 //   return result.person
 // } else {
 //   const error = result.error
-//   // Consumer decides the action based on error type and context
+//   const mergeMode = this.context.mergeMode // Configuration-based mode
+//
+//   // Consumer decides the action based on error type, merge mode, and context
 //   if (error instanceof PersonMergeLimitExceededError) {
-//     logger.info(`Merge limit exceeded with ${error.distinctIdCount} distinct IDs`)
-//     await this.redirectToAsyncMerge(event) // Consumer chooses to redirect
+//     logger.info(`Merge limit exceeded with ${error.distinctIdCount} distinct IDs, mode: ${mergeMode.type}`)
+//
+//     // Check if distinct ID count exceeds the configured limit
+//     const exceedsLimit = mergeMode.type === 'LIMIT' && error.distinctIdCount > mergeMode.limit ||
+//                         mergeMode.type === 'ASYNC' && error.distinctIdCount > mergeMode.limit
+//
+//     if (exceedsLimit) {
+//       switch (mergeMode.type) {
+//         case 'ASYNC':
+//           logger.info(`Redirecting to async topic: ${mergeMode.topic}, limit: ${mergeMode.limit}`)
+//           await this.redirectToAsyncMerge(event, mergeMode.topic)
+//           break
+//         case 'LIMIT':
+//           logger.warn(`Sending to DLQ due to limit: ${mergeMode.limit}`)
+//           await this.sendToDLQ(event, error)
+//           break
+//       }
+//     } else {
+//       // Within limits, process normally with batching
+//       logger.info(`Processing with batching, distinct IDs: ${error.distinctIdCount}`)
+//       // Continue with normal processing
+//     }
 //   } else if (error instanceof PersonMergeRaceConditionError) {
 //     logger.warn('Race condition detected, ignoring merge', { error: error.message })
-//     // Consumer chooses to ignore
 //   } else if (error instanceof PersonMergePersonNotFoundError) {
 //     logger.warn(`Person not found: ${error.personType}`, { error: error.message })
-//     // Consumer chooses to ignore
 //   } else {
 //     // Use recommended action as fallback
-//     const action = getRecommendedAction(error)
-//     logger.warn('Using recommended action', { action, error: error.message })
+//     const action = getRecommendedAction(error, mergeMode)
+//     logger.warn('Using recommended action', { action, mergeMode: mergeMode.type, error: error.message })
 //   }
 // }
 
@@ -546,7 +570,8 @@ export class PersonMergeService {
                             this.context.distinctId
                         )
 
-                        const perCallLimit = this.context.personMergeMoveDistinctIdLimit || undefined
+                        const perCallLimit =
+                            this.context.mergeMode.type === 'LIMIT' ? this.context.mergeMode.limit : undefined
                         const distinctIdResult = await tx.moveDistinctIds(
                             currentSourcePerson,
                             currentTargetPerson,

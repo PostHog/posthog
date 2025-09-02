@@ -110,24 +110,34 @@ export type PersonMergeResult =
 /**
  * Merge modes for different processing strategies
  */
-export type MergeMode = 'SYNC' | 'ASYNC' | 'BATCH'
+export type MergeMode =
+    | {
+          type: 'SYNC'
+          batchSize: number | undefined // undefined = unlimited (process all distinct IDs in one query)
+      }
+    | {
+          type: 'LIMIT'
+          limit: number
+      }
+    | {
+          type: 'ASYNC'
+          topic: string
+          limit: number
+      }
 
 /**
- * Helper function to determine the recommended action for an error type
- * This is a suggestion - the actual action is decided by the consumer
+ * Type guard functions for MergeMode
  */
-export function getRecommendedAction(error: PersonMergeError): MergeAction {
-    switch (error.type) {
-        case 'LIMIT_EXCEEDED':
-            return 'redirect'
-        case 'RACE_CONDITION':
-        case 'PERSON_NOT_FOUND':
-        case 'MERGE_NOT_ALLOWED':
-        case 'ILLEGAL_DISTINCT_ID':
-            return 'ignore'
-        default:
-            return 'ignore'
-    }
+export function isSyncMode(mode: MergeMode): mode is Extract<MergeMode, { type: 'SYNC' }> {
+    return mode.type === 'SYNC'
+}
+
+export function isLimitMode(mode: MergeMode): mode is Extract<MergeMode, { type: 'LIMIT' }> {
+    return mode.type === 'LIMIT'
+}
+
+export function isAsyncMode(mode: MergeMode): mode is Extract<MergeMode, { type: 'ASYNC' }> {
+    return mode.type === 'ASYNC'
 }
 
 /**
@@ -148,5 +158,50 @@ export function createMergeError(error: PersonMergeError): PersonMergeResult {
     return {
         success: false,
         error,
+    }
+}
+
+/**
+ * Helper function to create a default sync merge mode for testing
+ */
+export function createDefaultSyncMergeMode(): MergeMode {
+    return {
+        type: 'SYNC',
+        batchSize: undefined, // unlimited
+    }
+}
+
+/**
+ * Helper function to determine merge mode based on hub configuration
+ */
+export function determineMergeMode(hub: {
+    PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: number
+    PERSON_MERGE_ASYNC_ENABLED: boolean
+    PERSON_MERGE_ASYNC_TOPIC: string
+    PERSON_MERGE_SYNC_BATCH_SIZE: number
+}): MergeMode {
+    const limit = hub.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT === 0 ? undefined : hub.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT
+
+    // If async merge is enabled and topic is configured, use async mode for over-limit merges
+    if (hub.PERSON_MERGE_ASYNC_ENABLED && hub.PERSON_MERGE_ASYNC_TOPIC) {
+        return {
+            type: 'ASYNC',
+            topic: hub.PERSON_MERGE_ASYNC_TOPIC,
+            limit: limit || Number.MAX_SAFE_INTEGER,
+        }
+    }
+
+    // If no async and we have a limit, use limit mode (reject over-limit merges)
+    if (limit) {
+        return {
+            type: 'LIMIT',
+            limit,
+        }
+    }
+
+    // Default: sync mode with configurable batch size (0 = unlimited)
+    return {
+        type: 'SYNC',
+        batchSize: hub.PERSON_MERGE_SYNC_BATCH_SIZE === 0 ? undefined : hub.PERSON_MERGE_SYNC_BATCH_SIZE,
     }
 }

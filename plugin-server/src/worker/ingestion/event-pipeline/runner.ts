@@ -10,6 +10,7 @@ import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { GroupStoreForBatch } from '../groups/group-store-for-batch.interface'
 import { PersonMergeLimitExceededError } from '../persons/person-merge-service'
+import { MergeMode, determineMergeMode } from '../persons/person-merge-types'
 import { PersonsStoreForBatch } from '../persons/persons-store-for-batch'
 import { EventsProcessor } from '../process-event'
 import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../utils'
@@ -60,6 +61,7 @@ export class EventPipelineRunner {
     breadcrumbs: KafkaConsumerBreadcrumb[]
     personsStoreForBatch: PersonsStoreForBatch
     groupStoreForBatch: GroupStoreForBatch
+    mergeMode: MergeMode
 
     constructor(
         hub: Hub,
@@ -76,6 +78,7 @@ export class EventPipelineRunner {
         this.breadcrumbs = breadcrumbs
         this.personsStoreForBatch = personsStoreForBatch
         this.groupStoreForBatch = groupStoreForBatch
+        this.mergeMode = determineMergeMode(hub)
     }
 
     isEventDisallowed(event: PipelineEvent): boolean {
