@@ -1,6 +1,7 @@
 import { actions, kea, key, path, props, reducers, selectors, useActions, useValues } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { BatchExportBackfills } from 'scenes/data-pipelines/batch-exports/BatchExportBackfills'
 import { BatchExportRuns } from 'scenes/data-pipelines/batch-exports/BatchExportRuns'
@@ -10,6 +11,8 @@ import { urls } from 'scenes/urls'
 
 import { BatchExportService, Breadcrumb } from '~/types'
 
+import { PipelineNodeLogs } from '../legacy-plugins/PipelineNodeLogs'
+import { PipelineNodeMetrics } from '../legacy-plugins/PipelineNodeMetrics'
 import { BatchExportConfiguration } from './BatchExportConfiguration'
 import type { batchExportSceneLogicType } from './BatchExportSceneType'
 import { BatchExportsMetrics } from './BatchExportsMetrics'
@@ -112,14 +115,22 @@ export function BatchExportScene(): JSX.Element {
             ? {
                   label: 'Metrics',
                   key: 'metrics',
-                  content: <BatchExportsMetrics id={id} />,
+                  content: (
+                      <FlaggedFeature flag="batch-export-new-metrics" fallback={<PipelineNodeMetrics id={id} />}>
+                          <BatchExportsMetrics id={id} />
+                      </FlaggedFeature>
+                  ),
               }
             : null,
         id
             ? {
                   label: 'Logs',
                   key: 'logs',
-                  content: <LogsViewer sourceType="batch_export" sourceId={id} instanceLabel="run" />,
+                  content: (
+                      <FlaggedFeature flag="batch-export-new-logs" fallback={<PipelineNodeLogs id={id} />}>
+                          <LogsViewer sourceType="batch_export" sourceId={id} instanceLabel="run" />
+                      </FlaggedFeature>
+                  ),
               }
             : null,
         id
