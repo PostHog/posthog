@@ -157,7 +157,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
                         <div>
                             <h4 className="text-lg font-semibold mb-0">{modalTitle}</h4>
                             <p className="text-sm text-muted-alt mb-0">
-                                Import data directly from your {selectedConnector.name} account
+                                Import data directly from {selectedConnector.label ?? selectedConnector.name}
                             </p>
                         </div>
                     </div>
