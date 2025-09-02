@@ -2794,6 +2794,24 @@ WHERE
             result,
         )
 
+    def test_pretty_print_with_cte_with_multiple_const_ctes(self):
+        pretty_context = HogQLContext(
+            team_id=self.team.pk, enable_select_queries=True, readable_print=True, limit_top_select=False
+        )
+
+        query_ast = parse_select("""WITH toDateTime('2019-08-01 15:23:00') AS ts_upper_bound,
+    toDateTime('2019-08-02 15:23:00') AS ts_lower_bound
+SELECT *
+FROM events
+WHERE
+    timestamp <= ts_upper_bound AND timestamp >= ts_lower_bound""")
+
+        result = print_prepared_ast(query_ast, pretty_context, "hogql")
+        self.assertEqual(
+            "WITH toDateTime('2019-08-01 15:23:00') AS ts_upper_bound, toDateTime('2019-08-02 15:23:00') AS ts_lower_bound SELECT * FROM events WHERE timestamp <= ts_upper_bound AND timestamp >= ts_lower_bound",
+            result,
+        )
+
 
 class TestPrinted(APIBaseTest):
     def test_can_call_parametric_function(self):
