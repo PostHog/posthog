@@ -213,7 +213,7 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
             field.name for field in destination_fields
         }
         if extra_fields:
-            str_fields = ", ".join(f"'{extra_field}'" for extra_field in extra_fields)
+            str_fields = ", ".join(f"'{extra_field}'" for extra_field in sorted(extra_fields))
             raise serializers.ValidationError(f"Configuration has unknown field/s: {str_fields}")
 
         for destination_field in destination_fields:
