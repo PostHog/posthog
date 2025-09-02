@@ -42,6 +42,11 @@ export const preloadedScenes: Record<string, SceneExport> = {
 }
 
 export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
+    [Scene.AdvancedActivityLogs]: {
+        projectBased: true,
+        organizationBased: false,
+        name: 'Advanced activity logs',
+    },
     [Scene.AsyncMigrations]: { instanceLevel: true },
     [Scene.BillingAuthorizationStatus]: {
         hideProjectNotice: true,
@@ -549,6 +554,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.canvas()]: [Scene.Canvas, 'canvas'],
     [urls.settings(':section' as any)]: [Scene.Settings, 'settings'],
     [urls.moveToPostHogCloud()]: [Scene.MoveToPostHogCloud, 'moveToPostHogCloud'],
+    [urls.advancedActivityLogs()]: [Scene.AdvancedActivityLogs, 'advancedActivityLogs'],
     [urls.heatmaps()]: [Scene.Heatmaps, 'heatmaps'],
     [urls.links()]: [Scene.Links, 'links'],
     [urls.link(':id')]: [Scene.Link, 'link'],
