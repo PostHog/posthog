@@ -340,12 +340,19 @@ export class PersonMergeService {
                 return [mergeIntoPerson, Promise.resolve()]
             }
 
-            return await this.mergePeople({
+            const result = await this.mergePeople({
                 mergeInto: mergeIntoPerson,
                 mergeIntoDistinctId: mergeIntoDistinctId,
                 otherPerson: otherPerson,
                 otherPersonDistinctId: otherPersonDistinctId,
             })
+
+            if (result.success) {
+                return [result.person, result.kafkaAck]
+            } else {
+                // Convert result error back to exception for backward compatibility in this method
+                throw result.error
+            }
         } else {
             // Neither Distinct ID points at an existing Person
 
@@ -407,6 +414,10 @@ export class PersonMergeService {
         }
     }
 
+    /**
+     * Merge persons using result types instead of exceptions
+     * This is the main merge method using result types for clean error handling
+     */
     public async mergePeople({
         mergeInto,
         mergeIntoDistinctId,
@@ -417,11 +428,11 @@ export class PersonMergeService {
         mergeIntoDistinctId: string
         otherPerson: InternalPerson
         otherPersonDistinctId: string
-    }): Promise<[InternalPerson, Promise<void>]> {
+    }): Promise<PersonMergeResult> {
         const olderCreatedAt = DateTime.min(mergeInto.created_at, otherPerson.created_at)
         const mergeAllowed = this.isMergeAllowed(otherPerson)
 
-        // If merge isn't allowed, we will ignore it, log an ingestion warning and exit
+        // If merge isn't allowed, we will ignore it, log an ingestion warning and return success with original person
         if (!mergeAllowed) {
             await captureIngestionWarning(
                 this.context.kafkaProducer,
@@ -437,7 +448,7 @@ export class PersonMergeService {
             logger.warn('🤔', 'refused to merge an already identified user via an $identify or $create_alias call', {
                 team_id: this.context.team.id,
             })
-            return [mergeInto, Promise.resolve()] // We're returning the original person tied to distinct_id used for the event
+            return createMergeSuccess(mergeInto, Promise.resolve())
         }
 
         // How the merge works:
@@ -471,8 +482,11 @@ export class PersonMergeService {
                 olderCreatedAt, // Keep the oldest created_at (i.e. the first time we've seen either person)
                 properties
             )
-            return [mergedPerson, kafkaAcks]
+            return createMergeSuccess(mergedPerson, kafkaAcks)
         } catch (error) {
+            if (error instanceof PersonMergeLimitExceededError) {
+                return createMergeError(error)
+            }
             if (error instanceof MergeRaceConditionError) {
                 await captureIngestionWarning(
                     this.context.kafkaProducer,
@@ -488,41 +502,9 @@ export class PersonMergeService {
                 logger.warn('🤔', 'merge race condition detected, too many concurrent merges', {
                     team_id: this.context.team.id,
                 })
-                return [mergeInto, Promise.resolve()] // We're returning the original person tied to distinct_id used for the event
+                return createMergeSuccess(mergeInto, Promise.resolve())
             }
-            throw error
-        }
-    }
-
-    /**
-     * Merge persons using result types instead of exceptions
-     * This is the new interface that will gradually replace the exception-based mergePeople method
-     */
-    public async mergePeopleWithResult({
-        mergeInto,
-        mergeIntoDistinctId,
-        otherPerson,
-        otherPersonDistinctId,
-    }: {
-        mergeInto: InternalPerson
-        mergeIntoDistinctId: string
-        otherPerson: InternalPerson
-        otherPersonDistinctId: string
-    }): Promise<PersonMergeResult> {
-        try {
-            const [person, kafkaAck] = await this.mergePeople({
-                mergeInto,
-                mergeIntoDistinctId,
-                otherPerson,
-                otherPersonDistinctId,
-            })
-            return createMergeSuccess(person, kafkaAck)
-        } catch (error) {
-            if (error instanceof PersonMergeLimitExceededError) {
-                // Use the distinctIdCount from the caught error directly
-                return createMergeError(error)
-            }
-            // For now, re-throw other errors to maintain backward compatibility
+            // For other errors, re-throw for now
             throw error
         }
     }
@@ -547,22 +529,101 @@ export class PersonMergeService {
      * Internal method that returns result types for identify/alias operations
      */
     private async handleIdentifyOrAliasAsResult(): Promise<PersonMergeResult> {
-        // For now, wrap the existing exception-based method and convert to result types
-        try {
-            const [person, kafkaAck] = await this.handleIdentifyOrAlias()
-            if (!person) {
-                // No person returned - this means no merge was needed, which is a success case
-                // We need to get the current person from context or create a placeholder
-                throw new Error('No person returned from handleIdentifyOrAlias - this case needs proper handling')
+        // Use the new result-type based mergePeople method
+        const distinctId = this.context.distinctId
+        const teamId = this.context.team.id
+        const timestamp = this.context.timestamp
+
+        if (this.context.event.event === '$create_alias') {
+            const alias = this.context.event.properties?.alias
+            if (!alias || typeof alias !== 'string') {
+                // Invalid alias - this would normally throw an error, but for result types we need to handle it
+                throw new Error('Invalid alias property for $create_alias event')
             }
-            return createMergeSuccess(person, kafkaAck)
-        } catch (error) {
-            if (error instanceof PersonMergeLimitExceededError) {
-                return createMergeError(error)
+            return await this.handleAliasWithResult(alias, distinctId, teamId, timestamp)
+        } else if (this.context.event.event === '$identify') {
+            const anon_distinct_id = this.context.event.properties?.['$anon_distinct_id']
+            if (!anon_distinct_id || typeof anon_distinct_id !== 'string') {
+                // No anonymous ID to merge - just return success with current person
+                throw new Error('No $anon_distinct_id for $identify event - need to handle this case')
             }
-            // Re-throw other errors for now
-            throw error
+            return await this.handleIdentifyWithResult(anon_distinct_id, distinctId, teamId, timestamp)
+        } else if (this.context.event.event === '$merge_dangerously') {
+            const alias = this.context.event.properties?.alias
+            if (!alias || typeof alias !== 'string') {
+                throw new Error('Invalid alias property for $merge_dangerously event')
+            }
+            return await this.handleMergeDangerouslyWithResult(alias, distinctId, teamId, timestamp)
         }
+
+        // For non-merge events, return success (no merge needed)
+        throw new Error('Non-merge event in handleIdentifyOrAliasAsResult - need to handle this case')
+    }
+
+    private async handleAliasWithResult(
+        alias: string,
+        distinctId: string,
+        teamId: number,
+        _timestamp: DateTime
+    ): Promise<PersonMergeResult> {
+        const aliasPerson = await this.context.personStore.fetchForUpdate(teamId, alias)
+        const distinctIdPerson = await this.context.personStore.fetchForUpdate(teamId, distinctId)
+
+        if (!aliasPerson || !distinctIdPerson) {
+            // Handle missing persons - for now, throw error
+            throw new Error('Missing person for alias operation')
+        }
+
+        return await this.mergePeople({
+            mergeInto: distinctIdPerson,
+            mergeIntoDistinctId: distinctId,
+            otherPerson: aliasPerson,
+            otherPersonDistinctId: alias,
+        })
+    }
+
+    private async handleIdentifyWithResult(
+        anonDistinctId: string,
+        distinctId: string,
+        teamId: number,
+        _timestamp: DateTime
+    ): Promise<PersonMergeResult> {
+        const anonPerson = await this.context.personStore.fetchForUpdate(teamId, anonDistinctId)
+        const distinctIdPerson = await this.context.personStore.fetchForUpdate(teamId, distinctId)
+
+        if (!anonPerson || !distinctIdPerson) {
+            // Handle missing persons - for now, throw error
+            throw new Error('Missing person for identify operation')
+        }
+
+        return await this.mergePeople({
+            mergeInto: distinctIdPerson,
+            mergeIntoDistinctId: distinctId,
+            otherPerson: anonPerson,
+            otherPersonDistinctId: anonDistinctId,
+        })
+    }
+
+    private async handleMergeDangerouslyWithResult(
+        alias: string,
+        distinctId: string,
+        teamId: number,
+        _timestamp: DateTime
+    ): Promise<PersonMergeResult> {
+        const aliasPerson = await this.context.personStore.fetchForUpdate(teamId, alias)
+        const distinctIdPerson = await this.context.personStore.fetchForUpdate(teamId, distinctId)
+
+        if (!aliasPerson || !distinctIdPerson) {
+            // Handle missing persons - for now, throw error
+            throw new Error('Missing person for merge dangerously operation')
+        }
+
+        return await this.mergePeople({
+            mergeInto: distinctIdPerson,
+            mergeIntoDistinctId: distinctId,
+            otherPerson: aliasPerson,
+            otherPersonDistinctId: alias,
+        })
     }
 
     /**

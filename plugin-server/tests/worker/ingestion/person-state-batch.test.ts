@@ -2340,12 +2340,19 @@ describe('PersonState.processEvent()', () => {
 
             const mergeService: PersonMergeService = personMergeService({}, hub, personRepository)
             jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
-            const [person, kafkaAcks] = await mergeService.mergePeople({
+            const result = await mergeService.mergePeople({
                 mergeInto: first,
                 mergeIntoDistinctId: firstUserDistinctId,
                 otherPerson: second,
                 otherPersonDistinctId: secondUserDistinctId,
             })
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Merge should have succeeded')
+            }
+
+            const person = result.person
+            const kafkaAcks = result.kafkaAck
             const context = mergeService.getContext()
             await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
 
@@ -2426,14 +2433,18 @@ describe('PersonState.processEvent()', () => {
                 2
             )
 
-            await expect(
-                mergeService.mergePeople({
-                    mergeInto: first,
-                    mergeIntoDistinctId: firstUserDistinctId,
-                    otherPerson: { ...second },
-                    otherPersonDistinctId: secondUserDistinctId,
-                })
-            ).rejects.toThrow('person_merge_move_limit_hit')
+            const result = await mergeService.mergePeople({
+                mergeInto: first,
+                mergeIntoDistinctId: firstUserDistinctId,
+                otherPerson: { ...second },
+                otherPersonDistinctId: secondUserDistinctId,
+            })
+
+            expect(result.success).toBe(false)
+            if (result.success) {
+                throw new Error('Expected merge to fail due to limit exceeded')
+            }
+            expect(result.error.message).toContain('person_merge_move_limit_hit')
 
             // Persons should be unchanged (no delete, no merge)
             const persons = sortPersons(await fetchPostgresPersonsH())
@@ -2469,12 +2480,17 @@ describe('PersonState.processEvent()', () => {
                 2
             )
 
-            const [_, kafkaAcks] = await mergeService.mergePeople({
+            const result = await mergeService.mergePeople({
                 mergeInto: first,
                 mergeIntoDistinctId: firstUserDistinctId,
                 otherPerson: { ...second },
                 otherPersonDistinctId: secondUserDistinctId,
             })
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Merge should have succeeded')
+            }
+            const kafkaAcks = result.kafkaAck
 
             const context = mergeService.getContext()
             await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
@@ -2931,12 +2947,17 @@ describe('PersonState.processEvent()', () => {
                 })
 
             // Attempt to merge persons - this should trigger the retry logic
-            const [person] = await mergeService.mergePeople({
+            const result = await mergeService.mergePeople({
                 mergeInto: person2,
                 mergeIntoDistinctId: secondUserDistinctId,
                 otherPerson: person1, // This person "no longer exists"
                 otherPersonDistinctId: firstUserDistinctId,
             })
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Merge should have succeeded')
+            }
+            const person = result.person
 
             // Verify the cache was cleared during retry
             expect(removeDistinctIdFromCacheSpy).toHaveBeenCalledWith(teamId, firstUserDistinctId)
@@ -3010,12 +3031,17 @@ describe('PersonState.processEvent()', () => {
                 })
 
             // Attempt to merge persons - this should trigger the retry logic
-            const [person] = await mergeService.mergePeople({
+            const result = await mergeService.mergePeople({
                 mergeInto: person2,
                 mergeIntoDistinctId: secondUserDistinctId,
                 otherPerson: person1, // This person "no longer exists"
                 otherPersonDistinctId: firstUserDistinctId,
             })
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Merge should have succeeded')
+            }
+            const person = result.person
 
             // Verify moveDistinctIds was called twice (first failed with person1, second succeeded with person3)
             expect(moveDistinctIdsSpy).toHaveBeenCalledTimes(2)
