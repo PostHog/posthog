@@ -448,6 +448,7 @@ class TestSessionSummarizationNode(BaseTest):
         self.assertEqual(message.content, "No sessions were found.")
 
 
+# @snapshot_clickhouse_queries
 class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest):
     @freeze_time("2025-09-03T12:00:00")
     def setUp(self) -> None:
@@ -676,10 +677,11 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
         """Test converting generated filters for 'last 10 days' query."""
         # Simulate filters that would be generated for "last 10 days"
         # Since we're frozen at 2025-09-03, last 10 days would be Aug 24 - Sep 3
+        # Using active_seconds > 8 to exclude session_id_1 (7s) and session_id_2 (8s)
         generated_filters = MaxRecordingUniversalFilters(
             date_from="2025-08-24T00:00:00",
             date_to="2025-09-03T23:59:59",
-            duration=[RecordingDurationFilter(key="active_seconds", operator="gt", value=5)],
+            duration=[RecordingDurationFilter(key="active_seconds", operator="gt", value=8)],
             filter_group=MaxOuterUniversalFiltersGroup(
                 type=FilterLogicalOperator.AND_,
                 values=[MaxInnerUniversalFiltersGroup(type=FilterLogicalOperator.AND_, values=[])],
@@ -692,11 +694,15 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
         # Use the node's method to get session IDs
         session_ids = self.node._get_session_ids_with_filters(recordings_query)
 
-        # All 4 sessions should match since they all have:
-        # - dates within Aug 24 - Sep 3 range (sessions are on Aug 28-30)
-        # - active_seconds > 5 (7, 8, 10, 9 seconds respectively)
-        self.assertEqual(len(session_ids), 4)
-        self.assertIn(self.session_id_1, session_ids)
-        self.assertIn(self.session_id_2, session_ids)
-        self.assertIn(self.session_id_3, session_ids)
-        self.assertIn(self.session_id_4, session_ids)
+        # Only 2 sessions should match since they have active_seconds > 8:
+        # - session_id_1: 7 seconds (excluded)
+        # - session_id_2: 8 seconds (excluded, not > 8)
+        # - session_id_3: 10 seconds (included)
+        # - session_id_4: 9 seconds (included)
+
+        # We expect exactly 2 sessions with active_seconds > 8
+        self.assertEqual(len(session_ids), 2, "Should find exactly 2 sessions with active_seconds > 8")
+        self.assertIn(self.session_id_3, session_ids)  # 10 seconds, included
+        self.assertIn(self.session_id_4, session_ids)  # 9 seconds, included
+        self.assertNotIn(self.session_id_1, session_ids)  # 7 seconds, excluded
+        self.assertNotIn(self.session_id_2, session_ids)  # 8 seconds, excluded
