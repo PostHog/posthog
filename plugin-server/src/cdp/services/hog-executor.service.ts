@@ -57,6 +57,10 @@ export const RETRIABLE_STATUS_CODES = [
     504, // Gateway Timeout
 ]
 
+function formatNumber(val: number) {
+    return Number(val.toPrecision(2)).toString()
+}
+
 export const isFetchResponseRetriable = (response: FetchResponse | null, error: any | null): boolean => {
     let canRetry = !!response?.status && RETRIABLE_STATUS_CODES.includes(response.status)
 
@@ -508,10 +512,10 @@ export class HogExecutorService {
                     (acc, timing) => acc + timing.duration_ms,
                     0
                 )
-                const messages = [`Function completed in ${totalDuration}ms.`]
+                const messages = [`Function completed in ${formatNumber(totalDuration)}ms.`]
                 if (execRes.state) {
-                    messages.push(`Sync: ${execRes.state.syncDuration}ms.`)
-                    messages.push(`Mem: ${execRes.state.maxMemUsed} bytes.`)
+                    messages.push(`Sync: ${formatNumber(execRes.state.syncDuration)}ms.`)
+                    messages.push(`Mem: ${formatNumber(execRes.state.maxMemUsed / 1024)}kb.`)
                     messages.push(`Ops: ${execRes.state.ops}.`)
                     messages.push(`Event: '${globals.event.url}'`)
 
