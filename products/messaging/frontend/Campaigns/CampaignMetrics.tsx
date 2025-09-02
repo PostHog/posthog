@@ -16,10 +16,7 @@ const METRICS_INFO = {
     succeeded: 'Total number of events processed successfully',
     failed: 'Total number of events that had errors during processing',
     filtered: 'Total number of events that were filtered out',
-    dropped: 'Total number of events that were dropped during processing',
-    disabled_temporarily:
-        'Total number of events that were skipped due to the destination being temporarily disabled (due to issues such as the destination being down or rate-limited)',
-    disabled_permanently:
+    disabled:
         'Total number of events that were skipped due to the destination being permanently disabled (due to prolonged issues with the destination)',
 }
 
@@ -108,7 +105,7 @@ export function CampaignMetrics({ id }: CampaignMetricsProps): JSX.Element {
 
                 <AppMetricSummary
                     name="Disabled"
-                    description={METRICS_INFO.disabled_permanently}
+                    description={METRICS_INFO.disabled}
                     loading={appMetricsTrendsLoading}
                     timeSeries={getSingleTrendSeries('disabled_permanently')}
                     previousPeriodTimeSeries={getSingleTrendSeries('disabled_permanently', true)}
