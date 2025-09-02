@@ -189,10 +189,13 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: dict) -> BatchExportDestination:
         """Create a BatchExportDestination."""
+        validated_data = self.create_validate(validated_data)
         export_destination = BatchExportDestination.objects.create(**validated_data)
         return export_destination
 
-    def validate(self, data: collections.abc.Mapping[str, typing.Any]) -> collections.abc.Mapping[str, typing.Any]:
+    def create_validate(
+        self, data: collections.abc.Mapping[str, typing.Any]
+    ) -> collections.abc.Mapping[str, typing.Any]:
         """Validate the destination configuration based on workflow inputs.
 
         Ensure that the submitted destination configuration passes the following checks:
@@ -220,10 +223,7 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
                 and destination_field.default_factory == dataclasses.MISSING
             )
             if destination_field.name not in config:
-                if is_required and self.instance is None:
-                    # Required fields may be missing when patching an existing instance,
-                    # (i.e. when `self.instance is not None`). So, when an existing
-                    # instance exists, we allow required fields to be missing.
+                if is_required:
                     raise serializers.ValidationError(
                         f"Configuration missing required field: '{destination_field.name}'"
                     )
