@@ -27,6 +27,7 @@ import { globalModalsLogic } from '~/layout/GlobalModals'
 import { AvailableFeature, TeamBasicType } from '~/types'
 
 import { EnvironmentSwitcherOverlay } from '../navigation/EnvironmentSwitcher'
+import { panelLayoutLogic } from './panelLayoutLogic'
 
 export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
     return (
@@ -39,7 +40,9 @@ export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
 
 export function ProjectDropdownMenu({
     buttonProps = { className: 'font-semibold' },
+    iconOnly = false,
 }: {
+    iconOnly?: boolean
     buttonProps?: ButtonPrimitiveProps
 }): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
@@ -58,12 +61,19 @@ export function ProjectDropdownMenu({
             <PopoverPrimitiveTrigger asChild>
                 <ButtonPrimitive
                     data-attr="tree-navbar-project-dropdown-button"
-                    size="sm"
+                    size={iconOnly ? 'base' : 'sm'}
+                    iconOnly={iconOnly}
                     {...buttonProps}
-                    className={cn('flex-1 max-w-fit min-w-[40px]', buttonProps.className)}
+                    className={cn('flex-1 max-w-fit min-w-[40px]', iconOnly ? 'min-w-auto' : '', buttonProps.className)}
                 >
-                    <span className="truncate">{currentTeam.name ?? 'Project'}</span>
-                    <DropdownMenuOpenIndicator />
+                    {iconOnly ? (
+                        <div className="Lettermark bg-[var(--color-bg-fill-button-tertiary-active)] w-5 h-5 ">
+                            {currentTeam.name.slice(0, 1).toLocaleUpperCase()}
+                        </div>
+                    ) : (
+                        <span className="truncate">{currentTeam.name ?? 'Project'}</span>
+                    )}
+                    {!iconOnly && <DropdownMenuOpenIndicator />}
                 </ButtonPrimitive>
             </PopoverPrimitiveTrigger>
             <PopoverPrimitiveContent

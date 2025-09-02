@@ -48,7 +48,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
             <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
                 <SortableContext items={[...tabs.map((t) => t.id), 'new']} strategy={horizontalListSortingStrategy}>
                     <div className={cn('flex flex-row gap-1 pt-1 max-w-full items-center', className)}>
-                        <div className="py-1 shrink-0">
+                        <div className="py-1 pl-[2px] shrink-0">
                             <ButtonPrimitive
                                 iconOnly
                                 onClick={toggleSearchBar}
