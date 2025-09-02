@@ -1,6 +1,7 @@
 from django.conf import settings
 
 from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
+from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import (
     KAFKA_COLUMNS,
@@ -11,12 +12,7 @@ from posthog.clickhouse.kafka_engine import (
     trim_quotes_expr,
 )
 from posthog.clickhouse.property_groups import property_groups
-from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.clickhouse.table_engines import (
-    Distributed,
-    ReplacingMergeTree,
-    ReplicationScheme,
-)
+from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 
 

@@ -1,6 +1,7 @@
-from datetime import timedelta
 import sys
 import json
+from datetime import timedelta
+
 from .execute import execute_bytecode
 
 modifiers = [arg for arg in sys.argv if arg.startswith("-")]

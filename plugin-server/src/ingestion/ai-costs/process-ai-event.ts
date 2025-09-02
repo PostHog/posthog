@@ -9,6 +9,9 @@ import { ModelRow } from './providers/types'
 // Work around for new gemini models that require special cost calculations
 const SPECIAL_COST_MODELS = ['gemini-2.5-pro-preview']
 
+// Models where reasoning is charged separately as output tokens
+const REASONING_COST_MODELS = [/^gemini-2.5-/]
+
 export const processAiEvent = (event: PluginEvent): PluginEvent => {
     if ((event.event !== '$ai_generation' && event.event !== '$ai_embedding') || !event.properties) {
         return event
@@ -62,7 +65,11 @@ const calculateOutputCost = (event: PluginEvent, cost: ModelRow) => {
     if (!event.properties) {
         return '0'
     }
-    return bigDecimal.multiply(cost.cost.completion_token, event.properties['$ai_output_tokens'] || 0)
+    let outputTokens = event.properties['$ai_output_tokens'] || 0
+    if (event.properties['$ai_reasoning_tokens'] && mustAddReasoningCost(event.properties['$ai_model'])) {
+        outputTokens = bigDecimal.add(outputTokens, event.properties['$ai_reasoning_tokens'])
+    }
+    return bigDecimal.multiply(cost.cost.completion_token, outputTokens)
 }
 
 const processCost = (event: PluginEvent) => {
@@ -208,4 +215,8 @@ const getNewModelName = (properties: Properties): string => {
         return tokenCountExceeded ? 'gemini-2.5-pro-preview:large' : 'gemini-2.5-pro-preview'
     }
     return model
+}
+
+const mustAddReasoningCost = (model: string): boolean => {
+    return REASONING_COST_MODELS.some((candidate) => candidate.test(model.toLowerCase()))
 }

@@ -1,29 +1,30 @@
 import os
-from contextlib import contextmanager
-from datetime import datetime, timedelta, UTC
 import re
-from typing import Any, cast, TypedDict
+from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
+from typing import Any, TypedDict, cast
 from urllib.parse import urlparse
-import orjson
 
-import nh3
-import posthoganalytics
-from posthoganalytics import capture_exception
 from django.conf import settings
 from django.core.cache import cache
 from django.db.models import Min
 from django.http import HttpResponse, JsonResponse
+from django.shortcuts import render
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
+
+import nh3
+import orjson
+import structlog
+import posthoganalytics
 from axes.decorators import axes_dispatch
 from loginas.utils import is_impersonated_session
 from nanoid import generate
-from rest_framework import request, serializers, status, viewsets, exceptions, filters
+from posthoganalytics import capture_exception
+from rest_framework import exceptions, filters, request, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
-from django.shortcuts import render
 
-from ee.surveys.summaries.summarize_surveys import summarize_survey_responses
 from posthog.api.action import ActionSerializer, ActionStepJSONSerializer
 from posthog.api.feature_flag import (
     BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
@@ -39,27 +40,21 @@ from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX, AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.exceptions import generate_exception_response
 from posthog.models import Action
-from posthog.models.activity_logging.activity_log import (
-    Change,
-    Detail,
-    changes_between,
-    load_activity,
-    log_activity,
-)
+from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.feature_flag import FeatureFlag
-from posthog.models.surveys.survey import Survey, MAX_ITERATION_COUNT
-from posthog.models.team.team import Team
-from posthog.models.user import User
-from posthog.utils_cors import cors_response
+from posthog.models.surveys.survey import MAX_ITERATION_COUNT, Survey
 from posthog.models.surveys.util import (
-    get_unique_survey_event_uuids_sql_subquery,
     SurveyEventName,
     SurveyEventProperties,
+    get_unique_survey_event_uuids_sql_subquery,
 )
-import structlog
+from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.models.utils import UUIDT
+from posthog.utils_cors import cors_response
 
+from ee.surveys.summaries.summarize_surveys import summarize_survey_responses
 
 ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
 EMAIL_REGEX = r"^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"

@@ -1,13 +1,14 @@
 from typing import Optional
 
-import structlog
 from django.conf import settings
 from django.db import models
-from posthog.exceptions_capture import capture_exception
 
+import structlog
+
+from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.models.utils import UUIDTModel, RootTeamMixin
+from posthog.models.utils import RootTeamMixin, UUIDTModel
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.utils import absolute_uri

@@ -1,15 +1,16 @@
-from posthog.test.test_utils import create_group_type_mapping_without_created_at
+from posthog.test.base import BaseTest
+
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.feature_flag.feature_flag import FeatureFlag
-from posthog.models.project import Project
 from posthog.models.feature_flag.local_evaluation import (
     clear_flag_caches,
     flags_hypercache,
     get_flags_response_for_local_evaluation,
     update_flag_caches,
 )
+from posthog.models.project import Project
 from posthog.models.team.team import Team
-from posthog.test.base import BaseTest
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
 class TestLocalEvaluationCache(BaseTest):

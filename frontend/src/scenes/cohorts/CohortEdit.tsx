@@ -222,14 +222,15 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                             tooltip: 'Go to all cohorts',
                         }}
                         isLoading={cohortLoading}
-                        onNameBlur={(value) => {
+                        onNameChange={(value) => {
                             setCohortValue('name', value)
                         }}
-                        onDescriptionBlur={(value) => {
+                        onDescriptionChange={(value) => {
                             setCohortValue('description', value)
                         }}
                         docsURL="https://posthog.com/docs/data/cohorts"
                         canEdit
+                        forceEdit={isNewCohort}
                     />
 
                     <SceneDivider />

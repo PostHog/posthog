@@ -1,9 +1,10 @@
-from typing import Any, TypedDict, NotRequired, Required, cast
-import requests
-from requests import HTTPError, RequestException, Timeout
-import structlog
 import json
+from typing import Any, NotRequired, Required, TypedDict, cast
 from urllib.parse import urlencode
+
+import requests
+import structlog
+from requests import HTTPError, RequestException, Timeout
 
 logger = structlog.get_logger(__name__)
 

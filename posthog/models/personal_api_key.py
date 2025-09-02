@@ -1,5 +1,5 @@
-from typing import Optional, Literal
 import hashlib
+from typing import Literal, Optional
 
 from django.contrib.auth.hashers import PBKDF2PasswordHasher
 from django.contrib.postgres.fields import ArrayField

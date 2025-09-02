@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { Label } from 'lib/ui/Label/Label'
 
 import { experimentLogic } from '../experimentLogic'
 import ExperimentDate from './ExperimentDate'
@@ -19,8 +20,8 @@ export function ExperimentDates(): JSX.Element | null {
     // This also narrows the type of created_at to be non-null
     if (!start_date && created_at) {
         return (
-            <div className="block" data-attr="experiment-creation-date">
-                <div className="text-xs font-semibold uppercase tracking-wide">Creation date</div>
+            <div className="flex flex-col" data-attr="experiment-creation-date">
+                <Label intent="menu">Creation date</Label>
                 <TZLabel time={created_at} />
             </div>
         )

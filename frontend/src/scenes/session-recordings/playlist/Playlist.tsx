@@ -147,7 +147,7 @@ export function Playlist({
                     'xl:flex-row': true,
                 })}
             >
-                <div className="flex flex-col xl:max-w-80">
+                <div className="flex flex-col min-w-60 xl:max-w-80 xl:min-w-80">
                     {filterActions && (
                         <DraggableToNotebook className="mb-2" href={notebooksHref}>
                             {filterActions}

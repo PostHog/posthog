@@ -1,8 +1,10 @@
 import time
 from typing import Optional
-from django.db import connections
-import structlog
+
 from django.conf import settings
+from django.db import connections
+
+import structlog
 
 DATABASE_FOR_FLAG_MATCHING = (
     "default" if ("decide" not in settings.READ_REPLICA_OPT_IN or "replica" not in settings.DATABASES) else "replica"

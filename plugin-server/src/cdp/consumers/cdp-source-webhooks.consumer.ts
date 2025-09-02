@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { ModifiedRequest } from '~/api/router'
+import { instrumented } from '~/common/tracing/tracing-utils'
 
 import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
@@ -88,6 +89,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
         return hogFunction
     }
 
+    @instrumented('cdpSourceWebhooksConsumer.processWebhook')
     public async processWebhook(
         webhookId: string,
         req: ModifiedRequest
@@ -227,7 +229,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
         void this.promiseScheduler.schedule(
             Promise.all([
                 this.hogFunctionMonitoringService.queueInvocationResults([result]).then(() => {
-                    return this.hogFunctionMonitoringService.produceQueuedMessages()
+                    return this.hogFunctionMonitoringService.flush()
                 }),
                 this.hogWatcher.observeResultsBuffered(result),
             ])

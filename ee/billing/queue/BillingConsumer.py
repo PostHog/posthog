@@ -3,11 +3,11 @@ import json
 import logging
 from typing import Any, Optional
 
-from ee.billing.billing_manager import BillingManager
+from posthog.cloud_utils import get_cached_instance_license
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization
-from posthog.cloud_utils import get_cached_instance_license
 
+from ee.billing.billing_manager import BillingManager
 from ee.sqs.SQSConsumer import SQSConsumer
 
 logger = logging.getLogger(__name__)

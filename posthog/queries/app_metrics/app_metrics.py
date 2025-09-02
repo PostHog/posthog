@@ -13,10 +13,7 @@ from posthog.models.app_metrics.sql import (
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.filters.mixins.base import IntervalType
 from posthog.models.team.team import Team
-from posthog.queries.app_metrics.serializers import (
-    AppMetricsErrorsRequestSerializer,
-    AppMetricsRequestSerializer,
-)
+from posthog.queries.app_metrics.serializers import AppMetricsErrorsRequestSerializer, AppMetricsRequestSerializer
 from posthog.queries.util import format_ch_timestamp
 from posthog.utils import relative_date_parse
 

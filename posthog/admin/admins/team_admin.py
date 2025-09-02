@@ -1,9 +1,9 @@
 from django.contrib import admin
+from django.urls import reverse
 from django.utils.html import format_html
+
 from posthog.admin.inlines.group_type_mapping_inline import GroupTypeMappingInline
 from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMarketingAnalyticsConfigInline
-from django.urls import reverse
-
 from posthog.models import Team
 
 
@@ -93,6 +93,7 @@ class TeamAdmin(admin.ModelAdmin):
                     "session_recording_sample_rate",
                     "session_recording_minimum_duration_milliseconds",
                     "session_recording_linked_flag",
+                    "session_recording_retention_period",
                     "api_query_rate_limit",
                     "data_attributes",
                     "session_recording_version",

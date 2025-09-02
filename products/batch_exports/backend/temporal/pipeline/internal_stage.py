@@ -1,12 +1,13 @@
+import uuid
+import typing
 import asyncio
 import datetime as dt
-import typing
-import uuid
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 
-import aioboto3
 from django.conf import settings
+
+import aioboto3
 from temporalio import activity
 
 from posthog.clickhouse import query_tagging
@@ -17,20 +18,12 @@ if typing.TYPE_CHECKING:
 
 from structlog.contextvars import bind_contextvars
 
-from posthog.batch_exports.service import (
-    BackfillDetails,
-    BatchExportField,
-    BatchExportModel,
-    BatchExportSchema,
-)
+from posthog.batch_exports.service import BackfillDetails, BatchExportField, BatchExportModel, BatchExportSchema
 from posthog.sync import database_sync_to_async
-from posthog.temporal.common.clickhouse import (
-    ClickHouseClientTimeoutError,
-    ClickHouseQueryStatus,
-    get_client,
-)
+from posthog.temporal.common.clickhouse import ClickHouseClientTimeoutError, ClickHouseQueryStatus, get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
+
 from products.batch_exports.backend.temporal.batch_exports import default_fields
 from products.batch_exports.backend.temporal.record_batch_model import resolve_batch_exports_model
 from products.batch_exports.backend.temporal.spmc import (

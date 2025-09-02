@@ -1,14 +1,14 @@
+from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
-from parameterized import parameterized
 
 from langchain_core.agents import AgentAction
 from langchain_core.runnables import RunnableConfig
+from parameterized import parameterized
 from pydantic import ValidationError
 
 from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
-from posthog.test.base import BaseTest
 
 
 class MockTaxonomyAgentToolkit(TaxonomyAgentToolkit):

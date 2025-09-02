@@ -1,9 +1,11 @@
 from typing import Any
+
 from django.core.cache import cache
-from rest_framework.request import Request
-from rest_framework.exceptions import AuthenticationFailed
-from social_core.utils import requests
+
 import structlog
+from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.request import Request
+from social_core.utils import requests
 
 from ee.api.vercel.types import VercelClaims, VercelUser
 

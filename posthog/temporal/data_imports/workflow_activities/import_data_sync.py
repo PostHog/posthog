@@ -1,9 +1,10 @@
-import dataclasses
 import uuid
+import dataclasses
 from typing import Any, Optional
 
 from django.db import close_old_connections
 from django.db.models import Prefetch
+
 from structlog.contextvars import bind_contextvars
 from structlog.typing import FilteringBoundLogger
 from temporalio import activity
@@ -164,4 +165,5 @@ def _run(
 ):
     pipeline = PipelineNonDLT(source, logger, job_inputs.run_id, reset_pipeline, shutdown_monitor)
     pipeline.run()
+    logger.debug("Finished running pipeline")
     del pipeline

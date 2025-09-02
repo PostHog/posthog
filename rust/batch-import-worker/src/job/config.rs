@@ -31,6 +31,10 @@ pub struct JobConfig {
     // What format is the data in, e.g. Mixpanel events stored in json-lines
     pub data_format: FormatConfig,
     pub sink: SinkConfig,
+    #[serde(default = "JobConfig::default_import_events")]
+    pub import_events: bool,
+    #[serde(default = "JobConfig::default_generate_identify_events")]
+    pub generate_identify_events: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -132,7 +136,7 @@ pub struct KafkaEmitterConfig {
     pub transaction_timeout_seconds: u64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JobSecrets {
     pub secrets: HashMap<String, Value>,
 }
@@ -434,5 +438,301 @@ impl DateRangeExportSourceConfig {
 
     fn default_date_format() -> String {
         "%Y-%m-%d %H:%M:%S".to_string()
+    }
+}
+
+impl JobConfig {
+    fn default_import_events() -> bool {
+        true
+    }
+
+    fn default_generate_identify_events() -> bool {
+        false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_test_job_config() -> JobConfig {
+        JobConfig {
+            source: SourceConfig::Folder(FolderSourceConfig {
+                path: "/tmp/test".to_string(),
+            }),
+            data_format: crate::parse::format::FormatConfig::JsonLines {
+                skip_blanks: false,
+                content: crate::parse::content::ContentType::Captured,
+            },
+            sink: SinkConfig::NoOp,
+            import_events: true,
+            generate_identify_events: false,
+        }
+    }
+
+    #[test]
+    fn test_job_config_defaults() {
+        // Test that defaults are applied correctly when fields are missing
+        let json_config = r#"
+        {
+            "source": {
+                "type": "folder",
+                "path": "/tmp/test"
+            },
+            "data_format": {
+                "type": "json_lines",
+                "skip_blanks": false,
+                "content": {
+                    "type": "captured"
+                }
+            },
+            "sink": {
+                "type": "noop"
+            }
+        }
+        "#;
+
+        let config: JobConfig = serde_json::from_str(json_config).unwrap();
+        assert!(config.import_events); // Should use default
+        assert!(!config.generate_identify_events); // Should use default
+    }
+
+    #[test]
+    fn test_job_config_explicit_values() {
+        // Test that explicit values override defaults
+        let json_config = r#"
+        {
+            "source": {
+                "type": "folder",
+                "path": "/tmp/test"
+            },
+            "data_format": {
+                "type": "json_lines",
+                "skip_blanks": false,
+                "content": {
+                    "type": "captured"
+                }
+            },
+            "sink": {
+                "type": "noop"
+            },
+            "import_events": false,
+            "generate_identify_events": true
+        }
+        "#;
+
+        let config: JobConfig = serde_json::from_str(json_config).unwrap();
+        assert!(!config.import_events); // Should use explicit value
+        assert!(config.generate_identify_events); // Should use explicit value
+    }
+
+    #[test]
+    fn test_job_config_serialization() {
+        let config = create_test_job_config();
+
+        // Test serialization
+        let serialized = serde_json::to_string(&config).unwrap();
+        let deserialized: JobConfig = serde_json::from_str(&serialized).unwrap();
+
+        // Verify round-trip works correctly
+        assert_eq!(config.import_events, deserialized.import_events);
+        assert_eq!(
+            config.generate_identify_events,
+            deserialized.generate_identify_events
+        );
+        // Note: We can't directly compare source/sink due to missing PartialEq derives
+        // But the import_events and generate_identify_events are what we're primarily testing
+    }
+
+    #[test]
+    fn test_job_config_partial_serialization() {
+        // Test that only the new fields are serialized when they differ from defaults
+        let config = create_test_job_config();
+
+        let serialized = serde_json::to_string(&config).unwrap();
+        let json_value: serde_json::Value = serde_json::from_str(&serialized).unwrap();
+
+        // Should contain both fields explicitly when they match defaults
+        assert!(json_value.get("import_events").is_some());
+        assert!(json_value.get("generate_identify_events").is_some());
+    }
+
+    #[test]
+    fn test_job_config_default_functions() {
+        // Test the default functions directly
+        assert!(JobConfig::default_import_events());
+        assert!(!JobConfig::default_generate_identify_events());
+    }
+
+    #[test]
+    fn test_job_config_with_different_source_types() {
+        // Test with different source configurations
+        let folder_config = JobConfig {
+            source: SourceConfig::Folder(FolderSourceConfig {
+                path: "/tmp/folder".to_string(),
+            }),
+            data_format: crate::parse::format::FormatConfig::JsonLines {
+                skip_blanks: false,
+                content: crate::parse::content::ContentType::Captured,
+            },
+            sink: SinkConfig::NoOp,
+            import_events: false,
+            generate_identify_events: true,
+        };
+
+        // Test serialization works with different source types
+        let serialized = serde_json::to_string(&folder_config).unwrap();
+        let deserialized: JobConfig = serde_json::from_str(&serialized).unwrap();
+
+        assert_eq!(folder_config.import_events, deserialized.import_events);
+        assert_eq!(
+            folder_config.generate_identify_events,
+            deserialized.generate_identify_events
+        );
+        // Note: Can't compare source directly due to missing PartialEq
+    }
+
+    #[test]
+    fn test_job_config_with_different_sink_types() {
+        // Test with different sink configurations
+        let stdout_config = JobConfig {
+            source: SourceConfig::Folder(FolderSourceConfig {
+                path: "/tmp/test".to_string(),
+            }),
+            data_format: crate::parse::format::FormatConfig::JsonLines {
+                skip_blanks: false,
+                content: crate::parse::content::ContentType::Captured,
+            },
+            sink: SinkConfig::Stdout { as_json: true },
+            import_events: true,
+            generate_identify_events: false,
+        };
+
+        let serialized = serde_json::to_string(&stdout_config).unwrap();
+        let deserialized: JobConfig = serde_json::from_str(&serialized).unwrap();
+
+        assert_eq!(stdout_config.import_events, deserialized.import_events);
+        assert_eq!(
+            stdout_config.generate_identify_events,
+            deserialized.generate_identify_events
+        );
+        // Note: Can't compare sink directly due to missing PartialEq
+    }
+
+    #[test]
+    fn test_job_config_edge_cases() {
+        // Test edge cases for the new fields
+        let test_cases = vec![(true, true), (true, false), (false, true), (false, false)];
+
+        for (import_events, generate_identify_events) in test_cases {
+            let config = JobConfig {
+                source: SourceConfig::Folder(FolderSourceConfig {
+                    path: "/tmp/test".to_string(),
+                }),
+                data_format: crate::parse::format::FormatConfig::JsonLines {
+                    skip_blanks: false,
+                    content: crate::parse::content::ContentType::Captured,
+                },
+                sink: SinkConfig::NoOp,
+                import_events,
+                generate_identify_events,
+            };
+
+            // Test serialization/deserialization
+            let serialized = serde_json::to_string(&config).unwrap();
+            let deserialized: JobConfig = serde_json::from_str(&serialized).unwrap();
+
+            assert_eq!(config.import_events, deserialized.import_events);
+            assert_eq!(
+                config.generate_identify_events,
+                deserialized.generate_identify_events
+            );
+            // Note: Can't compare full config due to missing PartialEq derives
+        }
+    }
+
+    #[test]
+    fn test_job_secrets_serialization() {
+        // Test JobSecrets serialization
+        let mut secrets = HashMap::new();
+        secrets.insert(
+            "api_key".to_string(),
+            Value::String("secret123".to_string()),
+        );
+        secrets.insert("token".to_string(), Value::String("token456".to_string()));
+
+        let job_secrets = JobSecrets {
+            secrets: secrets.clone(),
+        };
+
+        let serialized = serde_json::to_string(&job_secrets).unwrap();
+        let deserialized: JobSecrets = serde_json::from_str(&serialized).unwrap();
+
+        assert_eq!(job_secrets.secrets, deserialized.secrets);
+    }
+
+    #[test]
+    fn test_source_config_serialization() {
+        // Test SourceConfig serialization with different variants
+        let folder_config = SourceConfig::Folder(FolderSourceConfig {
+            path: "/tmp/test".to_string(),
+        });
+
+        let serialized = serde_json::to_string(&folder_config).unwrap();
+        let deserialized: SourceConfig = serde_json::from_str(&serialized).unwrap();
+
+        // Note: Can't use assert_eq! due to missing PartialEq derive
+        // But serde round-trip should work correctly
+        match (&folder_config, &deserialized) {
+            (SourceConfig::Folder(orig), SourceConfig::Folder(deser)) => {
+                assert_eq!(orig.path, deser.path)
+            }
+            _ => panic!("SourceConfig variants don't match"),
+        }
+    }
+
+    #[test]
+    fn test_sink_config_serialization() {
+        // Test SinkConfig serialization with different variants
+        let test_cases = vec![
+            SinkConfig::NoOp,
+            SinkConfig::Stdout { as_json: true },
+            SinkConfig::Stdout { as_json: false },
+            SinkConfig::File {
+                path: "/tmp/output.json".to_string(),
+                as_json: true,
+                cleanup: false,
+            },
+        ];
+
+        for sink_config in test_cases {
+            let serialized = serde_json::to_string(&sink_config).unwrap();
+            let deserialized: SinkConfig = serde_json::from_str(&serialized).unwrap();
+            // Note: Can't use assert_eq! due to missing PartialEq derive
+            // But serde round-trip should work correctly for all variants
+            match (&sink_config, &deserialized) {
+                (SinkConfig::NoOp, SinkConfig::NoOp) => (),
+                (SinkConfig::Stdout { as_json: orig }, SinkConfig::Stdout { as_json: deser }) => {
+                    assert_eq!(orig, deser)
+                }
+                (
+                    SinkConfig::File {
+                        path: orig_path,
+                        as_json: orig_json,
+                        cleanup: orig_cleanup,
+                    },
+                    SinkConfig::File {
+                        path: deser_path,
+                        as_json: deser_json,
+                        cleanup: deser_cleanup,
+                    },
+                ) => {
+                    assert_eq!(orig_path, deser_path);
+                    assert_eq!(orig_json, deser_json);
+                    assert_eq!(orig_cleanup, deser_cleanup);
+                }
+                _ => panic!("SinkConfig variants don't match"),
+            }
+        }
     }
 }

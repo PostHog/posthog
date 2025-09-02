@@ -1,12 +1,8 @@
-from ee.hogai.utils.helpers import filter_and_merge_messages
-from posthog.schema import (
-    AssistantMessage,
-    AssistantTrendsQuery,
-    FailureMessage,
-    HumanMessage,
-    VisualizationMessage,
-)
 from posthog.test.base import BaseTest
+
+from posthog.schema import AssistantMessage, AssistantTrendsQuery, FailureMessage, HumanMessage, VisualizationMessage
+
+from ee.hogai.utils.helpers import filter_and_merge_messages
 
 
 class TestTrendsUtils(BaseTest):

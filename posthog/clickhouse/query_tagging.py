@@ -1,17 +1,15 @@
 # This module is responsible for adding tags/metadata to outgoing clickhouse queries in a thread-safe manner
-import contextvars
 import uuid
-from enum import StrEnum
+import contextvars
 from collections.abc import Generator
 from contextlib import contextmanager, suppress
-
-from pydantic import BaseModel, ConfigDict
+from enum import StrEnum
 from typing import Any, Optional
 
 # from posthog.clickhouse.client.connection import Workload
 # from posthog.schema import PersonsOnEventsMode
-
 from cachetools import cached
+from pydantic import BaseModel, ConfigDict
 
 
 class AccessMethod(StrEnum):
@@ -79,6 +77,8 @@ class QueryTags(BaseModel):
     team_id: Optional[int] = None
     user_id: Optional[int] = None
     access_method: Optional[AccessMethod] = None
+    api_key_mask: Optional[str] = None
+    api_key_label: Optional[str] = None
     org_id: Optional[uuid.UUID] = None
     product: Optional[Product] = None
 
@@ -183,7 +183,7 @@ query_tags: contextvars.ContextVar = contextvars.ContextVar("query_tags")
 @cached(cache={})
 def __get_constant_tags() -> dict[str, str]:
     # import locally to avoid circular imports
-    from posthog.settings import CONTAINER_HOSTNAME, TEST, OTEL_SERVICE_NAME
+    from posthog.settings import CONTAINER_HOSTNAME, OTEL_SERVICE_NAME, TEST
 
     if TEST:
         return {"git_commit": "test", "container_hostname": "test", "service_name": "test"}

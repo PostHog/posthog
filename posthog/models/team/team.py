@@ -5,24 +5,23 @@ from functools import lru_cache
 from typing import TYPE_CHECKING, Optional, cast
 from uuid import UUID
 from zoneinfo import ZoneInfo
-from django.core.cache import cache
-import posthoganalytics
-import pydantic
-import pytz
+
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
-from django.core.validators import (
-    MaxValueValidator,
-    MinLengthValidator,
-    MinValueValidator,
-)
+from django.core.cache import cache
+from django.core.validators import MaxValueValidator, MinLengthValidator, MinValueValidator
 from django.db import connection, models, transaction
 from django.db.models import QuerySet
 from django.db.models.signals import post_delete, post_save
 
+import pytz
+import pydantic
+import posthoganalytics
+
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
+from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
@@ -34,18 +33,17 @@ from posthog.models.utils import (
     UUIDTClassicModel,
     generate_random_token_project,
     generate_random_token_secret,
+    mask_key_value,
     sane_repr,
     validate_rate_limit,
-    mask_key_value,
 )
+from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
 
 from ...hogql.modifiers import set_default_modifier_values
-from ...schema import HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode, CurrencyCode
+from ...schema import CurrencyCode, HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
 from .team_caching import get_team_in_cache, set_team_in_cache
-from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
-from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -722,11 +720,12 @@ class Team(UUIDTClassicModel):
         create_data_for_demo_team.delay(self.id, initiating_user.id, cache_key)
 
     def all_users_with_access(self) -> QuerySet["User"]:
+        from posthog.models.organization import OrganizationMembership
+        from posthog.models.user import User
+
         from ee.models.explicit_team_membership import ExplicitTeamMembership
         from ee.models.rbac.access_control import AccessControl
         from ee.models.rbac.role import RoleMembership
-        from posthog.models.organization import OrganizationMembership
-        from posthog.models.user import User
 
         # This path is deprecated, and will be removed soon
         if self.access_control:

@@ -1,17 +1,14 @@
 from io import BytesIO
 from typing import Optional
 
-import structlog
 from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
+
+import structlog
 from drf_spectacular.utils import extend_schema
 from PIL import Image
 from rest_framework import status, viewsets
-from rest_framework.exceptions import (
-    APIException,
-    UnsupportedMediaType,
-    ValidationError,
-)
+from rest_framework.exceptions import APIException, UnsupportedMediaType, ValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from statshog.defaults.django import statsd

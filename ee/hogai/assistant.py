@@ -3,8 +3,8 @@ from contextlib import asynccontextmanager
 from typing import Any, Literal, Optional, cast, get_args
 from uuid import UUID, uuid4
 
-import posthoganalytics
 import structlog
+import posthoganalytics
 from asgiref.sync import async_to_sync
 from langchain_core.callbacks.base import BaseCallbackHandler
 from langchain_core.messages import AIMessageChunk
@@ -15,11 +15,29 @@ from langgraph.types import StreamMode
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel
 
+from posthog.schema import (
+    AssistantEventType,
+    AssistantGenerationStatusEvent,
+    AssistantGenerationStatusType,
+    AssistantMessage,
+    AssistantMessageType,
+    FailureMessage,
+    HumanMessage,
+    MaxBillingContext,
+    NotebookUpdateMessage,
+    ReasoningMessage,
+    VisualizationMessage,
+)
+
+from posthog import event_usage
+from posthog.event_usage import report_user_action
+from posthog.models import Action, Team, User
+from posthog.sync import database_sync_to_async
+
 from ee.hogai.graph import (
     AssistantGraph,
     FunnelGeneratorNode,
     InsightsAssistantGraph,
-    MemoryInitializerNode,
     QueryExecutorNode,
     RetentionGeneratorNode,
     SchemaGeneratorNode,
@@ -58,23 +76,6 @@ from ee.hogai.utils.types import (
 )
 from ee.hogai.utils.types.composed import MaxNodeName
 from ee.models import Conversation
-from posthog.event_usage import report_user_action
-from posthog.exceptions_capture import capture_exception
-from posthog.models import Action, Team, User
-from posthog.schema import (
-    AssistantEventType,
-    AssistantGenerationStatusEvent,
-    AssistantGenerationStatusType,
-    AssistantMessage,
-    AssistantMessageType,
-    FailureMessage,
-    HumanMessage,
-    MaxBillingContext,
-    NotebookUpdateMessage,
-    ReasoningMessage,
-    VisualizationMessage,
-)
-from posthog.sync import database_sync_to_async
 
 VISUALIZATION_NODES: dict[MaxNodeName, type[SchemaGeneratorNode]] = {
     AssistantNodeName.TRENDS_GENERATOR: TrendsGeneratorNode,
@@ -111,6 +112,7 @@ VERBOSE_NODES: set[MaxNodeName] = STREAMING_NODES | {
 
 THINKING_NODES: set[MaxNodeName] = {
     AssistantNodeName.QUERY_PLANNER,
+    AssistantNodeName.MEMORY_INITIALIZER,
     TaxonomyNodeName.LOOP_NODE,
     AssistantNodeName.SESSION_SUMMARIZATION,
 }
@@ -178,6 +180,7 @@ class Assistant:
                     "is_first_conversation": is_new_conversation,
                     "$session_id": self._session_id,
                     "assistant_mode": mode.value,
+                    "$groups": event_usage.groups(team=team),
                 },
                 trace_id=trace_id,
             )
@@ -281,16 +284,7 @@ class Assistant:
 
                 if not isinstance(e, GenerationCanceled):
                     logger.exception("Error in assistant stream", error=e)
-                    posthoganalytics.capture_exception(
-                        e,
-                        distinct_id=self._user.distinct_id if self._user else None,
-                        properties={
-                            "$session_id": self._session_id,
-                            "$ai_trace_id": self._trace_id,
-                            "thread_id": self._conversation.id,
-                            "tag": "max_ai",
-                        },
-                    )
+                    self._capture_exception(e)
 
                     # This is an unhandled error, so we just stop further generation at this point
                     snapshot = await self._graph.aget_state(config)
@@ -522,9 +516,6 @@ class Assistant:
             # Merge message chunks
             self._merge_message_chunk(langchain_message)
 
-            if node_name == AssistantNodeName.MEMORY_INITIALIZER:
-                return self._process_memory_initializer_chunk(langchain_message)
-
             # Extract and process content
             message_content = extract_content_from_ai_message(self._chunks)
             if not message_content:
@@ -554,12 +545,6 @@ class Assistant:
             # Compatible types - merge normally
             self._chunks += langchain_message  # type: ignore
 
-    def _process_memory_initializer_chunk(self, langchain_message: AIMessageChunk) -> Optional[AssistantMessage]:
-        """Process memory initializer specific chunk logic."""
-        if not MemoryInitializerNode.should_process_message_chunk(langchain_message):
-            return None
-        return AssistantMessage(content=MemoryInitializerNode.format_message(cast(str, self._chunks.content)))
-
     def _create_notebook_update_message(self, content: str) -> Optional[NotebookUpdateMessage]:
         """Create a notebook update message from markdown content."""
         if not self._state or not self._state.notebook_id:
@@ -581,7 +566,7 @@ class Assistant:
                 return None
         except Exception as e:
             logger.exception("Error in chunk_reasoning_headline", error=e)
-            capture_exception(e)  # not expected, so let's capture
+            self._capture_exception(e)  # not expected, so let's capture
             self._reasoning_headline_chunk = None
             return None
 
@@ -665,3 +650,16 @@ class Assistant:
         finally:
             self._conversation.status = Conversation.Status.IDLE
             await self._conversation.asave(update_fields=["status", "updated_at"])
+
+    def _capture_exception(self, e: Exception):
+        posthoganalytics.capture_exception(
+            e,
+            distinct_id=self._user.distinct_id if self._user else None,
+            properties={
+                "$session_id": self._session_id,
+                "$ai_trace_id": self._trace_id,
+                "thread_id": self._conversation.id,
+                "tag": "max_ai",
+                "$groups": event_usage.groups(team=self._team),
+            },
+        )

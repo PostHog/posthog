@@ -1,39 +1,25 @@
 from itertools import cycle
 from typing import Any, Literal, Optional, cast
-from unittest.mock import patch
 from uuid import uuid4
+
+from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, _create_person
+from unittest.mock import patch
+
+from django.test import override_settings
 
 from asgiref.sync import async_to_sync
 from azure.ai.inference import EmbeddingsClient
 from azure.ai.inference.models import EmbeddingsResult, EmbeddingsUsage
 from azure.core.credentials import AzureKeyCredential
-from django.test import override_settings
 from langchain_core import messages
+from langchain_core.messages import AIMessageChunk
 from langchain_core.prompts.chat import ChatPromptValue
 from langchain_core.runnables import RunnableConfig, RunnableLambda
-from langchain_core.messages import AIMessageChunk
 from langgraph.errors import GraphRecursionError, NodeInterrupt
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StateSnapshot
 from pydantic import BaseModel
 
-from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.graph.funnels.nodes import FunnelsSchemaGeneratorOutput
-from ee.hogai.graph.memory import prompts as memory_prompts
-from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
-from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT
-from ee.hogai.graph.trends.nodes import TrendsSchemaGeneratorOutput
-from ee.hogai.tool import search_documentation
-from ee.hogai.utils.tests import FakeChatOpenAI, FakeRunnableLambdaWithTokenCounter
-from ee.hogai.utils.types import (
-    AssistantMode,
-    AssistantNodeName,
-    AssistantOutput,
-    AssistantState,
-    PartialAssistantState,
-)
-from ee.models.assistant import Conversation, CoreMemory
-from posthog.models import Action
 from posthog.schema import (
     AssistantEventType,
     AssistantFunnelsEventsNode,
@@ -54,18 +40,36 @@ from posthog.schema import (
     HumanMessage,
     MaxAddonInfo,
     MaxBillingContext,
+    MaxBillingContextSettings,
+    MaxBillingContextSubscriptionLevel,
     MaxDashboardContext,
     MaxInsightContext,
     MaxProductInfo,
     MaxUIContext,
     ReasoningMessage,
-    MaxBillingContextSettings,
-    MaxBillingContextSubscriptionLevel,
     TrendsQuery,
     VisualizationMessage,
 )
-from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, _create_person
+
+from posthog.models import Action
+
+from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
+from ee.hogai.graph.funnels.nodes import FunnelsSchemaGeneratorOutput
+from ee.hogai.graph.memory import prompts as memory_prompts
+from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
+from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT
+from ee.hogai.graph.trends.nodes import TrendsSchemaGeneratorOutput
+from ee.hogai.tool import search_documentation
 from ee.hogai.utils.state import GraphValueUpdateTuple
+from ee.hogai.utils.tests import FakeChatOpenAI, FakeRunnableLambdaWithTokenCounter
+from ee.hogai.utils.types import (
+    AssistantMode,
+    AssistantNodeName,
+    AssistantOutput,
+    AssistantState,
+    PartialAssistantState,
+)
+from ee.models.assistant import Conversation, CoreMemory
 
 from ..assistant import Assistant
 from ..graph import AssistantGraph, InsightsAssistantGraph
@@ -962,7 +966,9 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         await self._set_up_onboarding_tests()
 
         # Mock the memory initializer to return a product description
-        model_mock.return_value = RunnableLambda(lambda x: "PostHog is a product analytics platform.")
+        model_mock.return_value = RunnableLambda(
+            lambda x: "Here's what I found on posthog.com: PostHog is a product analytics platform."
+        )
 
         def mock_response(input_dict):
             input_str = str(input_dict)
@@ -973,11 +979,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         onboarding_enquiry_model_mock.return_value = RunnableLambda(mock_response)
 
         # Create a graph with memory initialization flow
-        graph = (
-            AssistantGraph(self.team, self.user)
-            .add_memory_onboarding(AssistantNodeName.END, AssistantNodeName.END)
-            .compile()
-        )
+        graph = AssistantGraph(self.team, self.user).add_memory_onboarding(AssistantNodeName.END).compile()
 
         # First run - get the product description
         output, _ = await self._run_assistant_graph(graph, is_new_conversation=True, message=SLASH_COMMAND_INIT)
@@ -987,13 +989,14 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             (
                 "message",
                 AssistantMessage(
-                    content=memory_prompts.SCRAPING_INITIAL_MESSAGE,
+                    content="Let me find information about your product to help me understand your project better. Looking at your event data, **`us.posthog.com`** may be relevant. This may take a minute…",
                 ),
             ),
             (
                 "message",
+                # Kinda dirty but currently we determine the routing based on "Here's what I found" appearing in content
                 AssistantMessage(
-                    content=memory_prompts.SCRAPING_SUCCESS_MESSAGE + "PostHog is a product analytics platform."
+                    content="Here's what I found on posthog.com: PostHog is a product analytics platform."
                 ),
             ),
             ("message", AssistantMessage(content=memory_prompts.SCRAPING_VERIFICATION_MESSAGE)),
@@ -1019,7 +1022,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         core_memory = await CoreMemory.objects.aget(team=self.team)
         self.assertEqual(
             core_memory.initial_text,
-            "Question: What does the company do?\nAnswer: PostHog is a product analytics platform.\nQuestion: What is your target market?\nAnswer:",
+            "Question: What does the company do?\nAnswer: Here's what I found on posthog.com: PostHog is a product analytics platform.\nQuestion: What is your target market?\nAnswer:",
         )
 
     @patch("ee.hogai.graph.memory.nodes.MemoryInitializerNode._model")
@@ -1028,15 +1031,13 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         await self._set_up_onboarding_tests()
 
         # Mock the memory initializer to return a product description
-        model_mock.return_value = RunnableLambda(lambda _: "PostHog is a product analytics platform.")
+        model_mock.return_value = RunnableLambda(
+            lambda _: "Here's what I found on posthog.com: PostHog is a product analytics platform."
+        )
         onboarding_enquiry_model_mock.return_value = RunnableLambda(lambda _: "===What is your target market?")
 
         # Create a graph with memory initialization flow
-        graph = (
-            AssistantGraph(self.team, self.user)
-            .add_memory_onboarding(AssistantNodeName.END, AssistantNodeName.END)
-            .compile()
-        )
+        graph = AssistantGraph(self.team, self.user).add_memory_onboarding(AssistantNodeName.END).compile()
 
         # First run - get the product description
         output, _ = await self._run_assistant_graph(graph, is_new_conversation=True, message=SLASH_COMMAND_INIT)
@@ -1046,13 +1047,14 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             (
                 "message",
                 AssistantMessage(
-                    content=memory_prompts.SCRAPING_INITIAL_MESSAGE,
+                    content="Let me find information about your product to help me understand your project better. Looking at your event data, **`us.posthog.com`** may be relevant. This may take a minute…",
                 ),
             ),
             (
                 "message",
+                # Kinda dirty but currently we determine the routing based on "Here's what I found" appearing in content
                 AssistantMessage(
-                    content=memory_prompts.SCRAPING_SUCCESS_MESSAGE + "PostHog is a product analytics platform."
+                    content="Here's what I found on posthog.com: PostHog is a product analytics platform."
                 ),
             ),
             ("message", AssistantMessage(content=memory_prompts.SCRAPING_VERIFICATION_MESSAGE)),

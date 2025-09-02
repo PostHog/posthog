@@ -1,12 +1,11 @@
 import { useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 
-import { IconChevronDown, IconGear, IconInfo, IconPencil, IconX } from '@posthog/icons'
+import { IconChevronDown, IconEllipsis, IconPencil, IconX } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { TopBarSettingsButton } from 'lib/components/TopBarSettingsButton/TopBarSettingsButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { IconMenu, IconSlash } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -84,8 +83,6 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
                     <div className="flex gap-1 items-center shrink-0 pr-px">
                         <div className="contents" ref={setActionsContainer} />
 
-                        <TopBarSettingsButton buttonProps={{ size: 'small', icon: <IconGear /> }} />
-
                         {scenePanelIsPresent && (
                             <LemonButton
                                 onClick={() =>
@@ -93,20 +90,20 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
                                         ? setForceScenePanelClosedWhenRelative(!forceScenePanelClosedWhenRelative)
                                         : setScenePanelOpen(!scenePanelOpen)
                                 }
-                                icon={<IconInfo className="text-primary" />}
+                                icon={<IconEllipsis className="text-primary" />}
                                 tooltip={
                                     !scenePanelOpen
-                                        ? 'Open info panel'
+                                        ? 'Open Info & actions panel'
                                         : scenePanelIsRelative
-                                          ? 'Force close info panel'
-                                          : 'Close info panel'
+                                          ? 'Force close Info & actions panel'
+                                          : 'Close Info & actions panel'
                                 }
                                 aria-label={
                                     !scenePanelOpen
-                                        ? 'Open info panel'
+                                        ? 'Open Info & actions panel'
                                         : scenePanelIsRelative
-                                          ? 'Force close info panel'
-                                          : 'Close info panel'
+                                          ? 'Force close Info & actions panel'
+                                          : 'Close Info & actions panel'
                                 }
                                 active={scenePanelOpen}
                                 size="small"

@@ -2,7 +2,7 @@ from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.db.models import UniqueConstraint
 
-from posthog.models.utils import UUIDTModel, RootTeamManager, RootTeamMixin
+from posthog.models.utils import RootTeamManager, RootTeamMixin, UUIDTModel
 
 
 class DashboardTemplateManager(RootTeamManager):

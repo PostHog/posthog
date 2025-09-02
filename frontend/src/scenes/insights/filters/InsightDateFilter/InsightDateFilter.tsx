@@ -13,7 +13,7 @@ type InsightDateFilterProps = {
 }
 
 export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, editingDisabledReason } = useValues(insightLogic)
 
     const { isTrends, dateRange } = useValues(insightVizDataLogic(insightProps))
     const { updateDateRange } = useActions(insightVizDataLogic(insightProps))
@@ -24,6 +24,7 @@ export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Ele
             dateFrom={dateRange?.date_from ?? '-7d'}
             allowTimePrecision
             disabled={disabled}
+            disabledReason={editingDisabledReason}
             onChange={(date_from, date_to, explicit_date) => {
                 updateDateRange({ date_from, date_to, explicitDate: explicit_date })
             }}

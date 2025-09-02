@@ -1,5 +1,5 @@
 from copy import deepcopy
-from typing import Optional, TypeVar, Generic, Any
+from typing import Any, Generic, Optional, TypeVar
 
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectSetNode

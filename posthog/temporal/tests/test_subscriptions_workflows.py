@@ -2,30 +2,33 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from unittest.mock import MagicMock, call, patch
-from django.conf import settings
-from asgiref.sync import sync_to_async
 
 import pytest
 from freezegun import freeze_time
+from unittest.mock import MagicMock, call, patch
+
+from django.conf import settings
+
+from asgiref.sync import sync_to_async
 from temporalio.client import Client
 from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import Worker, UnsandboxedWorkflowRunner
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
 from posthog.models.instance_setting import set_instance_setting
 from posthog.temporal.subscriptions.subscription_scheduling_workflow import (
-    ScheduleAllSubscriptionsWorkflow,
-    HandleSubscriptionValueChangeWorkflow,
     DeliverSubscriptionReportActivityInputs,
-    deliver_subscription_report_activity,
+    HandleSubscriptionValueChangeWorkflow,
+    ScheduleAllSubscriptionsWorkflow,
     ScheduleAllSubscriptionsWorkflowInputs,
+    deliver_subscription_report_activity,
     fetch_due_subscriptions_activity,
 )
+
+from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 

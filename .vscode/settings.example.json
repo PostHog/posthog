@@ -17,5 +17,11 @@
         "*.css": "tailwindcss"
     },
     "mypy-type-checker.importStrategy": "fromEnvironment",
-    "mypy-type-checker.preferDaemon": true
+    "mypy-type-checker.preferDaemon": true,
+    "[python]": {
+        "editor.defaultFormatter": "charliermarsh.ruff",
+        "editor.codeActionsOnSave": {
+            "source.organizeImports.ruff": "explicit"
+        }
+    }
 }

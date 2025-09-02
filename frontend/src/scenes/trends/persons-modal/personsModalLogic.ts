@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
+import { extractValidationError } from '~/queries/nodes/InsightViz/utils'
 import { performQuery } from '~/queries/query'
 import {
     ActorsQuery,
@@ -307,8 +308,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
         validationError: [
             (s) => [s.errorObject],
             (errorObject): string | null => {
-                // We use 512 for query timeouts
-                return errorObject?.status === 400 || errorObject?.status === 512 ? errorObject.detail : null
+                return extractValidationError(errorObject)
             },
         ],
         propertiesTimelineFilterFromUrl: [

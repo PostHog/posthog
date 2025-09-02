@@ -1,8 +1,10 @@
 from langchain_core.runnables import RunnableConfig
 
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from posthog.hogql.context import HogQLContext
 from posthog.schema import AssistantHogQLQuery
+
+from posthog.hogql.context import HogQLContext
+
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
 from ..schema_generator.nodes import SchemaGeneratorNode, SchemaGeneratorToolsNode
 from .mixins import HogQLGeneratorMixin, SQLSchemaGeneratorOutput

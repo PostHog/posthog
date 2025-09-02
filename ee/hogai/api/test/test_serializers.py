@@ -1,11 +1,12 @@
+from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
+
+from posthog.schema import AssistantMessage, AssistantToolCallMessage
 
 from ee.hogai.api.serializers import ConversationSerializer
 from ee.hogai.graph.graph import AssistantGraph
 from ee.hogai.utils.types import AssistantState
 from ee.models.assistant import Conversation
-from posthog.schema import AssistantMessage, AssistantToolCallMessage
-from posthog.test.base import APIBaseTest
 
 
 class TestConversationSerializers(APIBaseTest):

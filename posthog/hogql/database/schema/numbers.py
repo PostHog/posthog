@@ -1,10 +1,6 @@
 from typing import Optional
 
-from posthog.hogql.database.models import (
-    IntegerDatabaseField,
-    FieldOrTable,
-    FunctionCallTable,
-)
+from posthog.hogql.database.models import FieldOrTable, FunctionCallTable, IntegerDatabaseField
 
 NUMBERS_TABLE_FIELDS: dict[str, FieldOrTable] = {
     "number": IntegerDatabaseField(name="number", nullable=False),

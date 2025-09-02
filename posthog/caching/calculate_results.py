@@ -1,24 +1,19 @@
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional, Union
 
-from posthog.schema_migrations.upgrade_manager import upgrade_query
 import structlog
 from pydantic import BaseModel
+
+from posthog.schema import CacheMissResponse, DashboardFilter
+
+from posthog.hogql.constants import LimitContext
 
 from posthog.api.services.query import ExecutionMode, process_query_dict
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql_queries.query_runner import get_query_runner_or_none
-from posthog.models import (
-    Dashboard,
-    DashboardTile,
-    Insight,
-    Team,
-    User,
-)
+from posthog.models import Dashboard, DashboardTile, Insight, Team, User
 from posthog.models.insight import generate_insight_filters_hash
-from posthog.schema import CacheMissResponse, DashboardFilter
-from posthog.hogql.constants import LimitContext
-
+from posthog.schema_migrations.upgrade_manager import upgrade_query
 
 if TYPE_CHECKING:
     from posthog.caching.fetch_from_cache import InsightResult

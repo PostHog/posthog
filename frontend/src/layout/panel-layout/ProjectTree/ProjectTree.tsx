@@ -2,16 +2,18 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { RefObject, useEffect, useRef, useState } from 'react'
 
-import { IconCheckbox, IconChevronRight, IconExternal, IconFolderPlus, IconPlusSmall } from '@posthog/icons'
+import { IconCheckbox, IconChevronRight, IconFolderPlus, IconPlusSmall } from '@posthog/icons'
 
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTree, LemonTreeRef, LemonTreeSize, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     ContextMenuGroup,
@@ -31,12 +33,14 @@ import {
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { openDeleteGroupTypeDialog } from 'scenes/settings/environment/GroupAnalyticsConfig'
 
 import { DashboardsMenuItems } from '~/layout/panel-layout/ProjectTree/menus/DashboardsMenuItems'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { NewMenu } from '~/layout/panel-layout/menus/NewMenu'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
+import { groupAnalyticsConfigLogic } from '~/scenes/settings/environment/groupAnalyticsConfigLogic'
 import { UserBasicType } from '~/types'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
@@ -61,10 +65,6 @@ export interface ProjectTreeProps {
 export const PROJECT_TREE_KEY = 'project-tree'
 let counter = 0
 
-export const isExternalLinkItem = (item: TreeDataItem): boolean => {
-    return item.record?.href && typeof item.record.href === 'string' && item.record.href.startsWith('https://')
-}
-
 export function ProjectTree({
     logicKey,
     root,
@@ -76,6 +76,8 @@ export function ProjectTree({
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
     const { viableItems } = useValues(projectTreeDataLogic)
     const { deleteShortcut, addShortcutItem } = useActions(projectTreeDataLogic)
+    const { groupTypes } = useValues(groupAnalyticsConfigLogic)
+    const { deleteGroupType } = useActions(groupAnalyticsConfigLogic)
     const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root }
     const {
         fullFileSystemFiltered,
@@ -126,7 +128,9 @@ export function ProjectTree({
     const treeRef = useRef<LemonTreeRef>(null)
     const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { setProjectTreeMode } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
+    const { featureFlags } = useValues(featureFlagLogic)
 
+    const canOpenInPostHogTab = !!featureFlags[FEATURE_FLAGS.SCENE_TABS]
     const showFilterDropdown = root === 'project://'
     const showSortDropdown = root === 'project://'
 
@@ -255,7 +259,12 @@ export function ProjectTree({
 
                 {item.record?.path && item.record?.type !== 'folder' && item.record?.href ? (
                     <>
-                        <BrowserLikeMenuItems href={item.record?.href} MenuItem={MenuItem} />
+                        <BrowserLikeMenuItems
+                            href={item.record?.href}
+                            MenuItem={MenuItem}
+                            canOpenInPostHogTab={canOpenInPostHogTab}
+                            resetPanelLayout={resetPanelLayout}
+                        />
                         <MenuSeparator />
                     </>
                 ) : null}
@@ -402,6 +411,26 @@ export function ProjectTree({
                     >
                         <ButtonPrimitive menuItem>Delete folder</ButtonPrimitive>
                     </MenuItem>
+                ) : root === 'persons://' && item.record?.category === 'Groups' && item.record?.href ? (
+                    <MenuItem
+                        asChild
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            const href = item.record?.href as string
+                            const groupTypeIndex = parseInt(href.match(/\/groups\/(\d+)/)?.[1] || '0', 10)
+                            const groupType = Array.from(groupTypes.values()).find(
+                                (gt) => gt.group_type_index === groupTypeIndex
+                            )
+
+                            openDeleteGroupTypeDialog({
+                                onConfirm: () => deleteGroupType(groupTypeIndex),
+                                groupTypeName: groupType?.group_type || item.name || 'group type',
+                            })
+                        }}
+                        data-attr="tree-item-menu-delete-group-button"
+                    >
+                        <ButtonPrimitive menuItem>Delete group type</ButtonPrimitive>
+                    </MenuItem>
                 ) : null}
             </>
         )
@@ -428,14 +457,9 @@ export function ProjectTree({
                     return
                 }
                 if (item?.record?.href) {
-                    const href =
+                    router.actions.push(
                         typeof item.record.href === 'function' ? item.record.href(item.record.ref) : item.record.href
-                    // Check if it's an external link
-                    if (typeof href === 'string' && href.startsWith('https://')) {
-                        window.open(href, '_blank')
-                    } else {
-                        router.actions.push(href)
-                    }
+                    )
                 }
 
                 if (item?.record?.path) {
@@ -522,7 +546,7 @@ export function ProjectTree({
                 return false
             }}
             itemContextMenu={(item) => {
-                if (item.id.startsWith('project-folder-empty/') || isExternalLinkItem(item)) {
+                if (item.id.startsWith('project-folder-empty/')) {
                     return undefined
                 }
 
@@ -533,7 +557,7 @@ export function ProjectTree({
                 )
             }}
             itemSideAction={(item) => {
-                if (item.id.startsWith('project-folder-empty/') || isExternalLinkItem(item)) {
+                if (item.id.startsWith('project-folder-empty/')) {
                     return undefined
                 }
 
@@ -775,8 +799,6 @@ export function ProjectTree({
                                 ))}
                             </>
                         )}
-
-                        {isExternalLinkItem(item) && <IconExternal className="size-4 text-tertiary relative" />}
                     </span>
                 )
             }}

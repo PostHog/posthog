@@ -1,238 +1,209 @@
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
-import { createHash } from 'crypto'
-
 import { resetKafka } from '~/tests/helpers/kafka'
 
-import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
-import { KAFKA_CDP_AGGREGATION_WRITER_EVENTS } from '../../config/kafka-topics'
+import { createAction, getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
+import { KAFKA_CDP_CLICKHOUSE_BEHAVIORAL_COHORTS_MATCHES } from '../../config/kafka-topics'
 import { Hub, RawClickHouseEvent, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
-import { CdpBehaviouralEventsConsumer, ProducedEvent } from './cdp-behavioural-events.consumer'
+import { CdpBehaviouralEventsConsumer } from './cdp-behavioural-events.consumer'
 
 jest.setTimeout(20_000)
 
+const TEST_FILTERS = {
+    // Simple pageview event filter: event == '$pageview'
+    pageview: ['_H', 1, 32, '$pageview', 32, 'event', 1, 1, 11],
+
+    // Chrome browser AND pageview event filter: properties.$browser == 'Chrome' AND event == '$pageview'
+    chromePageview: [
+        '_H',
+        1,
+        32,
+        'Chrome',
+        32,
+        '$browser',
+        32,
+        'properties',
+        1,
+        2,
+        11,
+        32,
+        '$pageview',
+        32,
+        'event',
+        1,
+        1,
+        11,
+        3,
+        2,
+        4,
+        1,
+    ],
+
+    // Complex filter: pageview event AND (Chrome browser contains match OR has IP property)
+    complexChromeWithIp: [
+        '_H',
+        1,
+        32,
+        '$pageview',
+        32,
+        'event',
+        1,
+        1,
+        11,
+        32,
+        '%Chrome%',
+        32,
+        '$browser',
+        32,
+        'properties',
+        1,
+        2,
+        2,
+        'toString',
+        1,
+        18,
+        3,
+        2,
+        32,
+        '$pageview',
+        32,
+        'event',
+        1,
+        1,
+        11,
+        31,
+        32,
+        '$ip',
+        32,
+        'properties',
+        1,
+        2,
+        12,
+        3,
+        2,
+        4,
+        2,
+    ],
+}
+
 describe('CdpBehaviouralEventsConsumer', () => {
-    describe('Event Processing and Publishing', () => {
-        let processor: CdpBehaviouralEventsConsumer
-        let hub: Hub
-        let team: Team
+    let processor: CdpBehaviouralEventsConsumer
+    let hub: Hub
+    let team: Team
 
-        beforeEach(async () => {
-            await resetKafka()
-            await resetTestDatabase()
+    beforeEach(async () => {
+        await resetKafka()
+        await resetTestDatabase()
 
-            hub = await createHub()
-            team = await getFirstTeam(hub)
+        hub = await createHub()
+        team = await getFirstTeam(hub)
 
-            processor = new CdpBehaviouralEventsConsumer(hub)
-            await processor.start()
-        })
+        processor = new CdpBehaviouralEventsConsumer(hub)
+        await processor.start()
 
-        afterEach(async () => {
-            await processor.stop()
-            await closeHub(hub)
-        })
-
-        it('should create both person-performed-event and behavioural-filter-match-event during message parsing', async () => {
-            const personId = '550e8400-e29b-41d4-a716-446655440000'
-            const eventName = '$pageview'
-
-            const messages = [
-                {
-                    value: Buffer.from(
-                        JSON.stringify({
-                            team_id: team.id,
-                            event: eventName,
-                            person_id: personId,
-                            properties: '{"$browser": "Chrome"}',
-                            timestamp: '2023-01-01T00:00:00Z',
-                        } as RawClickHouseEvent)
-                    ),
-                } as any,
-            ]
-
-            // Parse messages which should create both event types
-            const events = await processor._parseKafkaBatch(messages)
-
-            // Check that both events were created
-            expect(events).toHaveLength(2)
-
-            // Check person-performed-event
-            const personEvent = events.find((e) => e.payload.type === 'person-performed-event')
-            expect(personEvent).toBeDefined()
-            expect(personEvent?.key).toBe(`${team.id}:${personId}:${eventName}`)
-            expect(personEvent?.payload).toEqual({
-                type: 'person-performed-event',
-                personId,
-                eventName,
-                teamId: team.id,
-            })
-
-            // Check behavioural-filter-match-event
-            const filterEvent = events.find((e) => e.payload.type === 'behavioural-filter-match-event')
-            expect(filterEvent?.payload.type).toBe('behavioural-filter-match-event')
-            expect(filterEvent?.payload.teamId).toBe(team.id)
-            expect(filterEvent?.payload.personId).toBe(personId)
-        })
-
-        it('should use correct partition keys for both event types', async () => {
-            const personId = '550e8400-e29b-41d4-a716-446655440000'
-            const eventName = '$pageview'
-            const timestamp = '2023-01-01T00:00:00Z'
-            const expectedDate = '2023-01-01'
-
-            const messages = [
-                {
-                    value: Buffer.from(
-                        JSON.stringify({
-                            team_id: team.id,
-                            event: eventName,
-                            person_id: personId,
-                            timestamp,
-                        } as RawClickHouseEvent)
-                    ),
-                } as any,
-            ]
-
-            const events = await processor._parseKafkaBatch(messages)
-
-            // Check person-performed-event partition key: teamId:personId:eventName
-            const personEvent = events.find((e) => e.payload.type === 'person-performed-event')
-            expect(personEvent?.key).toBe(`${team.id}:${personId}:${eventName}`)
-
-            // Check behavioural-filter-match-event partition key: teamId:personId:filterHash:date
-            const filterEvent = events.find((e) => e.payload.type === 'behavioural-filter-match-event')
-            const expectedFilterHash = createHash('sha256').update(eventName).digest('hex')
-            expect(filterEvent?.key).toBe(`${team.id}:${personId}:${expectedFilterHash}:${expectedDate}`)
-        })
-
-        it('should handle missing person_id by throwing error', async () => {
-            const eventName = '$pageview'
-
-            const messages = [
-                {
-                    value: Buffer.from(
-                        JSON.stringify({
-                            team_id: team.id,
-                            event: eventName,
-                            // Missing person_id
-                            timestamp: '2023-01-01T00:00:00Z',
-                        } as RawClickHouseEvent)
-                    ),
-                } as any,
-            ]
-
-            // Should not throw but should log error and not create events
-            const events = await processor._parseKafkaBatch(messages)
-
-            // No events should be created when person_id is missing
-            expect(events).toHaveLength(0)
-        })
+        // Clear any previous mock calls
+        mockProducerObserver.resetKafkaProducer()
     })
 
-    describe('Event Publishing to Kafka', () => {
-        let processor: CdpBehaviouralEventsConsumer
-        let hub: Hub
-        let team: Team
+    afterEach(async () => {
+        await processor.stop()
+        await closeHub(hub)
+        jest.restoreAllMocks()
+    })
 
-        beforeEach(async () => {
-            await resetKafka()
-            await resetTestDatabase()
+    describe('action matching and Kafka publishing', () => {
+        it('should publish behavioral cohort match to Kafka when action matches', async () => {
+            // Create an action with Chrome + pageview filter
+            const actionId = await createAction(hub.postgres, team.id, 'Test action', TEST_FILTERS.chromePageview)
 
-            hub = await createHub()
-            team = await getFirstTeam(hub)
-
-            processor = new CdpBehaviouralEventsConsumer(hub)
-            await processor.start()
-        })
-
-        afterEach(async () => {
-            await processor.stop()
-            await closeHub(hub)
-        })
-
-        it('should publish both event types to Kafka', async () => {
+            // Create a matching event
             const personId = '550e8400-e29b-41d4-a716-446655440000'
-            const eventName = '$pageview'
+            const timestamp = '2025-03-03T10:15:46.319000-08:00'
 
-            // Add events to the queue manually
-            const personEvent: ProducedEvent = {
-                key: `${team.id}:${personId}:${eventName}`,
-                payload: {
-                    type: 'person-performed-event',
-                    personId,
-                    eventName,
-                    teamId: team.id,
-                },
-            }
-
-            const filterHash = createHash('sha256').update(eventName).digest('hex')
-            const date = '2023-01-01'
-            const filterEvent: ProducedEvent = {
-                key: `${team.id}:${personId}:${filterHash}:${date}`,
-                payload: {
-                    type: 'behavioural-filter-match-event',
-                    teamId: team.id,
-                    personId,
-                    filterHash,
-                    date,
-                },
-            }
-
-            // Publish the events
-            await processor['publishEvents']([personEvent, filterEvent])
-
-            // Check published messages
-            const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_CDP_AGGREGATION_WRITER_EVENTS)
-            expect(messages).toHaveLength(2)
-
-            // Check person-performed-event
-            const personMessage = messages.find(
-                (m) => (m.value as ProducedEvent).payload.type === 'person-performed-event'
-            )
-            expect(personMessage?.key).toBe(`${team.id}:${personId}:${eventName}`)
-            expect(personMessage?.value).toEqual(personEvent)
-
-            // Check behavioural-filter-match-event
-            const filterMessage = messages.find(
-                (m) => (m.value as ProducedEvent).payload.type === 'behavioural-filter-match-event'
-            )
-            expect(filterMessage?.key).toBe(`${team.id}:${personId}:${filterHash}:${date}`)
-            expect(filterMessage?.value).toEqual(filterEvent)
-        })
-
-        it('should handle multiple events with correct partitioning', async () => {
-            const events: ProducedEvent[] = [
+            const messages = [
                 {
-                    key: '1:person1:event1',
-                    payload: { type: 'person-performed-event', personId: 'person1', eventName: 'event1', teamId: 1 },
-                },
-                {
-                    key: '2:person2:event2',
-                    payload: { type: 'person-performed-event', personId: 'person2', eventName: 'event2', teamId: 2 },
-                },
-                {
-                    key: '1:person3:event3',
-                    payload: { type: 'person-performed-event', personId: 'person3', eventName: 'event3', teamId: 1 },
-                },
+                    value: Buffer.from(
+                        JSON.stringify({
+                            team_id: team.id,
+                            event: '$pageview',
+                            person_id: personId,
+                            properties: JSON.stringify({ $browser: 'Chrome' }),
+                            timestamp,
+                            uuid: 'test-uuid-1',
+                        } as RawClickHouseEvent)
+                    ),
+                } as any,
             ]
 
+            // Parse messages which should create behavioral cohort match events
+            const events = await processor._parseKafkaBatch(messages)
+
+            // Should create one match event for the matching action
+            expect(events).toHaveLength(1)
+
+            const matchEvent = events[0]
+            expect(matchEvent.key).toBe(personId) // Partitioned by person_id
+
+            // Hash the action bytecode to get expected condition
+            const expectedCondition = processor['createFilterHash'](TEST_FILTERS.chromePageview)
+
+            expect(matchEvent.payload).toMatchObject({
+                team_id: team.id,
+                cohort_id: actionId, // Using action ID as cohort_id
+                person_id: personId,
+                condition: expectedCondition,
+                latest_event_is_match: true,
+            })
+
+            // Test publishing the events to Kafka
             await processor['publishEvents'](events)
 
-            // Check published messages
-            const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_CDP_AGGREGATION_WRITER_EVENTS)
-            expect(messages).toHaveLength(3)
+            // Check published messages to Kafka
+            const kafkaMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(
+                KAFKA_CDP_CLICKHOUSE_BEHAVIORAL_COHORTS_MATCHES
+            )
+            expect(kafkaMessages).toHaveLength(1)
 
-            // Verify messages have correct keys for partitioning
-            expect(messages[0].key).toBe('1:person1:event1')
-            expect(messages[1].key).toBe('2:person2:event2')
-            expect(messages[2].key).toBe('1:person3:event3')
+            const publishedMessage = kafkaMessages[0]
+            expect(publishedMessage.key).toBe(personId)
+            expect(publishedMessage.value).toEqual(matchEvent.payload)
+        })
 
-            // Verify message contents
-            expect(messages[0].value).toEqual(events[0])
-            expect(messages[1].value).toEqual(events[1])
-            expect(messages[2].value).toEqual(events[2])
+        it('should not publish to Kafka when action does not match', async () => {
+            // Create an action with Chrome + pageview filter
+            await createAction(hub.postgres, team.id, 'Test action', TEST_FILTERS.chromePageview)
+
+            // Create a non-matching event (Firefox instead of Chrome)
+            const personId = '550e8400-e29b-41d4-a716-446655440000'
+
+            const messages = [
+                {
+                    value: Buffer.from(
+                        JSON.stringify({
+                            team_id: team.id,
+                            event: '$pageview',
+                            person_id: personId,
+                            properties: JSON.stringify({ $browser: 'Firefox' }), // Different browser
+                            timestamp: '2025-03-03T10:15:46.319000-08:00',
+                            uuid: 'test-uuid-2',
+                        } as RawClickHouseEvent)
+                    ),
+                } as any,
+            ]
+
+            // Parse messages
+            const events = await processor._parseKafkaBatch(messages)
+
+            // Should not create any events since action doesn't match
+            expect(events).toHaveLength(0)
+
+            // Verify nothing was published to Kafka
+            await processor['publishEvents'](events)
+            const kafkaMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(
+                KAFKA_CDP_CLICKHOUSE_BEHAVIORAL_COHORTS_MATCHES
+            )
+            expect(kafkaMessages).toHaveLength(0)
         })
     })
 })
