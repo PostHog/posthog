@@ -154,14 +154,18 @@ class TestSessionSummarizationNode(BaseTest):
         mock_query_runner = self._create_mock_query_runner([{"session_id": "session-1"}])
         mock_query_runner_class.return_value = mock_query_runner
 
-        result = self.node._get_session_ids_with_filters(mock_filters)
+        # First convert MaxRecordingUniversalFilters to RecordingsQuery
+        recordings_query = self.node._convert_max_filters_to_recordings_query(mock_filters)
+        result = self.node._get_session_ids_with_filters(recordings_query)
 
         self.assertEqual(result, ["session-1"])
 
         # Verify duration filters were converted to having_predicates
         call_args = mock_query_runner_class.call_args
-        self.assertIsNotNone(call_args[1]["query"].having_predicates)
-        self.assertEqual(len(call_args[1]["query"].having_predicates), 2)
+        # The query parameter should have having_predicates
+        query_param = call_args[1]["query"]
+        self.assertIsNotNone(query_param.having_predicates)
+        self.assertEqual(len(query_param.having_predicates), 2)
 
     @patch("ee.hogai.graph.session_summaries.nodes.execute_summarize_session")
     def test_summarize_sessions_individually(self, mock_execute_summarize: MagicMock) -> None:
@@ -372,6 +376,7 @@ class TestSessionSummarizationNode(BaseTest):
         state = self._create_test_state(query="test query", should_use_current_filters=True)
 
         # Provide contextual filters - need to match MaxRecordingUniversalFilters structure
+        # The filter_group needs to have nested structure with at least one group
         config = cast(
             RunnableConfig,
             {
@@ -384,7 +389,15 @@ class TestSessionSummarizationNode(BaseTest):
                                 "date_to": "2024-01-31",
                                 "filter_test_accounts": True,
                                 "duration": [],
-                                "filter_group": {"type": "AND", "values": []},
+                                "filter_group": {
+                                    "type": "AND",
+                                    "values": [
+                                        {
+                                            "type": "AND",
+                                            "values": [],  # Empty filters inside the group
+                                        }
+                                    ],
+                                },
                             }
                         }
                     },
@@ -448,7 +461,7 @@ class TestSessionSummarizationNode(BaseTest):
         self.assertEqual(message.content, "No sessions were found.")
 
 
-# @snapshot_clickhouse_queries
+# TODO: Avoid random generations to be able to snapshot
 class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest):
     @freeze_time("2025-09-03T12:00:00")
     def setUp(self) -> None:
