@@ -19,7 +19,7 @@ export function BatchExportsMetrics({ id }: { id: string }): JSX.Element {
         forceParams: {
             appSource: 'batch_export',
             appSourceId: id,
-            metricName: ['succeeded', 'failed'],
+            metricName: Object.keys(METRICS_INFO),
             breakdownBy: 'metric_name',
         },
     })

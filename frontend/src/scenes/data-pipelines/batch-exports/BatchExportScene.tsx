@@ -127,14 +127,12 @@ export function BatchExportScene(): JSX.Element {
                   label: 'Logs',
                   key: 'logs',
                   content: (
-                      <>
-                          <FlaggedFeature
-                              flag="batch-export-new-logs"
-                              fallback={<PipelineNodeLogs id={id} stage={PipelineStage.Destination} />}
-                          >
-                              <LogsViewer sourceType="batch_export" sourceId={id} instanceLabel="run" />
-                          </FlaggedFeature>
-                      </>
+                      <FlaggedFeature
+                          flag="batch-export-new-logs"
+                          fallback={<PipelineNodeLogs id={id} stage={PipelineStage.Destination} />}
+                      >
+                          <LogsViewer sourceType="batch_export" sourceId={id} instanceLabel="run" />
+                      </FlaggedFeature>
                   ),
               }
             : null,
