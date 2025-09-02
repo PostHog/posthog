@@ -11,7 +11,7 @@ from posthog.hogql import ast
 from posthog.hogql.database.schema.exchange_rate import EXCHANGE_RATE_DECIMAL_PRECISION
 from posthog.hogql.query import execute_hogql_query
 
-from products.revenue_analytics.backend.views import RevenueAnalyticsRevenueItemView
+from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView, RevenueAnalyticsRevenueItemView
 
 from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
 
@@ -83,7 +83,7 @@ class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner[RevenueAna
             select_from=ast.JoinExpr(table=ast.SelectSetQuery.create_from_queries(queries, set_operator="UNION ALL")),
         )
 
-    def _to_query_from(self, view: RevenueAnalyticsRevenueItemView) -> ast.SelectQuery:
+    def _to_query_from(self, view: RevenueAnalyticsBaseView) -> ast.SelectQuery:
         query = ast.SelectQuery(
             select=[
                 ast.Alias(

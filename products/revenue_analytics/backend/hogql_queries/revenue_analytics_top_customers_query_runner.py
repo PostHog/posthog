@@ -8,7 +8,11 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
-from products.revenue_analytics.backend.views import RevenueAnalyticsCustomerView, RevenueAnalyticsRevenueItemView
+from products.revenue_analytics.backend.views import (
+    RevenueAnalyticsBaseView,
+    RevenueAnalyticsCustomerView,
+    RevenueAnalyticsRevenueItemView,
+)
 
 from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
 
@@ -25,7 +29,7 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner[Revenu
         queries = [self._to_query_from(subquery) for subquery in subqueries]
         return ast.SelectSetQuery.create_from_queries(queries, set_operator="UNION ALL")
 
-    def _to_query_from(self, view: RevenueAnalyticsRevenueItemView) -> ast.SelectQuery:
+    def _to_query_from(self, view: RevenueAnalyticsBaseView) -> ast.SelectQuery:
         is_monthly_grouping = self.query.groupBy == "month"
 
         with self.timings.measure("inner_query"):
@@ -90,7 +94,7 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner[Revenu
 
         return query
 
-    def inner_query(self, view: RevenueAnalyticsRevenueItemView) -> ast.SelectQuery:
+    def inner_query(self, view: RevenueAnalyticsBaseView) -> ast.SelectQuery:
         query = ast.SelectQuery(
             select=[
                 ast.Alias(

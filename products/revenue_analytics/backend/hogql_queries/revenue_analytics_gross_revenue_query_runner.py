@@ -13,7 +13,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date
 
-from products.revenue_analytics.backend.views import RevenueAnalyticsRevenueItemView
+from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView, RevenueAnalyticsRevenueItemView
 
 from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
 
@@ -22,7 +22,7 @@ class RevenueAnalyticsGrossRevenueQueryRunner(RevenueAnalyticsQueryRunner[Revenu
     query: RevenueAnalyticsGrossRevenueQuery
     cached_response: CachedRevenueAnalyticsGrossRevenueQueryResponse
 
-    def to_query(self) -> ast.SelectQuery:
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         subqueries = self.revenue_subqueries(RevenueAnalyticsRevenueItemView)
         if not subqueries:
             return ast.SelectQuery.empty(columns=["breakdown_by", "period_start", "amount"])
@@ -30,7 +30,7 @@ class RevenueAnalyticsGrossRevenueQueryRunner(RevenueAnalyticsQueryRunner[Revenu
         queries = [self._to_query_from(subquery) for subquery in subqueries]
         return ast.SelectSetQuery.create_from_queries(queries, set_operator="UNION ALL")
 
-    def _to_query_from(self, view: RevenueAnalyticsRevenueItemView) -> ast.SelectQuery:
+    def _to_query_from(self, view: RevenueAnalyticsBaseView) -> ast.SelectQuery:
         query = ast.SelectQuery(
             select=[
                 self._build_breakdown_expr(

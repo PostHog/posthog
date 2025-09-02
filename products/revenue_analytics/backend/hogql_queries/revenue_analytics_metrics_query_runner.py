@@ -14,7 +14,11 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
 
-from products.revenue_analytics.backend.views import RevenueAnalyticsRevenueItemView, RevenueAnalyticsSubscriptionView
+from products.revenue_analytics.backend.views import (
+    RevenueAnalyticsBaseView,
+    RevenueAnalyticsRevenueItemView,
+    RevenueAnalyticsSubscriptionView,
+)
 
 from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
 
@@ -69,8 +73,8 @@ class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
 
     def _to_query_from(
         self,
-        subscription_view: RevenueAnalyticsSubscriptionView,
-        revenue_item_view: Optional[RevenueAnalyticsRevenueItemView],
+        subscription_view: RevenueAnalyticsBaseView,
+        revenue_item_view: Optional[RevenueAnalyticsBaseView],
     ) -> ast.SelectQuery:
         with self.timings.measure("get_subquery"):
             subquery = self._get_subquery(subscription_view, revenue_item_view)
@@ -231,8 +235,8 @@ class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
 
     def _get_subquery(
         self,
-        subscription_view: RevenueAnalyticsSubscriptionView,
-        revenue_item_view: Optional[RevenueAnalyticsRevenueItemView],
+        subscription_view: RevenueAnalyticsBaseView,
+        revenue_item_view: Optional[RevenueAnalyticsBaseView],
     ) -> ast.SelectQuery:
         with self.timings.measure("subquery"):
             dates_expr = self._dates_expr()

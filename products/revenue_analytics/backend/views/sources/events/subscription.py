@@ -16,9 +16,9 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
 
         if event.subscriptionProperty is None:
             yield BuiltQuery(
-                key=event.eventName,
+                key=f"{event.eventName}.no_property",
                 prefix=prefix,
-                query=ast.SelectQuery.empty(columns=SUBSCRIPTION_SCHEMA.fields.keys()),
+                query=ast.SelectQuery.empty(columns=list(SUBSCRIPTION_SCHEMA.fields.keys())),
             )
             continue
 

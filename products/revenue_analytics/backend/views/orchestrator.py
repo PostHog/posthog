@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Iterable
+from typing import cast
 
 from django.db.models import Prefetch
 
@@ -58,7 +59,7 @@ def _query_to_view(
         id = name = view_name_for_event(query.key, schema.events_suffix)
     else:
         id = query.key  # Stable key (i.e. table.id)
-        name = view_name_for_source(handle.source, schema.source_suffix)
+        name = view_name_for_source(cast(ExternalDataSource, handle.source), schema.source_suffix)
 
     return view_cls(
         id=id,

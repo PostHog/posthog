@@ -43,17 +43,17 @@ EARLIEST_TIMESTAMP = datetime.fromisoformat("2015-01-01T00:00:00Z")
 
 # Not all filter/breakdown properties can be accessed from all views
 FILTERS_AVAILABLE_REVENUE_ITEM_VIEW: list[DatabaseSchemaManagedViewTableKind] = [
-    "revenue_analytics_charge",
-    "revenue_analytics_customer",
-    "revenue_analytics_subscription",
-    "revenue_analytics_product",
-    "revenue_analytics_revenue_item",
+    DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CHARGE,
+    DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER,
+    DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_SUBSCRIPTION,
+    DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_PRODUCT,
+    DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM,
 ]
 
 FILTERS_AVAILABLE_SUBSCRIPTION_VIEW: list[DatabaseSchemaManagedViewTableKind] = [
-    "revenue_analytics_customer",
-    "revenue_analytics_product",
-    "revenue_analytics_subscription",
+    DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER,
+    DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_PRODUCT,
+    DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_SUBSCRIPTION,
 ]
 
 
@@ -164,27 +164,27 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
         )
 
     def _with_where_property_joins(self, join_expr: ast.JoinExpr, join_from: RevenueAnalyticsBaseView) -> ast.JoinExpr:
-        return self._with_joins(join_expr, join_from.__class__, self.joins_set_for_properties(join_from.__class__))
+        return self._with_joins(join_expr, join_from, self.joins_set_for_properties(join_from.__class__))
 
     def _with_where_breakdown_joins(self, join_expr: ast.JoinExpr, join_from: RevenueAnalyticsBaseView) -> ast.JoinExpr:
-        return self._with_joins(join_expr, join_from.__class__, self.joins_set_for_breakdown(join_from.__class__))
+        return self._with_joins(join_expr, join_from, self.joins_set_for_breakdown(join_from.__class__))
 
     def _with_joins(
-        self, join_expr: ast.JoinExpr, join_from: type[RevenueAnalyticsBaseView], joins_set: set[str]
+        self, join_expr: ast.JoinExpr, join_from: RevenueAnalyticsBaseView, joins_set: set[str]
     ) -> ast.JoinExpr:
         joins = []
         for join in joins_set:
             join_to_add: ast.JoinExpr | None = None
-            if join == "revenue_analytics_charge" and join_from != RevenueAnalyticsChargeView:
+            if join == "revenue_analytics_charge" and join_from.__class__ != RevenueAnalyticsChargeView:
                 join_to_add = self._create_charge_join(join_from)
-            elif join == "revenue_analytics_customer" and join_from != RevenueAnalyticsCustomerView:
+            elif join == "revenue_analytics_customer" and join_from.__class__ != RevenueAnalyticsCustomerView:
                 join_to_add = self._create_customer_join(join_from)
-            elif join == "revenue_analytics_product" and join_from != RevenueAnalyticsProductView:
+            elif join == "revenue_analytics_product" and join_from.__class__ != RevenueAnalyticsProductView:
                 join_to_add = self._create_product_join(join_from)
-            elif join == "revenue_analytics_revenue_item" and join_from != RevenueAnalyticsRevenueItemView:
+            elif join == "revenue_analytics_revenue_item" and join_from.__class__ != RevenueAnalyticsRevenueItemView:
                 # Can never join TO revenue_item because it's N:N
                 pass
-            elif join == "revenue_analytics_subscription" and join_from != RevenueAnalyticsSubscriptionView:
+            elif join == "revenue_analytics_subscription" and join_from.__class__ != RevenueAnalyticsSubscriptionView:
                 join_to_add = self._create_subscription_join(join_from)
 
             if join_to_add is not None:
@@ -303,10 +303,11 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
     ) -> Iterable[RevenueAnalyticsBaseView]:
         for view_name in self.database.get_views():
             view = self.database.get_table(view_name)
-            if ViewKind is None:
-                yield view
-            elif isinstance(view, ViewKind) and view.union_all == union:
-                yield view
+            if isinstance(view, RevenueAnalyticsBaseView):
+                if ViewKind is None:
+                    yield view
+                elif isinstance(view, ViewKind) and view.union_all == union:
+                    yield view
 
     @cached_property
     def query_date_range(self):
@@ -411,7 +412,9 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
         expr: ast.Expr = field
 
         for breakdown in self.parsed_breakdown_from(join_from.__class__):
-            breakdown_expr = ast.Field(chain=breakdown.property.split("."))
+            # dumb assertion because mypy is dumb, praying for ty coming soon
+            chain: list[str | int] = breakdown.property.split(".")
+            breakdown_expr = ast.Field(chain=chain)
             expr = ast.Call(
                 name="concat",
                 args=[

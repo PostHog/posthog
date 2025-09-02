@@ -27,14 +27,14 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
     subscription_schema = next((schema for schema in schemas if schema.name == STRIPE_SUBSCRIPTION_RESOURCE_NAME), None)
     if subscription_schema is None:
         yield BuiltQuery(
-            key=f"{prefix}.no_source", prefix=prefix, query=ast.SelectQuery.empty(columns=SCHEMA.fields.keys())
+            key=f"{prefix}.no_source", prefix=prefix, query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys()))
         )
         return
 
     subscription_schema = cast(ExternalDataSchema, subscription_schema)
     if subscription_schema.table is None:
         yield BuiltQuery(
-            key=f"{prefix}.no_table", prefix=prefix, query=ast.SelectQuery.empty(columns=SCHEMA.fields.keys())
+            key=f"{prefix}.no_table", prefix=prefix, query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys()))
         )
         return
 

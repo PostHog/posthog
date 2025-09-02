@@ -18,7 +18,11 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date
 
-from products.revenue_analytics.backend.views import RevenueAnalyticsRevenueItemView, RevenueAnalyticsSubscriptionView
+from products.revenue_analytics.backend.views import (
+    RevenueAnalyticsBaseView,
+    RevenueAnalyticsRevenueItemView,
+    RevenueAnalyticsSubscriptionView,
+)
 
 from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
 
@@ -51,7 +55,7 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
         queries = [self._to_query_from(subquery) for subquery in subqueries]
         return ast.SelectSetQuery.create_from_queries(queries, set_operator="UNION ALL")
 
-    def _to_query_from(self, view: RevenueAnalyticsRevenueItemView) -> ast.SelectQuery:
+    def _to_query_from(self, view: RevenueAnalyticsBaseView) -> ast.SelectQuery:
         with self.timings.measure("subquery"):
             subquery = self._get_subquery(view)
             if subquery is None:
@@ -87,7 +91,7 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
             limit=ast.Constant(value=10000),
         )
 
-    def _get_subquery(self, view: RevenueAnalyticsRevenueItemView) -> ast.SelectQuery | None:
+    def _get_subquery(self, view: RevenueAnalyticsBaseView) -> ast.SelectQuery | None:
         with self.timings.measure("mrr_per_day_subquery"):
             mrr_per_day_subquery = self._mrr_per_day_subquery(view)
             if mrr_per_day_subquery is None:
@@ -192,7 +196,7 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
     # so that we can know what's our MRR on each day (by summing up the amounts on each day)
     # This is extremely memory-intensive, but it's the best way to get the MRR to work
     # We'll need to improve this and materialize it in the future
-    def _mrr_per_day_subquery(self, view: RevenueAnalyticsRevenueItemView) -> ast.SelectQuery | None:
+    def _mrr_per_day_subquery(self, view: RevenueAnalyticsBaseView) -> ast.SelectQuery | None:
         with self.timings.measure("mrr_per_day_subquery"):
             map_query = self._revenue_map_subquery(view)
             if map_query is None:
@@ -269,7 +273,7 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
 
     # Create a map of (date, amount) for each customer and subscription
     # This is useful because we can use it to know what's the MRR on each day
-    def _revenue_map_subquery(self, view: RevenueAnalyticsRevenueItemView) -> ast.SelectQuery | None:
+    def _revenue_map_subquery(self, view: RevenueAnalyticsBaseView) -> ast.SelectQuery | None:
         with self.timings.measure("revenue_item_subquery"):
             subquery = self._revenue_item_subquery(view)
             if subquery is None:
@@ -354,7 +358,7 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
     # This is slightly more complicated than normal because we need to include some extra 0-revenue
     # items at the end of the query for all of the subscriptions which ended in this period
     # to allow us to properly calculate churn
-    def _revenue_item_subquery(self, view: RevenueAnalyticsRevenueItemView) -> ast.SelectQuery | ast.SelectSetQuery:
+    def _revenue_item_subquery(self, view: RevenueAnalyticsBaseView) -> ast.SelectQuery | ast.SelectSetQuery:
         queries: list[ast.SelectQuery | ast.SelectSetQuery] = [
             ast.SelectQuery(
                 select=[ast.Field(chain=["*"])],

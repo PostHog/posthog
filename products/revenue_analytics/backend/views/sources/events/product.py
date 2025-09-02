@@ -14,9 +14,9 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
 
         if not event.productProperty:
             yield BuiltQuery(
-                key=event.eventName,
+                key=f"{event.eventName}.no_property",
                 prefix=prefix,
-                query=ast.SelectQuery.empty(columns=PRODUCT_SCHEMA.fields.keys()),
+                query=ast.SelectQuery.empty(columns=list(PRODUCT_SCHEMA.fields.keys())),
             )
             continue
 

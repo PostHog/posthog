@@ -30,14 +30,14 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
     charge_schema = next((schema for schema in schemas if schema.name == STRIPE_CHARGE_RESOURCE_NAME), None)
     if charge_schema is None:
         yield BuiltQuery(
-            key=f"{prefix}.no_source", prefix=prefix, query=ast.SelectQuery.empty(columns=SCHEMA.fields.keys())
+            key=f"{prefix}.no_source", prefix=prefix, query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys()))
         )
         return
 
     charge_schema = cast(ExternalDataSchema, charge_schema)
     if charge_schema.table is None:
         yield BuiltQuery(
-            key=f"{prefix}.no_table", prefix=prefix, query=ast.SelectQuery.empty(columns=SCHEMA.fields.keys())
+            key=f"{prefix}.no_table", prefix=prefix, query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys()))
         )
         return
 

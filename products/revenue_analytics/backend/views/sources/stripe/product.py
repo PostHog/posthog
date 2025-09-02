@@ -24,14 +24,14 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
     product_schema = next((schema for schema in schemas if schema.name == STRIPE_PRODUCT_RESOURCE_NAME), None)
     if product_schema is None:
         yield BuiltQuery(
-            key=f"{prefix}.no_source", prefix=prefix, query=ast.SelectQuery.empty(columns=SCHEMA.fields.keys())
+            key=f"{prefix}.no_source", prefix=prefix, query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys()))
         )
         return
 
     product_schema = cast(ExternalDataSchema, product_schema)
     if product_schema.table is None:
         yield BuiltQuery(
-            key=f"{prefix}.no_table", prefix=prefix, query=ast.SelectQuery.empty(columns=SCHEMA.fields.keys())
+            key=f"{prefix}.no_table", prefix=prefix, query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys()))
         )
         return
 

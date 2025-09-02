@@ -113,7 +113,7 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
 
     if invoice_schema is None and charge_schema is None:
         yield BuiltQuery(
-            key=f"{prefix}.no_source", prefix=prefix, query=ast.SelectQuery.empty(columns=SCHEMA.fields.keys())
+            key=f"{prefix}.no_source", prefix=prefix, query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys()))
         )
         return
 
@@ -132,7 +132,7 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
         team = charge_table.team
     else:
         yield BuiltQuery(
-            key=f"{prefix}.no_table", prefix=prefix, query=ast.SelectQuery.empty(columns=SCHEMA.fields.keys())
+            key=f"{prefix}.no_table", prefix=prefix, query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys()))
         )
         return
 
@@ -461,7 +461,7 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
     ]
     if len(queries) == 0:
         yield BuiltQuery(
-            key=f"{prefix}.no_query", prefix=prefix, query=ast.SelectQuery.empty(columns=SCHEMA.fields.keys())
+            key=f"{prefix}.no_query", prefix=prefix, query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys()))
         )
         return
 
