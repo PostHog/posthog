@@ -136,6 +136,18 @@ class ResourcePayloadSerializer(serializers.Serializer):
     )
 
 
+class ResourceResponseSerializer(serializers.Serializer):
+    id = serializers.CharField()
+    productId = serializers.CharField()
+    name = serializers.CharField()
+    metadata = serializers.DictField()
+    status = serializers.CharField()
+    billingPlan = VercelBillingPlanSerializer(required=False, allow_null=True)
+    notification = VercelNotificationSerializer(required=False)
+    secrets = serializers.ListField(child=VercelSecretSerializer(), required=False)
+    protocolSettings = VercelProtocolSettingsSerializer(required=False)
+
+
 def validate_resource_id(resource_id: str | None) -> str:
     if not resource_id or not resource_id.isdigit() or int(resource_id) <= 0:
         raise exceptions.ValidationError({"resource_id": "Invalid Resource ID"})
@@ -160,6 +172,11 @@ class VercelResourceViewSet(VercelErrorResponseMixin, viewsets.GenericViewSet):
         requested_installation = VercelIntegration._get_installation(installation_id)
         VercelIntegration._validate_resource_belongs_to_installation(resource, requested_installation)
 
+    def _validate_response_format(self, data: dict[str, Any]) -> dict[str, Any]:
+        serializer = ResourceResponseSerializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        return serializer.validated_data
+
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         https://vercel.com/docs/integrations/create-integration/marketplace-api#provision-resource
@@ -169,7 +186,8 @@ class VercelResourceViewSet(VercelErrorResponseMixin, viewsets.GenericViewSet):
 
         installation_id = validate_installation_id(self.kwargs.get("parent_lookup_installation_id"))
         response_data = VercelIntegration.create_resource(installation_id, serializer.validated_data)
-        return Response(response_data, status=200)
+        validated_response = self._validate_response_format(response_data)
+        return Response(validated_response, status=200)
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
@@ -180,7 +198,8 @@ class VercelResourceViewSet(VercelErrorResponseMixin, viewsets.GenericViewSet):
         self._validate_resource_access(resource_id, installation_id)
 
         response_data = VercelIntegration.get_resource(resource_id)
-        return Response(response_data, status=200)
+        validated_response = self._validate_response_format(response_data)
+        return Response(validated_response, status=200)
 
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
@@ -194,7 +213,8 @@ class VercelResourceViewSet(VercelErrorResponseMixin, viewsets.GenericViewSet):
         self._validate_resource_access(resource_id, installation_id)
 
         response_data = VercelIntegration.update_resource(resource_id, serializer.validated_data)
-        return Response(response_data, status=200)
+        validated_response = self._validate_response_format(response_data)
+        return Response(validated_response, status=200)
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """

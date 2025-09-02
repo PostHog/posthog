@@ -122,7 +122,13 @@ class TestVercelResourceAPI(VercelTestBase):
 
     @patch("ee.vercel.integration.VercelIntegration.create_resource")
     def test_create_resource(self, mock_create):
-        mock_create.return_value = {"id": "new_resource", "status": "ready"}
+        mock_create.return_value = {
+            "id": "new_resource",
+            "productId": "posthog",
+            "name": "New Resource",
+            "metadata": {},
+            "status": "ready",
+        }
 
         data = {"productId": "posthog", "name": "New Resource", "billingPlanId": "free", "metadata": {}}
         url = f"{self.primary_resource['base_url']}/"
@@ -134,7 +140,13 @@ class TestVercelResourceAPI(VercelTestBase):
 
     @patch("ee.vercel.integration.VercelIntegration.get_resource")
     def test_get_resource(self, mock_get):
-        mock_get.return_value = {"id": self.primary_resource["resource_id"], "status": "ready"}
+        mock_get.return_value = {
+            "id": self.primary_resource["resource_id"],
+            "productId": "posthog",
+            "name": "Test Resource",
+            "metadata": {},
+            "status": "ready",
+        }
 
         headers = self.auth_headers(self.installation_id, "system")
         response = self.client.get(self.primary_resource["resource_url"], **headers)
@@ -144,7 +156,13 @@ class TestVercelResourceAPI(VercelTestBase):
 
     @patch("ee.vercel.integration.VercelIntegration.update_resource")
     def test_update_resource(self, mock_update):
-        mock_update.return_value = {"id": self.primary_resource["resource_id"], "name": "Updated"}
+        mock_update.return_value = {
+            "id": self.primary_resource["resource_id"],
+            "productId": "posthog",
+            "name": "Updated Resource",
+            "metadata": {},
+            "status": "ready",
+        }
 
         data = {"name": "Updated Resource", "metadata": {}}
         response = self.request("patch", self.primary_resource["resource_url"], data)
