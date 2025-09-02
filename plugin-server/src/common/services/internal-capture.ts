@@ -68,6 +68,6 @@ export class InternalCaptureService {
     }
 
     async captureMany(events: InternalCaptureEvent[]): Promise<void> {
-        await Promise.all(events.map(this.capture))
+        await Promise.all(events.map((e) => this.capture(e)))
     }
 }
