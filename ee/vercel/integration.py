@@ -45,6 +45,16 @@ class VercelIntegration:
             raise exceptions.ValidationError({"resource": "Resource does not belong to this installation."})
 
     @staticmethod
+    def _get_resource_with_installation(resource_id: str) -> tuple[Integration, OrganizationIntegration]:
+        resource = VercelIntegration._get_resource(resource_id)
+        installation = VercelIntegration._get_installation(
+            resource.team.organization.organizationintegration_set.get(
+                kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL
+            ).integration_id
+        )
+        return resource, installation
+
+    @staticmethod
     def get_vercel_plans() -> list[dict[str, Any]]:
         # TODO: Retrieve through billing service instead.
         return [
@@ -272,18 +282,14 @@ class VercelIntegration:
         return VercelIntegration._build_resource_response(resource, installation)
 
     @staticmethod
-    def get_resource(resource_id: str, installation_id: str) -> dict[str, Any]:
-        resource = VercelIntegration._get_resource(resource_id)
-        installation = VercelIntegration._get_installation(installation_id)
-        VercelIntegration._validate_resource_belongs_to_installation(resource, installation)
+    def get_resource(resource_id: str) -> dict[str, Any]:
+        resource, installation = VercelIntegration._get_resource_with_installation(resource_id)
         return VercelIntegration._build_resource_response(resource, installation)
 
     @staticmethod
-    def update_resource(resource_id: str, installation_id: str, resource_data: dict[str, Any]) -> dict[str, Any]:
-        logger.info("Starting Vercel resource update", resource_id=resource_id, installation_id=installation_id)
-        resource = VercelIntegration._get_resource(resource_id)
-        installation = VercelIntegration._get_installation(installation_id)
-        VercelIntegration._validate_resource_belongs_to_installation(resource, installation)
+    def update_resource(resource_id: str, resource_data: dict[str, Any]) -> dict[str, Any]:
+        logger.info("Starting Vercel resource update", resource_id=resource_id)
+        resource, installation = VercelIntegration._get_resource_with_installation(resource_id)
 
         updated_config = copy.deepcopy(resource.config)
         updated_config.update(resource_data)
@@ -294,14 +300,9 @@ class VercelIntegration:
         return VercelIntegration._build_resource_response(resource, installation)
 
     @staticmethod
-    def delete_resource(resource_id: str, installation_id: str | None = None) -> None:
-        logger.info("Starting Vercel resource deletion", resource_id=resource_id, installation_id=installation_id)
-        resource = VercelIntegration._get_resource(resource_id)
-
-        if installation_id:
-            installation = VercelIntegration._get_installation(installation_id)
-            VercelIntegration._validate_resource_belongs_to_installation(resource, installation)
-
+    def delete_resource(resource_id: str) -> None:
+        logger.info("Starting Vercel resource deletion", resource_id=resource_id)
+        resource, _ = VercelIntegration._get_resource_with_installation(resource_id)
         resource.delete()
         logger.info("Successfully deleted Vercel resource", resource_id=resource_id)
 

@@ -155,6 +155,11 @@ class VercelResourceViewSet(VercelErrorResponseMixin, viewsets.GenericViewSet):
         "retrieve": ["system"],
     }
 
+    def _validate_resource_access(self, resource_id: str, installation_id: str) -> None:
+        resource = VercelIntegration._get_resource(resource_id)
+        requested_installation = VercelIntegration._get_installation(installation_id)
+        VercelIntegration._validate_resource_belongs_to_installation(resource, requested_installation)
+
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         https://vercel.com/docs/integrations/create-integration/marketplace-api#provision-resource
@@ -172,7 +177,9 @@ class VercelResourceViewSet(VercelErrorResponseMixin, viewsets.GenericViewSet):
         """
         resource_id = validate_resource_id(self.kwargs.get("resource_id"))
         installation_id = validate_installation_id(self.kwargs.get("parent_lookup_installation_id"))
-        response_data = VercelIntegration.get_resource(resource_id, installation_id)
+        self._validate_resource_access(resource_id, installation_id)
+
+        response_data = VercelIntegration.get_resource(resource_id)
         return Response(response_data, status=200)
 
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -184,7 +191,9 @@ class VercelResourceViewSet(VercelErrorResponseMixin, viewsets.GenericViewSet):
 
         resource_id = validate_resource_id(self.kwargs.get("resource_id"))
         installation_id = validate_installation_id(self.kwargs.get("parent_lookup_installation_id"))
-        response_data = VercelIntegration.update_resource(resource_id, installation_id, serializer.validated_data)
+        self._validate_resource_access(resource_id, installation_id)
+
+        response_data = VercelIntegration.update_resource(resource_id, serializer.validated_data)
         return Response(response_data, status=200)
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -193,5 +202,7 @@ class VercelResourceViewSet(VercelErrorResponseMixin, viewsets.GenericViewSet):
         """
         resource_id = validate_resource_id(self.kwargs.get("resource_id"))
         installation_id = validate_installation_id(self.kwargs.get("parent_lookup_installation_id"))
-        VercelIntegration.delete_resource(resource_id, installation_id)
+        self._validate_resource_access(resource_id, installation_id)
+
+        VercelIntegration.delete_resource(resource_id)
         return Response(status=204)

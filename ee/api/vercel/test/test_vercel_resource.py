@@ -140,7 +140,7 @@ class TestVercelResourceAPI(VercelTestBase):
         response = self.client.get(self.primary_resource["resource_url"], **headers)
 
         self.assert_success(response)
-        mock_get.assert_called_once_with(self.primary_resource["resource_id"], self.installation_id)
+        mock_get.assert_called_once_with(self.primary_resource["resource_id"])
 
     @patch("ee.vercel.integration.VercelIntegration.update_resource")
     def test_update_resource(self, mock_update):
@@ -150,14 +150,14 @@ class TestVercelResourceAPI(VercelTestBase):
         response = self.request("patch", self.primary_resource["resource_url"], data)
 
         self.assert_success(response)
-        mock_update.assert_called_once_with(self.primary_resource["resource_id"], self.installation_id, data)
+        mock_update.assert_called_once_with(self.primary_resource["resource_id"], data)
 
     @patch("ee.vercel.integration.VercelIntegration.delete_resource")
     def test_delete_resource(self, mock_delete):
         response = self.request("delete", self.primary_resource["resource_url"])
 
         self.assert_success(response, status.HTTP_204_NO_CONTENT)
-        mock_delete.assert_called_once_with(self.primary_resource["resource_id"], self.installation_id)
+        mock_delete.assert_called_once_with(self.primary_resource["resource_id"])
 
     @parameterized.expand(
         [
