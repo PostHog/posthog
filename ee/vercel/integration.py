@@ -14,6 +14,7 @@ from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.product_intent import ProductIntent
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.utils import absolute_uri
 
 logger = structlog.get_logger(__name__)
 
@@ -320,6 +321,6 @@ class VercelIntegration:
             },
             {
                 "name": "POSTHOG_HOST",
-                "value": "https://us.posthog.com",
+                "value": absolute_uri(),
             },
         ]
