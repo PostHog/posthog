@@ -3,7 +3,7 @@ import { Counter } from 'prom-client'
 
 import { PluginsServerConfig } from '~/types'
 import { logger } from '~/utils/logger'
-import { internalFetch } from '~/utils/request'
+import { FetchResponse, internalFetch } from '~/utils/request'
 
 const internalCaptureCounter = new Counter({
     name: 'internal_capture_events',
@@ -30,7 +30,7 @@ type CapturePayloadFormt = {
 }
 
 export class InternalCaptureService {
-    constructor(private config: PluginsServerConfig) {}
+    constructor(private config: Pick<PluginsServerConfig, 'CAPTURE_INTERNAL_URL'>) {}
 
     isEnabled(): boolean {
         return this.config.CAPTURE_INTERNAL_URL !== ''
@@ -50,7 +50,7 @@ export class InternalCaptureService {
         }
     }
 
-    async capture(event: InternalCaptureEvent): Promise<void> {
+    async capture(event: InternalCaptureEvent): Promise<FetchResponse> {
         if (!this.isEnabled()) {
             throw new Error('Internal capture is not enabled due to missing configuration')
         }
@@ -65,9 +65,19 @@ export class InternalCaptureService {
         logger.debug('Internal capture event captured', { status: response.status })
 
         internalCaptureCounter.inc({ status: response.status.toString() })
+
+        return response
     }
 
-    async captureMany(events: InternalCaptureEvent[]): Promise<void> {
-        await Promise.all(events.map((e) => this.capture(e)))
+    async captureMany(events: InternalCaptureEvent[]): Promise<[null | Error, FetchResponse | undefined][]> {
+        return Promise.all(
+            events.map(async (event) => {
+                try {
+                    return [null, await this.capture(event)]
+                } catch (e) {
+                    return [e as Error, undefined]
+                }
+            })
+        )
     }
 }
