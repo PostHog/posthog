@@ -69,10 +69,13 @@ export function copyIndexHtml(
         window.ESBUILD_LOAD_SCRIPT(${JSON.stringify(jsFile)})
     `
 
+    // In dev mode don't use chunks. Django caches the index.html between restarts, and we'll end up loading
+    // the wrong ones anyway
+    const chunksToServe = isDev ? [] : chunks
     const chunkCode = `
         window.ESBUILD_LOADED_CHUNKS = new Set(); 
         window.ESBUILD_LOAD_CHUNKS = function(name) { 
-            const chunks = ${JSON.stringify(chunks)}[name] || [];
+            const chunks = ${JSON.stringify(chunksToServe)}[name] || [];
             for (const chunk of chunks) { 
                 if (!window.ESBUILD_LOADED_CHUNKS.has(chunk)) { 
                     window.ESBUILD_LOAD_SCRIPT('chunk-'+chunk+'.js'); 
