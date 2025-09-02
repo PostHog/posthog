@@ -1,7 +1,10 @@
 from collections.abc import AsyncGenerator, Awaitable, Callable
+from datetime import datetime, timedelta
 from typing import Any, cast
+from uuid import UUID
 
-from posthog.test.base import BaseTest
+from freezegun import freeze_time
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, snapshot_clickhouse_queries
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.utils import timezone
@@ -18,10 +21,16 @@ from posthog.schema import (
     RecordingDurationFilter,
 )
 
-from posthog.models import SessionRecording
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
+from posthog.constants import INSIGHT_FUNNELS
+from posthog.models import Filter, SessionRecording
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.temporal.ai.session_summary.summarize_session_group import SessionSummaryStreamUpdate
 from posthog.temporal.ai.session_summary.types.group import SessionSummaryStep
 
+from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
 from ee.hogai.graph.session_summaries.nodes import SessionSummarizationNode
 from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -440,3 +449,274 @@ class TestSessionSummarizationNode(BaseTest):
         self.assertIsInstance(message, AssistantToolCallMessage)
         assert isinstance(message, AssistantToolCallMessage)
         self.assertEqual(message.content, "No sessions were found.")
+
+
+class TestBasicLogic(ClickhouseTestMixin, BaseTest):
+    @snapshot_clickhouse_queries
+    @freeze_time("2021-01-02 00:00:00.000Z")
+    def test_yop_yop(self):
+        p1 = _create_person(distinct_ids=["user_1"], team=self.team, properties={"foo": "bar"})
+        _create_event(
+            event="$pageview",
+            distinct_id="user_1",
+            team=self.team,
+            timestamp=timezone.now(),
+            properties={"$session_id": "s2", "$window_id": "w1"},
+            event_uuid="11111111-1111-1111-1111-111111111111",
+        )
+        _create_event(
+            event="insight loaded",
+            distinct_id="user_1",
+            team=self.team,
+            timestamp=(timezone.now() + timedelta(minutes=2)),
+            properties={"$session_id": "s2", "$window_id": "w2"},
+            event_uuid="31111111-1111-1111-1111-111111111111",
+        )
+        _create_event(
+            event="insight analyzed",
+            distinct_id="user_1",
+            team=self.team,
+            timestamp=(timezone.now() + timedelta(minutes=3)),
+            properties={"$session_id": "s2", "$window_id": "w2"},
+            event_uuid="21111111-1111-1111-1111-111111111111",
+        )
+
+        timestamp = datetime(2021, 1, 2, 0, 0, 0)
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="s2",
+            distinct_id="user_1",
+            first_timestamp=timestamp,
+            last_timestamp=timestamp,
+        )
+
+        # Success filter
+        filter = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2021-01-01",
+                "date_to": "2021-01-08",
+                "funnel_correlation_type": "events",
+                "events": [
+                    {"id": "$pageview", "order": 0},
+                    {"id": "insight analyzed", "order": 1},
+                ],
+                "include_recordings": "true",
+                "funnel_correlation_person_entity": {
+                    "id": "insight loaded",
+                    "type": "events",
+                },
+                "funnel_correlation_person_converted": "True",
+            }
+        )
+        _, results, _ = FunnelCorrelationActors(filter, self.team).get_actors()
+
+        self.assertEqual(results[0]["id"], p1.uuid)
+        self.assertEqual(
+            results[0]["matched_recordings"],
+            [
+                {
+                    "events": [
+                        {
+                            "timestamp": timezone.now() + timedelta(minutes=3),
+                            "uuid": UUID("21111111-1111-1111-1111-111111111111"),
+                            "window_id": "w2",
+                        }
+                    ],
+                    "session_id": "s2",
+                }
+            ],
+        )
+
+        # Drop off filter
+        filter = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2021-01-01",
+                "date_to": "2021-01-08",
+                "funnel_correlation_type": "events",
+                "events": [
+                    {"id": "$pageview", "order": 0},
+                    {"id": "insight analyzed", "order": 1},
+                    {"id": "insight updated", "order": 2},
+                ],
+                "include_recordings": "true",
+                "funnel_correlation_person_entity": {
+                    "id": "insight loaded",
+                    "type": "events",
+                },
+                "funnel_correlation_person_converted": "False",
+            }
+        )
+        _, results, _ = FunnelCorrelationActors(filter, self.team).get_actors()
+
+        self.assertEqual(results[0]["id"], p1.uuid)
+        self.assertEqual(
+            results[0]["matched_recordings"],
+            [
+                {
+                    "events": [
+                        {
+                            "timestamp": timezone.now() + timedelta(minutes=3),
+                            "uuid": UUID("21111111-1111-1111-1111-111111111111"),
+                            "window_id": "w2",
+                        }
+                    ],
+                    "session_id": "s2",
+                }
+            ],
+        )
+
+
+class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest):
+    @freeze_time("2025-09-03T12:00:00")
+    def setUp(self) -> None:
+        super().setUp()
+        sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
+        sync_execute(TRUNCATE_LOG_ENTRIES_TABLE_SQL)
+
+        self.node = SessionSummarizationNode(self.team, self.user)
+
+        # Create 4 sessions between Aug 28-30, 2025 that match all filter criteria
+        # We don't create SessionRecording objects to avoid S3 persistence issues with freeze_time
+        # The produce_replay_summary calls below will create the necessary data in ClickHouse
+
+        # Generate UUID7 session IDs
+        from posthog.models.utils import uuid7
+
+        self.session_id_1 = str(uuid7())
+        self.session_id_2 = str(uuid7())
+        self.session_id_3 = str(uuid7())
+        self.session_id_4 = str(uuid7())
+
+        # Create persons for each distinct_id
+        from posthog.test.base import _create_person
+
+        _create_person(distinct_ids=["filter-user-1"], team=self.team, immediate=True)
+        _create_person(distinct_ids=["filter-user-2"], team=self.team, immediate=True)
+        _create_person(distinct_ids=["filter-user-3"], team=self.team, immediate=True)
+        _create_person(distinct_ids=["filter-user-4"], team=self.team, immediate=True)
+
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id=self.session_id_1,
+            distinct_id="filter-user-1",
+            first_timestamp=timezone.datetime(2025, 8, 28, 10, 0, 0, tzinfo=timezone.utc),
+            last_timestamp=timezone.datetime(2025, 8, 28, 10, 30, 0, tzinfo=timezone.utc),
+            first_url="https://example.com/page1",
+            active_milliseconds=7000,  # 7 seconds active
+        )
+
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id=self.session_id_2,
+            distinct_id="filter-user-2",
+            first_timestamp=timezone.datetime(2025, 8, 28, 15, 0, 0, tzinfo=timezone.utc),
+            last_timestamp=timezone.datetime(2025, 8, 28, 15, 45, 0, tzinfo=timezone.utc),
+            first_url="https://example.com/page2",
+            active_milliseconds=8000,  # 8 seconds active
+        )
+
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id=self.session_id_3,
+            distinct_id="filter-user-3",
+            first_timestamp=timezone.datetime(2025, 8, 29, 11, 0, 0, tzinfo=timezone.utc),
+            last_timestamp=timezone.datetime(2025, 8, 29, 11, 20, 0, tzinfo=timezone.utc),
+            first_url="https://example.com/page3",
+            active_milliseconds=10000,  # 10 seconds active
+        )
+
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id=self.session_id_4,
+            distinct_id="filter-user-4",
+            first_timestamp=timezone.datetime(2025, 8, 30, 9, 0, 0, tzinfo=timezone.utc),
+            last_timestamp=timezone.datetime(2025, 8, 30, 9, 25, 0, tzinfo=timezone.utc),
+            first_url="https://example.com/page4",
+            active_milliseconds=9000,  # 9 seconds active
+        )
+
+        # Events for session 1
+        _create_event(
+            distinct_id="filter-user-1",
+            timestamp=timezone.datetime(2025, 8, 28, 10, 5, 0, tzinfo=timezone.utc),
+            team=self.team,
+            event_name="$pageview",
+            properties={
+                "$session_id": self.session_id_1,
+                "$os": "Mac OS X",
+                "$current_url": "https://example.com/page1",
+            },
+        )
+        _create_event(
+            distinct_id="filter-user-1",
+            timestamp=timezone.datetime(2025, 8, 28, 10, 10, 0, tzinfo=timezone.utc),
+            team=self.team,
+            event_name="$ai_generation",
+            properties={"$session_id": "filter-test-session-1"},
+        )
+
+        # Events for session 2
+        _create_event(
+            distinct_id="filter-user-2",
+            timestamp=timezone.datetime(2025, 8, 28, 15, 5, 0, tzinfo=timezone.utc),
+            team=self.team,
+            event_name="$pageview",
+            properties={
+                "$session_id": self.session_id_2,
+                "$os": "Mac OS X",
+                "$current_url": "https://example.com/page2",
+            },
+        )
+        _create_event(
+            distinct_id="filter-user-2",
+            timestamp=timezone.datetime(2025, 8, 28, 15, 15, 0, tzinfo=timezone.utc),
+            team=self.team,
+            event_name="$ai_generation",
+            properties={"$session_id": "filter-test-session-2"},
+        )
+
+        # Events for session 3
+        _create_event(
+            distinct_id="filter-user-3",
+            timestamp=timezone.datetime(2025, 8, 29, 11, 5, 0, tzinfo=timezone.utc),
+            team=self.team,
+            event_name="$pageview",
+            properties={
+                "$session_id": self.session_id_3,
+                "$os": "Mac OS X",
+                "$current_url": "https://example.com/page3",
+            },
+        )
+        _create_event(
+            distinct_id="filter-user-3",
+            timestamp=timezone.datetime(2025, 8, 29, 11, 10, 0, tzinfo=timezone.utc),
+            team=self.team,
+            event_name="$ai_generation",
+            properties={"$session_id": "filter-test-session-3"},
+        )
+
+        # Events for session 4
+        _create_event(
+            distinct_id="filter-user-4",
+            timestamp=timezone.datetime(2025, 8, 30, 9, 5, 0, tzinfo=timezone.utc),
+            team=self.team,
+            event_name="$pageview",
+            properties={
+                "$session_id": self.session_id_4,
+                "$os": "Mac OS X",
+                "$current_url": "https://example.com/page4",
+            },
+        )
+        _create_event(
+            distinct_id="filter-user-4",
+            timestamp=timezone.datetime(2025, 8, 30, 9, 10, 0, tzinfo=timezone.utc),
+            team=self.team,
+            event_name="$ai_generation",
+            properties={"$session_id": "filter-test-session-4"},
+        )
+
+    def test_waka_waka(self) -> None:
+        """Test waka waka."""
+        self.assertTrue(True)
