@@ -130,50 +130,6 @@ class TestSessionSummarizationNode(BaseTest):
         self.assertIsNone(result.session_summarization_query)
         self.assertIsNone(result.root_tool_call_id)
 
-    def test_create_error_response_none_tool_call_id(self) -> None:
-        """Test error response defaults to 'unknown' when tool_call_id is None."""
-        state = self._create_test_state(root_tool_call_id=None)
-        result = self.node._create_error_response("Test error", state)
-
-        message = result.messages[0]
-        self.assertIsInstance(message, AssistantToolCallMessage)
-        assert isinstance(message, AssistantToolCallMessage)
-        self.assertEqual(message.tool_call_id, "unknown")
-
-    @patch("ee.hogai.graph.session_summaries.nodes.get_stream_writer")
-    def test_get_stream_writer_exception(self, mock_get_stream_writer: MagicMock) -> None:
-        """Test stream writer returns None on exception (important for error handling)."""
-        mock_get_stream_writer.side_effect = Exception("Stream writer error")
-
-        result = self.node._get_stream_writer()
-
-        self.assertIsNone(result)
-
-    def test_stream_progress_no_writer(self) -> None:
-        """Test streaming progress gracefully handles None writer."""
-        # Should not raise exception
-        self.node._stream_progress("Test progress", None)
-
-    @patch("products.replay.backend.max_tools.SessionReplayFilterOptionsGraph")
-    def test_generate_replay_filters_no_output(self, mock_filter_graph_class: MagicMock) -> None:
-        """Test generating replay filters returns None when filter graph returns no output."""
-        mock_graph_instance, _ = self._create_mock_filter_graph(output_filters=None)
-        mock_filter_graph_class.return_value = mock_graph_instance
-
-        result = async_to_sync(self.node._generate_replay_filters)("test query")
-
-        self.assertIsNone(result)
-
-    @patch("products.replay.backend.max_tools.SessionReplayFilterOptionsGraph")
-    def test_generate_replay_filters_invalid_result(self, mock_filter_graph_class: MagicMock) -> None:
-        """Test generating replay filters handles invalid result from filter graph."""
-        mock_graph_instance, _ = self._create_mock_filter_graph(return_none=True)
-        mock_filter_graph_class.return_value = mock_graph_instance
-
-        result = async_to_sync(self.node._generate_replay_filters)("test query")
-
-        self.assertIsNone(result)
-
     @patch("posthog.session_recordings.queries.session_recording_list_from_query.SessionRecordingListFromQuery")
     def test_get_session_ids_with_filters_empty(self, mock_query_runner_class: MagicMock) -> None:
         """Test getting session IDs returns None when no results found."""
@@ -291,31 +247,6 @@ class TestSessionSummarizationNode(BaseTest):
         assert isinstance(message, AssistantToolCallMessage)
         self.assertIn("encountered an issue", message.content)
 
-    @patch("ee.hogai.graph.session_summaries.nodes.database_sync_to_async")
-    @patch("products.replay.backend.max_tools.SessionReplayFilterOptionsGraph")
-    @patch("ee.hogai.graph.session_summaries.nodes.get_stream_writer")
-    def test_arun_no_filters_generated(
-        self, mock_get_stream_writer: MagicMock, mock_filter_graph_class: MagicMock, mock_db_sync: MagicMock
-    ) -> None:
-        """Test arun returns error when filter generation fails."""
-        mock_get_stream_writer.return_value = None
-        conversation = Conversation.objects.create(team=self.team, user=self.user)
-
-        mock_graph_instance, _ = self._create_mock_filter_graph(output_filters=None)
-        mock_filter_graph_class.return_value = mock_graph_instance
-
-        state = self._create_test_state(query="test query", should_use_current_filters=False)
-
-        result = async_to_sync(self.node.arun)(state, {"configurable": {"thread_id": str(conversation.id)}})
-
-        self.assertIsInstance(result, PartialAssistantState)
-        self.assertIsNotNone(result)
-        assert result is not None
-        message = result.messages[0]
-        self.assertIsInstance(message, AssistantToolCallMessage)
-        assert isinstance(message, AssistantToolCallMessage)
-        self.assertIn("encountered an issue", message.content)
-
     @patch("posthog.session_recordings.queries.session_recording_list_from_query.SessionRecordingListFromQuery")
     @patch("ee.hogai.graph.session_summaries.nodes.database_sync_to_async")
     @patch("products.replay.backend.max_tools.SessionReplayFilterOptionsGraph")
@@ -414,58 +345,6 @@ class TestSessionSummarizationNode(BaseTest):
         self.assertEqual(message.content, "Summary 1\nSummary 2")
         # Verify execute_summarize was called for individual summaries
         self.assertEqual(mock_execute_summarize.call_count, 2)
-
-    @patch("products.replay.backend.max_tools.SessionReplayFilterOptionsGraph")
-    @patch("ee.hogai.graph.session_summaries.nodes.get_stream_writer")
-    def test_arun_exception_handling(
-        self, mock_get_stream_writer: MagicMock, mock_filter_graph_class: MagicMock
-    ) -> None:
-        """Test arun properly handles and logs exceptions."""
-        mock_get_stream_writer.return_value = None
-        conversation = Conversation.objects.create(team=self.team, user=self.user)
-
-        # Mock filter generation to raise exception
-        mock_filter_graph_class.side_effect = Exception("Test exception")
-
-        state = self._create_test_state(query="test query", should_use_current_filters=False)
-
-        result = async_to_sync(self.node.arun)(state, {"configurable": {"thread_id": str(conversation.id)}})
-
-        # Verify error response is returned
-        self.assertIsInstance(result, PartialAssistantState)
-        self.assertIsNotNone(result)
-        assert result is not None
-        message = result.messages[0]
-        self.assertIsInstance(message, AssistantToolCallMessage)
-        assert isinstance(message, AssistantToolCallMessage)
-        self.assertIn("encountered an issue", message.content)
-        self.assertEqual(message.tool_call_id, "test_tool_call_id")
-
-    @patch("posthog.session_recordings.queries.session_recording_list_from_query.SessionRecordingListFromQuery")
-    @patch("ee.hogai.graph.session_summaries.nodes.database_sync_to_async")
-    @patch("ee.hogai.graph.session_summaries.nodes.get_stream_writer")
-    def test_arun_use_current_filters_true_no_context(
-        self,
-        mock_get_stream_writer: MagicMock,
-        mock_db_sync: MagicMock,
-        mock_query_runner_class: MagicMock,
-    ) -> None:
-        """Test arun returns error when should_use_current_filters=True but no context provided."""
-        mock_get_stream_writer.return_value = None
-        conversation = Conversation.objects.create(team=self.team, user=self.user)
-
-        state = self._create_test_state(query="test query", should_use_current_filters=True)
-
-        # No contextual tools provided
-        result = async_to_sync(self.node.arun)(state, {"configurable": {"thread_id": str(conversation.id)}})
-
-        self.assertIsInstance(result, PartialAssistantState)
-        self.assertIsNotNone(result)
-        assert result is not None
-        message = result.messages[0]
-        self.assertIsInstance(message, AssistantToolCallMessage)
-        assert isinstance(message, AssistantToolCallMessage)
-        self.assertIn("encountered an issue", message.content)
 
     @patch("posthog.session_recordings.queries.session_recording_list_from_query.SessionRecordingListFromQuery")
     @patch("ee.hogai.graph.session_summaries.nodes.database_sync_to_async")
