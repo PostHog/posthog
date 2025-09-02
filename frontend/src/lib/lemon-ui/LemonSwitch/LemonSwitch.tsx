@@ -4,12 +4,11 @@ import clsx from 'clsx'
 import { forwardRef, useMemo, useState } from 'react'
 
 import { accessLevelSatisfied, resourceTypeToString } from 'lib/components/AccessControlAction'
-import type { AccessControlLevel } from 'lib/components/AccessControlAction'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 
-import { AccessControlResourceType } from '~/types'
+import { AccessControlResourceType, AccessControlLevel } from '~/types'
 
 export interface LemonSwitchProps {
     className?: string
