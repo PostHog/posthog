@@ -231,16 +231,18 @@ class VercelIntegration:
             },  # Mark one product as onboarded to show quick start sidebar
         )
 
-        ProductIntent.objects.create(
+        ProductIntent.register(
             team=team,
             product_type="feature_flags",
-            contexts={"vercel integration": 1},
+            context="vercel integration",
+            user=installation.created_by,
         )
 
-        ProductIntent.objects.create(
+        ProductIntent.register(
             team=team,
             product_type="experiments",
-            contexts={"vercel integration": 1},
+            context="vercel integration",
+            user=installation.created_by,
         )
 
         resource = Integration.objects.create(
