@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -7,7 +7,7 @@ import { GENERATED_DASHBOARD_PREFIX } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { idToKey, isUserLoggedIn } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { afterMountAndTeam, permanentlyMount } from 'lib/utils/kea-logic-builders'
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -344,7 +344,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
             )
         },
     })),
-    afterMountAndTeam(({ actions }) => {
+    afterMount(({ actions }) => {
         actions.loadDashboards()
     }),
     permanentlyMount(),

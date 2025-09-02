@@ -9,7 +9,7 @@ import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { IconSurveys } from 'lib/lemon-ui/icons'
 import { objectsEqual, uuid } from 'lib/utils'
-import { afterMountAndTeam, permanentlyMount } from 'lib/utils/kea-logic-builders'
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
 import { urls } from 'scenes/urls'
 
@@ -409,10 +409,7 @@ export const maxLogic = kea<maxLogicType>([
             }
         }
 
-        // Load conversation history only once a project exists
-    }),
-
-    afterMountAndTeam(({ actions }) => {
+        // Load conversation history on mount
         actions.loadConversationHistory()
     }),
 
