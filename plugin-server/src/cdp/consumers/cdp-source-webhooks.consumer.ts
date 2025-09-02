@@ -229,7 +229,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
         void this.promiseScheduler.schedule(
             Promise.all([
                 this.hogFunctionMonitoringService.queueInvocationResults([result]).then(() => {
-                    return this.hogFunctionMonitoringService.produceQueuedMessages()
+                    return this.hogFunctionMonitoringService.flush()
                 }),
                 this.hogWatcher.observeResultsBuffered(result),
             ])
