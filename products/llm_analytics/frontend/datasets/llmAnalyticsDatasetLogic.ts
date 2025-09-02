@@ -185,6 +185,12 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
                 }
             }
         },
+
+        setActiveTab: ({ tab }) => {
+            if (tab === DatasetTab.Items && props.datasetId !== 'new') {
+                actions.loadDatasetItems(true)
+            }
+        },
     })),
 
     // TRICKY: Order matters here. Keep it in the bottom.
