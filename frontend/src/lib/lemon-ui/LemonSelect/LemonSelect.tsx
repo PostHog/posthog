@@ -3,11 +3,9 @@ import React, { useMemo } from 'react'
 
 import { IconX } from '@posthog/icons'
 
-import 'lib/components/AccessControlAction'
-import type { AccessControlLevel } from 'lib/components/AccessControlAction'
 import { LemonDropdownProps } from 'lib/lemon-ui/LemonDropdown'
 
-import { AccessControlResourceType } from '~/types'
+import { AccessControlResourceType, AccessControlLevel } from '~/types'
 
 import { LemonButton, LemonButtonProps } from '../LemonButton'
 import {
