@@ -93,7 +93,8 @@ class KlaviyoSourceConfig(config.Config):
 
 @config.config
 class LinkedinAdsSourceConfig(config.Config):
-    pass
+    account_id: str
+    linkedin_ads_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config
