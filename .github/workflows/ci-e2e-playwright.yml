@@ -469,7 +469,6 @@ jobs:
             - name: Apply postgres and clickhouse migrations and setup dev
               if: needs.changes.outputs.shouldRun == 'true'
               run: |
-                  # Run Django and ClickHouse migrations first
                   python manage.py migrate_clickhouse &
                   python manage.py migrate --noinput
 
@@ -491,6 +490,7 @@ jobs:
                     posthog-migrations:latest
 
                   python manage.py setup_dev
+                  wait
 
             - name: Source celery queues
               if: needs.changes.outputs.shouldRun == 'true'

@@ -137,11 +137,7 @@ class PersonDistinctId(models.Model):
     version = models.BigIntegerField(null=True, blank=True)
 
     class Meta:
-<<<<<<< HEAD
         # migrations managed via rust/persons_migrations
-=======
-        # managed via rust/migrate-persons/
->>>>>>> 2b92ca7bdb (feat(persons): use sqlx for persons migrations)
         managed = False
         constraints = [models.UniqueConstraint(fields=["team", "distinct_id"], name="unique distinct_id for team")]
 
@@ -154,11 +150,7 @@ class PersonlessDistinctId(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
 
     class Meta:
-<<<<<<< HEAD
         # migrations managed via rust/persons_migrations
-=======
-        # managed via rust/migrate-persons/
->>>>>>> 2b92ca7bdb (feat(persons): use sqlx for persons migrations)
         managed = False
         constraints = [
             models.UniqueConstraint(fields=["team", "distinct_id"], name="unique personless distinct_id for team")
@@ -173,11 +165,7 @@ class PersonOverrideMapping(models.Model):
     uuid = models.UUIDField()
 
     class Meta:
-<<<<<<< HEAD
         # migrations managed via rust/persons_migrations
-=======
-        # managed via rust/migrate-persons/
->>>>>>> 2b92ca7bdb (feat(persons): use sqlx for persons migrations)
         managed = False
         constraints = [
             models.UniqueConstraint(fields=["team_id", "uuid"], name="unique_uuid"),
@@ -207,11 +195,7 @@ class PersonOverride(models.Model):
     version = models.BigIntegerField(null=True, blank=True)
 
     class Meta:
-<<<<<<< HEAD
         # migrations managed via rust/persons_migrations
-=======
-        # managed via rust/migrate-persons/
->>>>>>> 2b92ca7bdb (feat(persons): use sqlx for persons migrations)
         managed = False
         constraints = [
             models.UniqueConstraint(
@@ -235,11 +219,7 @@ class PendingPersonOverride(models.Model):
     oldest_event = models.DateTimeField()
 
     class Meta:
-<<<<<<< HEAD
         # migrations managed via rust/persons_migrations
-=======
-        # managed via rust/migrate-persons/
->>>>>>> 2b92ca7bdb (feat(persons): use sqlx for persons migrations)
         managed = False
 
 
@@ -254,11 +234,7 @@ class FlatPersonOverride(models.Model):
     version = models.BigIntegerField(null=True, blank=True)
 
     class Meta:
-<<<<<<< HEAD
         # migrations managed via rust/persons_migrations
-=======
-        # managed via rust/migrate-persons/
->>>>>>> 2b92ca7bdb (feat(persons): use sqlx for persons migrations)
         managed = False
         indexes = [
             models.Index(fields=["team_id", "override_person_id"]),
