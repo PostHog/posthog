@@ -63,7 +63,6 @@ export function KanbanView(): JSX.Element {
 
     const { featureFlags } = useValues(featureFlagLogic)
     const tasksEnabled = !!featureFlags['tasks']
-    const sessionSummarizationEnabled = !!featureFlags['max-session-summarization']
 
     const [items, setItems] = useState<Items>(kanbanColumns)
     const [activeTask, setActiveTask] = useState<Task | null>(null)
@@ -117,7 +116,7 @@ export function KanbanView(): JSX.Element {
     const { setQuestion, focusInput, startNewConversation } = useActions(maxLogic)
 
     const initialPrompt =
-        'Use the session_summarization tool to summarize all recent session recordings and identify the top UX issues and recurring patterns. Focus on actionable fixes. Return a structured JSON artifact via tool result containing a `patterns` array (with `pattern_name`, `pattern_description`, `severity`, `stats`) and an optional `notebook_id`. Do not answer without calling the tool.'
+        'Use the session_summarization tool to summarize all recent session recordings in the last 30 days and identify the top UX issues and recurring patterns. Focus on actionable fixes. Return a structured JSON artifact via tool result containing a `patterns` array (with `pattern_name`, `pattern_description`, `severity`, `stats`) and an optional `notebook_id`. Do not answer without calling the tool.'
 
     return (
         <div className="space-y-4">
