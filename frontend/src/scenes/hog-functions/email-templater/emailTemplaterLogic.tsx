@@ -8,7 +8,6 @@ import { LemonDialog } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { objectsEqual } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { EmailTemplaterType } from './EmailTemplater'
 
 import { PreflightStatus, PropertyDefinition, PropertyDefinitionType, Realm } from '~/types'
 
