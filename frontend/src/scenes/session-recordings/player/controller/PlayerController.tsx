@@ -116,6 +116,7 @@ function Clip(): JSX.Element {
             }
             icon={<IconRecordingClip className="text-2xl" />}
             data-attr="replay-screenshot-gif"
+            tooltipPlacement="top"
         />
     )
 }
@@ -129,7 +130,8 @@ function Screenshot(): JSX.Element {
             onClick={() => takeScreenshot(ExporterFormat.PNG)}
             tooltip="Take a screenshot of this point in the recording"
             icon={<IconCamera className="text-2xl" />}
-            data-attr="replay-screenshot-gif"
+            data-attr="replay-screenshot-png"
+            tooltipPlacement="top"
         />
     )
 }
@@ -163,6 +165,7 @@ export function PlayerController(): JSX.Element {
                             <Screenshot />
                             {featureFlags[FEATURE_FLAGS.REPLAY_EXPORT_SHORT_VIDEO] && <Clip />}
                             {playlistLogic ? <PlayerUpNext playlistLogic={playlistLogic} /> : undefined}
+                            <span className="text-muted text-xs px-1">|</span>
                         </>
                     )}
                     <CinemaMode />
