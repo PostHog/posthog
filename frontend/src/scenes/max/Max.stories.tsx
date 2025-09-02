@@ -38,7 +38,7 @@ import conversationList from './__mocks__/conversationList.json'
 import { ToolRegistration } from './max-constants'
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
-import { maxLogic } from './maxLogic'
+import { QUESTION_SUGGESTIONS_DATA, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 
 const meta: Meta = {
@@ -462,15 +462,14 @@ ChatHistoryLoading.parameters = {
 }
 
 export const ThreadWithOpenedSuggestionsMobile: StoryFn = () => {
-    const { allSuggestions } = useValues(maxLogic)
     const { setActiveGroup } = useActions(maxLogic)
 
     useEffect(() => {
         // The largest group is the set up group
-        if (allSuggestions[3]) {
-            setActiveGroup(allSuggestions[3])
+        if (QUESTION_SUGGESTIONS_DATA[3]) {
+            setActiveGroup(QUESTION_SUGGESTIONS_DATA[3])
         }
-    }, [setActiveGroup, allSuggestions])
+    }, [setActiveGroup])
 
     return <Template sidePanel />
 }
@@ -484,15 +483,14 @@ ThreadWithOpenedSuggestionsMobile.parameters = {
 }
 
 export const ThreadWithOpenedSuggestions: StoryFn = () => {
-    const { allSuggestions } = useValues(maxLogic)
     const { setActiveGroup } = useActions(maxLogic)
 
     useEffect(() => {
         // The largest group is the set up group
-        if (allSuggestions[3]) {
-            setActiveGroup(allSuggestions[3])
+        if (QUESTION_SUGGESTIONS_DATA[3]) {
+            setActiveGroup(QUESTION_SUGGESTIONS_DATA[3])
         }
-    }, [setActiveGroup, allSuggestions])
+    }, [setActiveGroup])
 
     return <Template sidePanel />
 }

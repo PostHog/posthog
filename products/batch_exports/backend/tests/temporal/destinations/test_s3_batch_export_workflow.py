@@ -15,7 +15,6 @@ from django.conf import settings
 from django.test import override_settings
 
 import aioboto3
-import pytest_asyncio
 import botocore.exceptions
 from flaky import flaky
 from temporalio import activity
@@ -148,7 +147,7 @@ async def delete_all_from_s3(minio_client, bucket_name: str, key_prefix: str):
                 await minio_client.delete_object(Bucket=bucket_name, Key=obj["Key"])
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def minio_client(bucket_name):
     """Manage an S3 client to interact with a MinIO bucket.
 
@@ -221,6 +220,64 @@ async def read_json_file_from_s3(s3_compatible_client, bucket_name, key) -> list
     data = await s3_object["Body"].read()
     data = read_s3_data_as_json(data, None)
     return data[0]
+
+
+MetricKind = t.Literal["success", "cancellation", "failure"]
+MetricName = t.Literal["succeeded", "canceled", "failed"]
+ExpectedCount = int
+ExpectedMetricsMap = dict[tuple[MetricKind, MetricName], ExpectedCount]
+
+
+async def assert_metrics_in_clickhouse(
+    clickhouse_client: ClickHouseClient,
+    batch_export_id: str,
+    expected_metrics: ExpectedMetricsMap,
+):
+    """Assert metrics are correctly ingested in ClickHouse.
+
+    We read metrics ingested into `sharded_app_metrics2` and compare them with the
+    provided `expected_metrics`.
+    """
+    query = """
+            SELECT metric_kind, metric_name, count
+            FROM sharded_app_metrics2
+            WHERE app_source = 'batch_export'
+            AND app_source_id = {{batch_export_id:String}}
+            FORMAT JSONEachRow \
+            """
+
+    resp = await clickhouse_client.read_query(
+        query,
+        query_parameters={"batch_export_id": batch_export_id, "cluster_name": settings.CLICKHOUSE_CLUSTER},
+    )
+
+    iterations = 0
+    while not resp and iterations < 10:
+        # It may take a bit for CH to ingest.
+        await asyncio.sleep(1)
+        resp = await clickhouse_client.read_query(
+            query,
+            query_parameters={"batch_export_id": batch_export_id, "cluster_name": settings.CLICKHOUSE_CLUSTER},
+        )
+
+        iterations += 1
+
+    if not resp:
+        raise ValueError(f"Metrics for batch export '{batch_export_id}' not found")
+
+    ingested_metrics = [json.loads(line) for line in resp.split(b"\n") if line]
+    for ingested_metric in ingested_metrics:
+        ingested_metric_kind, ingested_metric_name = ingested_metric["metric_kind"], ingested_metric["metric_name"]
+        ingested_count = int(ingested_metric["count"])
+
+        try:
+            expected_count = expected_metrics[(ingested_metric_kind, ingested_metric_name)]
+        except KeyError:
+            raise ValueError(f"Ingested unexpected metric: '{ingested_metric_kind}'")
+
+        assert (
+            ingested_count == expected_count
+        ), f"Ingested metric '{ingested_metric_kind}' with count {ingested_count} does not match expected {expected_count}"
 
 
 async def assert_clickhouse_records_in_s3(
@@ -758,7 +815,7 @@ class TestInsertIntoS3ActivityFromStage:
         )
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def s3_batch_export(
     ateam,
     s3_key_prefix,
@@ -902,6 +959,8 @@ async def _run_s3_batch_export_workflow(
         sort_key = "person_id"
     elif isinstance(model, BatchExportModel) and model.name == "sessions":
         sort_key = "session_id"
+
+    await assert_metrics_in_clickhouse(clickhouse_client, batch_export_id, {("success", "succeeded"): 1})
 
     await assert_clickhouse_records_in_s3(
         s3_compatible_client=s3_client,
@@ -1191,7 +1250,7 @@ class TestS3BatchExportWorkflowWithMinioBucket:
         )
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def s3_client(bucket_name, s3_key_prefix):
     """Manage an S3 client to interact with an S3 bucket.
 

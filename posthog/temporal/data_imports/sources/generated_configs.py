@@ -92,6 +92,11 @@ class KlaviyoSourceConfig(config.Config):
 
 
 @config.config
+class LinkedinAdsSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class MSSQLSourceConfig(config.Config):
     host: str
     database: str
@@ -217,6 +222,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.GOOGLESHEETS: GoogleSheetsSourceConfig,
         ExternalDataSourceType.HUBSPOT: HubspotSourceConfig,
         ExternalDataSourceType.KLAVIYO: KlaviyoSourceConfig,
+        ExternalDataSourceType.LINKEDINADS: LinkedinAdsSourceConfig,
         ExternalDataSourceType.MSSQL: MSSQLSourceConfig,
         ExternalDataSourceType.MAILCHIMP: MailchimpSourceConfig,
         ExternalDataSourceType.MAILJET: MailjetSourceConfig,

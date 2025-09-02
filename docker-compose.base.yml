@@ -288,7 +288,6 @@ services:
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
-            COUNTERS_DATABASE_URL: 'postgres://posthog:posthog@counters_db:5432/counters'
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis:6379/'
             CLICKHOUSE_HOST: 'clickhouse'
@@ -437,20 +436,6 @@ services:
             - '14250:14250' # Accepts model.proto (optional for this flow)
         networks:
             - otel_network
-
-    counters_db:
-        image: postgres:12-alpine
-        restart: on-failure
-        environment:
-            POSTGRES_USER: posthog
-            POSTGRES_DB: counters
-            POSTGRES_PASSWORD: posthog
-        healthcheck:
-            test: ['CMD-SHELL', 'pg_isready -U posthog']
-            interval: 5s
-            timeout: 5s
-        volumes:
-            - ./docker/postgres-init-scripts:/docker-entrypoint-initdb.d
 
 networks:
     otel_network:
