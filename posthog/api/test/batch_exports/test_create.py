@@ -626,7 +626,7 @@ def test_create_s3_batch_export_validates_file_format_and_compression(
     ],
 )
 def test_create_batch_export_with_invalid_config(client: HttpClient, temporal, type, config, expected_error_message):
-    """Test creating a BatchExport with Snowflake destination validates credentials based on auth type."""
+    """Test creating a BatchExport with an invalid configuration returns an error."""
 
     destination_data = {
         "type": type,
