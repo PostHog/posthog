@@ -26,7 +26,7 @@ const Integration = ({ kind }: { kind: IntegrationKind }): JSX.Element => {
     const integration = integrations?.[0]
 
     const authorizationUrl = api.integrations.authorizeUrl({
-        next: urls.errorTrackingConfiguration({ tab: 'error-tracking-integrations' }),
+        next: urls.errorTrackingConfiguration({ tab: 'integration-github' }),
         kind,
     })
 
