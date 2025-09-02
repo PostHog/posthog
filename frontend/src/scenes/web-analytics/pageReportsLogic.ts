@@ -4,21 +4,18 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 
 import {
+    CompareFilter,
     InsightVizNode,
     NodeKind,
     QuerySchema,
     TrendsQuery,
+    WebAnalyticsPropertyFilter,
+    WebAnalyticsPropertyFilters,
     WebPageURLSearchQuery,
+    WebStatsBreakdown,
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
-import {
-    AnyPropertyFilter,
-    BaseMathType,
-    ChartDisplayType,
-    InsightLogicProps,
-    PropertyFilterType,
-    PropertyOperator,
-} from '~/types'
+import { BaseMathType, ChartDisplayType, InsightLogicProps, PropertyFilterType, PropertyOperator } from '~/types'
 
 import {
     DeviceTab,
@@ -48,7 +45,7 @@ export interface PageURLSearchResult {
  * @param stripQueryParams Whether to strip query parameters
  * @returns A property filter object for the URL
  */
-export function createUrlPropertyFilter(url: string, stripQueryParams: boolean): AnyPropertyFilter {
+export function createUrlPropertyFilter(url: string, stripQueryParams: boolean): WebAnalyticsPropertyFilter {
     return {
         key: '$current_url',
         value: stripQueryParams ? `^${url.split('?')[0]}(\\?.*)?$` : url,
@@ -61,7 +58,17 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
     path: ['scenes', 'web-analytics', 'pageReportsLogic'],
 
     connect: {
-        values: [webAnalyticsLogic, ['tiles as webAnalyticsTiles', 'shouldFilterTestAccounts', 'dateFilter']],
+        values: [
+            webAnalyticsLogic,
+            [
+                'tiles as webAnalyticsTiles',
+                'shouldFilterTestAccounts',
+                'dateFilter',
+                'compareFilter',
+                'webAnalyticsFilters',
+                'isPathCleaningEnabled',
+            ],
+        ],
         actions: [webAnalyticsLogic, ['setDates']],
     },
 
@@ -125,26 +132,22 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
         pagesUrls: [
             [] as PageURLSearchResult[],
             {
-                loadPagesUrls: async ({ searchTerm }: { searchTerm: string }) => {
-                    try {
-                        const response = await api.query<WebPageURLSearchQuery>(
-                            setLatestVersionsOnQuery({
-                                kind: NodeKind.WebPageURLSearchQuery,
-                                searchTerm: searchTerm,
-                                stripQueryParams: values.stripQueryParams,
-                                dateRange: {
-                                    date_from: values.dateFilter.dateFrom,
-                                    date_to: values.dateFilter.dateTo,
-                                },
-                                properties: [],
-                            })
-                        )
-
-                        return response.results
-                    } catch (error) {
-                        console.error('Error loading pages:', error)
-                        return []
-                    }
+                loadPagesUrls: async ({ searchTerm }: { searchTerm: string }, breakpoint) => {
+                    await breakpoint(100) // debounce the typing
+                    const response = await api.query<WebPageURLSearchQuery>(
+                        setLatestVersionsOnQuery({
+                            kind: NodeKind.WebPageURLSearchQuery,
+                            searchTerm: searchTerm,
+                            stripQueryParams: values.stripQueryParams,
+                            dateRange: {
+                                date_from: values.dateFilter.dateFrom,
+                                date_to: values.dateFilter.dateTo,
+                            },
+                            properties: [],
+                        })
+                    )
+                    breakpoint() // ensure that if more typing has happened since we sent the request, we don't update the state
+                    return response.results
                 },
             },
         ],
@@ -157,13 +160,23 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             (pagesUrlsLoading: boolean, isInitialLoad: boolean) => pagesUrlsLoading || isInitialLoad,
         ],
         queries: [
-            (s) => [s.webAnalyticsTiles, s.pageUrl, s.stripQueryParams, s.dateFilter, s.shouldFilterTestAccounts],
+            (s) => [
+                s.webAnalyticsTiles,
+                s.pageUrl,
+                s.stripQueryParams,
+                s.dateFilter,
+                s.shouldFilterTestAccounts,
+                s.compareFilter,
+                s.isPathCleaningEnabled,
+            ],
             (
                 webAnalyticsTiles: WebAnalyticsTile[],
                 pageUrl: string | null,
                 stripQueryParams: boolean,
                 dateFilter: typeof webAnalyticsLogic.values.dateFilter,
-                shouldFilterTestAccounts: boolean
+                shouldFilterTestAccounts: boolean,
+                compareFilter: CompareFilter,
+                isPathCleaningEnabled: boolean
             ) => {
                 // If we don't have a pageUrl, return empty queries to rendering problems
                 if (!pageUrl) {
@@ -185,6 +198,11 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     }
                 }
 
+                const pageReportsPropertyFilters: WebAnalyticsPropertyFilters = [
+                    createUrlPropertyFilter(pageUrl, stripQueryParams),
+                ]
+                const dateRange = { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo }
+
                 // Helper function to get query from a tile by tab ID
                 const getQuery = (tileId: TileId, tabId: string): QuerySchema | undefined => {
                     const tile = webAnalyticsTiles?.find((t) => t.tileId === tileId) as TabsTile | undefined
@@ -195,7 +213,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
 
                         // Find and update the $current_url property filter
                         if (modifiedQuery.source.properties) {
-                            modifiedQuery.source.properties = [createUrlPropertyFilter(pageUrl, stripQueryParams)]
+                            modifiedQuery.source.properties = pageReportsPropertyFilters
                         }
 
                         return modifiedQuery
@@ -236,18 +254,37 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                             },
                         ],
                         filterTestAccounts: shouldFilterTestAccounts,
-                        dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                        dateRange,
                         tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                     },
                     embedded: true,
                     hidePersonsModal: true,
                 })
 
+                const prevPathsQuery = {
+                    full: true,
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.WebStatsTableQuery,
+                        breakdownBy: WebStatsBreakdown.PreviousPage,
+                        dateRange,
+                        filterTestAccounts: shouldFilterTestAccounts,
+                        properties: pageReportsPropertyFilters,
+                        compareFilter,
+                        limit: 10,
+                        doPathCleaning: isPathCleaningEnabled,
+                        tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                    },
+                    embedded: true,
+                    showActions: true,
+                }
+
                 return {
                     // Path queries
                     entryPathsQuery: getQuery(TileId.PATHS, PathTab.INITIAL_PATH),
                     exitPathsQuery: getQuery(TileId.PATHS, PathTab.END_PATH),
                     outboundClicksQuery: getQuery(TileId.PATHS, PathTab.EXIT_CLICK),
+                    prevPathsQuery,
 
                     // Source queries
                     channelsQuery: getQuery(TileId.SOURCES, SourceTab.CHANNEL),
@@ -431,7 +468,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         kind: 'section',
                         tileId: TileId.PAGE_REPORTS_TRAFFIC_SECTION,
                         layout: {
-                            className: 'grid grid-cols-1 md:grid-cols-2 gap-4 mb-8',
+                            className: 'grid grid-cols-1 md:grid-cols-3 gap-4 mb-8',
                         },
                         tiles: [
                             createQueryTile(
@@ -445,6 +482,12 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                                 'Referrers',
                                 'Websites referring traffic to this page',
                                 queries.referrersQuery
+                            ),
+                            createQueryTile(
+                                TileId.PAGE_REPORTS_PREVIOUS_PAGE,
+                                'Previous Pages',
+                                'Pages users visited before this page. For internal navigation, we used the previous pathname. If the user arrived from an external link, we used the referrer URL.',
+                                queries.prevPathsQuery
                             ),
                         ].filter(Boolean) as WebAnalyticsTile[],
                     },

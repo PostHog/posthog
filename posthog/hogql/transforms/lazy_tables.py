@@ -1,10 +1,10 @@
 import dataclasses
-from typing import Optional, cast, Literal
+from typing import Literal, Optional, cast
 
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import LazyTableToAdd, LazyJoinToAdd
+from posthog.hogql.database.models import LazyJoinToAdd, LazyTableToAdd
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import get_long_table_name

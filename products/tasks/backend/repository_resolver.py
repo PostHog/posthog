@@ -4,8 +4,10 @@ Repository resolution helpers for the multi-repository issue tracker system.
 
 import fnmatch
 from typing import Any, Optional
+
 from django.apps import apps
-from posthog.models.integration import Integration, GitHubIntegration
+
+from posthog.models.integration import GitHubIntegration, Integration
 
 
 class RepositoryContext:

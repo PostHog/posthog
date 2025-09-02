@@ -1,5 +1,7 @@
 from typing import Optional
+
 from inline_snapshot import snapshot
+
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.mailgun.template_mailgun import template_mailgun_send_email
 

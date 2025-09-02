@@ -1,24 +1,15 @@
 from datetime import datetime
 
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.action import Action
 from posthog.models.filters import Filter
 from posthog.models.instance_setting import override_instance_config
 from posthog.queries.funnels.funnel_strict import ClickhouseFunnelStrict
 from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
-from posthog.queries.funnels.test.breakdown_cases import (
-    assert_funnel_results_equal,
-    funnel_breakdown_test_factory,
-)
-from posthog.queries.funnels.test.conversion_time_cases import (
-    funnel_conversion_time_test_factory,
-)
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-)
+from posthog.queries.funnels.test.breakdown_cases import assert_funnel_results_equal, funnel_breakdown_test_factory
+from posthog.queries.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
 from posthog.test.test_journeys import journeys_for
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"

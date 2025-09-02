@@ -3,21 +3,19 @@ Simple async test for the survey creation MaxTool.
 """
 
 import os
+
+import pytest
+from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 import django.utils.timezone
-import pytest
+
 from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 
-from posthog.models import Survey, FeatureFlag
-from posthog.schema import (
-    SurveyCreationSchema,
-    SurveyQuestionSchema,
-    SurveyQuestionType,
-    SurveyType,
-)
-from posthog.test.base import BaseTest
+from posthog.schema import SurveyCreationSchema, SurveyQuestionSchema, SurveyQuestionType, SurveyType
+
+from posthog.models import FeatureFlag, Survey
 
 from .max_tools import CreateSurveyTool, SurveyLoopNode, SurveyToolkit
 
@@ -129,7 +127,7 @@ class TestSurveyCreatorTool(BaseTest):
         # Verify error response
         assert "❌ Survey must have at least one question" in content
         assert artifact["error"] == "validation_failed"
-        assert "No questions provided" in artifact["details"]
+        assert "No questions were created from the survey instructions" in artifact["error_message"]
 
     @patch.object(CreateSurveyTool, "_create_survey_from_instructions")
     @pytest.mark.django_db

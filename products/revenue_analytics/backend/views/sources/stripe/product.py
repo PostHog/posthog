@@ -1,11 +1,9 @@
-from typing import cast
 from collections.abc import Iterable
+from typing import cast
 
 from posthog.hogql import ast
 
-from posthog.temporal.data_imports.sources.stripe.constants import (
-    PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
-)
+from posthog.temporal.data_imports.sources.stripe.constants import PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.table import DataWarehouseTable
 

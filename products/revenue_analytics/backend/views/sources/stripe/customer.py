@@ -1,5 +1,5 @@
-from typing import cast
 from collections.abc import Iterable
+from typing import cast
 
 from posthog.hogql import ast
 
@@ -9,12 +9,9 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
 )
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.table import DataWarehouseTable
-from products.revenue_analytics.backend.views.sources.helpers import (
-    extract_json_string,
-    get_cohort_expr,
-)
 
 from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHandle, view_prefix_for_source
+from products.revenue_analytics.backend.views.sources.helpers import extract_json_string, get_cohort_expr
 
 
 def build(handle: SourceHandle) -> Iterable[BuiltQuery]:

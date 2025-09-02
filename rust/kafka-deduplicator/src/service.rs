@@ -45,12 +45,11 @@ impl KafkaDeduplicatorService {
             producer_config: config.build_producer_config(),
             store_config,
             producer_send_timeout: config.producer_send_timeout(),
+            flush_interval: config.flush_interval(),
         };
 
-        let processor = Arc::new(
-            DeduplicationProcessor::new(dedup_config)
-                .with_context(|| format!("Failed to create deduplication processor with output topic {:?} and store path '{}'", config.output_topic, config.store_path))?,
-        );
+        let processor = DeduplicationProcessor::new(dedup_config)
+            .with_context(|| format!("Failed to create deduplication processor with output topic {:?} and store path '{}'", config.output_topic, config.store_path))?;
 
         Ok(Self {
             config,
@@ -185,6 +184,9 @@ impl KafkaDeduplicatorService {
             let _ = shutdown_tx.send(());
         }
 
+        // Shutdown the processor (stops checkpoint manager)
+        self.processor.shutdown().await;
+
         // Wait for consumer to finish with timeout
         match tokio::time::timeout(self.config.shutdown_timeout(), consumer_handle).await {
             Ok(Ok(Ok(_))) => info!("Consumer stopped normally"),
@@ -240,6 +242,9 @@ impl KafkaDeduplicatorService {
         if let Some(shutdown_tx) = self.shutdown_tx.take() {
             let _ = shutdown_tx.send(());
         }
+
+        // Shutdown the processor (stops checkpoint manager)
+        self.processor.shutdown().await;
 
         // Wait for consumer to finish with timeout
         match tokio::time::timeout(self.config.shutdown_timeout(), consumer_handle).await {

@@ -5,8 +5,8 @@ from posthog.hogql import ast
 from posthog.hogql.ast import ArithmeticOperationOp
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField
-from posthog.hogql.visitor import Visitor
 from posthog.hogql.errors import NotImplementedError
+from posthog.hogql.visitor import Visitor
 
 
 def is_simple_timestamp_field_expression(
@@ -101,10 +101,9 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
 
     def visit_alias(self, node: ast.Alias) -> bool:
         from posthog.hogql.database.schema.events import EventsTable
+        from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable
         from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1
         from posthog.hogql.database.schema.sessions_v2 import SessionsTableV2
-
-        from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable
 
         if node.type and isinstance(node.type, ast.FieldAliasType):
             try:

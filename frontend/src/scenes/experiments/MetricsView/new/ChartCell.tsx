@@ -24,7 +24,7 @@ import { useAxisScale } from './useAxisScale'
 interface ChartCellProps {
     variantResult: ExperimentVariantResult
     axisRange: number
-    metricIndex: number
+    metricUuid?: string
     showGridLines?: boolean
     isAlternatingRow?: boolean
     isLastRow?: boolean
@@ -34,7 +34,7 @@ interface ChartCellProps {
 export function ChartCell({
     variantResult,
     axisRange,
-    metricIndex,
+    metricUuid,
     showGridLines = true,
     isAlternatingRow = false,
     isLastRow = false,
@@ -93,7 +93,7 @@ export function ChartCell({
                             <ChartGradients
                                 lower={lower}
                                 upper={upper}
-                                gradientId={`gradient-${isSecondary ? 'secondary' : 'primary'}-${metricIndex}-${
+                                gradientId={`gradient-${isSecondary ? 'secondary' : 'primary'}-${metricUuid ? metricUuid.slice(-8) : 'default'}-${
                                     variantResult.key
                                 }`}
                             />
@@ -102,7 +102,7 @@ export function ChartCell({
                             {isBayesianResult(variantResult) ? (
                                 <path
                                     d={generateViolinPath(x1, x2, y, barHeightPercent, deltaX)}
-                                    fill={`url(#gradient-${isSecondary ? 'secondary' : 'primary'}-${metricIndex}-${
+                                    fill={`url(#gradient-${isSecondary ? 'secondary' : 'primary'}-${metricUuid ? metricUuid.slice(-8) : 'default'}-${
                                         variantResult.key
                                     })`}
                                     opacity={CHART_BAR_OPACITY}
@@ -113,7 +113,7 @@ export function ChartCell({
                                     y={y}
                                     width={x2 - x1}
                                     height={barHeightPercent}
-                                    fill={`url(#gradient-${isSecondary ? 'secondary' : 'primary'}-${metricIndex}-${
+                                    fill={`url(#gradient-${isSecondary ? 'secondary' : 'primary'}-${metricUuid ? metricUuid.slice(-8) : 'default'}-${
                                         variantResult.key
                                     })`}
                                     opacity={CHART_BAR_OPACITY}

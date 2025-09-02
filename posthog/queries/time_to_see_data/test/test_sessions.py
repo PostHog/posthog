@@ -16,8 +16,8 @@ import pytest
     ],
 )
 def test_sessions_condition(query, expected_condition):
-    from posthog.queries.time_to_see_data.sessions import _sessions_condition
     from posthog.queries.time_to_see_data.serializers import SessionsQuerySerializer
+    from posthog.queries.time_to_see_data.sessions import _sessions_condition
 
     serializer = SessionsQuerySerializer(data=query)
     serializer.is_valid(raise_exception=True)

@@ -1,14 +1,15 @@
-from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from datetime import datetime
 from textwrap import dedent
 
 from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, _create_person
 
-from ee.hogai.graph.query_planner.toolkit import TaxonomyAgentToolkit, final_answer
 from posthog.models import Action
 from posthog.models.group.util import create_group
 from posthog.models.property_definition import PropertyDefinition, PropertyType
-from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, _create_person
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+from ee.hogai.graph.query_planner.toolkit import TaxonomyAgentToolkit, final_answer
 
 
 class DummyToolkit(TaxonomyAgentToolkit):

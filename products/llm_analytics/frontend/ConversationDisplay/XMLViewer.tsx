@@ -142,7 +142,7 @@ function parseXML(xmlString: string): XMLNode[] | null {
                     children: [],
                 }
 
-                // not actually needed for llmo use case but could be useful to have?
+                // not actually needed for llma use case but could be useful to have?
                 if (element.attributes.length > 0) {
                     xmlNode.attributes = {}
                     for (let i = 0; i < element.attributes.length; i++) {

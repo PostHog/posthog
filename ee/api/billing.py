@@ -2,29 +2,31 @@ import json
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
-import posthoganalytics
-import requests
-import structlog
 from django.conf import settings
+from django.contrib.auth.models import AbstractUser
 from django.http import HttpResponse
 from django.shortcuts import redirect
-from rest_framework import serializers, status, viewsets, permissions
-from posthog.api.utils import action
+
+import requests
+import structlog
+import posthoganalytics
+from rest_framework import permissions, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
-from django.contrib.auth.models import AbstractUser
+
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.utils import action
+from posthog.cloud_utils import get_cached_instance_license
+from posthog.event_usage import groups
+from posthog.exceptions_capture import capture_exception
+from posthog.models import Organization, Team
+from posthog.models.organization import OrganizationMembership
+from posthog.utils import relative_date_parse
 
 from ee.billing.billing_manager import BillingManager, build_billing_token
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
-from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.cloud_utils import get_cached_instance_license
-from posthog.event_usage import groups
-from posthog.models import Organization, Team
-from posthog.models.organization import OrganizationMembership
-from posthog.utils import relative_date_parse
-from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
 

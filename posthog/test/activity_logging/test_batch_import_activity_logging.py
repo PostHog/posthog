@@ -34,8 +34,9 @@ class TestBatchImportActivityLogging(ActivityLogTestHelper):
 
     def test_batch_import_scope_in_activity_log_types(self):
         """Test that BatchImport scope is defined in ActivityScope"""
-        from posthog.models.activity_logging.activity_log import ActivityScope
         from typing import get_args
+
+        from posthog.models.activity_logging.activity_log import ActivityScope
 
         # Check that BatchImport is in the literal type
         # We can't directly test literal types, but we can test that the string value works
@@ -51,6 +52,7 @@ class TestBatchImportActivityLogging(ActivityLogTestHelper):
         self.assertIn("import_config", batch_import_masked)
 
     def test_batch_import_integration_test(self):
+        """Integration test to verify the basic setup works"""
         from posthog.models.activity_logging.utils import activity_storage
 
         activity_storage.set_user(self.user)

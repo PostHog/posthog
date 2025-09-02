@@ -1,3 +1,5 @@
+# ruff: noqa: T201 allow print statements
+
 import os
 import re
 import sys

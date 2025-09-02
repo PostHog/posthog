@@ -70,7 +70,7 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                             fullWidth
                             sideIcon={<IconAI />}
                             data-attr="events-table-trace-link"
-                            to={urls.llmObservabilityTrace(event.properties.$ai_trace_id, {
+                            to={urls.llmAnalyticsTrace(event.properties.$ai_trace_id, {
                                 event: event.id,
                                 timestamp: event.timestamp,
                             })}

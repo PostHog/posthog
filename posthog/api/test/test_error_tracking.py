@@ -1,29 +1,32 @@
 import os
-from boto3 import resource
-from unittest.mock import patch
-from rest_framework import status
-from freezegun import freeze_time
-from django.test import override_settings
-from django.core.files.uploadedfile import SimpleUploadedFile
-from unittest.mock import ANY
 
-from ee.models.rbac.role import Role
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
+from unittest.mock import ANY, patch
+
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import override_settings
+
+from boto3 import resource
+from botocore.config import Config
+from rest_framework import status
+
 from posthog.models import (
-    ErrorTrackingSymbolSet,
-    ErrorTrackingStackFrame,
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingStackFrame,
+    ErrorTrackingSymbolSet,
 )
 from posthog.models.utils import uuid7
-from botocore.config import Config
 from posthog.settings import (
-    OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_ACCESS_KEY_ID,
-    OBJECT_STORAGE_SECRET_ACCESS_KEY,
     OBJECT_STORAGE_BUCKET,
+    OBJECT_STORAGE_ENDPOINT,
+    OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
+
+from ee.models.rbac.role import Role
 
 TEST_BUCKET = "test_storage_bucket-TestErrorTracking"
 

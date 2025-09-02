@@ -1,4 +1,4 @@
-from posthog.hogql.ast import SelectQuery, SelectSetQuery, Program
+from posthog.hogql.ast import Program, SelectQuery, SelectSetQuery
 from posthog.hogql.base import AST
 
 def parse_expr(expr: str, /, *, is_internal: bool = False) -> AST:

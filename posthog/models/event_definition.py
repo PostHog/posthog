@@ -3,7 +3,7 @@ from django.db import models
 from django.utils import timezone
 
 from posthog.models.team import Team
-from posthog.models.utils import UUIDTModel, UniqueConstraintByExpression
+from posthog.models.utils import UniqueConstraintByExpression, UUIDTModel
 
 
 class EventDefinition(UUIDTModel):

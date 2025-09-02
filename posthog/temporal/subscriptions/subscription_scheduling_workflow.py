@@ -1,25 +1,27 @@
-import asyncio
-import dataclasses
-import datetime as dt
 import json
 import typing
+import asyncio
+import datetime as dt
+import dataclasses
 from itertools import groupby
 
-import temporalio.activity
-import temporalio.common
-import temporalio.workflow
 from django.conf import settings
+
+import temporalio.common
+import temporalio.activity
+import temporalio.workflow
 from structlog import get_logger
 
-from ee.tasks.subscriptions import deliver_subscription_report_async, team_use_temporal_flag
 from posthog.models.subscription import Subscription
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 
+from ee.tasks.subscriptions import deliver_subscription_report_async, team_use_temporal_flag
+
 LOGGER = get_logger(__name__)
 
-# Changed 8/12/25 11:20 AM
+# Changed 8/22/25 11:20 PM
 
 
 @dataclasses.dataclass
@@ -44,7 +46,7 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
     now_with_buffer = dt.datetime.utcnow() + dt.timedelta(minutes=inputs.buffer_minutes)
     await logger.ainfo(f"Looking for subscriptions due before {now_with_buffer}")
 
-    @database_sync_to_async
+    @database_sync_to_async(thread_sensitive=False)
     def get_subscription_ids() -> list[Subscription]:
         return list(
             Subscription.objects.filter(next_delivery_date__lte=now_with_buffer, deleted=False)

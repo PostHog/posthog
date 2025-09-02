@@ -38,15 +38,10 @@ Session Replay Events Data Flow:
 
 from django.conf import settings
 
-from posthog.clickhouse.kafka_engine import kafka_engine
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.clickhouse.table_engines import (
-    Distributed,
-    ReplicationScheme,
-    AggregatingMergeTree,
-)
+from posthog.clickhouse.kafka_engine import kafka_engine
+from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS_V2_TEST
-
 
 SESSION_REPLAY_EVENTS_V2_TEST_DATA_TABLE = "sharded_session_replay_events_v2_test"
 
@@ -230,7 +225,7 @@ def SESSION_REPLAY_EVENTS_V2_TEST_DATA_TABLE_SQL(on_cluster=True):
     )
 
 
-def SESSION_REPLAY_EVENTS_V2_TEST_WRITABLE_TABLE_SQL(on_cluster=True):
+def SESSION_REPLAY_EVENTS_V2_TEST_WRITABLE_TABLE_SQL(on_cluster=False):
     return SESSION_REPLAY_EVENTS_V2_TEST_TABLE_BASE_SQL.format(
         table_name="writable_session_replay_events_v2_test",
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
@@ -241,7 +236,7 @@ def SESSION_REPLAY_EVENTS_V2_TEST_WRITABLE_TABLE_SQL(on_cluster=True):
     )
 
 
-def SESSION_REPLAY_EVENTS_V2_TEST_DISTRIBUTED_TABLE_SQL(on_cluster=True):
+def SESSION_REPLAY_EVENTS_V2_TEST_DISTRIBUTED_TABLE_SQL(on_cluster=False):
     return SESSION_REPLAY_EVENTS_V2_TEST_TABLE_BASE_SQL.format(
         table_name="session_replay_events_v2_test",
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
@@ -253,8 +248,8 @@ def SESSION_REPLAY_EVENTS_V2_TEST_DISTRIBUTED_TABLE_SQL(on_cluster=True):
 
 
 def DROP_SESSION_REPLAY_EVENTS_V2_TEST_TABLE_SQL():
-    return f"DROP TABLE IF EXISTS {SESSION_REPLAY_EVENTS_V2_TEST_DATA_TABLE} {ON_CLUSTER_CLAUSE()}"
+    return f"DROP TABLE IF EXISTS {SESSION_REPLAY_EVENTS_V2_TEST_DATA_TABLE} {ON_CLUSTER_CLAUSE(False)}"
 
 
 def TRUNCATE_SESSION_REPLAY_EVENTS_V2_TEST_TABLE_SQL():
-    return f"TRUNCATE TABLE IF EXISTS {SESSION_REPLAY_EVENTS_V2_TEST_DATA_TABLE} {ON_CLUSTER_CLAUSE()}"
+    return f"TRUNCATE TABLE IF EXISTS {SESSION_REPLAY_EVENTS_V2_TEST_DATA_TABLE} {ON_CLUSTER_CLAUSE(False)}"

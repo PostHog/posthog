@@ -3,7 +3,7 @@ use std::{future::ready, sync::Arc};
 use crate::billing_limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
 use axum::{
     http::Method,
-    routing::{get, post},
+    routing::{any, get},
     Router,
 };
 use common_cookieless::CookielessManager;
@@ -76,7 +76,7 @@ where
     // Very permissive CORS policy, as old SDK versions
     // and reverse proxies might send funky headers.
     let cors = CorsLayer::new()
-        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+        .allow_methods([Method::GET, Method::POST, Method::OPTIONS, Method::HEAD])
         .allow_headers(AllowHeaders::mirror_request())
         .allow_credentials(true)
         .allow_origin(AllowOrigin::mirror_request());
@@ -89,10 +89,10 @@ where
 
     // flags endpoint
     let flags_router = Router::new()
-        .route("/flags", post(endpoint::flags).get(endpoint::flags))
-        .route("/flags/", post(endpoint::flags).get(endpoint::flags))
-        .route("/decide", post(endpoint::flags).get(endpoint::flags))
-        .route("/decide/", post(endpoint::flags).get(endpoint::flags))
+        .route("/flags", any(endpoint::flags))
+        .route("/flags/", any(endpoint::flags))
+        .route("/decide", any(endpoint::flags))
+        .route("/decide/", any(endpoint::flags))
         .layer(ConcurrencyLimitLayer::new(config.max_concurrency));
 
     let router = Router::new()

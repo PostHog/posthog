@@ -1,6 +1,7 @@
 from typing import Optional
 
 from django.conf import settings
+
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 from posthog.settings.utils import get_from_env

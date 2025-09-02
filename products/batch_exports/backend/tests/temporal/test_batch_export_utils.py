@@ -1,15 +1,13 @@
 import asyncio
 import datetime as dt
 
-import pyarrow as pa
 import pytest
-import pytest_asyncio
+
+import pyarrow as pa
 
 from posthog.batch_exports.models import BatchExportRun
-from posthog.temporal.tests.utils.models import (
-    acreate_batch_export,
-    adelete_batch_export,
-)
+from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export
+
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
     make_retryable_with_exponential_backoff,
@@ -19,7 +17,7 @@ from products.batch_exports.backend.temporal.utils import (
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def s3_batch_export(
     ateam,
     temporal_client,

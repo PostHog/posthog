@@ -18,6 +18,7 @@ from posthog.schema import (
     RecordingPropertyFilter,
     SessionPropertyFilter,
 )
+
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 PropertyFilterUnion = Union[

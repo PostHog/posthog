@@ -1,18 +1,17 @@
 from typing import Any, Optional
 
 from django.db.models import Q
+
 from drf_spectacular.utils import extend_schema
-
 from rest_framework import serializers, status, viewsets
-
-from posthog.api.utils import ServerTimingsGathered, action
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models import ActivityLog, FeatureFlag, Insight, NotificationViewed, User, Cohort, HogFunction
+from posthog.api.utils import ServerTimingsGathered, action
+from posthog.models import ActivityLog, Cohort, FeatureFlag, HogFunction, Insight, NotificationViewed, User
 from posthog.models.comment import Comment
 from posthog.models.notebook.notebook import Notebook
 

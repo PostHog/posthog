@@ -4,11 +4,11 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 
-import { DisplayOption, llmObservabilityTraceLogic } from '../llmObservabilityTraceLogic'
+import { DisplayOption, llmAnalyticsTraceLogic } from '../llmAnalyticsTraceLogic'
 
 export function DisplayOptionsModal(): JSX.Element {
-    const { displayOptionsModalVisible, displayOption } = useValues(llmObservabilityTraceLogic)
-    const { hideDisplayOptionsModal, setDisplayOption } = useActions(llmObservabilityTraceLogic)
+    const { displayOptionsModalVisible, displayOption } = useValues(llmAnalyticsTraceLogic)
+    const { hideDisplayOptionsModal, setDisplayOption } = useActions(llmAnalyticsTraceLogic)
 
     const displayOptions: LemonRadioOption<DisplayOption>[] = [
         {

@@ -99,6 +99,8 @@ export interface DataNodeLogicProps {
 
     /** Whether to automatically load data when the query changes. Used for manual override in SQL editor */
     autoLoad?: boolean
+    /** Override the maximum pagination limit. */
+    maxPaginationLimit?: number
 }
 
 export const AUTOLOAD_INTERVAL = 30000
@@ -636,12 +638,27 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             (newQuery, isShowingCachedResults) => (isShowingCachedResults ? false : !!newQuery),
         ],
         nextQuery: [
-            (s, p) => [p.query, s.response, s.responseError, s.dataLoading, s.isShowingCachedResults],
-            (query, response, responseError, dataLoading, isShowingCachedResults): DataNode | null => {
+            (s, p) => [
+                p.query,
+                s.response,
+                s.responseError,
+                s.dataLoading,
+                s.isShowingCachedResults,
+                (_, props) => props.maxPaginationLimit,
+            ],
+            (
+                query,
+                response,
+                responseError,
+                dataLoading,
+                isShowingCachedResults,
+                maxPaginationLimit
+            ): DataNode | null => {
                 if (isShowingCachedResults) {
                     return null
                 }
 
+                const effectivePaginationLimit = maxPaginationLimit ?? LOAD_MORE_ROWS_LIMIT
                 if (
                     (isEventsQuery(query) ||
                         isActorsQuery(query) ||
@@ -677,7 +694,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                         before: lastTimestamp,
                                         limit: Math.max(
                                             100,
-                                            Math.min(2 * (typedResults?.length || 100), LOAD_MORE_ROWS_LIMIT)
+                                            Math.min(2 * (typedResults?.length || 100), effectivePaginationLimit)
                                         ),
                                     }
                                     return newQuery
@@ -696,7 +713,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             return {
                                 ...query,
                                 offset: typedResults?.length || 0,
-                                limit: Math.max(100, Math.min(2 * (typedResults?.length || 100), LOAD_MORE_ROWS_LIMIT)),
+                                limit: Math.max(
+                                    100,
+                                    Math.min(2 * (typedResults?.length || 100), effectivePaginationLimit)
+                                ),
                             } as
                                 | EventsQuery
                                 | ActorsQuery

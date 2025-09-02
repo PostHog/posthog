@@ -74,6 +74,9 @@ pub struct Config {
     #[envconfig(default = "5")] // 5 seconds
     pub commit_interval_secs: u64,
 
+    #[envconfig(default = "120")] // 120 seconds (2 minutes)
+    pub flush_interval_secs: u64,
+
     // HTTP server configuration
     #[envconfig(from = "BIND_HOST", default = "0.0.0.0")]
     pub host: String,
@@ -104,6 +107,22 @@ pub struct Config {
 
     #[envconfig(default = "300")] // 5 minutes in seconds
     pub s3_timeout_secs: u64,
+
+    #[envconfig(default = "true")]
+    pub export_prometheus: bool,
+
+    // OpenTelemetry configuration
+    #[envconfig(from = "OTEL_EXPORTER_OTLP_ENDPOINT")]
+    pub otel_url: Option<String>,
+
+    #[envconfig(from = "OTEL_TRACES_SAMPLER_ARG", default = "0.001")]
+    pub otel_sampling_rate: f64,
+
+    #[envconfig(from = "OTEL_SERVICE_NAME", default = "posthog-kafka-deduplicator")]
+    pub otel_service_name: String,
+
+    #[envconfig(from = "OTEL_LOG_LEVEL", default = "info")]
+    pub otel_log_level: tracing::Level,
 }
 
 impl Config {
@@ -174,6 +193,11 @@ impl Config {
     /// Get commit interval as Duration
     pub fn commit_interval(&self) -> Duration {
         Duration::from_secs(self.commit_interval_secs)
+    }
+
+    /// Get flush interval as Duration
+    pub fn flush_interval(&self) -> Duration {
+        Duration::from_secs(self.flush_interval_secs)
     }
 
     /// Get producer send timeout as Duration

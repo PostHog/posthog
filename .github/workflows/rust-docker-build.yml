@@ -27,6 +27,9 @@ jobs:
                     - image: hook-worker
                       dockerfile: ./rust/Dockerfile
                       project: c1bwj4j4qg
+                    - image: hook-migrator
+                      dockerfile: ./rust/Dockerfile.migrate-hooks
+                      project: c1bwj4j4qg
                     - image: cyclotron-janitor
                       dockerfile: ./rust/Dockerfile
                       project: r4zm8vtlbw
@@ -62,6 +65,7 @@ jobs:
             hook-api_digest: ${{ steps.digest.outputs.hook-api_digest }}
             hook-janitor_digest: ${{ steps.digest.outputs.hook-janitor_digest }}
             hook-worker_digest: ${{ steps.digest.outputs.hook-worker_digest }}
+            hook-migrator_digest: ${{ steps.digest.outputs.hook-migrator_digest }}
             cymbal_digest: ${{ steps.digest.outputs.cymbal_digest }}
             feature-flags_digest: ${{ steps.digest.outputs.feature-flags_digest }}
             log-capture_digest: ${{ steps.digest.outputs.log-capture_digest }}

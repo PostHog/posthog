@@ -1,8 +1,6 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { DataColorToken } from 'lib/colors'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -23,13 +21,11 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
     connect((props: InsightLogicProps) => ({
         values: [
             insightVizDataLogic,
-            ['isTrends', 'isFunnels', 'insightFilter'],
+            ['isTrends', 'isStickiness', 'isFunnels', 'insightFilter'],
             trendsDataLogic(props),
             ['resultCustomizationBy', 'resultCustomizations as trendsResultCustomizations', 'getTrendsColorToken'],
             funnelDataLogic(props),
             ['resultCustomizations as funnelsResultCustomizations', 'getFunnelsColorToken'],
-            featureFlagLogic,
-            ['featureFlags'],
         ],
         actions: [insightVizDataLogic, ['updateInsightFilter']],
     })),
@@ -61,23 +57,26 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
     }),
 
     selectors({
-        hasInsightColors: [
-            (s) => [s.featureFlags],
-            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.INSIGHT_COLORS],
-        ],
         modalVisible: [(s) => [s.dataset], (dataset): boolean => dataset !== null],
         colorToken: [
             (s) => [s.localColorToken, s.colorTokenFromQuery],
             (localColorToken, colorTokenFromQuery): DataColorToken | null => localColorToken || colorTokenFromQuery,
         ],
         colorTokenFromQuery: [
-            (s) => [s.isTrends, s.isFunnels, s.getTrendsColorToken, s.getFunnelsColorToken, s.dataset],
-            (isTrends, isFunnels, getTrendsColorToken, getFunnelsColorToken, dataset): DataColorToken | null => {
+            (s) => [s.isTrends, s.isStickiness, s.isFunnels, s.getTrendsColorToken, s.getFunnelsColorToken, s.dataset],
+            (
+                isTrends,
+                isStickiness,
+                isFunnels,
+                getTrendsColorToken,
+                getFunnelsColorToken,
+                dataset
+            ): DataColorToken | null => {
                 if (!dataset) {
                     return null
                 }
 
-                if (isTrends) {
+                if (isTrends || isStickiness) {
                     return getTrendsColorToken(dataset as IndexedTrendResult)[1]
                 } else if (isFunnels) {
                     return getFunnelsColorToken(dataset as FlattenedFunnelStepByBreakdown)[1]
@@ -87,9 +86,15 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
             },
         ],
         resultCustomizations: [
-            (s) => [s.isTrends, s.isFunnels, s.trendsResultCustomizations, s.funnelsResultCustomizations],
-            (isTrends, isFunnels, trendsResultCustomizations, funnelsResultCustomizations) => {
-                if (isTrends) {
+            (s) => [
+                s.isTrends,
+                s.isStickiness,
+                s.isFunnels,
+                s.trendsResultCustomizations,
+                s.funnelsResultCustomizations,
+            ],
+            (isTrends, isStickiness, isFunnels, trendsResultCustomizations, funnelsResultCustomizations) => {
+                if (isTrends || isStickiness) {
                     return trendsResultCustomizations
                 } else if (isFunnels) {
                     return funnelsResultCustomizations
@@ -107,7 +112,7 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
                 return
             }
 
-            if (values.isTrends) {
+            if (values.isTrends || values.isStickiness) {
                 const resultCustomizationKey = getTrendResultCustomizationKey(
                     values.resultCustomizationBy,
                     values.dataset as IndexedTrendResult

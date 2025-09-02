@@ -1,38 +1,36 @@
-from posthog.test.test_utils import create_group_type_mapping_without_created_at
 import json
 from typing import Any, cast
 
-from unittest.mock import patch
 import pytest
+from posthog.test.base import BaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
+from unittest.mock import patch
+
 from django.test import override_settings
+
 from parameterized import parameterized
 
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
-from posthog.hogql.database.database import create_hogql_database, serialize_database
-from posthog.hogql.database.models import (
-    FieldTraverser,
-    LazyJoin,
-    StringDatabaseField,
-    ExpressionField,
-    Table,
+from posthog.schema import (
+    DatabaseSchemaDataWarehouseTable,
+    DataWarehouseEventsModifier,
+    HogQLQueryModifiers,
+    PersonsOnEventsMode,
 )
+
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import create_hogql_database, serialize_database
+from posthog.hogql.database.models import ExpressionField, FieldTraverser, LazyJoin, StringDatabaseField, Table
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import print_ast
-from posthog.hogql.context import HogQLContext
-from posthog.models.organization import Organization
-from posthog.models.team.team import Team
-from posthog.schema import (
-    DataWarehouseEventsModifier,
-    DatabaseSchemaDataWarehouseTable,
-    HogQLQueryModifiers,
-    PersonsOnEventsMode,
-)
-from posthog.test.base import BaseTest, QueryMatchingTest, FuzzyInt, snapshot_postgres_queries
-from posthog.warehouse.models import DataWarehouseTable, DataWarehouseCredential, DataWarehouseSavedQuery
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
+
+from posthog.models.organization import Organization
+from posthog.models.team.team import Team
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
+from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseSavedQuery, DataWarehouseTable
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.join import DataWarehouseJoin

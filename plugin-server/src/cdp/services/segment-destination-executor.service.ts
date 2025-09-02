@@ -4,7 +4,6 @@ import { ReadableStream } from 'stream/web'
 import { PluginsServerConfig } from '~/types'
 
 import { parseJSON } from '../../utils/json-parse'
-import { logger } from '../../utils/logger'
 import { FetchOptions, FetchResponse, Response, fetch } from '../../utils/request'
 import { tryCatch } from '../../utils/try-catch'
 import { LegacyPluginLogger } from '../legacy-plugins/types'
@@ -307,16 +306,8 @@ export class SegmentDestinationExecutorService {
                     result.invocation.queuePriority = metadata.tries
                     result.invocation.queueScheduledAt = getNextRetryTime(this.serverConfig, metadata.tries)
                     return result
-                } else {
-                    result.finished = true
                 }
             }
-
-            logger.error('💩', 'Segment destination errored', {
-                error: e.message,
-                segmentDestinationId,
-                invocationId: invocation.id,
-            })
 
             result.error = e
 

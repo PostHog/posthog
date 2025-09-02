@@ -2,6 +2,7 @@ import './PropertyDefinitionsTable.scss'
 
 import { useActions, useValues } from 'kea'
 
+import { IconApps } from '@posthog/icons'
 import { LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -84,6 +85,7 @@ export function PropertyDefinitionsTable(): JSX.Element {
                 resourceType={{
                     type: 'property',
                     typePlural: 'properties',
+                    forceIcon: <IconApps />,
                 }}
             />
             <SceneDivider />

@@ -7,7 +7,4 @@ while true; do
 nc -z localhost 9092 && break || echo 'Checking Kafka status...' && sleep 1
 done
 
-# Check ClickHouse
-while true; do
-curl -s -o /dev/null -I 'http://localhost:8123/' && break || echo 'Checking ClickHouse status...' && sleep 1
-done
+./bin/check_clickhouse_up

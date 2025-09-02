@@ -1,9 +1,9 @@
+from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from mistralai_azure import AssistantMessage
 
 from ee.hogai.assistant import Assistant
-from posthog.test.base import APIBaseTest
 
 
 class TestMaxToolsAPI(APIBaseTest):

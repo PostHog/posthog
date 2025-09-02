@@ -1,10 +1,10 @@
+from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
 from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
 from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState, TaxonomyNodeName
-from posthog.test.base import BaseTest
 
 
 class MockTaxonomyAgentNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgentState]):

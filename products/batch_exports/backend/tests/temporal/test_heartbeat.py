@@ -2,9 +2,7 @@ import datetime as dt
 
 import pytest
 
-from products.batch_exports.backend.temporal.heartbeat import (
-    BatchExportRangeHeartbeatDetails,
-)
+from products.batch_exports.backend.temporal.heartbeat import BatchExportRangeHeartbeatDetails
 
 
 @pytest.mark.parametrize(

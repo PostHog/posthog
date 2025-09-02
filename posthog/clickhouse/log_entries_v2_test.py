@@ -1,7 +1,7 @@
+from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, kafka_engine, ttl_period
 from posthog.clickhouse.table_engines import ReplacingMergeTree
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES_V2_TEST
-from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 # NOTE: This module contains tables that are temporary and used for testing Mr Blobby V2.

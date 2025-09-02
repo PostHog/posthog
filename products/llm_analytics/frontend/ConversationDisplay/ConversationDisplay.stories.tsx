@@ -3,7 +3,7 @@ import { Meta, StoryFn } from '@storybook/react'
 import { ConversationDisplay as ConversationDisplayComponent } from './ConversationDisplay'
 
 const meta: Meta<typeof ConversationDisplayComponent> = {
-    title: 'Scenes-App/LLM Observability/Conversation Display',
+    title: 'Scenes-App/LLM Analytics/Conversation Display',
     component: ConversationDisplayComponent,
 }
 export default meta

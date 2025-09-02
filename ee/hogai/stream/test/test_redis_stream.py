@@ -1,25 +1,32 @@
 import asyncio
 from typing import cast
-import pytest
-from unittest.mock import AsyncMock, patch
 from uuid import uuid4
+
+import pytest
+from posthog.test.base import BaseTest
+from unittest.mock import AsyncMock, patch
 
 import redis.exceptions as redis_exceptions
 
+from posthog.schema import (
+    AssistantEventType,
+    AssistantGenerationStatusEvent,
+    AssistantGenerationStatusType,
+    AssistantMessage,
+)
+
+from posthog.temporal.ai.conversation import CONVERSATION_STREAM_TIMEOUT
+
 from ee.hogai.stream.redis_stream import (
     ConversationRedisStream,
+    ConversationStreamSerializer,
+    MessageEvent,
+    StatusEvent,
+    StatusPayload,
     StreamError,
     StreamEvent,
-    MessageEvent,
-    StatusPayload,
-    StatusEvent,
-    ConversationStreamSerializer,
 )
 from ee.models.assistant import Conversation
-from posthog.schema import AssistantEventType, AssistantMessage
-from posthog.temporal.ai.conversation import CONVERSATION_STREAM_TIMEOUT
-from posthog.test.base import BaseTest
-from posthog.schema import AssistantGenerationStatusEvent, AssistantGenerationStatusType
 
 
 class TestRedisStream(BaseTest):

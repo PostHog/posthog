@@ -3,6 +3,13 @@
     z-index: var(--z-graph-tooltip);
     pointer-events: none;
     transition: all 0.4s;
+
+    &:has(.ScrollableShadows--left),
+    &:has(.ScrollableShadows--right),
+    &:has(.ScrollableShadows--top),
+    &:has(.ScrollableShadows--bottom) {
+        pointer-events: auto;
+    }
 }
 
 .InsightTooltip {

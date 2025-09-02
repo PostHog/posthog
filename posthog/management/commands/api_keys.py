@@ -1,3 +1,5 @@
+# ruff: noqa: T201 allow print statements
+
 from django.core.management.base import BaseCommand
 
 from posthog.models import Team

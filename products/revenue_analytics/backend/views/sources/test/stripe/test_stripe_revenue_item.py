@@ -1,9 +1,11 @@
-from parameterized import parameterized
 from typing import Any
+
+from posthog.test.base import snapshot_clickhouse_queries
+
+from parameterized import parameterized
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
-from posthog.test.base import snapshot_clickhouse_queries
 
 from posthog.temporal.data_imports.sources.stripe.constants import (
     CHARGE_RESOURCE_NAME,
@@ -13,12 +15,12 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     SUBSCRIPTION_RESOURCE_NAME,
 )
 
-from products.revenue_analytics.backend.views.sources.test.stripe.base import StripeSourceBaseTest
 from products.revenue_analytics.backend.views.schemas.revenue_item import SCHEMA as REVENUE_ITEM_SCHEMA
 from products.revenue_analytics.backend.views.sources.stripe.revenue_item import (
-    build,
     _calculate_months_for_period as calculate_months_for_period,
+    build,
 )
+from products.revenue_analytics.backend.views.sources.test.stripe.base import StripeSourceBaseTest
 
 
 class TestRevenueItemStripeBuilder(StripeSourceBaseTest):

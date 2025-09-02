@@ -7,7 +7,11 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { Query } from '~/queries/Query/Query'
 import { ColumnFeature } from '~/queries/nodes/DataTable/DataTable'
-import { DataTableNode, MarketingAnalyticsTableQuery } from '~/queries/schema/schema-general'
+import {
+    DataTableNode,
+    MarketingAnalyticsColumnsSchemaNames,
+    MarketingAnalyticsTableQuery,
+} from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumn } from '~/queries/types'
 import { webAnalyticsDataTableQueryContext } from '~/scenes/web-analytics/tiles/WebAnalyticsTile'
 import { InsightLogicProps } from '~/types'
@@ -36,7 +40,18 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
             (acc, column) => {
                 acc[column] = {
                     title: column,
-                    render: MarketingAnalyticsCell,
+                    render: (props) => (
+                        <MarketingAnalyticsCell
+                            {...props}
+                            style={{
+                                maxWidth:
+                                    column.toLocaleLowerCase() ===
+                                    MarketingAnalyticsColumnsSchemaNames.Campaign.toLocaleLowerCase()
+                                        ? '200px'
+                                        : undefined,
+                            }}
+                        />
+                    ),
                 }
                 return acc
             },

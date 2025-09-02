@@ -1,8 +1,9 @@
-import dataclasses
 import textwrap
+import dataclasses
 from typing import Optional
 
 from django.db import connection
+
 from structlog import get_logger
 from temporalio import activity
 

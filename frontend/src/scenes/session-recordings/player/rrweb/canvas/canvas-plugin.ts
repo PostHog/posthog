@@ -169,15 +169,51 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
         })
 
         const img = containers.get(data.id)
-        if (img) {
+        const originalCanvas = canvases.get(data.id)
+
+        if (img && originalCanvas) {
             target.toBlob(
                 (blob) => {
                     if (!blob) {
                         return
                     }
 
-                    img.style.width = 'initial'
-                    img.style.height = 'initial'
+                    // Step 1: Get the canvas dimensions while it's still in the DOM
+                    const canvasRect = originalCanvas.getBoundingClientRect()
+                    const computedStyle = window.getComputedStyle(originalCanvas)
+
+                    // Check if canvas uses percentage-based sizing
+                    const usesPercentageWidth = computedStyle.width.includes('%')
+                    const usesPercentageHeight = computedStyle.height.includes('%')
+
+                    let finalWidthStyle: string
+                    let finalHeightStyle: string
+
+                    if (usesPercentageWidth) {
+                        // Keep percentage width
+                        finalWidthStyle = computedStyle.width
+                    } else {
+                        // Use measured or fallback pixel width
+                        const measuredWidth =
+                            canvasRect.width || originalCanvas.offsetWidth || originalCanvas.clientWidth
+                        finalWidthStyle =
+                            measuredWidth && measuredWidth >= 10
+                                ? measuredWidth + 'px'
+                                : (originalCanvas.width || 300) + 'px'
+                    }
+
+                    if (usesPercentageHeight) {
+                        // Keep percentage height
+                        finalHeightStyle = computedStyle.height
+                    } else {
+                        // Use measured or fallback pixel height
+                        const measuredHeight =
+                            canvasRect.height || originalCanvas.offsetHeight || originalCanvas.clientHeight
+                        finalHeightStyle =
+                            measuredHeight && measuredHeight >= 10
+                                ? measuredHeight + 'px'
+                                : (originalCanvas.height || 150) + 'px'
+                    }
 
                     const url = URL.createObjectURL(blob)
 
@@ -193,7 +229,42 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
                      */
                     trackUrl(data.id, url)
 
-                    img.onload = () => finalizeUrl(data.id, url)
+                    img.onload = () => {
+                        // Step 2: Apply the chosen dimensions and replace canvas
+
+                        // Apply the chosen dimensions to the image
+                        img.style.width = finalWidthStyle
+                        img.style.height = finalHeightStyle
+                        img.style.display = computedStyle.display || 'block'
+                        img.style.objectFit = 'fill'
+
+                        // Copy other layout-related styles from canvas
+                        const layoutStyles = [
+                            'margin',
+                            'padding',
+                            'border',
+                            'boxSizing',
+                            'position',
+                            'top',
+                            'left',
+                            'right',
+                            'bottom',
+                        ]
+                        layoutStyles.forEach((prop) => {
+                            const value = computedStyle.getPropertyValue(prop)
+                            if (value && value !== 'auto' && value !== 'normal') {
+                                img.style.setProperty(prop, value)
+                            }
+                        })
+
+                        // Replace the canvas with the properly sized image
+                        const parent = originalCanvas.parentNode
+                        if (parent) {
+                            parent.replaceChild(img, originalCanvas)
+                        }
+
+                        finalizeUrl(data.id, url)
+                    }
                     img.onerror = () => finalizeUrl(data.id, url)
 
                     img.src = url
@@ -237,13 +308,18 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
             if (node.nodeName === 'CANVAS' && node.nodeType === 1) {
                 const el = containers.get(id) || document.createElement('img')
                 const canvasElement = node as HTMLCanvasElement
+
+                // Copy attributes (including width/height for now)
                 for (let i = 0; i < canvasElement.attributes.length; i++) {
                     const attr = canvasElement.attributes[i]
                     el.setAttribute(attr.name, attr.value)
                 }
-                const parent = node.parentNode as Node
-                parent?.replaceChild?.(el, node as Node)
+
+                // Store the image but don't replace the canvas yet
                 containers.set(id, el)
+
+                // Store reference to the original canvas for dimension calculation
+                canvases.set(id, canvasElement)
             }
         },
 

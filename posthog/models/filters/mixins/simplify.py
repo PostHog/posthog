@@ -1,8 +1,9 @@
 from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
 
+from posthog.schema import PropertyOperator
+
 from posthog.constants import PropertyOperatorType
 from posthog.models.property import GroupTypeIndex, PropertyGroup
-from posthog.schema import PropertyOperator
 
 if TYPE_CHECKING:  # Avoid circular import
     from posthog.models import Property, Team

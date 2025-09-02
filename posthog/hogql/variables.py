@@ -1,11 +1,13 @@
 from typing import TypeVar
 
+from posthog.schema import HogQLVariable
+
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
 from posthog.hogql.visitor import CloningVisitor
+
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.team.team import Team
-from posthog.schema import HogQLVariable
 
 T = TypeVar("T", bound=ast.Expr)
 
