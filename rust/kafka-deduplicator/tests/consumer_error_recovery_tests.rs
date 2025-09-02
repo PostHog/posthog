@@ -186,7 +186,7 @@ async fn test_consumer_error_recovery() -> Result<()> {
     produce_test_messages(&test_topic, 20).await?;
 
     // Create mock processor with 20% failure rate
-    let processor = Arc::new(MockMessageProcessor::new());
+    let processor = MockMessageProcessor::new();
     processor.set_failure_rate(20);
 
     // Create consumer
@@ -248,7 +248,7 @@ async fn test_consumer_processing_delay_resilience() -> Result<()> {
     produce_test_messages(&test_topic, 50).await?;
 
     // Create mock processor with 100ms delay per message
-    let processor = Arc::new(MockMessageProcessor::new());
+    let processor = MockMessageProcessor::new();
     processor.set_processing_delay(100);
 
     // Create consumer with high concurrency
@@ -313,7 +313,7 @@ async fn test_consumer_failure_notification() -> Result<()> {
     let (failure_tx, mut failure_rx) = mpsc::unbounded_channel();
 
     // Create mock processor that fails every other message
-    let processor = Arc::new(MockMessageProcessor::new());
+    let processor = MockMessageProcessor::new();
     processor.set_failure_rate(50);
     processor.set_failure_sender(failure_tx);
 

@@ -52,7 +52,7 @@ impl DeduplicationProcessor {
     pub fn new(
         config: DeduplicationConfig,
         stores: Arc<DashMap<Partition, DeduplicationStore>>,
-    ) -> Result<Arc<Self>> {
+    ) -> Result<Self> {
         let producer: Option<FutureProducer> = match &config.output_topic {
             Some(topic) => Some(config.producer_config.create().with_context(|| {
                 format!("Failed to create Kafka producer for output topic '{topic}'")
@@ -60,11 +60,11 @@ impl DeduplicationProcessor {
             None => None,
         };
 
-        Ok(Arc::new(Self {
+        Ok(Self {
             config,
             producer,
             stores,
-        }))
+        })
     }
 
     /// Get or create a deduplication store for a specific partition
@@ -342,8 +342,6 @@ impl DeduplicationProcessor {
     pub async fn get_active_store_count(&self) -> usize {
         self.stores.len()
     }
-
-
 }
 
 #[cfg(test)]

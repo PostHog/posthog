@@ -110,7 +110,7 @@ impl RebalanceHandler for TestRebalanceHandler {
 fn create_stateful_kafka_consumer_with_pool(
     topic: &str,
     group_id: &str,
-    processor: Arc<TestProcessor>,
+    processor: TestProcessor,
     rebalance_handler: Arc<dyn RebalanceHandler>,
 ) -> Result<(
     StatefulKafkaConsumer,
@@ -188,7 +188,7 @@ async fn test_generic_kafka_consumer_message_processing() -> Result<()> {
     send_test_messages(&test_topic, test_messages.clone()).await?;
 
     // Create consumer using our abstractions
-    let processor = Arc::new(TestProcessor::new());
+    let processor = TestProcessor::new();
     let rebalance_handler = Arc::new(TestRebalanceHandler::default());
 
     let (kafka_consumer, _pool_handles, shutdown_tx) = create_stateful_kafka_consumer_with_pool(
@@ -250,7 +250,7 @@ async fn test_generic_kafka_consumer_error_handling() -> Result<()> {
     send_test_messages(&test_topic, test_messages.clone()).await?;
 
     // Create consumer with failing processor
-    let processor = Arc::new(TestProcessor::new());
+    let processor = TestProcessor::new();
     processor.set_should_fail(2); // Fail first 2 messages
 
     let rebalance_handler = Arc::new(TestRebalanceHandler::default());
@@ -301,11 +301,15 @@ async fn test_generic_kafka_consumer_tracker_stats() -> Result<()> {
     let group_id = format!("test-group-stats-{}", uuid::Uuid::new_v4());
 
     // Create consumer using our abstractions
-    let processor = Arc::new(TestProcessor::new());
+    let processor = TestProcessor::new();
     let rebalance_handler = Arc::new(TestRebalanceHandler::default());
 
-    let (kafka_consumer, _pool_handles, _shutdown_tx) =
-        create_stateful_kafka_consumer_with_pool(&test_topic, &group_id, processor, rebalance_handler)?;
+    let (kafka_consumer, _pool_handles, _shutdown_tx) = create_stateful_kafka_consumer_with_pool(
+        &test_topic,
+        &group_id,
+        processor,
+        rebalance_handler,
+    )?;
 
     // Check initial stats
     let initial_stats = kafka_consumer.get_tracker_stats().await;
@@ -333,7 +337,7 @@ async fn test_partition_aware_message_filtering() -> Result<()> {
     send_test_messages(&test_topic, test_messages.clone()).await?;
 
     // Create processor that tracks which messages were processed
-    let processor = Arc::new(TestProcessor::new());
+    let processor = TestProcessor::new();
     let rebalance_handler = Arc::new(TestRebalanceHandler::default());
 
     let config = rdkafka::ClientConfig::new()
@@ -428,9 +432,9 @@ async fn test_graceful_shutdown_with_in_flight_messages() -> Result<()> {
         }
     }
 
-    let processor = Arc::new(SlowProcessor {
+    let processor = SlowProcessor {
         processed_count: Arc::new(AtomicUsize::new(0)),
-    });
+    };
     let rebalance_handler = Arc::new(TestRebalanceHandler::default());
 
     let config = rdkafka::ClientConfig::new()
@@ -506,7 +510,7 @@ async fn test_factory_method_integration() -> Result<()> {
     let test_topic = format!("{}-factory-{}", TEST_TOPIC, uuid::Uuid::new_v4());
     let group_id = format!("test-group-factory-{}", uuid::Uuid::new_v4());
 
-    let processor = Arc::new(TestProcessor::new());
+    let processor = TestProcessor::new();
     let rebalance_handler = Arc::new(TestRebalanceHandler::default());
 
     let config = rdkafka::ClientConfig::new()
@@ -589,10 +593,10 @@ async fn test_rebalance_barrier_with_fencing() -> Result<()> {
         }
     }
 
-    let processor = Arc::new(RebalanceTestProcessor {
+    let processor = RebalanceTestProcessor {
         processed_count: Arc::new(AtomicUsize::new(0)),
         processing_delay: Arc::new(AtomicUsize::new(100)), // 100ms delay
-    });
+    };
 
     // Track rebalance events
     #[derive(Default)]
