@@ -2,7 +2,7 @@ from collections.abc import AsyncGenerator, Awaitable, Callable
 from typing import Any, cast
 
 from freezegun import freeze_time
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.utils import timezone
@@ -22,6 +22,7 @@ from posthog.schema import (
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
 from posthog.models import SessionRecording
+from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.temporal.ai.session_summary.summarize_session_group import SessionSummaryStreamUpdate
@@ -470,10 +471,10 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
 
         # Create persons for each distinct_id
 
-        _create_person(distinct_ids=["filter-user-1"], team=self.team, immediate=True)
-        _create_person(distinct_ids=["filter-user-2"], team=self.team, immediate=True)
-        _create_person(distinct_ids=["filter-user-3"], team=self.team, immediate=True)
-        _create_person(distinct_ids=["filter-user-4"], team=self.team, immediate=True)
+        _create_person(distinct_ids=["filter-user-1"], team=self.team, properties={"$os": "Mac OS X"}, immediate=True)
+        _create_person(distinct_ids=["filter-user-2"], team=self.team, properties={"$os": "Mac OS X"}, immediate=True)
+        _create_person(distinct_ids=["filter-user-3"], team=self.team, properties={"$os": "Mac OS X"}, immediate=True)
+        _create_person(distinct_ids=["filter-user-4"], team=self.team, properties={"$os": "Mac OS X"}, immediate=True)
 
         produce_replay_summary(
             team_id=self.team.pk,
@@ -596,10 +597,51 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
         )
 
         # Flush all events to ensure they're written to ClickHouse
-        from posthog.test.base import flush_persons_and_events
-
         flush_persons_and_events()
 
-    def test_waka_waka(self) -> None:
-        """Test waka waka."""
-        self.assertTrue(True)
+    def test_use_current_filters_with_os_and_events(self) -> None:
+        """Test using current filters with $os property and $ai_generation event filters."""
+        # Custom filters matching the requirement - NOTE: $os is marked as "person" type as per frontend format
+        # but it's actually an event property that will be correctly handled by the conversion
+        custom_filters = {
+            "date_from": "-30d",
+            "date_to": None,
+            "duration": [{"key": "active_seconds", "operator": "gt", "type": "recording", "value": 6}],
+            "filter_group": {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"key": "$os", "operator": "exact", "type": "person", "value": ["Mac OS X"]},
+                            {"id": "$ai_generation", "name": "$ai_generation", "type": "events"},
+                        ],
+                    }
+                ],
+            },
+            "filter_test_accounts": False,
+            "order": "start_time",
+            "order_direction": "DESC",
+        }
+
+        # Convert custom filters to recordings query
+        recordings_query = self.node._convert_current_filters_to_recordings_query(custom_filters)
+
+        query_runner = SessionRecordingListFromQuery(
+            query=recordings_query,
+            team=self.team,
+            hogql_query_modifiers=None,
+        )
+        results = query_runner.run()
+
+        # All 4 sessions should match since they all have:
+        # - $os: "Mac OS X" in events
+        # - $ai_generation events
+        # - active_seconds > 6 (7, 8, 10, 9 seconds respectively)
+        session_ids = [r["session_id"] for r in results.results]
+
+        self.assertEqual(len(session_ids), 4)
+        self.assertIn(self.session_id_1, session_ids)
+        self.assertIn(self.session_id_2, session_ids)
+        self.assertIn(self.session_id_3, session_ids)
+        self.assertIn(self.session_id_4, session_ids)
