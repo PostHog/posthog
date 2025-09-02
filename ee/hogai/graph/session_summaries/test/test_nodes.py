@@ -644,10 +644,11 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
     def test_use_current_filters_with_date_range(self) -> None:
         """Test using current filters with specific date range."""
         # Custom filters with date range that includes our sessions (Aug 28-30)
+        # Changed active_seconds from > 4 to > 7 to exclude session_id_1 (which has 7 seconds)
         custom_filters = {
             "date_from": "2025-08-27T00:00:00",
             "date_to": "2025-08-31T23:59:59",
-            "duration": [{"key": "active_seconds", "operator": "gt", "type": "recording", "value": 4}],
+            "duration": [{"key": "active_seconds", "operator": "gt", "type": "recording", "value": 7}],
             "filter_group": {"type": "AND", "values": [{"type": "AND", "values": []}]},
             "filter_test_accounts": False,
             "order": "start_time",
@@ -660,14 +661,16 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
         # Use the node's method to get session IDs
         session_ids = self.node._get_session_ids_with_filters(recordings_query)
 
-        # All 4 sessions should match since they all have:
-        # - dates within Aug 27-31 range (sessions are on Aug 28-30)
-        # - active_seconds > 4 (7, 8, 10, 9 seconds respectively)
-        self.assertEqual(len(session_ids), 4)
-        self.assertIn(self.session_id_1, session_ids)
-        self.assertIn(self.session_id_2, session_ids)
-        self.assertIn(self.session_id_3, session_ids)
-        self.assertIn(self.session_id_4, session_ids)
+        # Only 3 sessions should match since they have active_seconds > 7:
+        # - session_id_1: 7 seconds (excluded, not > 7)
+        # - session_id_2: 8 seconds (included)
+        # - session_id_3: 10 seconds (included)
+        # - session_id_4: 9 seconds (included)
+        self.assertEqual(len(session_ids), 3)
+        self.assertNotIn(self.session_id_1, session_ids)  # 7 seconds, excluded
+        self.assertIn(self.session_id_2, session_ids)  # 8 seconds, included
+        self.assertIn(self.session_id_3, session_ids)  # 10 seconds, included
+        self.assertIn(self.session_id_4, session_ids)  # 9 seconds, included
 
     def test_generate_filters_last_10_days(self) -> None:
         """Test converting generated filters for 'last 10 days' query."""
