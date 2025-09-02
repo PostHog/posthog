@@ -90,12 +90,7 @@ export const variableModalLogic = kea<variableModalLogicType>([
     props({ key: '' } as AddVariableLogicProps),
     key((props) => props.key),
     connect(() => ({
-        actions: [
-            variableDataLogic,
-            ['getVariables'],
-            variablesLogic,
-            ['addVariable', 'updateVariableValue', 'updateSourceQuery'],
-        ],
+        actions: [variableDataLogic, ['getVariables'], variablesLogic, ['addVariable', 'updateVariableValue']],
     })),
     actions({
         openNewVariableModal: (variableType: VariableType) => ({ variableType }),
