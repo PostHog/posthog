@@ -2,7 +2,14 @@ from collections.abc import AsyncGenerator, Awaitable, Callable
 from typing import Any, cast
 
 from freezegun import freeze_time
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from posthog.test.base import (
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+    snapshot_clickhouse_queries,
+)
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.utils import timezone
@@ -385,8 +392,8 @@ class TestSessionSummarizationNode(BaseTest):
                     "contextual_tools": {
                         "search_session_recordings": {
                             "current_filters": {
-                                "date_from": "-30d",
-                                "date_to": "2024-01-31",
+                                "date_from": "2024-01-01T00:00:00",
+                                "date_to": "2024-01-31T23:59:59",
                                 "filter_test_accounts": True,
                                 "duration": [],
                                 "filter_group": {
@@ -461,7 +468,7 @@ class TestSessionSummarizationNode(BaseTest):
         self.assertEqual(message.content, "No sessions were found.")
 
 
-# TODO: Avoid random generations to be able to snapshot
+@snapshot_clickhouse_queries
 class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest):
     @freeze_time("2025-09-03T12:00:00")
     def setUp(self) -> None:
@@ -475,16 +482,13 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
         # We don't create SessionRecording objects to avoid S3 persistence issues with freeze_time
         # The produce_replay_summary calls below will create the necessary data in ClickHouse
 
-        # Generate UUID7 session IDs
-        from posthog.models.utils import uuid7
-
-        self.session_id_1 = str(uuid7())
-        self.session_id_2 = str(uuid7())
-        self.session_id_3 = str(uuid7())
-        self.session_id_4 = str(uuid7())
+        # Statis UUIDs to be able to snapshot
+        self.session_id_1 = "01990f72-b600-7fa3-9a77-341582154177"
+        self.session_id_2 = "01990f72-b600-76df-a71a-f8d777d51361"
+        self.session_id_3 = "01990f72-b600-7d12-819a-5096851bd8ea"
+        self.session_id_4 = "01990f72-b600-790e-9f66-54c74323b611"
 
         # Create persons for each distinct_id
-
         _create_person(distinct_ids=["filter-user-1"], team=self.team, properties={"$os": "Mac OS X"}, immediate=True)
         _create_person(distinct_ids=["filter-user-2"], team=self.team, properties={"$os": "Mac OS X"}, immediate=True)
         _create_person(distinct_ids=["filter-user-3"], team=self.team, properties={"$os": "Mac OS X"}, immediate=True)
@@ -613,13 +617,14 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
         # Flush all events to ensure they're written to ClickHouse
         flush_persons_and_events()
 
+    @freeze_time("2025-09-03T12:00:00")
     def test_use_current_filters_with_os_and_events(self) -> None:
         """Test using current filters with $os property and $ai_generation event filters."""
         # Custom filters matching the requirement - NOTE: $os is marked as "person" type as per frontend format
         # but it's actually an event property that will be correctly handled by the conversion
         custom_filters = {
-            "date_from": "-30d",
-            "date_to": None,
+            "date_from": "2025-08-04T00:00:00",
+            "date_to": "2025-09-03T23:59:59",
             "duration": [{"key": "active_seconds", "operator": "gt", "type": "recording", "value": 6}],
             "filter_group": {
                 "type": "AND",
@@ -655,6 +660,7 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
         self.assertIn(self.session_id_3, session_ids)
         self.assertIn(self.session_id_4, session_ids)
 
+    @freeze_time("2025-09-03T12:00:00")
     def test_use_current_filters_with_date_range(self) -> None:
         """Test using current filters with specific date range."""
         # Custom filters with date range that includes our sessions (Aug 28-30)
@@ -686,6 +692,7 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
         self.assertIn(self.session_id_3, session_ids)  # 10 seconds, included
         self.assertIn(self.session_id_4, session_ids)  # 9 seconds, included
 
+    @freeze_time("2025-09-03T12:00:00")
     def test_generate_filters_last_10_days(self) -> None:
         """Test converting generated filters for 'last 10 days' query."""
         # Simulate filters that would be generated for "last 10 days"
