@@ -1,5 +1,4 @@
 import { TeamId } from '../../../../types'
-import { RetentionPeriod } from '../types'
 
 export interface WriteSessionData {
     /** The serialized session block data */
@@ -15,8 +14,8 @@ export interface WriteSessionResult {
     bytesWritten: number
     /** URL to access this session block, if available */
     url: string | null
-    /** Retention period for this block, if available */
-    retentionPeriod: RetentionPeriod | null
+    /** Retention period, in days, for this block, if available */
+    retentionPeriodDays: number | null
 }
 
 /**

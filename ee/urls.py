@@ -3,7 +3,7 @@ from typing import Any
 from django.conf import settings
 from django.contrib import admin
 from django.contrib.admin.sites import NotRegistered  # type: ignore[attr-defined]
-from django.urls import include
+from django.urls import include, re_path
 from django.urls.conf import path
 from django.views.decorators.csrf import csrf_exempt
 
@@ -11,6 +11,7 @@ from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
 from posthog.utils import opt_slash_path
+from posthog.views import api_key_search_view, redis_values_view
 
 from ee.api import integration
 from ee.api.mcp.http import mcp_view
@@ -123,7 +124,12 @@ if settings.ADMIN_PORTAL_ENABLED:
         except NotRegistered:
             pass
 
-    admin_urlpatterns = [path("admin/", include("loginas.urls")), path("admin/", admin.site.urls)]
+    admin_urlpatterns = [
+        re_path(r"^admin/redisvalues$", redis_values_view, name="redis_values"),
+        re_path(r"^admin/apikeysearch$", api_key_search_view, name="api_key_search"),
+        path("admin/", include("loginas.urls")),
+        path("admin/", admin.site.urls),
+    ]
 else:
     admin_urlpatterns = []
 

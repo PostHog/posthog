@@ -55,6 +55,7 @@ export type SettingSectionId =
     | 'user-customization'
     | 'user-danger-zone'
     | 'user-feature-previews'
+    | 'mcp-server'
 
 export type SettingId =
     | 'replay-triggers'
@@ -148,6 +149,7 @@ export type SettingId =
     | 'csp-reporting'
     | 'base-currency'
     | 'marketing-settings'
+    | 'mcp-server-configure'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

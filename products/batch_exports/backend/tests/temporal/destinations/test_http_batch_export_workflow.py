@@ -10,7 +10,6 @@ import unittest.mock
 from django.conf import settings
 from django.test import override_settings
 
-import pytest_asyncio
 from aioresponses import aioresponses
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
@@ -289,7 +288,7 @@ async def test_insert_into_http_activity_throws_on_bad_http_status(
             await activity_environment.run(insert_into_http_activity, insert_inputs)
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def http_batch_export(ateam, http_config, interval, exclude_events, temporal_client):
     destination_data = {
         "type": "HTTP",

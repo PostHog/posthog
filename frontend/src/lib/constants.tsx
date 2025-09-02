@@ -134,7 +134,9 @@ export enum ShownAsValue {
 
 // Retention constants
 export const RETENTION_RECURRING = 'retention_recurring'
-export const RETENTION_FIRST_TIME = 'retention_first_time'
+// hasn't been renamed to 'retention_first_occurrence_matching_filters' until schema migration
+export const RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS = 'retention_first_time'
+export const RETENTION_FIRST_EVER_OCCURRENCE = 'retention_first_ever_occurrence'
 
 export const WEBHOOK_SERVICES: Record<string, string> = {
     Slack: 'slack.com',
@@ -162,13 +164,14 @@ export const FEATURE_FLAGS = {
     SESSIONS_BATCH_EXPORTS: 'sessions-batch-exports', // owner: @tomasfarias
     FF_DASHBOARD_TEMPLATES: 'ff-dashboard-templates', // owner: @EDsCODE
     ARTIFICIAL_HOG: 'artificial-hog', // owner: #team-max-ai
-    FLOATING_ARTIFICIAL_HOG: 'floating-artificial-hog', // owner: #team-max-ai
+    FLOATING_ARTIFICIAL_HOG: 'floating-artificial-hog', // owner: #team-max-ai - deprecated, to be removed
+    FLOATING_ARTIFICIAL_HOG_ACKED: 'floating-artificial-hog-acked', // owner: #team-max-ai - to be removed too
     MAX_AI_INSIGHT_SEARCH: 'max-ai-insight-search', // owner: #team-max-ai
     PRODUCT_SPECIFIC_ONBOARDING: 'product-specific-onboarding', // owner: @raquelmsmith
     REDIRECT_SIGNUPS_TO_INSTANCE: 'redirect-signups-to-instance', // owner: @raquelmsmith
     HOGQL_DASHBOARD_ASYNC: 'hogql-dashboard-async', // owner: @webjunkie
-    WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-pipeline
-    PIPELINE_UI: 'pipeline-ui', // owner: #team-pipeline
+    WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-ingestion
+    PIPELINE_UI: 'pipeline-ui', // owner: #team-ingestion
     PERSON_FEED_CANVAS: 'person-feed-canvas', // owner: #project-canvas
     FEATURE_FLAG_COHORT_CREATION: 'feature-flag-cohort-creation', // owner: @neilkakkar #team-feature-success
     INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: #team-product-analytics
@@ -215,6 +218,8 @@ export const FEATURE_FLAGS = {
     SUPPORT_MESSAGE_OVERRIDE: 'support-message-override', // owner: @abigail
     BILLING_SKIP_FORECASTING: 'billing-skip-forecasting', // owner: @zach
     CDP_ACTIVITY_LOG_NOTIFICATIONS: 'cdp-activity-log-notifications', // owner: #team-messaging-cdp
+    BATCH_EXPORT_NEW_METRICS: 'batch-export-new-metrics', // owner: #team-batch-exports
+    BATCH_EXPORT_NEW_LOGS: 'batch-export-new-logs', // owner: #team-batch-exports
     COOKIELESS_SERVER_HASH_MODE_SETTING: 'cookieless-server-hash-mode-setting', // owner: @robbie-c #team-web-analytics
     WEB_ANALYTICS_FOR_MOBILE: 'web-analytics-for-mobile', // owner: @robbie-c #team-web-analytics
     LLM_OBSERVABILITY: 'llm-observability', // owner: #team-llm-analytics
@@ -263,7 +268,6 @@ export const FEATURE_FLAGS = {
     USAGE_SPEND_DASHBOARDS: 'usage-spend-dashboards', // owner: @pawel-cebula #team-billing
     CDP_HOG_SOURCES: 'cdp-hog-sources', // owner #team-messaging-cdp
     CDP_PERSON_UPDATES: 'cdp-person-updates', // owner: #team-messaging-cdp
-    CDP_APP_METRICS_NEW: 'cdp-app-metrics-new', // owner: #team-messaging-cdp
     SCREENSHOT_EDITOR: 'screenshot-editor', // owner: @veryayskiy #team-replay
     ACTIVITY_OR_EXPLORE: 'activity-or-explore', // owner: @pauldambra #team-replay
     LINEAGE_DEPENDENCY_VIEW: 'lineage-dependency-view', // owner: @phixMe #team-data-warehouse
@@ -293,8 +297,10 @@ export const FEATURE_FLAGS = {
     MAX_SESSION_SUMMARIZATION: 'max-session-summarization', // owner: #team-max-ai
     EXPERIMENTS_RATIO_METRIC: 'experiments-ratio-metric', // owner: @andehen #team-experiments
     CDP_NEW_PRICING: 'cdp-new-pricing', // owner: #team-messaging
-    COMMENT_TEXT_FILTERING: 'comment-text-filtering', // owner: @pauldambra #team-replay
     IMPROVED_COOKIELESS_MODE: 'improved-cookieless-mode', // owner: @robbie-c #team-web-analytics
+    REPLAY_EXPORT_SHORT_VIDEO: 'replay-export-short-video', // owner: @veryayskiy #team-replay
+    REPLAY_EXPORT_FULL_VIDEO: 'replay-export-full-video', // owner: @veryayskiy #team-replay
+    AMPLITUDE_BATCH_IMPORT_OPTIONS: 'amplitude-batch-import-options', // owner: #team-ingestion
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

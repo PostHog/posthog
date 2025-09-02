@@ -177,6 +177,51 @@ ADD_RETENTION_PERIOD_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REP
     table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
 )
 
+# migration to add retention_period column to the session replay table and drop the old string column
+ALTER_SESSION_REPLAY_ADD_RETENTION_PERIOD_DAYS_COLUMN = """
+    ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS retention_period_days Nullable(Int64)
+"""
+
+ADD_RETENTION_PERIOD_DAYS_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = (
+    lambda: ALTER_SESSION_REPLAY_ADD_RETENTION_PERIOD_DAYS_COLUMN.format(
+        table_name="session_replay_events",
+    )
+)
+
+ADD_RETENTION_PERIOD_DAYS_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL = (
+    lambda: ALTER_SESSION_REPLAY_ADD_RETENTION_PERIOD_DAYS_COLUMN.format(
+        table_name="writable_session_replay_events",
+    )
+)
+
+ADD_RETENTION_PERIOD_DAYS_SESSION_REPLAY_EVENTS_TABLE_SQL = (
+    lambda: ALTER_SESSION_REPLAY_ADD_RETENTION_PERIOD_DAYS_COLUMN.format(
+        table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
+    )
+)
+
+ALTER_SESSION_REPLAY_DROP_RETENTION_PERIOD_COLUMN = """
+    ALTER TABLE {table_name} DROP COLUMN IF EXISTS retention_period
+"""
+
+DROP_RETENTION_PERIOD_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = (
+    lambda: ALTER_SESSION_REPLAY_DROP_RETENTION_PERIOD_COLUMN.format(
+        table_name="session_replay_events",
+    )
+)
+
+DROP_RETENTION_PERIOD_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL = (
+    lambda: ALTER_SESSION_REPLAY_DROP_RETENTION_PERIOD_COLUMN.format(
+        table_name="writable_session_replay_events",
+    )
+)
+
+DROP_RETENTION_PERIOD_SESSION_REPLAY_EVENTS_TABLE_SQL = (
+    lambda: ALTER_SESSION_REPLAY_DROP_RETENTION_PERIOD_COLUMN.format(
+        table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
+    )
+)
+
 # =========================
 # MIGRATION: Add block columns to support session recording v2 implementation
 # This migration adds block_url to the kafka table, and block_first_timestamps, block_last_timestamps, and block_urls

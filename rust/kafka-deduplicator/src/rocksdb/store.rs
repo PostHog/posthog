@@ -83,6 +83,32 @@ impl RocksDbStore {
         })
     }
 
+    pub fn get(&self, cf_name: &str, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        let start_time = Instant::now();
+
+        // Track read operation
+        self.metrics
+            .counter(ROCKSDB_READ_OPERATIONS_COUNTER)
+            .increment(1);
+
+        let cf = self.get_cf_handle(cf_name)?;
+        let result = self
+            .db
+            .get_cf(&cf, key)
+            .context("Failed to get key from RocksDB");
+
+        let duration = start_time.elapsed();
+        self.metrics
+            .histogram(ROCKSDB_READ_DURATION_HISTOGRAM)
+            .record(duration.as_secs_f64());
+
+        if result.is_err() {
+            self.metrics.counter(ROCKSDB_ERRORS_COUNTER).increment(1);
+        }
+
+        result
+    }
+
     pub fn multi_get(&self, cf_name: &str, keys: Vec<&[u8]>) -> Result<Vec<Option<Vec<u8>>>> {
         let start_time = Instant::now();
         self.metrics

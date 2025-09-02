@@ -44,7 +44,7 @@ import { isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 export function InsightDisplayConfig(): JSX.Element {
-    const { insightProps, canEditInsight } = useValues(insightLogic)
+    const { insightProps, canEditInsight, editingDisabledReason } = useValues(insightLogic)
 
     const {
         querySource,
@@ -290,6 +290,7 @@ export function InsightDisplayConfig(): JSX.Element {
                             compareFilter={compareFilter}
                             updateCompareFilter={updateCompareFilter}
                             disabled={!canEditInsight || !supportsCompare}
+                            disableReason={editingDisabledReason}
                         />
                     </ConfigFilter>
                 )}
@@ -297,7 +298,7 @@ export function InsightDisplayConfig(): JSX.Element {
             <div className="flex items-center gap-x-2 flex-wrap">
                 {advancedOptions.length > 0 && (
                     <LemonMenu items={advancedOptions} closeOnClickInside={false}>
-                        <LemonButton size="small">
+                        <LemonButton size="small" disabledReason={editingDisabledReason}>
                             <span className="font-medium whitespace-nowrap">
                                 Options
                                 {advancedOptionsCount ? (

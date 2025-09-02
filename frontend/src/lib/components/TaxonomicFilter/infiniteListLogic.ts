@@ -338,8 +338,18 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             },
         ],
         localItems: [
-            (s) => [s.rawLocalItems, s.searchQuery, s.swappedInQuery, s.fuse],
-            (rawLocalItems, searchQuery, swappedInQuery, fuse): ListStorage => {
+            (s) => [s.rawLocalItems, s.searchQuery, s.swappedInQuery, s.fuse, s.group],
+            (rawLocalItems, searchQuery, swappedInQuery, fuse, group): ListStorage => {
+                if (group.localItemsSearch) {
+                    const filtered = group.localItemsSearch(rawLocalItems || [], swappedInQuery || searchQuery)
+                    return {
+                        results: filtered,
+                        count: filtered.length,
+                        searchQuery: swappedInQuery || searchQuery,
+                        originalQuery: swappedInQuery ? searchQuery : undefined,
+                    }
+                }
+
                 if (rawLocalItems) {
                     const filteredItems =
                         swappedInQuery || searchQuery

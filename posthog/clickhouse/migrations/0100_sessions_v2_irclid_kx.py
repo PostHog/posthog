@@ -18,7 +18,7 @@ operations = [
     run_sql_with_exceptions(BASE_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL()),
     run_sql_with_exceptions(DISTRIBUTED_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL()),
     run_sql_with_exceptions(
-        BASE_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL(on_cluster=False), node_role=NodeRole.COORDINATOR
+        BASE_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL(on_cluster=False), node_roles=[NodeRole.COORDINATOR]
     ),
     run_sql_with_exceptions(WRITABLE_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL()),
     # and then recreate the materialized view and view

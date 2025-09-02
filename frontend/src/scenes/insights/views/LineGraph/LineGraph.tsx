@@ -379,7 +379,7 @@ export function LineGraph_({
     const { isDarkModeOn } = useValues(themeLogic)
 
     const { insightProps, insight } = useValues(insightLogic)
-    const { timezone, isTrends, breakdownFilter, query, interval, insightData } = useValues(
+    const { timezone, isTrends, isFunnels, breakdownFilter, query, interval, insightData } = useValues(
         insightVizDataLogic(insightProps)
     )
     const { theme, getTrendsColor, getTrendsHidden } = useValues(trendsDataLogic(insightProps))
@@ -405,7 +405,7 @@ export function LineGraph_({
     const isBar = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Histogram].includes(type)
     const isBackgroundBasedGraphType = [GraphType.Bar].includes(type)
     const isPercentStackView = !!supportsPercentStackView && !!showPercentStackView
-    const showAnnotations = isTrends && !isHorizontal && !hideAnnotations
+    const showAnnotations = ((isTrends && !isHorizontal) || isFunnels) && !hideAnnotations
     const isLog10 = yAxisScaleType === 'log10' // Currently log10 is the only logarithmic scale supported
 
     // Add scrollend event on main element to hide tooltips when scrolling

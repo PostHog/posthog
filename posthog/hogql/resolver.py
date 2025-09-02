@@ -35,6 +35,9 @@ from posthog.models.utils import UUIDT
 
 # https://github.com/ClickHouse/ClickHouse/issues/23194 - "Describe how identifiers in SELECT queries are resolved"
 
+# To quickly disable global joins, switch this to False
+USE_GLOBAL_JOINS = True
+
 
 def resolve_constant_data_type(constant: Any) -> ConstantType:
     if constant is None:
@@ -365,35 +368,36 @@ class Resolver(CloningVisitor):
             node.next_join = self.visit(node.next_join)
 
             # Look ahead if current is events table and next is s3 table, global join must be used for distributed query on external data to work
-            global_table: ast.TableType | None = None
+            if USE_GLOBAL_JOINS:
+                global_table: ast.TableType | None = None
 
-            if isinstance(node.type, ast.TableAliasType) and isinstance(node.type.table_type, ast.TableType):
-                global_table = node.type.table_type
-            elif isinstance(node.type, ast.TableType):
-                global_table = node.type
+                if isinstance(node.type, ast.TableAliasType) and isinstance(node.type.table_type, ast.TableType):
+                    global_table = node.type.table_type
+                elif isinstance(node.type, ast.TableType):
+                    global_table = node.type
 
-            if global_table and isinstance(global_table.table, EventsTable):
-                next_join = node.next_join
-                is_global = False
-
-                while next_join:
-                    if self._is_next_s3(next_join):
-                        is_global = True
-                    # Use GLOBAL joins for nested subqueries for S3 tables until https://github.com/ClickHouse/ClickHouse/pull/85839 is in
-                    elif isinstance(next_join.type, ast.SelectQueryAliasType):
-                        select_query_type = next_join.type.select_query_type
-                        tables = self._extract_tables_from_query_type(select_query_type)
-                        if any(self._is_s3_table(table) for table in tables):
-                            is_global = True
-
-                    next_join = next_join.next_join
-
-                # If there exists a S3 table in the chain, then all joins require to be a GLOBAL join
-                if is_global:
+                if global_table and isinstance(global_table.table, EventsTable):
                     next_join = node.next_join
+                    is_global = False
+
                     while next_join:
-                        next_join.join_type = f"GLOBAL {next_join.join_type}"
+                        if self._is_next_s3(next_join):
+                            is_global = True
+                        # Use GLOBAL joins for nested subqueries for S3 tables until https://github.com/ClickHouse/ClickHouse/pull/85839 is in
+                        elif isinstance(next_join.type, ast.SelectQueryAliasType):
+                            select_query_type = next_join.type.select_query_type
+                            tables = self._extract_tables_from_query_type(select_query_type)
+                            if any(self._is_s3_table(table) for table in tables):
+                                is_global = True
+
                         next_join = next_join.next_join
+
+                    # If there exists a S3 table in the chain, then all joins require to be a GLOBAL join
+                    if is_global:
+                        next_join = node.next_join
+                        while next_join:
+                            next_join.join_type = f"GLOBAL {next_join.join_type}"
+                            next_join = next_join.next_join
 
             if node.constraint and node.constraint.constraint_type == "ON":
                 node.constraint = self.visit_join_constraint(node.constraint)
@@ -868,7 +872,8 @@ class Resolver(CloningVisitor):
         node.type = ast.BooleanType(nullable=False)
 
         if (
-            (node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn)
+            USE_GLOBAL_JOINS
+            and (node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn)
             and self._is_events_table(node.left)
             and self._is_s3_cluster(node.right)
         ):

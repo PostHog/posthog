@@ -6832,6 +6832,15 @@
                 "showTotalRow": {
                     "type": "boolean"
                 },
+                "showXAxisBorder": {
+                    "type": "boolean"
+                },
+                "showXAxisTicks": {
+                    "type": "boolean"
+                },
+                "showYAxisBorder": {
+                    "type": "boolean"
+                },
                 "stackBars100": {
                     "description": "Whether we fill the bars to 100% in stacked mode",
                     "type": "boolean"
@@ -12146,6 +12155,8 @@
                 "Vitally",
                 "BigQuery",
                 "Chargebee",
+                "RevenueCat",
+                "Polar",
                 "GoogleAds",
                 "MetaAds",
                 "Klaviyo",
@@ -12156,7 +12167,8 @@
                 "GoogleSheets",
                 "MongoDB",
                 "TemporalIO",
-                "DoIt"
+                "DoIt",
+                "LinkedinAds"
             ],
             "type": "string"
         },
@@ -12312,8 +12324,7 @@
                 "insightUserPaths",
                 "insightLifecycle",
                 "insightStickiness",
-                "insightHogQL",
-                "code"
+                "insightHogQL"
             ],
             "type": "string"
         },
@@ -21538,7 +21549,7 @@
             "type": "object"
         },
         "RetentionType": {
-            "enum": ["retention_recurring", "retention_first_time"],
+            "enum": ["retention_recurring", "retention_first_time", "retention_first_ever_occurrence"],
             "type": "string"
         },
         "RetentionValue": {
@@ -26547,6 +26558,12 @@
                 "scale": {
                     "enum": ["linear", "logarithmic"],
                     "type": "string"
+                },
+                "showGridLines": {
+                    "type": "boolean"
+                },
+                "showTicks": {
+                    "type": "boolean"
                 },
                 "startAtZero": {
                     "description": "Whether the Y axis should start at zero",

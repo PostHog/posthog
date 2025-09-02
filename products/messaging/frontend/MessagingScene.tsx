@@ -65,7 +65,6 @@ export const messagingSceneLogic = kea<messagingSceneLogicType>([
     }),
     urlToAction(({ actions, values }) => {
         return {
-            // All possible routes for this scene need to be listed here
             [urls.messaging(':tab' as MessagingSceneTab)]: ({ tab }) => {
                 let possibleTab: MessagingSceneTab = (tab as MessagingSceneTab) ?? 'campaigns'
                 possibleTab = MESSAGING_SCENE_TABS.includes(possibleTab) ? possibleTab : 'campaigns'
