@@ -79,7 +79,9 @@ class VercelIntegration:
     def _validate_resource_belongs_to_installation(
         resource: Integration, installation: OrganizationIntegration
     ) -> None:
-        if resource.team.organization != installation.organization:
+        if not resource.team.organization.organizationintegration_set.filter(
+            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL, integration_id=installation.integration_id
+        ).exists():
             raise exceptions.ValidationError({"resource": "Resource does not belong to this installation."})
 
     @staticmethod
