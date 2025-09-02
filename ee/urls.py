@@ -126,7 +126,7 @@ if settings.ADMIN_PORTAL_ENABLED:
 
     admin_urlpatterns = [
         re_path(r"^admin/redisvalues$", redis_values_view, name="redis_values"),
-        path(r"admin/apikeysearch", api_key_search_view, name="api_key_search"),
+        re_path(r"^admin/apikeysearch$", api_key_search_view, name="api_key_search"),
         path("admin/", include("loginas.urls")),
         path("admin/", admin.site.urls),
     ]
