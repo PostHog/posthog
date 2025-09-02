@@ -59,7 +59,7 @@ class LinkedinAdsClient:
         )
         fields = ",".join(self._get_fields_for_resource(resource))
 
-        params = {
+        params: dict[str, Any] = {
             "q": "analytics",
             "pivot": pivot.value,
             "timeGranularity": "DAILY",
@@ -97,9 +97,7 @@ class LinkedinAdsClient:
         """Get field names for a resource from the schema definition."""
         if resource not in RESOURCE_SCHEMAS:
             raise ValueError(f"No schema defined for resource: {resource}")
-
-        schema = RESOURCE_SCHEMAS[resource]
-        return schema["field_names"]
+        return RESOURCE_SCHEMAS[resource]["field_names"]
 
     def _make_request(
         self, endpoint: LinkedinAdsResource, finder: str, extra_params: dict | None = None, path: str | None = None
@@ -154,12 +152,9 @@ class LinkedinAdsClient:
             yield response.elements
 
             # Extract next page token from response
-            try:
-                metadata = json.loads(response.response.text).get("metadata", {})
-                page_token = metadata.get("nextPageToken")
-                if not page_token:
-                    break
-            except:
+            metadata = json.loads(response.response.text).get("metadata", {})
+            page_token = metadata.get("nextPageToken")
+            if not page_token:
                 break
 
     def _format_date_range(self, date_start: str, date_end: str) -> dict:

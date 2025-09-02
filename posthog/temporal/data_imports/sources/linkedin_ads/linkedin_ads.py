@@ -52,15 +52,11 @@ class LinkedinAdsColumn(Column):
 
 def get_incremental_fields() -> dict[str, list[tuple[str, IncrementalFieldType]]]:
     """Get incremental fields for LinkedIn Ads resources."""
-    d = {}
+    d: dict[str, list[tuple[str, IncrementalFieldType]]] = {}
     for alias, contents in RESOURCE_SCHEMAS.items():
-        assert isinstance(contents, dict)
-
         if "filter_field_names" not in contents:
             continue
-
-        d[alias] = contents["filter_field_names"]
-
+        d[alias.value] = contents["filter_field_names"]
     return d
 
 
@@ -107,18 +103,13 @@ def get_schemas() -> TableSchemas:
     table_schemas = {}
 
     for table_alias, resource_contents in RESOURCE_SCHEMAS.items():
-        assert isinstance(resource_contents, dict)
-
         resource_name = resource_contents["resource_name"]
-        assert isinstance(resource_name, str)
-
         field_names = resource_contents["field_names"]
         requires_filter = resource_contents.get("filter_field_names", None) is not None
-        primary_key = typing.cast(list[str], resource_contents.get("primary_key", []))
+        primary_key = resource_contents.get("primary_key", [])
 
         columns = []
         for field_name in field_names:
-            assert isinstance(field_name, str)
             columns.append(LinkedinAdsColumn(qualified_name=field_name))
 
         # Add virtual columns for partition keys if this table requires filtering
@@ -141,7 +132,7 @@ def get_schemas() -> TableSchemas:
             columns=columns,
             parents=None,
         )
-        table_schemas[table_alias] = table
+        table_schemas[table_alias.value] = table
 
     return table_schemas
 
@@ -149,6 +140,8 @@ def get_schemas() -> TableSchemas:
 def linkedin_ads_client(config: LinkedinAdsSourceConfig, team_id: int) -> LinkedinAdsClient:
     """Initialize a LinkedIn Ads client with provided config."""
     integration = Integration.objects.get(id=config.linkedin_ads_integration_id, team_id=team_id)
+    if not integration.access_token:
+        raise ValueError("LinkedIn Ads integration does not have an access token")
     return LinkedinAdsClient(integration.access_token)
 
 
@@ -290,6 +283,7 @@ def _flatten_linkedin_record(
     flattened = {}
 
     for column in table.columns:
+        value: typing.Any
         # Handle virtual columns that derive from pivot values
         if column.qualified_name in VIRTUAL_COLUMNS:
             value = _extract_virtual_column_value(record, column.qualified_name)

@@ -1,8 +1,9 @@
 from enum import StrEnum
+from typing import NotRequired, TypedDict
 
 from posthog.warehouse.types import IncrementalFieldType
 
-# Field type mappings for data conversion
+# Field type mappings for data type conversion
 INTEGER_FIELDS = {
     "id",
     "campaign_id",
@@ -20,8 +21,9 @@ INTEGER_FIELDS = {
 FLOAT_FIELDS = {"costInUsd"}
 DATE_FIELDS = {"dateRange.start"}
 
-# Virtual column mappings
+# Virtual column mappings for analytics resources
 VIRTUAL_COLUMNS = {"campaign_id", "campaign_group_id"}
+
 # This maps the virtual column name to the URN type. LinkedIn Ads API uses URNs to identify resources.
 # URNs are like "urn:li:sponsoredCampaign:185129613"
 VIRTUAL_COLUMN_URN_MAPPING = {"campaign_id": "Campaign", "campaign_group_id": "CampaignGroup"}
@@ -59,8 +61,15 @@ LINKEDIN_ADS_PIVOTS = {
 }
 
 
+class ResourceSchema(TypedDict):
+    resource_name: str
+    field_names: list[str]
+    primary_key: list[str]
+    filter_field_names: NotRequired[list[tuple[str, IncrementalFieldType]]]
+
+
 # LinkedIn Ads resource schemas
-RESOURCE_SCHEMAS = {
+RESOURCE_SCHEMAS: dict[LinkedinAdsResource, ResourceSchema] = {
     LinkedinAdsResource.Accounts: {
         "resource_name": "accounts",
         "field_names": ["id", "name", "status", "type", "currency", "version"],
