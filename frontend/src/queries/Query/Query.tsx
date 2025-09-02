@@ -70,6 +70,8 @@ export interface QueryProps<Q extends Node> {
     embedded?: boolean
     /** Disables modals and other things */
     inSharedMode?: boolean
+    /** Can you edit the insight */
+    editMode?: boolean
     /** Dashboard filters to override the ones in the query */
     filtersOverride?: DashboardFilter | null
     /** Dashboard variables to override the ones in the query */
@@ -90,6 +92,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         variablesOverride,
         inSharedMode,
         dataAttr,
+        editMode,
     } = props
 
     const [localQuery, localSetQuery] = useState(propsQuery)
@@ -131,6 +134,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 cachedResults={props.cachedResults}
                 uniqueKey={uniqueKey}
                 readOnly={readOnly}
+                editMode={editMode}
                 dataAttr={dataAttr}
             />
         )
@@ -144,6 +148,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 uniqueKey={uniqueKey}
                 context={queryContext}
                 readOnly={readOnly}
+                editMode={editMode}
                 variablesOverride={props.variablesOverride}
             />
         )
@@ -154,6 +159,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 query={query}
                 context={queryContext}
                 readOnly={readOnly}
+                editMode={editMode}
                 embedded={embedded}
             />
         )
@@ -170,6 +176,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 inSharedMode={inSharedMode}
                 filtersOverride={filtersOverride}
                 variablesOverride={variablesOverride}
+                editMode={editMode}
             />
         )
     } else if (isRevenueAnalyticsGrossRevenueQuery(query)) {

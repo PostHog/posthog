@@ -1,4 +1,10 @@
+import { useActions } from 'kea'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { InsightEventSource } from 'lib/utils/eventUsageLogic'
+import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+
+import { ItemMode } from '~/types'
 
 export function InsightSaveButton({
     saveAs,
@@ -9,7 +15,7 @@ export function InsightSaveButton({
     addingToDashboard,
 }: {
     saveAs: () => void
-    saveInsight: (redirectToViewMode?: boolean) => void
+    saveInsight: (redirectToViewMode?: () => void) => void
     isSaved: boolean | undefined
     insightSaving: boolean
     insightChanged: boolean
@@ -17,11 +23,12 @@ export function InsightSaveButton({
 }): JSX.Element {
     const disabled = isSaved && !insightChanged
     const saveAsAvailable = isSaved && !addingToDashboard
+    const { setInsightMode } = useActions(insightSceneLogic)
 
     return (
         <LemonButton
             type="primary"
-            onClick={() => saveInsight(true)}
+            onClick={() => saveInsight(() => setInsightMode(ItemMode.View, InsightEventSource.InsightHeader))}
             data-attr="insight-save-button"
             disabled={disabled}
             loading={!disabled && insightSaving}
@@ -32,7 +39,7 @@ export function InsightSaveButton({
                         <>
                             {!disabled && (
                                 <LemonButton
-                                    onClick={() => saveInsight(false)}
+                                    onClick={() => saveInsight()}
                                     data-attr="insight-save-and-continue"
                                     fullWidth
                                 >

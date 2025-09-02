@@ -1,6 +1,7 @@
 import { LogicWrapper, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 
@@ -10,9 +11,8 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isEmptyObject, isObject, objectsEqual } from 'lib/utils'
-import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
@@ -36,7 +36,6 @@ import {
     AccessControlResourceType,
     InsightLogicProps,
     InsightShortId,
-    ItemMode,
     QueryBasedInsightModel,
     SetInsightOptions,
 } from '~/types'
@@ -61,7 +60,13 @@ export const createEmptyInsight = (
 
 export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType>([
     props({ filtersOverride: null, variablesOverride: null } as InsightLogicProps),
-    key(keyForInsightLogicProps('new')),
+    key((props) => {
+        const key = keyForInsightLogicProps('new')(props)
+        if (key === 'new') {
+            throw new Error('Cannot initialize insightLogic with a key of "new". Please provide a unique key.')
+        }
+        return key
+    }),
     path((key) => ['scenes', 'insights', 'insightLogic', key]),
     connect(() => ({
         values: [
@@ -89,18 +94,23 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             insight,
             options,
         }),
-        saveAs: (redirectToViewMode?: boolean, persist?: boolean, folder?: string | null) => ({
+        saveAs: (redirectToViewMode?: () => void, persist?: boolean, folder?: string | null) => ({
             redirectToViewMode,
             persist,
             folder,
         }),
-        saveAsConfirmation: (name: string, redirectToViewMode = false, persist = true, folder?: string | null) => ({
+        saveAsConfirmation: (
+            name: string,
+            redirectToViewMode: undefined | (() => void) = undefined,
+            persist = true,
+            folder?: string | null
+        ) => ({
             name,
             redirectToViewMode,
             persist,
             folder,
         }),
-        saveInsight: (redirectToViewMode: boolean = true, folder: string | null = null) => ({
+        saveInsight: (redirectToViewMode: undefined | (() => void) = undefined, folder: string | null = null) => ({
             redirectToViewMode,
             folder,
         }),
@@ -473,13 +483,12 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     ?.actions.loadDashboard({ action: DashboardLoadAction.Update })
             )
 
-            const mountedInsightSceneLogic = insightSceneLogic.findMounted()
             if (redirectToViewMode) {
                 if (!insightNumericId && dashboards?.length === 1) {
                     // redirect new insights added to dashboard to the dashboard
                     router.actions.push(urls.dashboard(dashboards[0], savedInsight.short_id))
                 } else if (insightNumericId) {
-                    mountedInsightSceneLogic?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
+                    redirectToViewMode()
                 } else {
                     router.actions.push(urls.insightView(savedInsight.short_id))
                 }
@@ -532,9 +541,10 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             actions.reloadSavedInsights() // Load insights afresh
 
             if (redirectToViewMode) {
-                router.actions.push(urls.insightView(insight.short_id))
-            } else {
-                router.actions.push(urls.insightEdit(insight.short_id))
+                redirectToViewMode()
+                // router.actions.push(urls.insightView(insight.short_id))
+                // } else {
+                //     router.actions.push(urls.insightEdit(insight.short_id))
             }
         },
         onRejectSuggestedInsight: () => {
@@ -581,6 +591,9 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             }
             redirectToInsight && router.actions.push(urls.insightEdit(newInsight.short_id))
         },
+    })),
+    subscriptions(() => ({
+        query: (query) => {},
     })),
     events(({ props, actions }) => ({
         afterMount: () => {

@@ -10,7 +10,6 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 import { urls } from 'scenes/urls'
 
@@ -57,6 +56,7 @@ export interface DataTableVisualizationProps {
     variablesOverride?: Record<string, HogQLVariable> | null
     /** Attach ourselves to another logic, such as the scene logic */
     attachTo?: BuiltLogic | LogicWrapper
+    editMode?: boolean
 }
 
 let uniqueNode = 0
@@ -70,6 +70,7 @@ export function DataTableVisualization({
     readOnly,
     variablesOverride,
     attachTo,
+    editMode,
 }: DataTableVisualizationProps): JSX.Element {
     const [key] = useState(`DataVisualizationNode.${uniqueKey ?? uniqueNode++}`)
     const insightProps: InsightLogicProps<DataVisualizationNode> = context?.insightProps || {
@@ -81,14 +82,13 @@ export function DataTableVisualization({
 
     const vizKey = insightVizDataNodeKey(insightProps)
     const dataNodeCollectionId = insightVizDataCollectionId(insightProps, key)
-    const { insightMode } = useValues(insightSceneLogic)
     const dataVisualizationLogicProps: DataVisualizationLogicProps = {
         key: vizKey,
         query,
         dashboardId: insightProps.dashboardId,
         dataNodeCollectionId,
         loadPriority: insightProps.loadPriority,
-        insightMode,
+        editMode,
         setQuery,
         cachedResults,
         variablesOverride,

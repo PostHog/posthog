@@ -1,12 +1,16 @@
 import { BuiltLogic, actions, connect, kea, listeners, path, reducers, selectors, sharedListeners } from 'kea'
-import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
+import { beforeUnload, router } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
+import { subscriptions } from 'kea-subscriptions'
 import { objectsEqual } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { AlertType } from 'lib/components/Alerts/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { isEmptyObject, isObject } from 'lib/utils'
 import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -28,6 +32,7 @@ import {
     ActivityScope,
     Breadcrumb,
     DashboardType,
+    InsightLogicProps,
     InsightShortId,
     InsightType,
     ItemMode,
@@ -43,6 +48,10 @@ import { parseDraftQueryFromLocalStorage, parseDraftQueryFromURL } from './utils
 const NEW_INSIGHT = 'new' as const
 export type InsightId = InsightShortId | typeof NEW_INSIGHT | null
 
+export interface InsightSceneLogicProps {
+    tabId?: string
+}
+
 function isDashboardFilterEmpty(filter: DashboardFilter | null): boolean {
     return (
         !filter ||
@@ -55,6 +64,7 @@ function isDashboardFilterEmpty(filter: DashboardFilter | null): boolean {
 
 export const insightSceneLogic = kea<insightSceneLogicType>([
     path(['scenes', 'insights', 'insightSceneLogic']),
+    tabAwareScene(),
     connect(() => ({
         logic: [eventUsageLogic],
         values: [
@@ -121,7 +131,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             {
                 setSceneState: (_, { itemId }) =>
                     itemId !== undefined
-                        ? itemId === 'new'
+                        ? itemId === 'new' || itemId?.startsWith('new-')
                             ? 'new'
                             : Number.isInteger(+itemId)
                               ? parseInt(itemId, 10)
@@ -180,12 +190,15 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         ],
         freshQuery: [false, { setFreshQuery: (_, { freshQuery }) => freshQuery }],
     }),
-    selectors(() => ({
+    selectors({
+        tabId: [() => [(_, props: InsightSceneLogicProps) => props.tabId], (tabId) => tabId],
         insightSelector: [(s) => [s.insightLogicRef], (insightLogicRef) => insightLogicRef?.logic.selectors.insight],
         insight: [(s) => [(state, props) => s.insightSelector?.(state, props)?.(state, props)], (insight) => insight],
+        querySelector: [(s) => [s.insightLogicRef], (insightLogicRef) => insightLogicRef?.logic.selectors.query],
+        query: [(s) => [(state, props) => s.querySelector?.(state, props)?.(state, props)], (query) => query],
         breadcrumbs: [
-            (s) => [s.insightLogicRef, s.insight, s.dashboardId, s.dashboardName, s.featureFlags],
-            (insightLogicRef, insight, dashboardId, dashboardName, featureFlags): Breadcrumb[] => {
+            (s) => [s.insightLogicRef, s.insight, s.dashboardId, s.dashboardName, s.featureFlags, s.tabId],
+            (insightLogicRef, insight, dashboardId, dashboardName, featureFlags, tabId): Breadcrumb[] => {
                 const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
                 return [
                     ...(dashboardId !== null && dashboardName
@@ -209,7 +222,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                               },
                           ]),
                     {
-                        key: [Scene.Insight, insight?.short_id || 'new'],
+                        key: [Scene.Insight, insight?.short_id || `new-${tabId}`],
                         name: insightLogicRef?.logic.values.insightName,
                         onRename:
                             insightLogicRef?.logic.values.canEditInsight && !newSceneLayout
@@ -226,7 +239,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             (s) => [s.insightId],
             (insightId): ProjectTreeRef => ({
                 type: 'insight',
-                ref: insightId && insightId !== 'new' ? String(insightId) : null,
+                ref: insightId && insightId !== 'new' && !insightId.startsWith('new-') ? String(insightId) : null,
             }),
         ],
         [SIDE_PANEL_CONTEXT_KEY]: [
@@ -268,7 +281,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 (isObject(filtersOverride) && !isEmptyObject(filtersOverride)) ||
                 (isObject(variablesOverride) && !isEmptyObject(variablesOverride)),
         ],
-    })),
+    }),
     sharedListeners(({ actions, values }) => ({
         reloadInsightLogic: () => {
             const logicInsightId = values.insight?.short_id ?? null
@@ -278,7 +291,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 const oldRef = values.insightLogicRef // free old logic after mounting new one
                 const oldRef2 = values.insightDataLogicRef // free old logic after mounting new one
                 if (insightId) {
-                    const insightProps = {
+                    const insightProps: InsightLogicProps = {
                         dashboardItemId: insightId,
                         filtersOverride: values.filtersOverride,
                         variablesOverride: values.variablesOverride,
@@ -325,7 +338,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
 
             values.insightLogicRef?.logic.actions.setInsight(
                 {
-                    ...createEmptyInsight('new'),
+                    ...createEmptyInsight(`new-${values.tabId}`),
                     ...(values.dashboardId ? { dashboards: [values.dashboardId] } : {}),
                     query: upgradedQuery,
                 },
@@ -336,7 +349,24 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             )
         },
     })),
-    urlToAction(({ actions, values }) => ({
+    subscriptions(() => ({
+        query: (query) => {
+            if (query) {
+                const hashQuery = router.values.currentLocation.hashParams['q']
+                if (!hashQuery || !objectsEqual(parseDraftQueryFromURL(hashQuery), query)) {
+                    router.actions.replace(
+                        router.values.currentLocation.pathname,
+                        router.values.currentLocation.search,
+                        {
+                            ...router.values.currentLocation.hashParams,
+                            q: JSON.stringify(query),
+                        }
+                    )
+                }
+            }
+        },
+    })),
+    tabAwareUrlToAction(({ actions, values }) => ({
         '/insights/:shortId(/:mode)(/:itemId)': (
             { shortId, mode, itemId }, // url params
             { dashboard, alert_id, ...searchParams }, // search params
@@ -354,7 +384,15 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                         : mode === 'edit' || shortId === 'new'
                           ? ItemMode.Edit
                           : ItemMode.View
-            const insightId = String(shortId) as InsightShortId
+            let insightId = String(shortId) as InsightShortId
+            if (insightId === 'new') {
+                insightId = `new-${values.tabId}` as InsightShortId
+            }
+            if (values.insightId && values.insightId !== insightId) {
+                // this is for another logic. Pressing the back button can end up here
+
+                return
+            }
 
             const currentScene = sceneLogic.findMounted()?.values
 
@@ -422,11 +460,11 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
 
             // reset the insight's state if we have to
             if ((initial || queryFromUrl || method === 'PUSH') && !validatingQuery) {
-                if (insightId === 'new') {
+                if (insightId === 'new' || insightId.startsWith('new-')) {
                     const query = queryFromUrl || getDefaultQuery(InsightType.TRENDS, values.filterTestAccountsDefault)
                     values.insightLogicRef?.logic.actions.setInsight(
                         {
-                            ...createEmptyInsight('new'),
+                            ...createEmptyInsight(`new-${values.tabId}`),
                             ...(dashboard ? { dashboards: [dashboard] } : {}),
                             query,
                         },
@@ -445,7 +483,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             }
         },
     })),
-    actionToUrl(({ values }) => {
+    tabAwareActionToUrl(({ values }) => {
         // Use the browser redirect to determine state to hook into beforeunload prevention
         const actionToUrl = ({
             insightMode = values.insightMode,
@@ -453,14 +491,16 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         }: {
             insightMode?: ItemMode
             insightId?: InsightShortId | 'new' | null
-        }): string | undefined => {
-            if (!insightId || insightId === 'new') {
-                return undefined
+        }):
+            | [string, Record<string, any> | string | undefined, Record<string, any> | string | undefined]
+            | undefined => {
+            if (!insightId || insightId === 'new' || insightId.startsWith('new-')) {
+                return [urls.insightNew(), undefined, values.query ? { q: values.query } : undefined]
             }
 
             const baseUrl = insightMode === ItemMode.View ? urls.insightView(insightId) : urls.insightEdit(insightId)
             const searchParams = window.location.search
-            return searchParams ? `${baseUrl}${searchParams}` : baseUrl
+            return [baseUrl, searchParams, values.query ? { q: values.query } : undefined]
         }
 
         return {
@@ -476,6 +516,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             }
 
             if (values.disableNavigationHooks) {
+                return false
+            }
+
+            if (values.featureFlags[FEATURE_FLAGS.SCENE_TABS]) {
                 return false
             }
 
