@@ -4,6 +4,7 @@ import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -20,7 +21,7 @@ import {
     isExperimentMeanMetric,
     isExperimentRatioMetric,
 } from '~/queries/schema/schema-general'
-import { ExperimentMetricMathType, FilterType } from '~/types'
+import { ExperimentMetricGoal, ExperimentMetricMathType, FilterType } from '~/types'
 
 import { ExperimentMetricConversionWindowFilter } from './ExperimentMetricConversionWindowFilter'
 import { ExperimentMetricFunnelOrderSelector } from './ExperimentMetricFunnelOrderSelector'
@@ -304,6 +305,22 @@ export function ExperimentMetricForm({
                         </div>
                     </div>
                 )}
+            </div>
+            <div>
+                <LemonLabel className="mb-1">Goal</LemonLabel>
+                <LemonSelect<ExperimentMetricGoal>
+                    value={metric.goal || ExperimentMetricGoal.Increase}
+                    onChange={(value) => handleSetMetric({ ...metric, goal: value })}
+                    options={[
+                        { value: ExperimentMetricGoal.Increase, label: 'Increase' },
+                        { value: ExperimentMetricGoal.Decrease, label: 'Decrease' },
+                    ]}
+                    fullWidth
+                />
+                <div className="text-muted text-sm mt-1">
+                    Choose whether you want this metric to increase or decrease. For example, conversion rates should
+                    increase, while bounce rates should decrease.
+                </div>
             </div>
             <ExperimentMetricConversionWindowFilter metric={metric} handleSetMetric={handleSetMetric} />
             {isExperimentFunnelMetric(metric) && (
