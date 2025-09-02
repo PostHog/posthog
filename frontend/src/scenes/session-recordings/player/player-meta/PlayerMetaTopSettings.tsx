@@ -84,7 +84,7 @@ function InspectDOM(): JSX.Element {
     )
 }
 
-export function PlayerMetaBottomSettings({ size }: { size: PlayerMetaBreakpoints }): JSX.Element {
+export function PlayerMetaTopSettings({ size }: { size: PlayerMetaBreakpoints }): JSX.Element {
     const {
         logicProps: { noInspector },
     } = useValues(sessionRecordingPlayerLogic)
