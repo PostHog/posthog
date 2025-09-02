@@ -47,7 +47,7 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
     query: RevenueAnalyticsMRRQuery
     cached_response: CachedRevenueAnalyticsMRRQueryResponse
 
-    def to_query(self) -> ast.SelectQuery:
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         subqueries = self.revenue_subqueries(RevenueAnalyticsRevenueItemView)
         if not subqueries:
             return ast.SelectQuery.empty(columns=["breakdown_by", "period_start", "amount"])

@@ -1,4 +1,6 @@
-from products.revenue_analytics.backend.views.core import SourceHandle
+from typing import cast
+
+from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHandle
 from products.revenue_analytics.backend.views.schemas.subscription import SCHEMA as SUBSCRIPTION_SCHEMA
 from products.revenue_analytics.backend.views.sources.events.subscription import build
 from products.revenue_analytics.backend.views.sources.test.events.base import EventsSourceBaseTest
@@ -20,10 +22,9 @@ class TestSubscriptionEventsBuilder(EventsSourceBaseTest):
 
         # Test subscription_charge event (has subscriptionProperty)
         key = self.SUBSCRIPTION_CHARGE_EVENT_NAME
-        subscription_charge_query = next((query for query in queries if query.key == key), None)
-        self.assertIsNotNone(subscription_charge_query)
+        subscription_charge_query = next(query for query in queries if query.key == key)
         self.assertBuiltQueryStructure(
-            subscription_charge_query,
+            cast(BuiltQuery, subscription_charge_query),
             key,
             "revenue_analytics.events.subscription_charge",
         )
@@ -34,7 +35,6 @@ class TestSubscriptionEventsBuilder(EventsSourceBaseTest):
         # Test purchase event (no subscriptionProperty)
         key = f"{self.PURCHASE_EVENT_NAME}.no_property"
         purchase_query = next((query for query in queries if query.key == key), None)
-        self.assertIsNotNone(purchase_query)
         self.assertBuiltQueryStructure(purchase_query, key, "revenue_analytics.events.purchase")
 
         query_sql = purchase_query.query.to_hogql()

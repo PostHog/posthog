@@ -413,8 +413,7 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
 
         for breakdown in self.parsed_breakdown_from(join_from.__class__):
             # dumb assertion because mypy is dumb, praying for ty coming soon
-            chain: list[str | int] = breakdown.property.split(".")
-            breakdown_expr = ast.Field(chain=chain)
+            breakdown_expr = ast.Field(chain=breakdown.property.split("."))  # type: ignore
             expr = ast.Call(
                 name="concat",
                 args=[

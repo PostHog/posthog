@@ -38,7 +38,7 @@ class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
     query: RevenueAnalyticsMetricsQuery
     cached_response: CachedRevenueAnalyticsMetricsQueryResponse
 
-    def to_query(self) -> ast.SelectQuery:
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         subscription_subqueries = self.revenue_subqueries(RevenueAnalyticsSubscriptionView)
         revenue_item_subqueries = self.revenue_subqueries(RevenueAnalyticsRevenueItemView)
         if not subscription_subqueries:
