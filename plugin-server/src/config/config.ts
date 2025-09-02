@@ -132,6 +132,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         HOG_HOOK_URL: '',
         CAPTURE_CONFIG_REDIS_HOST: null,
         LAZY_LOADER_DEFAULT_BUFFER_MS: 10,
+        CAPTURE_INTERNAL_URL: 'http://localhost:8010',
 
         // posthog
         POSTHOG_API_KEY: '',

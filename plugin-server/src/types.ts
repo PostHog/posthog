@@ -313,6 +313,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
     CAPTURE_CONFIG_REDIS_HOST: string | null // Redis cluster to use to coordinate with capture (overflow, routing)
     LAZY_LOADER_DEFAULT_BUFFER_MS: number
+    CAPTURE_INTERNAL_URL: string
 
     // local directory might be a volume mount or a directory on disk (e.g. in local dev)
     SESSION_RECORDING_LOCAL_DIRECTORY: string
