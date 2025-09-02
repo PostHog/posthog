@@ -131,7 +131,7 @@ const tabs: Record<DataManagementTab, TabConfig> = {
         url: urls.advancedActivityLogs(),
         label: 'Activity logs',
         content: <AdvancedActivityLogsList />,
-        flag: FEATURE_FLAGS.AUDIT_LOGS_ACCESS,
+        flag: FEATURE_FLAGS.ADVANCED_ACTIVITY_LOGS,
     },
     [DataManagementTab.Revenue]: {
         url: urls.revenueSettings(),
@@ -205,6 +205,7 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
             (s) => [s.featureFlags],
             (featureFlags): DataManagementTab[] => {
                 const allTabs = Object.entries(tabs)
+
                 return allTabs
                     .filter(([_, tab]) => {
                         return !tab.flag || !!featureFlags[tab.flag]
