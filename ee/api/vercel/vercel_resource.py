@@ -17,7 +17,7 @@ from ee.vercel.integration import VercelIntegration
 
 
 class VercelBillingPlanDetailSerializer(serializers.Serializer):
-    label: serializers.CharField = serializers.CharField(min_length=1)
+    label = serializers.CharField(min_length=1)  # type: ignore
     value = serializers.CharField(min_length=1)
 
 
