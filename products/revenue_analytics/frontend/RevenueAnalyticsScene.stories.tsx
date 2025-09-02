@@ -84,19 +84,19 @@ const PRODUCT_A_BREAKDOWN: RevenueAnalyticsBreakdown = {
 }
 
 export function RevenueAnalyticsDashboard(): JSX.Element {
-    const { setTopCustomersDisplayMode, setBreakdown, setRevenueAnalyticsFilters } = useActions(revenueAnalyticsLogic)
+    const { setTopCustomersDisplayMode, addBreakdown, setRevenueAnalyticsFilters } = useActions(revenueAnalyticsLogic)
 
     useEffect(() => {
         setTopCustomersDisplayMode('table')
         setRevenueAnalyticsFilters([PRODUCT_A_PROPERTY_FILTER])
-        setBreakdown([PRODUCT_A_BREAKDOWN])
-    }, [setTopCustomersDisplayMode, setRevenueAnalyticsFilters, setBreakdown])
+        addBreakdown(PRODUCT_A_BREAKDOWN)
+    }, [setTopCustomersDisplayMode, setRevenueAnalyticsFilters, addBreakdown])
 
     return <App />
 }
 
 export function RevenueAnalyticsDashboardSyncInProgress(): JSX.Element {
-    const { setTopCustomersDisplayMode, setBreakdown, setRevenueAnalyticsFilters } = useActions(revenueAnalyticsLogic)
+    const { setTopCustomersDisplayMode, addBreakdown, setRevenueAnalyticsFilters } = useActions(revenueAnalyticsLogic)
 
     useStorybookMocks({
         get: {
@@ -115,8 +115,8 @@ export function RevenueAnalyticsDashboardSyncInProgress(): JSX.Element {
     useEffect(() => {
         setTopCustomersDisplayMode('line')
         setRevenueAnalyticsFilters([PRODUCT_A_PROPERTY_FILTER])
-        setBreakdown([PRODUCT_A_BREAKDOWN])
-    }, [setTopCustomersDisplayMode, setRevenueAnalyticsFilters, setBreakdown])
+        addBreakdown(PRODUCT_A_BREAKDOWN)
+    }, [setTopCustomersDisplayMode, setRevenueAnalyticsFilters, addBreakdown])
 
     return <App />
 }
