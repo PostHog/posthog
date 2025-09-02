@@ -12,6 +12,7 @@ from posthog.schema import AssistantMessage, EventTaxonomyItem, HumanMessage
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
+from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph import AssistantGraph
 from ee.hogai.graph.memory.prompts import (
     ENQUIRY_INITIAL_MESSAGE,
@@ -216,7 +217,7 @@ def call_memory_onboarding():
         graph = (
             AssistantGraph(team=team, user=user)
             .add_memory_onboarding(AssistantNodeName.END)
-            .compile(checkpointer=False)
+            .compile(checkpointer=DjangoCheckpointer())
         )
         raw_state = await graph.ainvoke(
             AssistantState(messages=[HumanMessage(content=SLASH_COMMAND_INIT)]),
