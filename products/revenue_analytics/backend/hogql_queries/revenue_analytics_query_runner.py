@@ -164,10 +164,10 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
         )
 
     def _with_where_property_joins(self, join_expr: ast.JoinExpr, join_from: RevenueAnalyticsBaseView) -> ast.JoinExpr:
-        return self._with_joins(join_expr, join_from, self.joins_set_for_properties(join_from.__class__))
+        return self._with_joins(join_expr, join_from.__class__, self.joins_set_for_properties(join_from.__class__))
 
     def _with_where_breakdown_joins(self, join_expr: ast.JoinExpr, join_from: RevenueAnalyticsBaseView) -> ast.JoinExpr:
-        return self._with_joins(join_expr, join_from, self.joins_set_for_breakdown(join_from.__class__))
+        return self._with_joins(join_expr, join_from.__class__, self.joins_set_for_breakdown(join_from.__class__))
 
     def _with_joins(
         self, join_expr: ast.JoinExpr, join_from: type[RevenueAnalyticsBaseView], joins_set: set[str]
@@ -175,16 +175,16 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
         joins = []
         for join in joins_set:
             join_to_add: ast.JoinExpr | None = None
-            if join == "revenue_analytics_charge" and join_from.__class__ != RevenueAnalyticsChargeView:
+            if join == "revenue_analytics_charge" and join_from != RevenueAnalyticsChargeView:
                 join_to_add = self._create_charge_join(join_from)
-            elif join == "revenue_analytics_customer" and join_from.__class__ != RevenueAnalyticsCustomerView:
+            elif join == "revenue_analytics_customer" and join_from != RevenueAnalyticsCustomerView:
                 join_to_add = self._create_customer_join(join_from)
-            elif join == "revenue_analytics_product" and join_from.__class__ != RevenueAnalyticsProductView:
+            elif join == "revenue_analytics_product" and join_from != RevenueAnalyticsProductView:
                 join_to_add = self._create_product_join(join_from)
-            elif join == "revenue_analytics_revenue_item" and join_from.__class__ != RevenueAnalyticsRevenueItemView:
+            elif join == "revenue_analytics_revenue_item" and join_from != RevenueAnalyticsRevenueItemView:
                 # Can never join TO revenue_item because it's N:N
                 pass
-            elif join == "revenue_analytics_subscription" and join_from.__class__ != RevenueAnalyticsSubscriptionView:
+            elif join == "revenue_analytics_subscription" and join_from != RevenueAnalyticsSubscriptionView:
                 join_to_add = self._create_subscription_join(join_from)
 
             if join_to_add is not None:
@@ -210,7 +210,7 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
             ),
         )
 
-    def _create_customer_join(self, join_from: RevenueAnalyticsBaseView) -> ast.JoinExpr | None:
+    def _create_customer_join(self, join_from: RevenueAnalyticsBaseView) -> ast.JoinExpr:
         customer_schema = VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER]
         customer_suffix = customer_schema.events_suffix if join_from.is_event_view() else customer_schema.source_suffix
 

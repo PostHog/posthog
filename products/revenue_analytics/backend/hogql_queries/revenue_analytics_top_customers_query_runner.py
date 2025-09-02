@@ -17,7 +17,7 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner[Revenu
     query: RevenueAnalyticsTopCustomersQuery
     cached_response: CachedRevenueAnalyticsTopCustomersQueryResponse
 
-    def to_query(self) -> ast.SelectQuery:
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         subqueries = self.revenue_subqueries(RevenueAnalyticsRevenueItemView)
         if not subqueries:
             return ast.SelectQuery.empty(columns=["customer_id", "name", "amount", "month"])
@@ -34,7 +34,7 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner[Revenu
         query = ast.SelectQuery(
             select=[
                 ast.Alias(alias="customer_id", expr=ast.Field(chain=["inner", "customer_id"])),
-                ast.Alias(alias="name", expr=ast.Field(chain="customer_id")),
+                ast.Alias(alias="name", expr=ast.Field(chain=["customer_id"])),
                 # If grouping all months together, we'll use the sum of the amount
                 # Otherwise, we'll use the amount for the specific month
                 ast.Alias(

@@ -166,7 +166,7 @@ const RevenueAnalyticsBreakdownBy = (): JSX.Element => {
     return (
         <div className="flex flex-row gap-1">
             {breakdownProperties.map((breakdown) => (
-                <EditableBreakdownTag breakdown={breakdown} />
+                <EditableBreakdownTag key={breakdown.property} breakdown={breakdown} />
             ))}
             <AddBreakdownButton />
         </div>
@@ -221,7 +221,7 @@ const BreakdownPopover = ({
     open: boolean
     setOpen: (open: boolean) => void
     onSelect: (breakdown: RevenueAnalyticsBreakdown) => void
-    children?: React.ReactChild
+    children?: React.ReactNode
 }): JSX.Element => {
     return (
         <Popover
@@ -229,7 +229,7 @@ const BreakdownPopover = ({
             overlay={
                 <TaxonomicFilter
                     groupType={TaxonomicFilterGroupType.RevenueAnalyticsProperties}
-                    onChange={(_taxonomigGroup, value) => {
+                    onChange={(_taxonomicGroup, value) => {
                         const breakdown: RevenueAnalyticsBreakdown = {
                             property: value as string,
                             type: 'revenue_analytics',
