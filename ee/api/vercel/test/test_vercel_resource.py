@@ -1,7 +1,7 @@
 import json
 from uuid import uuid4
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, _patch, patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -16,8 +16,8 @@ from ee.api.vercel.test.base import VercelTestBase
 
 
 class TestVercelResourceAPI(VercelTestBase):
-    client_id_patcher: patch
-    jwks_patcher: patch
+    client_id_patcher: _patch
+    jwks_patcher: _patch
     mock_get_jwks: MagicMock
 
     @classmethod
