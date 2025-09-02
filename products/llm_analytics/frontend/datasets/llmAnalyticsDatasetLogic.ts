@@ -145,7 +145,7 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
 
                     // Scroll to top if the page changed, except if changed via back/forward
                     if (
-                        sceneLogic.findMounted()?.values.activeSceneId === 'LLMAnalyticsDatasets' &&
+                        sceneLogic.findMounted()?.values.activeSceneId === 'LLMAnalyticsDataset' &&
                         router.values.lastMethod !== 'POP' &&
                         values.datasetItems.results.length > 0 &&
                         values.rawFilters?.page !== filters.page
@@ -318,12 +318,7 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
 
         setFilters: async ({ debounce }, _, __, previousState) => {
             const oldFilters = selectors.filters(previousState)
-            const firstLoad = selectors.rawFilters(previousState) === null
             const { filters } = values
-
-            if (firstLoad) {
-                return
-            }
 
             if (!objectsEqual(oldFilters, filters)) {
                 await asyncActions.loadDatasetItems(debounce)

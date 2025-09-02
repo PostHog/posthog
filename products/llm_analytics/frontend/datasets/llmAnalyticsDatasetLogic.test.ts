@@ -6,6 +6,7 @@ import { urls } from 'scenes/urls'
 
 import api from '~/lib/api'
 import { initKeaTests } from '~/test/init'
+import { DatasetItem } from '~/types'
 
 import { DatasetFormValues, DatasetLogicProps, llmAnalyticsDatasetLogic } from './llmAnalyticsDatasetLogic'
 import { llmAnalyticsDatasetsLogic } from './llmAnalyticsDatasetsLogic'
@@ -375,6 +376,198 @@ describe('llmAnalyticsDatasetLogic', () => {
             expect(logic.values.datasetForm.metadata).toBe(EMPTY_JSON)
 
             findMountedSpy.mockRestore()
+        })
+    })
+
+    describe('filter functionality', () => {
+        let logic: ReturnType<typeof llmAnalyticsDatasetLogic.build>
+        const props: DatasetLogicProps = { datasetId: 'existing-dataset-id' }
+
+        beforeEach(() => {
+            ;(mockApi.datasets.get as jest.Mock).mockResolvedValue(mockDataset)
+            ;(mockApi.datasetItems.list as jest.Mock).mockResolvedValue({
+                results: [],
+                count: 0,
+                offset: 0,
+            })
+            logic = llmAnalyticsDatasetLogic(props)
+            logic.mount()
+        })
+
+        describe('filter processing and defaults', () => {
+            it('applies default filters when no filters set', () => {
+                expect(logic.values.filters).toEqual({
+                    page: 1,
+                    limit: 50,
+                })
+            })
+
+            it('cleans and validates filter parameters', () => {
+                logic.actions.setFilters({ page: '3' as any, limit: '25' as any })
+                expect(logic.values.filters).toEqual({
+                    page: 3,
+                    limit: 25,
+                })
+            })
+
+            it('handles invalid page parameter by setting default', () => {
+                logic.actions.setFilters({ page: 'invalid' as any, limit: 25 })
+                expect(logic.values.filters).toEqual({
+                    page: 1,
+                    limit: 25,
+                })
+            })
+
+            it('handles invalid limit parameter by setting default', () => {
+                logic.actions.setFilters({ page: 2, limit: 'invalid' as any })
+                expect(logic.values.filters).toEqual({
+                    page: 2,
+                    limit: 50,
+                })
+            })
+
+            it('resets page when other filters change', () => {
+                logic.actions.setFilters({ page: 3, limit: 25 })
+                expect(logic.values.filters.page).toBe(3)
+
+                // Change limit, should reset page to 1
+                logic.actions.setFilters({ limit: 100 })
+                expect(logic.values.filters.page).toBe(1)
+                expect(logic.values.filters.limit).toBe(100)
+            })
+
+            it('preserves page when explicitly changing page', () => {
+                logic.actions.setFilters({ page: 2, limit: 25 })
+                expect(logic.values.filters.page).toBe(2)
+
+                // Explicitly change page, should not reset
+                logic.actions.setFilters({ page: 5 })
+                expect(logic.values.filters.page).toBe(5)
+            })
+        })
+
+        describe('filter-triggered API calls', () => {
+            it('loads dataset items when filters change', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setFilters({ page: 2, limit: 25 })
+                }).toFinishAllListeners()
+
+                expect(mockApi.datasetItems.list).toHaveBeenCalledWith({
+                    dataset: 'existing-dataset-id',
+                    offset: 50, // (page 2 - 1) * 50 (DATASET_ITEMS_PER_PAGE)
+                    limit: 50, // DATASET_ITEMS_PER_PAGE constant
+                })
+            })
+
+            it('calculates correct offset for pagination', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setFilters({ page: 3, limit: 25 })
+                }).toFinishAllListeners()
+
+                expect(mockApi.datasetItems.list).toHaveBeenCalledWith({
+                    dataset: 'existing-dataset-id',
+                    offset: 100, // (page 3 - 1) * 50 (DATASET_ITEMS_PER_PAGE)
+                    limit: 50,
+                })
+            })
+
+            it('does not trigger API call when filters do not change', async () => {
+                const initialCallCount = (mockApi.datasetItems.list as jest.Mock).mock.calls.length
+
+                await expectLogic(logic, () => {
+                    logic.actions.setFilters({ page: 1, limit: 50 }) // Same as defaults
+                }).toFinishAllListeners()
+
+                expect(mockApi.datasetItems.list).toHaveBeenCalledTimes(initialCallCount) // Should not increase
+            })
+        })
+
+        describe('dataset item modal and URL state', () => {
+            const mockDatasetItem1: DatasetItem = {
+                id: 'item-1',
+                dataset: 'test-dataset-id',
+                team: 997,
+                input: { query: 'test input' },
+                output: { response: 'test response 1' },
+                metadata: { key: 'value' },
+                ref_trace_id: null,
+                ref_trace_timestamp: null,
+                ref_span_id: null,
+                created_by: {
+                    id: 1,
+                    uuid: 'test-uuid',
+                    distinct_id: 'test-distinct-id',
+                    first_name: 'Test',
+                    email: 'test@example.com',
+                },
+                created_at: '2024-01-01T00:00:00Z',
+                updated_at: '2024-01-01T00:00:00Z',
+            }
+
+            const mockDatasetItem2: DatasetItem = {
+                id: 'item-2',
+                dataset: 'test-dataset-id',
+                team: 997,
+                input: { query: 'test input 2' },
+                output: { response: 'test response 2' },
+                metadata: { key: 'value2' },
+                ref_trace_id: null,
+                ref_trace_timestamp: null,
+                ref_span_id: null,
+                created_by: {
+                    id: 1,
+                    uuid: 'test-uuid',
+                    distinct_id: 'test-distinct-id',
+                    first_name: 'Test',
+                    email: 'test@example.com',
+                },
+                created_at: '2024-01-01T00:00:00Z',
+                updated_at: '2024-01-01T00:00:00Z',
+            }
+
+            it('opens modal when dataset item is selected from data', () => {
+                const mockDatasetItems = {
+                    results: [mockDatasetItem1, mockDatasetItem2],
+                    count: 2,
+                    offset: 0,
+                }
+
+                logic.actions.loadDatasetItemsSuccess(mockDatasetItems)
+                logic.actions.setSelectedDatasetItem(mockDatasetItem1)
+                logic.actions.triggerDatasetItemModal(true)
+
+                expect(logic.values.selectedDatasetItem).toEqual(mockDatasetItem1)
+                expect(logic.values.isDatasetItemModalOpen).toBe(true)
+            })
+
+            it('closes modal and clears selected item', async () => {
+                const mockDatasetItems = {
+                    results: [mockDatasetItem1],
+                    count: 1,
+                    offset: 0,
+                }
+
+                logic.actions.loadDatasetItemsSuccess(mockDatasetItems)
+                logic.actions.setSelectedDatasetItem(mockDatasetItem1)
+                logic.actions.triggerDatasetItemModal(true)
+
+                await expectLogic(logic, () => {
+                    logic.actions.closeModalAndRefetchDatasetItems(false)
+                }).toFinishAllListeners()
+
+                expect(logic.values.selectedDatasetItem).toBe(null)
+                expect(logic.values.isDatasetItemModalOpen).toBe(false)
+            })
+
+            it('refetches dataset items when requested on modal close', async () => {
+                const initialCallCount = (mockApi.datasetItems.list as jest.Mock).mock.calls.length
+
+                await expectLogic(logic, () => {
+                    logic.actions.closeModalAndRefetchDatasetItems(true)
+                }).toFinishAllListeners()
+
+                expect(mockApi.datasetItems.list).toHaveBeenCalledTimes(initialCallCount + 1)
+            })
         })
     })
 
