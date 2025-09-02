@@ -35,7 +35,7 @@ export function StepViewMetrics({ action }: { action: HogFlowAction }): JSX.Elem
                 fontSize: 6,
             }}
         >
-            <Tooltip title="Successul runs of this action">
+            <Tooltip title="Successful runs of this action">
                 <div className="flex-1 px-1 text-success">
                     <IconCheck /> {humanFriendlyLargeNumber(metrics.succeeded)}
                 </div>
