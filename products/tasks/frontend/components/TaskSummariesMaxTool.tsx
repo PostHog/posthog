@@ -20,7 +20,7 @@ export function TaskSummariesMaxTool(): JSX.Element | null {
     const { setQuestion, focusInput, startNewConversation } = useActions(maxLogic)
 
     const initialPrompt =
-        'Use the session_summarization tool tgo summarize all recent session recordings in the last 30 days and identify the top UX issues and recurring patterns. Focus on actionable fixes. Return a structured JSON artifact via tool result containing a `patterns` array (with `pattern_name`, `pattern_description`, `severity`, `stats`) and an optional `notebook_id`. Do not answer without calling the tool.'
+        'Use the session_summarization tool to summarize all recent session recordings in the last 30 days and identify the top UX issues and recurring patterns. Focus on actionable fixes. Return a structured JSON artifact via tool result containing a `patterns` array (with `pattern_name`, `pattern_description`, `severity`, `stats`) and an optional `notebook_id`. Do not answer without calling the tool.'
 
     if (!isEnabled) {
         return null
