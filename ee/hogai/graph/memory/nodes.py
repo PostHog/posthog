@@ -198,7 +198,7 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
         chain = prompt | self._model() | StrOutputParser()
         answer = chain.invoke({}, config=config)
         # The model has failed to scrape the data, continue.
-        if SCRAPING_TERMINATION_MESSAGE in answer:
+        if answer == SCRAPING_TERMINATION_MESSAGE:
             return PartialAssistantState(messages=[AssistantMessage(content=answer, id=str(uuid4()))])
         # Otherwise, proceed to confirmation that the memory is correct.
         core_memory.append_question_to_initial_text("What does the company do?")
