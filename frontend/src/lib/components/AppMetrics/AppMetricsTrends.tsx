@@ -11,7 +11,7 @@ export function AppMetricsTrends({
 }: {
     appMetricsTrends: AppMetricsTimeSeriesResponse | null
     loading: boolean
-}) {
+}): JSX.Element {
     return (
         <div className="relatie border rounded min-h-[20rem] h-[70vh] bg-white">
             {loading ? (
