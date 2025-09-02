@@ -101,7 +101,7 @@ export function Navigation({
                         {(!sceneConfig?.hideBillingNotice || !sceneConfig?.hideProjectNotice) && (
                             <div className={sceneConfig?.layout === 'app-raw-no-header' ? 'px-4' : ''}>
                                 {!sceneConfig?.hideBillingNotice && <BillingAlertsV2 className="my-0 mb-4" />}
-                                {/* {!sceneConfig?.hideProjectNotice && <ProjectNotice className="my-0 mb-4" />} */}
+                                {!sceneConfig?.hideProjectNotice && <ProjectNotice className="my-0 mb-4" />}
                             </div>
                         )}
 
