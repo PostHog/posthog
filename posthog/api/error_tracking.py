@@ -998,10 +998,10 @@ def bulk_create_symbol_sets(
             )
 
         # create missing symbol sets
-        ErrorTrackingSymbolSet.objects.bulk_create(symbol_sets_to_be_created)
+        created_symbol_sets = ErrorTrackingSymbolSet.objects.bulk_create(symbol_sets_to_be_created)
 
-        for symbol_set in symbol_sets_to_be_created:
-            id_url_map[symbol_set.ref]["symbol_set_id"] = str(symbol_set.id)
+        for symbol_set in created_symbol_sets:
+            id_url_map[symbol_set.ref]["symbol_set_id"] = str(symbol_set.pk)
 
         # update existing symbol sets
         for symbol_set in existing_symbol_sets:
