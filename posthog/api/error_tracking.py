@@ -1,5 +1,5 @@
 import hashlib
-from typing import Any, Protocol, TypeVar
+from typing import Any, Optional, Protocol, TypeVar
 
 from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
@@ -520,8 +520,11 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
     scope_object_write_actions = [
         "bulk_start_upload",
         "bulk_finish_upload",
+        "start_upload",
+        "finish_upload",
         "destroy",
         "update",
+        "create",
     ]
 
     def safely_get_queryset(self, queryset):
@@ -559,6 +562,97 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         symbol_set.save()
         ErrorTrackingStackFrame.objects.filter(team=self.team, symbol_set=symbol_set).delete()
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
+
+    def create(self, request, *args, **kwargs) -> Response:
+        # pull the symbol set reference from the query params
+        chunk_id = request.query_params.get("chunk_id", None)
+        multipart = request.query_params.get("multipart", False)
+        release_id = request.query_params.get("release_id", None)
+
+        if not chunk_id:
+            return Response({"detail": "chunk_id query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if multipart:
+            data = bytearray()
+            for chunk in request.FILES["file"].chunks():
+                data.extend(chunk)
+        else:
+            # legacy: older versions of the CLI did not use multipart uploads
+            # file added to the request data by the FileUploadParser
+            data = request.data["file"].read()
+
+        (storage_ptr, content_hash) = upload_content(bytearray(data))
+        create_symbol_set(chunk_id, self.team, release_id, storage_ptr, content_hash)
+
+        return Response({"ok": True}, status=status.HTTP_201_CREATED)
+
+    @action(methods=["POST"], detail=False)
+    def start_upload(self, request, **kwargs):
+        chunk_id = request.query_params.get("chunk_id", None)
+        release_id = request.query_params.get("release_id", None)
+
+        if not settings.OBJECT_STORAGE_ENABLED:
+            raise ValidationError(
+                code="object_storage_required",
+                detail="Object storage must be available to allow source map uploads.",
+            )
+
+        if not chunk_id:
+            return Response({"detail": "chunk_id query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        file_key = generate_symbol_set_file_key()
+        presigned_url = object_storage.get_presigned_post(
+            file_key=file_key,
+            conditions=[["content-length-range", 0, ONE_HUNDRED_MEGABYTES]],
+            expiration=PRESIGNED_SINGLE_UPLOAD_TIMEOUT,
+        )
+
+        symbol_set = create_symbol_set(chunk_id, self.team, release_id, file_key)
+
+        return Response(
+            {"presigned_url": presigned_url, "symbol_set_id": str(symbol_set.pk)}, status=status.HTTP_201_CREATED
+        )
+
+    @action(methods=["PUT"], detail=True, parser_classes=[JSONParser])
+    def finish_upload(self, request, **kwargs):
+        content_hash = request.data.get("content_hash")
+
+        if not content_hash:
+            raise ValidationError(
+                code="content_hash_required",
+                detail="A content hash must be provided to complete symbol set upload.",
+            )
+
+        if not settings.OBJECT_STORAGE_ENABLED:
+            raise ValidationError(
+                code="object_storage_required",
+                detail="Object storage must be available to allow source map uploads.",
+            )
+
+        symbol_set = self.get_object()
+        s3_upload = object_storage.head_object(file_key=symbol_set.storage_ptr)
+
+        if s3_upload:
+            content_length = s3_upload.get("ContentLength")
+
+            if not content_length or content_length > ONE_HUNDRED_MEGABYTES:
+                symbol_set.delete()
+
+                raise ValidationError(
+                    code="file_too_large",
+                    detail="The uploaded symbol set file was too large.",
+                )
+        else:
+            raise ValidationError(
+                code="file_not_found",
+                detail="No file has been uploaded for the symbol set.",
+            )
+
+        if not symbol_set.content_hash:
+            symbol_set.content_hash = content_hash
+            symbol_set.save()
+
+        return Response({"success": True}, status=status.HTTP_200_OK)
 
     @action(methods=["POST"], detail=False, parser_classes=[JSONParser])
     def bulk_start_upload(self, request, **kwargs):
@@ -619,8 +713,8 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                         detail="No file has been uploaded for the symbol set.",
                     )
 
-                if not symbol_set.content_hash:
-                    symbol_set.content_hash = content_hashes[str(symbol_set.id)]
+                content_hash = content_hashes[str(symbol_set.id)]
+                symbol_set.content_hash = content_hash
             ErrorTrackingSymbolSet.objects.bulk_update(symbol_sets, ["content_hash"])
         except Exception:
             for id in content_hashes.keys():
@@ -836,6 +930,43 @@ class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Model
 
         serializer = ErrorTrackingSuppressionRuleSerializer(suppression_rule)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+def create_symbol_set(
+    chunk_id: str, team: Team, release_id: str | None, storage_ptr: str, content_hash: Optional[str] = None
+):
+    if release_id:
+        objects = ErrorTrackingRelease.objects.all().filter(team=team, id=release_id)
+        if len(objects) < 1:
+            raise ValueError(f"Unknown release: {release_id}")
+        release = objects[0]
+    else:
+        release = None
+
+    with transaction.atomic():
+        try:
+            symbol_set = ErrorTrackingSymbolSet.objects.get(team=team, ref=chunk_id)
+            if symbol_set.release is None:
+                symbol_set.release = release
+            elif symbol_set.release != release:
+                raise ValidationError(f"Symbol set has already been uploaded for a different release")
+            symbol_set.storage_ptr = storage_ptr
+            symbol_set.content_hash = content_hash
+            symbol_set.save()
+
+        except ErrorTrackingSymbolSet.DoesNotExist:
+            symbol_set = ErrorTrackingSymbolSet.objects.create(
+                team=team,
+                ref=chunk_id,
+                release=release,
+                storage_ptr=storage_ptr,
+                content_hash=content_hash,
+            )
+
+        # Delete any existing frames associated with this symbol set
+        ErrorTrackingStackFrame.objects.filter(team=team, symbol_set=symbol_set).delete()
+
+        return symbol_set
 
 
 def bulk_create_symbol_sets(
