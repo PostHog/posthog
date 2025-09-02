@@ -111,7 +111,7 @@ export function CommentOnRecordingButton(): JSX.Element {
                 'data-attr': 'emoji-comment-dropdown',
             }}
         >
-            Comment
+            <span className="hidden sm:block">Comment</span>
         </LemonButton>
     )
 }
