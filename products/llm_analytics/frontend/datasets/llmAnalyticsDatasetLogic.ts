@@ -185,6 +185,10 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
                 }
             }
         },
+
+        loadDatasetSuccess: ({ dataset }) => {
+            actions.setDatasetFormValues(getDatasetFormDefaults(dataset))
+        },
     })),
 
     // TRICKY: Order matters here. Keep it in the bottom.
