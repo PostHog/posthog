@@ -1,5 +1,5 @@
 import hashlib
-from typing import Any, Optional, Protocol, TypeVar
+from typing import Any, Protocol, TypeVar
 
 from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
@@ -520,8 +520,6 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
     scope_object_write_actions = [
         "bulk_start_upload",
         "bulk_finish_upload",
-        "start_upload",
-        "finish_upload",
         "destroy",
         "update",
     ]
@@ -561,66 +559,6 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         symbol_set.save()
         ErrorTrackingStackFrame.objects.filter(team=self.team, symbol_set=symbol_set).delete()
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
-
-    @action(methods=["POST"], detail=False)
-    def start_upload(self, request, **kwargs):
-        chunk_id = request.query_params.get("chunk_id", None)
-        release_id = request.query_params.get("release_id", None)
-
-        if not settings.OBJECT_STORAGE_ENABLED:
-            raise ValidationError(
-                code="object_storage_required",
-                detail="Object storage must be available to allow source map uploads.",
-            )
-
-        if not chunk_id:
-            return Response({"detail": "chunk_id query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        chunk_id_url_map = bulk_create_symbol_sets([chunk_id], self.team, release_id)
-        response = chunk_id_url_map.get(chunk_id)
-
-        return Response(response, status=status.HTTP_201_CREATED)
-
-    @action(methods=["PUT"], detail=True, parser_classes=[JSONParser])
-    def finish_upload(self, request, **kwargs):
-        content_hash = request.data.get("content_hash")
-
-        if not content_hash:
-            raise ValidationError(
-                code="content_hash_required",
-                detail="A content hash must be provided to complete symbol set upload.",
-            )
-
-        if not settings.OBJECT_STORAGE_ENABLED:
-            raise ValidationError(
-                code="object_storage_required",
-                detail="Object storage must be available to allow source map uploads.",
-            )
-
-        symbol_set = self.get_object()
-        s3_upload = object_storage.head_object(file_key=symbol_set.storage_ptr)
-
-        if s3_upload:
-            content_length = s3_upload.get("ContentLength")
-
-            if not content_length or content_length > ONE_HUNDRED_MEGABYTES:
-                symbol_set.delete()
-
-                raise ValidationError(
-                    code="file_too_large",
-                    detail="The uploaded symbol set file was too large.",
-                )
-        else:
-            raise ValidationError(
-                code="file_not_found",
-                detail="No file has been uploaded for the symbol set.",
-            )
-
-        if not symbol_set.content_hash:
-            symbol_set.content_hash = content_hash
-            symbol_set.save()
-
-        return Response({"success": True}, status=status.HTTP_200_OK)
 
     @action(methods=["POST"], detail=False, parser_classes=[JSONParser])
     def bulk_start_upload(self, request, **kwargs):
@@ -904,7 +842,6 @@ def bulk_create_symbol_sets(
     chunk_ids: list[str],
     team: Team,
     release_id: str | None,
-    content_hash: Optional[str] = None,
 ) -> dict[str, dict[str, str]]:
     release = create_release(team, release_id) if release_id else None
 
@@ -926,7 +863,6 @@ def bulk_create_symbol_sets(
                     ref=chunk_id,
                     release=release,
                     storage_ptr=storage_ptr,
-                    content_hash=content_hash,
                 )
             )
 
@@ -947,7 +883,7 @@ def bulk_create_symbol_sets(
             presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr)
             id_url_map[symbol_set.ref] = {"presigned_url": presigned_url, "symbol_set_id": str(symbol_set.id)}
             symbol_set.storage_ptr = storage_ptr
-            symbol_set.content_hash = content_hash
+            symbol_set.content_hash = None
         ErrorTrackingSymbolSet.objects.bulk_update(existing_symbol_sets, ["release", "storage_ptr", "content_hash"])
 
         # Delete any existing frames associated with this symbol set
