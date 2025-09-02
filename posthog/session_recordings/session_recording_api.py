@@ -450,44 +450,12 @@ def stream_from(url: str, headers: dict | None = None) -> Generator[requests.Res
         session.close()
 
 
-class SourceVaryingSnapshotThrottle(PersonalApiKeyRateThrottle):
-    source: str | None = None
-    # these are defined in init in the SimpleRateThrottle
-    # but we define them here to avoid mypy errors
-    num_requests: int | None = None
-    duration: int | None = None
-
-    def _get_rate(self):
-        num_requests, duration = self.parse_rate(self.rate)
-
-        divisors = {
-            "realtime": 64,
-            "blob": 4,
-            "blob_v2": 1,
-        }
-
-        divisor: int = divisors.get(self.source if self.source else "", 1)
-        return None if num_requests is None else num_requests / divisor, duration
-
-    def allow_request(self, request, view):
-        """
-        num_requests is set on __init__ of the parent and not checked again
-        so we need to override it on every request
-        """
-        self.source = request.GET.get("source", None)
-        rates = self._get_rate()
-        self.num_requests = rates[0] if rates else self.num_requests
-        self.duration = rates[1] if rates else self.duration
-
-        return super().allow_request(request, view)
-
-
-class SnapshotsBurstRateThrottle(SourceVaryingSnapshotThrottle):
+class SnapshotsBurstRateThrottle(PersonalApiKeyRateThrottle):
     scope = "snapshots_burst"
     rate = "120/minute"
 
 
-class SnapshotsSustainedRateThrottle(SourceVaryingSnapshotThrottle):
+class SnapshotsSustainedRateThrottle(PersonalApiKeyRateThrottle):
     scope = "snapshots_sustained"
     rate = "600/hour"
 
@@ -743,7 +711,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             # but for reporting we want to distinguish between not loaded and no value to load
             "snapshot_source": player_metadata.get("snapshotSource", "unknown"),
         }
-        user: User | None | AnonymousUser = request.user
+        user: User | AnonymousUser = cast(User | AnonymousUser, request.user)
 
         if isinstance(user, User) and not user.is_anonymous:
             if "viewed" in serializer.validated_data:
@@ -1001,9 +969,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         SNAPSHOT_SOURCE_REQUESTED.labels(source=source_log_label).inc()
 
         # blob v1 API has been deprecated for a while now,
-        # we'll cut off access for new teams to give older teams time to migrate
-        # this defaults to True, and then is only maybe set to False for usage of personal api keys
-        blob_v1_sources_are_allowed = True
+        # we now only allow blob v1 on self-hosted installs
+        # before we can have a release that officially deprecates it for self-hosted
+        blob_v1_sources_are_allowed = False if is_cloud() or settings.DEBUG else True
         if is_personal_api_key:
             personal_api_authenticator = cast(PersonalAPIKeyAuthentication, request.successful_authenticator)
             used_key = personal_api_authenticator.personal_api_key
@@ -1023,10 +991,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 },
             )
 
-            blob_v1_sources_are_allowed = self.team.created_at <= datetime.fromisoformat(
-                settings.API_V1_DEPRECATION_DATE
-            )
-
         try:
             response: Response | HttpResponse
             if not source:
@@ -1039,10 +1003,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 with timer("send_realtime_snapshots_to_client"):
                     response = self._send_realtime_snapshots_to_client(recording)
             elif source == "blob":
-                if not blob_v1_sources_are_allowed:
-                    raise exceptions.ValidationError(
-                        "blob snapshots are not available for teams created after v1 of the API was deprecated. See https://posthog.com/docs/session-replay/snapshot-api"
-                    )
+                is_likely_v1_lts = recording.object_storage_path and not recording.full_recording_v2_path
+                if not blob_v1_sources_are_allowed and not is_likely_v1_lts:
+                    raise exceptions.ValidationError("blob snapshots are no longer supported")
                 with timer("stream_blob_to_client"):
                     response = self._stream_blob_to_client(
                         recording, validated_data.get("blob_key", ""), validated_data.get("if_none_match")
@@ -1208,7 +1171,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                             }
                         )
                 if sources:
-                    sources = sorted(sources, key=lambda x: x.get("start_timestamp", None))
+                    sources = sorted(sources, key=lambda x: x.get("start_timestamp", -1))
 
                     if might_have_realtime and not is_v2_enabled:
                         oldest_timestamp = min(sources, key=lambda k: k["start_timestamp"])["start_timestamp"]
