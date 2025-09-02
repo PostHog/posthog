@@ -62,6 +62,7 @@ class BaseAssistantGraph(Generic[StateType]):
     def compile(self, checkpointer: DjangoCheckpointer | None | Literal[False] = None):
         if not self._has_start_node:
             raise ValueError("Start node not added to the graph")
+        # TRICKY: We check `is not None` because False has a special meaning of "no checkpointer", which we want to pass on
         return self._graph.compile(checkpointer=checkpointer if checkpointer is not None else global_checkpointer)
 
 

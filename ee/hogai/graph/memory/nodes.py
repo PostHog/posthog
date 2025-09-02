@@ -85,8 +85,11 @@ class MemoryInitializerContextMixin(AssistantContextMixin):
         if not response.results:
             return None
         item = response.results[0]
+        # Exclude localhost from sample values. We could maybe do it at the query level.
+        # Note: This means if there are $host values but only localhost, we will miss out on any potential $app_namespace values
+        # This is probably okay - it's just simpler code-wise here
         item.sample_values = [
-            v  # Exclude localhost from sample values. We could maybe do it at the query level, but this is just simpler
+            v
             for v in item.sample_values
             if v != "localhost" and not v.startswith("localhost:") and not v.startswith("127.0.0.1")
         ]
