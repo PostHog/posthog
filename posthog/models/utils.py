@@ -24,6 +24,7 @@ from posthog.hogql import ast
 
 from posthog.constants import MAX_SLUG_LENGTH
 
+
 if TYPE_CHECKING:
     from random import Random
 
@@ -561,14 +562,9 @@ def build_partial_uniqueness_constraint(field: str, related_field: str, constrai
 
 class ActivityDetailEncoder(json.JSONEncoder):
     def default(self, obj):
-        # Avoid circular imports: import types only if needed
-        try:
-            from posthog.models.activity_logging.activity_log import ActivityContextBase, Change, Detail, Trigger
-            from posthog.models.utils import UUIDT
-        except ImportError:
-            Detail = Change = Trigger = ActivityContextBase = UUIDT = None
+        from posthog.models.activity_logging.activity_log import ActivityContextBase, Change, Detail, Trigger
 
-        if Detail and isinstance(obj, Detail | Change | Trigger | ActivityContextBase):
+        if isinstance(obj, Detail | Change | Trigger | ActivityContextBase):
             return obj.__dict__
         if isinstance(obj, datetime.datetime):
             return obj.isoformat()
