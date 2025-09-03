@@ -1,3 +1,5 @@
+from typing import cast
+
 from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
@@ -178,9 +180,10 @@ class TestMemoryOnboardingNode(ClickhouseTestMixin, BaseTest):
     def test_onboarding_initial_message_is_sent_if_no_events(self):
         node = MemoryOnboardingNode(team=self.team, user=self.user)
         new_state = node.run(AssistantState(messages=[HumanMessage(content="Hello")]), {})
+        new_state = cast(PartialAssistantState, new_state)
         self.assertEqual(len(new_state.messages), 1)
         self.assertTrue(isinstance(new_state.messages[0], AssistantMessage))
-        self.assertEqual(new_state.messages[0].content, prompts.ENQUIRY_INITIAL_MESSAGE)
+        self.assertEqual(cast(AssistantMessage, new_state.messages[0]).content, prompts.ENQUIRY_INITIAL_MESSAGE)
 
     def test_node_uses_project_description(self):
         self.team.project.product_description = "This is a product analytics platform"
@@ -188,9 +191,10 @@ class TestMemoryOnboardingNode(ClickhouseTestMixin, BaseTest):
 
         node = MemoryOnboardingNode(team=self.team, user=self.user)
         new_state = node.run(AssistantState(messages=[HumanMessage(content="Hello")]), {})
+        new_state = cast(PartialAssistantState, new_state)
         self.assertEqual(len(new_state.messages), 1)
         self.assertTrue(isinstance(new_state.messages[0], AssistantMessage))
-        self.assertEqual(new_state.messages[0].content, prompts.ENQUIRY_INITIAL_MESSAGE)
+        self.assertEqual(cast(AssistantMessage, new_state.messages[0]).content, prompts.ENQUIRY_INITIAL_MESSAGE)
 
         core_memory = CoreMemory.objects.get(team=self.team)
         self.assertEqual(
@@ -273,10 +277,11 @@ class TestMemoryInitializerNode(ClickhouseTestMixin, BaseTest):
             node = MemoryInitializerNode(team=self.team, user=self.user)
 
             new_state = node.run(AssistantState(messages=[HumanMessage(content="Hello")]), {})
+            new_state = cast(PartialAssistantState, new_state)
             self.assertEqual(len(new_state.messages), 1)
             self.assertIsInstance(new_state.messages[0], AssistantMessage)
             self.assertEqual(
-                new_state.messages[0].content,
+                cast(AssistantMessage, new_state.messages[0]).content,
                 "PostHog is a product analytics platform.",
             )
 
@@ -299,9 +304,13 @@ class TestMemoryInitializerNode(ClickhouseTestMixin, BaseTest):
             node = MemoryInitializerNode(team=self.team, user=self.user)
 
             new_state = node.run(AssistantState(messages=[HumanMessage(content="Hello")]), {})
+            new_state = cast(PartialAssistantState, new_state)
             self.assertEqual(len(new_state.messages), 1)
             self.assertIsInstance(new_state.messages[0], AssistantMessage)
-            self.assertEqual(new_state.messages[0].content, "PostHog mobile app description.")
+            self.assertEqual(
+                cast(AssistantMessage, new_state.messages[0]).content,
+                "PostHog mobile app description.",
+            )
 
             core_memory = CoreMemory.objects.get(team=self.team)
             self.assertEqual(core_memory.scraping_status, CoreMemory.ScrapingStatus.PENDING)
@@ -567,7 +576,9 @@ class TestMemoryOnboardingFinalizeNode(ClickhouseTestMixin, BaseTest):
             self.core_memory.save()
             new_state = self.node.run(AssistantState(messages=[]), {})
             self.assertEqual(len(new_state.messages), 1)
-            self.assertEqual(new_state.messages[0].content, prompts.SCRAPING_MEMORY_SAVED_MESSAGE)
+            self.assertEqual(
+                cast(AssistantMessage, new_state.messages[0]).content, prompts.SCRAPING_MEMORY_SAVED_MESSAGE
+            )
             self.core_memory.refresh_from_db()
             self.assertEqual(self.core_memory.text, "Compressed memory about enterprise product")
 
@@ -597,7 +608,9 @@ Additional context: Our system also handles nested configurations like {"feature
             new_state = self.node.run(AssistantState(messages=[]), {})
 
             self.assertEqual(len(new_state.messages), 1)
-            self.assertEqual(new_state.messages[0].content, prompts.SCRAPING_MEMORY_SAVED_MESSAGE)
+            self.assertEqual(
+                cast(AssistantMessage, new_state.messages[0]).content, prompts.SCRAPING_MEMORY_SAVED_MESSAGE
+            )
             self.core_memory.refresh_from_db()
             self.assertEqual(self.core_memory.text, "Company uses structured JSON for event tracking")
 

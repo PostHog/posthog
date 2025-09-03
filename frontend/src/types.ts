@@ -5555,12 +5555,19 @@ export enum ConversationStatus {
     Canceling = 'canceling',
 }
 
+export enum ConversationType {
+    Assistant = 'assistant',
+    ToolCall = 'tool_call',
+    DeepResearch = 'deep_research',
+}
+
 export interface Conversation {
     id: string
     status: ConversationStatus
     title: string | null
     created_at: string | null
     updated_at: string | null
+    type: ConversationType
 }
 
 export interface ConversationDetail extends Conversation {
