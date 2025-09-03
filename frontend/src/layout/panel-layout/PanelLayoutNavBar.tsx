@@ -48,7 +48,7 @@ import { OrganizationDropdownMenu } from './OrganizationDropdownMenu'
 import { ProjectDropdownMenu } from './ProjectDropdownMenu'
 
 const navBarStyles = cva({
-    base: 'flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative',
+    base: 'flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative border-r',
     variants: {
         isLayoutNavCollapsed: {
             true: 'w-[var(--project-navbar-width-collapsed)]',
@@ -57,6 +57,10 @@ const navBarStyles = cva({
         isMobileLayout: {
             true: 'absolute top-0 bottom-0 left-0',
             false: '',
+        },
+        newSceneLayout: {
+            true: 'border-r-transparent',
+            false: 'border-primary',
         },
     },
 })
@@ -283,6 +287,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                         navBarStyles({
                             isLayoutNavCollapsed,
                             isMobileLayout,
+                            newSceneLayout,
                         })
                     )}
                     ref={containerRef}
@@ -563,12 +568,8 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             onToggleClosed={(shouldBeClosed) => toggleLayoutNavCollapsed(shouldBeClosed)}
                             onDoubleClick={() => toggleLayoutNavCollapsed()}
                             data-attr="tree-navbar-resizer"
-                            // If new scene layout, to fix the resizer from showing in test runner
+                            className={cn(newSceneLayout && 'top-[calc(var(--scene-layout-header-height)+4px)]')}
                             offset={newSceneLayout ? -1 : 0}
-                            className={cn(
-                                newSceneLayout &&
-                                    'top-[calc(var(--scene-layout-header-height)+4px)] hide-for-test-runner'
-                            )}
                         />
                     )}
                 </nav>
