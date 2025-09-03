@@ -124,7 +124,7 @@ def _create_ai_span_event(
     input_state: Any,
     output_state: Any,
     span_id: str | None = None,
-    parent_id: str | None = None,
+    parent_id: str | int | None = None,
     span_name: str | None = None,
     team: Team | None = None,
     distinct_id: str | None = None,
