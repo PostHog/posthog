@@ -62,17 +62,16 @@ def decode_payloads(request):
     allowed_origins = ["https://temporal-ui.posthog.orb.local", "http://localhost:8081"]
     request_origin = request.headers.get("Origin")
 
+    if request_origin not in allowed_origins:
+        return JsonResponse({"error": "CORS not allowed"}, status=403)
+
     # CORS preflight
     if request.method == "OPTIONS":
         response = HttpResponse()
-        if request_origin in allowed_origins:
-            response["Access-Control-Allow-Origin"] = request_origin
-            response["Access-Control-Allow-Methods"] = "POST, OPTIONS"
-            response["Access-Control-Allow-Headers"] = "Content-Type, X-Namespace, Authorization"
+        response["Access-Control-Allow-Origin"] = request_origin
+        response["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+        response["Access-Control-Allow-Headers"] = "Content-Type, X-Namespace, Authorization"
         return response
-
-    if request_origin not in allowed_origins:
-        return JsonResponse({"error": "CORS not allowed"}, status=403)
 
     if not _verify_authorization(request):
         response = JsonResponse({"error": "Unauthorized"}, status=401)
@@ -93,7 +92,8 @@ def decode_payloads(request):
         return response
 
     except Exception:
-        response = JsonResponse({"Internal Server Error"}, status=500)
+        logger.exception("Error decoding payloads via codec server")
+        response = JsonResponse({"error": "Internal Server Error"}, status=500)
         if request_origin in allowed_origins:
             response["Access-Control-Allow-Origin"] = request_origin
         return response
