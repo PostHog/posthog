@@ -164,7 +164,7 @@ jobs:
                   # Run Django migrations first (excluding managed=False models)
                   python manage.py migrate
                   # Then run persons migrations using sqlx; comment out until we've merged
-                  # sqlx database create 2>/dev/null || true
+                  # sqlx database create
                   # sqlx migrate run --source rust/persons_migrations/
 
             # Now we can consider this PR's migrations
@@ -628,18 +628,6 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
-            - name: Install Rust
-              if: ${{ needs.changes.outputs.backend == 'true' }}
-              uses: dtolnay/rust-toolchain@6691ebadcb18182cc1391d07c9f295f657c593cd # 1.88
-              with:
-                  toolchain: stable
-                  components: cargo
-
-            - name: Install sqlx-cli
-              if: ${{ needs.changes.outputs.backend == 'true' }}
-              run: |
-                  cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
-
             - name: Install the working version of hogql-parser
               if: ${{ needs.changes.outputs.backend == 'true' && steps.hogql-parser-diff.outputs.changed == 'true' }}
               shell: bash
@@ -880,16 +868,6 @@ jobs:
               shell: bash
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
-
-            - name: Install Rust
-              uses: dtolnay/rust-toolchain@6691ebadcb18182cc1391d07c9f295f657c593cd # 1.88
-              with:
-                  toolchain: stable
-                  components: cargo
-
-            - name: Install sqlx-cli
-              run: |
-                  cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
 
             - name: Add Kafka and ClickHouse to /etc/hosts
               run: sudo echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts

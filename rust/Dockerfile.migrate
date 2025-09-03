@@ -2,13 +2,10 @@
 # Supports both persons and cyclotron migrations
 FROM rust:1.88-bookworm AS builder
 
-# Install sqlx-cli with postgres support
 RUN cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
 
-# Final stage - minimal image with just migration tools
 FROM debian:bookworm-slim
 
-# Install PostgreSQL client and other required tools
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -16,28 +13,21 @@ RUN apt-get update && \
     postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy sqlx binary from builder
 COPY --from=builder /usr/local/cargo/bin/sqlx /usr/local/bin/sqlx
 
-# Create working directory
 WORKDIR /migrations
 
-# Copy migration files for both systems
 COPY ./persons_migrations ./persons_migrations
 COPY ./cyclotron-core/migrations ./cyclotron-core/migrations
 
-# Copy migration scripts
 COPY ./bin/migrate-persons ./bin/migrate-persons
 COPY ./bin/migrate-cyclotron ./bin/migrate-cyclotron
 COPY ./bin/migrate-all ./bin/migrate-all
 
-# Make scripts executable
 RUN chmod +x /migrations/bin/migrate-all && \
     chmod +x /migrations/bin/migrate-persons && \
     chmod +x /migrations/bin/migrate-cyclotron
 
-# Set the entrypoint
 ENTRYPOINT ["/migrations/bin/migrate-all"]
 
-# Default command (can be overridden)
 CMD ["all"]

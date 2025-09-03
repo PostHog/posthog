@@ -122,7 +122,7 @@ jobs:
                   python manage.py migrate
                   # Then run persons migrations using sqlx
                   PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
-                    sqlx database create 2>/dev/null || true
+                    sqlx database create
                   PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog" \
                     sqlx migrate run --source rust/persons_migrations/
 
