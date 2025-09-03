@@ -153,34 +153,15 @@ export function dashboardActivityDescriber(logItem: ActivityLogItem, asNotificat
         return { description: null }
     }
 
-    // if (logItem.activity == 'created') {
-    //     // const contextDesc = getContextDescription(logItem?.detail?.context)
-    //     const contextDesc = null
-
-    //     if (logItem.detail?.type === 'alert_subscription_change') {
-    //         return {
-    //             description: (
-    //                 <>
-    //                     <strong>{userNameForLogItem(logItem)}</strong> added{' '}
-    //                     <strong>
-    //                         {logItem?.detail?.context?.subscriber_name} ({logItem?.detail?.context?.subscriber_email})
-    //                     </strong>{' '}
-    //                     as a subscriber for alert {nameAndLink(logItem?.detail?.context?.alert_name)}
-    //                     {contextDesc}
-    //                 </>
-    //             ),
-    //         }
-    //     }
-
-    //     return {
-    //         description: (
-    //             <>
-    //                 <strong>{userNameForLogItem(logItem)}</strong> created the alert {nameAndLink(logItem)}
-    //                 {contextDesc}
-    //             </>
-    //         ),
-    //     }
-    // }
+    if (logItem.activity == 'created') {
+        return {
+            description: (
+                <>
+                    <strong>{userNameForLogItem(logItem)}</strong> created the dashboard {nameAndLink(logItem)}
+                </>
+            ),
+        }
+    }
 
     if (logItem.activity == 'updated') {
         let changes: Description[] = []
