@@ -28,7 +28,7 @@ import {
     pipelineStepThrowCounter,
 } from './metrics'
 import { normalizeEventStep } from './normalizeEventStep'
-import { isPipelineDlq, isPipelineDrop, isPipelineOk } from './pipeline-step-result'
+import { isPipelineDlq, isPipelineDrop, isPipelineOk, isPipelineRedirect } from './pipeline-step-result'
 import { prepareEventStep } from './prepareEventStep'
 import { processPersonsStep } from './processPersonsStep'
 import { transformEventStep } from './transformEventStep'
@@ -314,7 +314,7 @@ export class EventPipelineRunner {
         )
 
         if (!isPipelineOk(personStepResult)) {
-            // Handle DLQ/drop cases - return early from pipeline
+            // Handle DLQ/drop/redirect cases - return early from pipeline
             if (isPipelineDlq(personStepResult)) {
                 await this.sendToDLQ(event, personStepResult.error, 'processPersonsStep')
             } else if (isPipelineDrop(personStepResult)) {
@@ -323,6 +323,14 @@ export class EventPipelineRunner {
                     distinct_id: event.distinct_id,
                     reason: personStepResult.reason,
                 })
+            } else if (isPipelineRedirect(personStepResult)) {
+                logger.info('Event redirected during person processing', {
+                    team_id: event.team_id,
+                    distinct_id: event.distinct_id,
+                    reason: personStepResult.reason,
+                    topic: personStepResult.topic,
+                })
+                await this.redirectToTopic(event, personStepResult.topic)
             }
             return this.registerLastStep('processPersonsStep', [], kafkaAcks)
         }
@@ -413,6 +421,41 @@ export class EventPipelineRunner {
                 tags: { team_id: event.team_id, pipeline_step: stepName },
                 extra: { event, error: dlqError },
             })
+        }
+    }
+
+    private async redirectToTopic(event: PluginEvent, topic: string): Promise<void> {
+        try {
+            // Send the original event in capture format to the specified topic
+            // This preserves the exact event structure for the async processing pipeline
+            await this.hub.db.kafkaProducer.produce({
+                topic: topic,
+                key: `${event.team_id}:${event.distinct_id}`,
+                value: Buffer.from(JSON.stringify(this.originalEvent)),
+                headers: {
+                    distinct_id: event.distinct_id,
+                    team_id: event.team_id.toString(),
+                },
+            })
+
+            logger.info('Event redirected to topic', {
+                team_id: event.team_id,
+                distinct_id: event.distinct_id,
+                event: event.event,
+                topic: topic,
+            })
+        } catch (redirectError) {
+            logger.error('Failed to redirect event to topic', {
+                team_id: event.team_id,
+                distinct_id: event.distinct_id,
+                topic: topic,
+                error: redirectError,
+            })
+            captureException(redirectError, {
+                tags: { team_id: event.team_id, pipeline_step: 'redirectToTopic' },
+                extra: { event, topic, error: redirectError },
+            })
+            throw redirectError // Re-throw to ensure the pipeline handles the failure appropriately
         }
     }
 

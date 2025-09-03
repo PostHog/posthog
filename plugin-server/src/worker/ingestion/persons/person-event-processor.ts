@@ -9,8 +9,8 @@ import { logger } from '../../../utils/logger'
 import {
     PipelineStepResult,
     createPipelineDlq,
-    createPipelineDrop,
     createPipelineOk,
+    createPipelineRedirect,
 } from '../event-pipeline/pipeline-step-result'
 import { uuidFromDistinctId } from '../person-uuid'
 import { PersonContext } from './person-context'
@@ -55,7 +55,7 @@ export class PersonEventProcessor {
             personFromMerge = mergeResult.person
             identifyOrAliasKafkaAck = mergeResult.kafkaAck
         } else {
-            const errorResult = await this.handleMergeError(mergeResult.error, this.context.event)
+            const errorResult = this.handleMergeError(mergeResult.error, this.context.event)
             if (errorResult) {
                 return [errorResult, Promise.resolve()]
             }
@@ -165,7 +165,7 @@ export class PersonEventProcessor {
         return this.context
     }
 
-    private async handleMergeError(error: any, event: PluginEvent): Promise<PipelineStepResult<Person> | null> {
+    private handleMergeError(error: any, event: PluginEvent): PipelineStepResult<Person> | null {
         const mergeMode = this.context.mergeMode
 
         if (error instanceof PersonMergeLimitExceededError) {
@@ -183,8 +183,7 @@ export class PersonEventProcessor {
                         team_id: event.team_id,
                         distinct_id: event.distinct_id,
                     })
-                    await this.redirectToAsyncMerge(event, mergeMode.topic)
-                    return createPipelineDrop('Event redirected to async merge topic')
+                    return createPipelineRedirect('Event redirected to async merge topic', mergeMode.topic)
                 case 'LIMIT':
                     logger.warn('Limit exceeded, will be sent to DLQ', {
                         limit: mergeMode.limit,
@@ -218,46 +217,5 @@ export class PersonEventProcessor {
             })
             throw error
         }
-    }
-
-    /**
-     * Redirects an event to the async merge topic for later processing
-     * The event is sent in the exact same format as received
-     */
-    private async redirectToAsyncMerge(event: PluginEvent, asyncTopic: string): Promise<void> {
-        // Send event in the same capture format that the ingestion pipeline expects
-        const token = this.context.team.api_token
-        const captureEvent = {
-            uuid: event.uuid,
-            distinct_id: event.distinct_id,
-            ip: event.ip,
-            now: event.now,
-            token: token,
-            data: JSON.stringify({
-                ...event,
-                // Add a marker to indicate this is a redirected async merge event
-                properties: {
-                    ...event.properties,
-                    $async_merge_redirected: true,
-                },
-            }),
-        }
-
-        await this.context.kafkaProducer.produce({
-            topic: asyncTopic,
-            key: `${token}:${event.distinct_id}`,
-            value: Buffer.from(JSON.stringify(captureEvent)),
-            headers: {
-                distinct_id: event.distinct_id,
-                token: token,
-            },
-        })
-
-        logger.info('Event redirected to async merge topic', {
-            team_id: event.team_id,
-            distinct_id: event.distinct_id,
-            event: event.event,
-            topic: asyncTopic,
-        })
     }
 }

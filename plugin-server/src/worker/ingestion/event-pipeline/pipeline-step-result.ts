@@ -5,6 +5,7 @@ export type PipelineStepResult<T> =
     | { type: 'ok'; value: T }
     | { type: 'dlq'; reason: string; error?: any }
     | { type: 'drop'; reason: string }
+    | { type: 'redirect'; reason: string; topic: string }
 
 /**
  * Helper functions for creating pipeline step results
@@ -19,6 +20,10 @@ export function createPipelineDlq<T>(reason: string, error?: any): PipelineStepR
 
 export function createPipelineDrop<T>(reason: string): PipelineStepResult<T> {
     return { type: 'drop', reason }
+}
+
+export function createPipelineRedirect<T>(reason: string, topic: string): PipelineStepResult<T> {
+    return { type: 'redirect', reason, topic }
 }
 
 /**
@@ -36,4 +41,10 @@ export function isPipelineDlq<T>(
 
 export function isPipelineDrop<T>(result: PipelineStepResult<T>): result is { type: 'drop'; reason: string } {
     return result.type === 'drop'
+}
+
+export function isPipelineRedirect<T>(
+    result: PipelineStepResult<T>
+): result is { type: 'redirect'; reason: string; topic: string } {
+    return result.type === 'redirect'
 }

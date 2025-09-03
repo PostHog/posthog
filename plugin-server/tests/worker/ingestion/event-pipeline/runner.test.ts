@@ -148,10 +148,12 @@ describe('EventPipelineRunner', () => {
 
     const mockProducer: jest.Mocked<KafkaProducerWrapper> = {
         queueMessages: jest.fn() as any,
+        produce: jest.fn() as any,
     } as any
 
     beforeEach(() => {
         jest.mocked(mockProducer.queueMessages).mockImplementation(() => Promise.resolve())
+        jest.mocked(mockProducer.produce).mockImplementation(() => Promise.resolve())
 
         hub = {
             kafkaProducer: mockProducer,
@@ -346,6 +348,28 @@ describe('EventPipelineRunner', () => {
                     error_location: 'plugin_server_ingest_event:processPersonsStep',
                 })
                 expect(pipelineStepDLQCounterSpy).toHaveBeenCalledWith('processPersonsStep')
+            })
+
+            it('redirects event when merge limit is exceeded in async mode during processPersonsStep', async () => {
+                // Make processPersonsStep return a redirect result
+                jest.mocked(processPersonsStep).mockResolvedValueOnce({
+                    type: 'redirect',
+                    reason: 'Event redirected to async merge topic',
+                    topic: 'async-merge-topic',
+                })
+
+                await runner.runEventPipeline(pluginEvent, team)
+
+                // Verify the event was redirected to the async topic
+                expect(mockProducer.produce).toHaveBeenCalledWith({
+                    topic: 'async-merge-topic',
+                    key: `${pluginEvent.team_id}:${pluginEvent.distinct_id}`,
+                    value: expect.any(Buffer),
+                    headers: {
+                        distinct_id: pluginEvent.distinct_id,
+                        team_id: pluginEvent.team_id.toString(),
+                    },
+                })
             })
         })
 
