@@ -31,10 +31,6 @@ type CapturePayloadFormat = {
 export class InternalCaptureService {
     constructor(private config: Pick<PluginsServerConfig, 'CAPTURE_INTERNAL_URL'>) {}
 
-    isEnabled(): boolean {
-        return this.config.CAPTURE_INTERNAL_URL !== ''
-    }
-
     private prepareEvent(event: InternalCaptureEvent): CapturePayloadFormat {
         const properties = { ...(event.properties ?? {}), capture_internal: true }
         const now = DateTime.utc().toISO()
@@ -49,9 +45,6 @@ export class InternalCaptureService {
     }
 
     async capture(event: InternalCaptureEvent): Promise<FetchResponse> {
-        if (!this.isEnabled()) {
-            throw new Error('Internal capture is not enabled due to missing configuration')
-        }
         logger.debug('Capturing internal event', { event, url: this.config.CAPTURE_INTERNAL_URL })
         try {
             const response = await internalFetch(this.config.CAPTURE_INTERNAL_URL, {

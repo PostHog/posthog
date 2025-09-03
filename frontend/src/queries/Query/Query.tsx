@@ -24,7 +24,6 @@ import { QueryContext } from '~/queries/types'
 
 import {
     RevenueAnalyticsGrossRevenueNode,
-    RevenueAnalyticsGrowthRateNode,
     RevenueAnalyticsMRRNode,
     RevenueAnalyticsMetricsNode,
     RevenueAnalyticsOverviewNode,
@@ -40,7 +39,6 @@ import {
     isHogQuery,
     isInsightVizNode,
     isRevenueAnalyticsGrossRevenueQuery,
-    isRevenueAnalyticsGrowthRateQuery,
     isRevenueAnalyticsMRRQuery,
     isRevenueAnalyticsMetricsQuery,
     isRevenueAnalyticsOverviewQuery,
@@ -70,6 +68,8 @@ export interface QueryProps<Q extends Node> {
     embedded?: boolean
     /** Disables modals and other things */
     inSharedMode?: boolean
+    /** Can you edit the insight */
+    editMode?: boolean
     /** Dashboard filters to override the ones in the query */
     filtersOverride?: DashboardFilter | null
     /** Dashboard variables to override the ones in the query */
@@ -90,6 +90,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         variablesOverride,
         inSharedMode,
         dataAttr,
+        editMode,
     } = props
 
     const [localQuery, localSetQuery] = useState(propsQuery)
@@ -144,6 +145,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 uniqueKey={uniqueKey}
                 context={queryContext}
                 readOnly={readOnly}
+                editMode={!!editMode}
                 variablesOverride={props.variablesOverride}
             />
         )
@@ -154,6 +156,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 query={query}
                 context={queryContext}
                 readOnly={readOnly}
+                editMode={!!editMode}
                 embedded={embedded}
             />
         )
@@ -165,6 +168,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 setQuery={setQuery as unknown as (query: InsightVizNode) => void}
                 context={queryContext}
                 readOnly={readOnly}
+                editMode={!!editMode}
                 uniqueKey={uniqueKey}
                 embedded={embedded}
                 inSharedMode={inSharedMode}
@@ -179,10 +183,6 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 cachedResults={props.cachedResults}
                 context={queryContext}
             />
-        )
-    } else if (isRevenueAnalyticsGrowthRateQuery(query)) {
-        component = (
-            <RevenueAnalyticsGrowthRateNode query={query} cachedResults={props.cachedResults} context={queryContext} />
         )
     } else if (isRevenueAnalyticsMetricsQuery(query)) {
         component = (
