@@ -55,8 +55,6 @@ class DashboardCreatorNode(AssistantNode):
         return
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
-        writer = self._get_stream_writer()
-
         if not state.create_dashboard_query:
             return self._create_error_response(
                 "Dashboard creation query is required", state.root_tool_call_id or "unknown"
@@ -72,21 +70,11 @@ class DashboardCreatorNode(AssistantNode):
             insights, last_message = await self._search_for_insights(state)
             # Step 2: If no insights found, try to create them using insights subgraph
             if not insights:
-                subgraph_result = await self._create_insights_with_subgraph(state, config, writer)
-
-                # Check if subgraph asked for help (returns help message string or None)
-                if isinstance(subgraph_result, str):
-                    return self._create_help_request_response(state.root_tool_call_id or "unknown", subgraph_result)
-                elif subgraph_result is None:
-                    return self._create_help_request_response(state.root_tool_call_id or "unknown")
-                elif isinstance(subgraph_result, list):
-                    insights = subgraph_result
-                else:
-                    insights = []
+                insights, last_message = await self._create_insights_with_subgraph(state, config)
 
             # Step 3: If still no insights, return error
             if not insights:
-                return self._create_no_insights_response(state.root_tool_call_id or "unknown")
+                return self._create_no_insights_response(state.root_tool_call_id or "unknown", last_message.content)
 
             # Step 4: Generate dashboard name
             dashboard_name = await self._generate_dashboard_name(state.create_dashboard_query, last_message)
@@ -129,11 +117,10 @@ class DashboardCreatorNode(AssistantNode):
             logger.exception(f"Error searching for insights: {e}")
             return [], AssistantMessage(content="Error searching for insights")
 
-    async def _create_insights_with_subgraph(self, state: AssistantState, config: RunnableConfig) -> list[int]:
-        """Create insights using the insights subgraph if no existing insights are found.
-        Returns:
-            list[int]: List of created insight IDs
-        """
+    async def _create_insights_with_subgraph(
+        self, state: AssistantState, config: RunnableConfig
+    ) -> tuple[list[int], AssistantMessage]:
+        """Create insights using the insights subgraph if no existing insights are found."""
         try:
             # Import the insights graph here to avoid circular imports
             from ee.hogai.graph.graph import InsightsAssistantGraph
@@ -145,34 +132,31 @@ class DashboardCreatorNode(AssistantNode):
                 root_tool_call_id=state.root_tool_call_id,
                 messages=state.messages,
                 create_dashboard_query=state.create_dashboard_query,
+                insight_ids=None,
             )
 
             graph = InsightsAssistantGraph(self._team, self._user).compile_full_graph()
 
-            last_message = state.messages[-1]
-            if not isinstance(last_message, AssistantMessage):
-                raise ValueError("Last message is not an AssistantMessage")
-            if last_message.tool_calls is None or len(last_message.tool_calls) == 0:
-                raise ValueError("Last message has no tool calls")
-
-            # Use the original config to maintain proper streaming context
             result = await graph.ainvoke(insights_state, config=config)
             insight_state = AssistantState.model_validate(result)
-
-            return insight_state.insight_ids if insight_state and insight_state.insight_ids else []
+            return (
+                insight_state.insight_ids if insight_state and insight_state.insight_ids else [],
+                insight_state.messages[-1],
+            )
         except Exception as e:
             logger.exception(f"Error creating insights with subgraph: {e}")
-            return []
+            return [], AssistantMessage(content="Error creating insights with subgraph")
 
     async def _generate_dashboard_name(self, query: str, last_message) -> str:
         """Generate a dashboard name based on the query and insights."""
+        self._stream_progress(progress_message="Generating dashboard name", writer=self._get_stream_writer())
         try:
             # Extract insights summary from different message types
             insights_summary = ""
             if hasattr(last_message, "content") and last_message.content:
                 insights_summary = str(last_message.content)
             elif hasattr(last_message, "answer") and last_message.answer:
-                insights_summary = str(last_message.answer)
+                insights_summary = f"Found relevant insights for dashboard creation of kind: {last_message.answer.kind}"
             else:
                 insights_summary = "Found relevant insights for dashboard creation"
 
@@ -189,9 +173,9 @@ class DashboardCreatorNode(AssistantNode):
             dashboard_name = response.content.strip() if hasattr(response, "content") else "New Dashboard"
 
             # Fallback if the model returns something unexpected
-            if not dashboard_name or len(dashboard_name) > 100:
+            if not dashboard_name or len(dashboard_name) > 50:
                 dashboard_name = "Analytics Dashboard"
-            return dashboard_name
+            return dashboard_name[:50]
 
         except Exception as e:
             logger.exception(f"Error generating dashboard name: {e}")
@@ -199,7 +183,7 @@ class DashboardCreatorNode(AssistantNode):
 
     async def _create_dashboard_with_insights(self, dashboard_name: str, insights: list[int]) -> Dashboard:
         """Create a dashboard and add the insights to it."""
-        self._stream_progress(progress_message="Building your dashboard", writer=self._get_stream_writer())
+        self._stream_progress(progress_message="Saving your dashboard", writer=self._get_stream_writer())
 
         @database_sync_to_async
         def create_dashboard_sync():
@@ -246,7 +230,6 @@ class DashboardCreatorNode(AssistantNode):
                     content=success_message,
                     tool_call_id=tool_call_id,
                     id=str(uuid4()),
-                    visible=True,
                 ),
             ],
             create_dashboard_query=None,
@@ -254,15 +237,14 @@ class DashboardCreatorNode(AssistantNode):
             root_tool_call_id=None,
         )
 
-    def _create_no_insights_response(self, tool_call_id: str) -> PartialAssistantState:
+    def _create_no_insights_response(self, tool_call_id: str, subgraph_last_message: str) -> PartialAssistantState:
         """Create response when no insights could be found or created."""
         return PartialAssistantState(
             messages=[
                 AssistantToolCallMessage(
-                    content=DASHBOARD_NO_INSIGHTS_MESSAGE,
+                    content=DASHBOARD_NO_INSIGHTS_MESSAGE.format(subgraph_last_message=subgraph_last_message),
                     tool_call_id=tool_call_id,
                     id=str(uuid4()),
-                    visible=True,
                 ),
             ],
             create_dashboard_query=None,
@@ -279,7 +261,6 @@ class DashboardCreatorNode(AssistantNode):
                     content=content,
                     tool_call_id=tool_call_id,
                     id=str(uuid4()),
-                    visible=True,
                 ),
             ],
             create_dashboard_query=None,
@@ -304,7 +285,6 @@ class DashboardCreatorNode(AssistantNode):
                     content=content,
                     tool_call_id=tool_call_id,
                     id=str(uuid4()),
-                    visible=True,
                 ),
             ],
             create_dashboard_query=None,

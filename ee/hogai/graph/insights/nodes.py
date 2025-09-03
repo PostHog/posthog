@@ -255,6 +255,7 @@ class InsightSearchNode(AssistantNode):
             messages=[no_insights_message],
             root_tool_insight_plan=search_query,
             search_insights_query=None,
+            insight_ids=None,
         )
 
     def _handle_search_error(self, e: Exception, state: AssistantState) -> PartialAssistantState:

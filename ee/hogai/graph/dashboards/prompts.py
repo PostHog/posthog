@@ -20,12 +20,7 @@ Generate only the dashboard name, nothing else.
 """
 
 DASHBOARD_CREATION_ERROR_MESSAGE = """
-I encountered an issue while creating your dashboard. This could be due to:
-- Problems accessing the insights
-- Database connectivity issues
-- Insufficient permissions
-
-Please try again with a more specific request, or contact support if the issue persists.
+I encountered an issue while creating your dashboard. Please try again.
 """
 
 DASHBOARD_SUCCESS_MESSAGE_TEMPLATE = """
@@ -42,8 +37,6 @@ You can view your dashboard [here](/dashboard/{dashboard_id}).
 DASHBOARD_NO_INSIGHTS_MESSAGE = """
 I couldn't find any existing insights matching your request, and I wasn't able to create new ones.
 
-Please try:
-- Being more specific about what metrics or events you want to track
-- Checking if you have the necessary permissions to create insights
-- Trying again with a different query
+From the insight creation process, the message was:
+{subgraph_last_message}
 """
