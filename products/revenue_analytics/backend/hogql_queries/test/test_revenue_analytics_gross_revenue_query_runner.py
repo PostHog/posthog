@@ -17,9 +17,9 @@ from posthog.schema import (
     HogQLQueryModifiers,
     IntervalType,
     PropertyOperator,
+    RevenueAnalyticsBreakdown,
     RevenueAnalyticsGrossRevenueQuery,
     RevenueAnalyticsGrossRevenueQueryResponse,
-    RevenueAnalyticsGroupBy,
     RevenueAnalyticsPropertyFilter,
 )
 
@@ -268,22 +268,22 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
         self,
         date_range: DateRange | None = None,
         interval: IntervalType | None = None,
-        group_by: list[RevenueAnalyticsGroupBy] | None = None,
+        breakdown: list[RevenueAnalyticsBreakdown] | None = None,
         properties: list[RevenueAnalyticsPropertyFilter] | None = None,
     ):
         if date_range is None:
             date_range = DateRange(date_from="-6m")
         if interval is None:
             interval = IntervalType.MONTH
-        if group_by is None:
-            group_by = []
+        if breakdown is None:
+            breakdown = []
         if properties is None:
             properties = []
 
         return RevenueAnalyticsGrossRevenueQuery(
             dateRange=date_range,
             interval=interval,
-            groupBy=group_by,
+            breakdown=breakdown,
             properties=properties,
             modifiers=HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True),
         )
@@ -292,11 +292,11 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
         self,
         date_range: DateRange | None = None,
         interval: IntervalType | None = None,
-        group_by: list[RevenueAnalyticsGroupBy] | None = None,
+        breakdown: list[RevenueAnalyticsBreakdown] | None = None,
         properties: list[RevenueAnalyticsPropertyFilter] | None = None,
     ):
         with freeze_time(self.QUERY_TIMESTAMP):
-            query = self._build_query(date_range, interval, group_by, properties)
+            query = self._build_query(date_range, interval, breakdown, properties)
             runner = RevenueAnalyticsGrossRevenueQueryRunner(
                 team=self.team,
                 query=query,
@@ -321,7 +321,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
         results = self._run_revenue_analytics_gross_revenue_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="source",
+                    key="source_label",
                     operator=PropertyOperator.EXACT,
                     value=["non-existent-source"],
                 )
@@ -347,18 +347,18 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
                 "data": [
                     0,
                     0,
-                    Decimal("650.2098683332"),
-                    Decimal("2510.1847083332"),
-                    Decimal("2113.2388583332"),
-                    Decimal("2708.2452241465"),
-                    Decimal("1727.0246133332"),
-                    Decimal("34.2125533332"),
-                    Decimal("34.2125533332"),
-                    Decimal("34.2125533332"),
-                    Decimal("34.2125533332"),
-                    Decimal("34.2125533332"),
-                    Decimal("34.2125533332"),
-                    Decimal("34.2125533332"),
+                    Decimal("647.2435553432"),
+                    Decimal("2507.2183953432"),
+                    Decimal("2110.2725453432"),
+                    Decimal("2705.2789111565"),
+                    Decimal("1631.9303277469"),
+                    Decimal("31.2462403432"),
+                    Decimal("31.2462403432"),
+                    Decimal("31.2462403432"),
+                    Decimal("31.2462403432"),
+                    Decimal("31.2462403432"),
+                    Decimal("31.2462403432"),
+                    Decimal("31.2462403432"),
                     0,
                     0,
                     0,
@@ -387,9 +387,9 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
                 "days": ["2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"],
                 "labels": ["Feb 2025", "Mar 2025", "Apr 2025", "May 2025"],
                 "data": [
-                    Decimal("2510.1847083332"),
-                    Decimal("2113.2388583332"),
-                    Decimal("2708.2452241465"),
+                    Decimal("2507.2183953432"),
+                    Decimal("2110.2725453432"),
+                    Decimal("2705.2789111565"),
                     0,
                 ],
                 "action": {"days": [ANY] * 4, "id": "stripe.posthog_test", "name": "stripe.posthog_test"},
@@ -404,7 +404,9 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
         self.assertEqual(results, [])
 
     def test_with_data_and_product_grouping(self):
-        results = self._run_revenue_analytics_gross_revenue_query(group_by=[RevenueAnalyticsGroupBy.PRODUCT]).results
+        results = self._run_revenue_analytics_gross_revenue_query(
+            breakdown=[RevenueAnalyticsBreakdown(property="revenue_analytics_product.name")]
+        ).results
 
         self.assertEqual(len(results), 7)
 
@@ -438,7 +440,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
                     Decimal("1131.8316549999"),
                     Decimal("444.1561449999"),
                     Decimal("176.5394849999"),
-                    Decimal("46.5169049999"),
+                    Decimal("51.5290223463"),
                 ],
                 [
                     0,
@@ -452,11 +454,11 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
                 [
                     0,
                     0,
-                    Decimal("8.2024583333"),
-                    Decimal("93.6807083333"),
-                    Decimal("309.0301083333"),
-                    Decimal("91.3694083333"),
-                    Decimal("124.1659583333"),
+                    Decimal("5.2361453433"),
+                    Decimal("90.7143953433"),
+                    Decimal("306.0637953433"),
+                    Decimal("88.4030953433"),
+                    Decimal("24.0595554006"),
                 ],
                 [
                     0,
@@ -490,7 +492,10 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
 
     def test_with_data_and_double_grouping(self):
         results = self._run_revenue_analytics_gross_revenue_query(
-            group_by=[RevenueAnalyticsGroupBy.COHORT, RevenueAnalyticsGroupBy.PRODUCT]
+            breakdown=[
+                RevenueAnalyticsBreakdown(property="revenue_analytics_customer.cohort"),
+                RevenueAnalyticsBreakdown(property="revenue_analytics_product.name"),
+            ]
         ).results
 
         # 13 comes from the 6 products * 2 cohorts = 12, plus 1 for the one-off charge invoiceless charge
@@ -540,11 +545,11 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
                 [
                     0,
                     0,
-                    Decimal("8.2024583333"),
-                    Decimal("8.2024583333"),
-                    Decimal("223.5518583333"),
-                    Decimal("8.2024583333"),
-                    Decimal("124.1659583333"),
+                    Decimal("5.2361453433"),
+                    Decimal("5.2361453433"),
+                    Decimal("220.5855453433"),
+                    Decimal("5.2361453433"),
+                    Decimal("24.0595554006"),
                 ],
                 [
                     0,
@@ -553,7 +558,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
                     Decimal("26.0100949999"),
                     Decimal("170.5858949999"),
                     Decimal("26.0100949999"),
-                    Decimal("46.5169049999"),
+                    Decimal("51.5290223463"),
                 ],
                 [0, 0, 0, Decimal("85.47825"), Decimal("85.47825"), Decimal("83.16695"), 0],
                 [0, 0, 0, Decimal("18.59401"), Decimal("18.59401"), Decimal("0.09564"), 0],
@@ -595,7 +600,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
         results = self._run_revenue_analytics_gross_revenue_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="product",
+                    key="revenue_analytics_product.name",
                     operator=PropertyOperator.EXACT,
                     value=["Product C"],  # Equivalent to `prod_c` but we're querying by name
                 )
@@ -608,10 +613,10 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
 
         # When grouping results should be exactly the same, just the label changes
         results = self._run_revenue_analytics_gross_revenue_query(
-            group_by=[RevenueAnalyticsGroupBy.PRODUCT],
+            breakdown=[RevenueAnalyticsBreakdown(property="revenue_analytics_product.name")],
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="product",
+                    key="revenue_analytics_product.name",
                     operator=PropertyOperator.EXACT,
                     value=["Product C"],  # Equivalent to `prod_c` but we're querying by name
                 )
@@ -626,7 +631,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
         results = self._run_revenue_analytics_gross_revenue_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="country",
+                    key="revenue_analytics_customer.country",
                     operator=PropertyOperator.EXACT,
                     value=["US"],
                 )
@@ -641,12 +646,12 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
                 [
                     0,
                     0,
-                    Decimal("34.2125533332"),
-                    Decimal("34.2125533332"),
-                    Decimal("394.1377533332"),
-                    Decimal("324.1512291465"),
-                    Decimal("170.6828633332"),
-                ],
+                    Decimal("31.2462403432"),
+                    Decimal("31.2462403432"),
+                    Decimal("391.1714403432"),
+                    Decimal("321.1849161565"),
+                    Decimal("75.5885777469"),
+                ]
             ],
         )
 
@@ -687,7 +692,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
         results = self._run_revenue_analytics_gross_revenue_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="source",
+                    key="source_label",
                     operator=PropertyOperator.EXACT,
                     value=["revenue_analytics.events.purchase"],
                 )
@@ -728,7 +733,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
         results = self._run_revenue_analytics_gross_revenue_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="source",
+                    key="source_label",
                     operator=PropertyOperator.EXACT,
                     value=["revenue_analytics.events.purchase"],
                 )
@@ -773,14 +778,14 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
         results = self._run_revenue_analytics_gross_revenue_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="source",
+                    key="source_label",
                     operator=PropertyOperator.EXACT,
                     value=["revenue_analytics.events.purchase"],
                 )
             ],
-            group_by=[
-                RevenueAnalyticsGroupBy.PRODUCT,
-                RevenueAnalyticsGroupBy.COUPON,
+            breakdown=[
+                RevenueAnalyticsBreakdown(property="revenue_analytics_product.name"),
+                RevenueAnalyticsBreakdown(property="revenue_analytics_revenue_item.coupon"),
             ],
         ).results
 
