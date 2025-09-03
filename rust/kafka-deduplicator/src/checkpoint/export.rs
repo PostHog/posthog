@@ -41,6 +41,7 @@ impl CheckpointExporter {
     }
 
     /// Start the checkpoint loop that triggers checkpoints based on the configured interval
+    // TBD: might remove this and integrate with CheckpointManager's flush loop instead
     pub async fn start_checkpoint_loop(&self, store: Arc<DeduplicationStore>) {
         let mut interval = time::interval(self.config.checkpoint_interval);
 
@@ -88,27 +89,32 @@ impl CheckpointExporter {
         result.map(|_| true)
     }
 
+    /// Get the timestamp of the last checkpoint
+    pub async fn last_checkpoint_timestamp(&self, partition: &Partition) -> Option<Instant> {
+        let last_checkpoints = self.last_checkpoints.lock().await;
+        last_checkpoints.get(partition).cloned()
+    }
+
+    /// Check if a checkpoint is currently in progress
+    pub async fn is_checkpointing(&self, partition: &Partition) -> bool {
+        let statuses = self.is_checkpointing.lock().await;
+        statuses.contains(partition)
+    }
+
     async fn perform_checkpoint(&self, store: &DeduplicationStore) -> Result<()> {
         let start_time = Instant::now();
+        let partition: Partition =
+            Partition::new(store.get_topic().to_string(), store.get_partition());
 
         info!("Starting checkpoint creation");
 
-        let partition = Partition::new(store.get_topic().to_string(), store.get_partition());
-
         // Create checkpoint directory with timestamp (microseconds for uniqueness)
+        // and ensure the checkpoint name is unique and lexicographically sortable
         let checkpoint_timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .context("Failed to get current timestamp")?
             .as_micros();
-
-        // ensure the checkpoint name is unique and lexicographically sortable
-        let checkpoint_name = format!(
-            "{}_{}_{}_{:0>20}",
-            CHECKPOINT_NAME_PREFIX,
-            partition.topic(),
-            partition.partition_number(),
-            checkpoint_timestamp
-        );
+        let checkpoint_name = self.build_checkpoint_name(&partition, checkpoint_timestamp);
         let local_checkpoint_path =
             PathBuf::from(&self.config.local_checkpoint_dir).join(&checkpoint_name);
 
@@ -117,7 +123,18 @@ impl CheckpointExporter {
             .await
             .context("Failed to create local checkpoint directory")?;
 
+        // Determine if this should be a full upload or incremental
+        let current_part_counter: u32;
+        {
+            let mut counters = self.checkpoint_counters.lock().await;
+            let result = counters.get(&partition).unwrap_or(&0_u32);
+            current_part_counter = *result;
+            counters.insert(partition.clone(), current_part_counter + 1);
+        }
+        let is_full_upload = current_part_counter % self.config.full_upload_interval == 0;
+
         // Create checkpoint with SST file tracking
+        // TODO(eli): add is_full_upload flag to create_checkpoint_with_metadata
         let sst_files = store
             .create_checkpoint_with_metadata(&local_checkpoint_path)
             .context("Failed to create checkpoint")?;
@@ -146,16 +163,6 @@ impl CheckpointExporter {
             metrics::gauge!(CHECKPOINT_LAST_TIMESTAMP_GAUGE)
                 .set((checkpoint_timestamp / 1_000_000) as f64);
         }
-
-        // Determine if this should be a full upload or incremental
-        let current_part_counter: u32;
-        {
-            let mut counters = self.checkpoint_counters.lock().await;
-            let result = counters.get(&partition).unwrap_or(&0_u32);
-            current_part_counter = *result;
-            counters.insert(partition.clone(), current_part_counter + 1);
-        }
-        let is_full_upload = current_part_counter % self.config.full_upload_interval == 0;
 
         // Upload to remote storage in background
         if self.uploader.is_available().await {
@@ -278,15 +285,17 @@ impl CheckpointExporter {
         Ok(())
     }
 
-    /// Get the timestamp of the last checkpoint
-    pub async fn last_checkpoint_timestamp(&self, partition: &Partition) -> Option<Instant> {
-        let last_checkpoints = self.last_checkpoints.lock().await;
-        last_checkpoints.get(partition).cloned()
-    }
-
-    /// Check if a checkpoint is currently in progress
-    pub async fn is_checkpointing(&self, partition: &Partition) -> bool {
-        let statuses = self.is_checkpointing.lock().await;
-        statuses.contains(partition)
+    // TODO(eli): discussed breaking this in to path-like elements but so far
+    // I'm leaning towards keeping it a single directory name. It's sortable,
+    // simple to work with, and maintains a 1:1 mapping between local paths under
+    // base dir and S3 snapshot paths under bucket key prefix. Can revisit if needed
+    fn build_checkpoint_name(&self, partition: &Partition, checkpoint_timestamp: u128) -> String {
+        format!(
+            "{}_{}_{}_{:018}",
+            CHECKPOINT_NAME_PREFIX,
+            partition.topic(),
+            partition.partition_number(),
+            checkpoint_timestamp
+        )
     }
 }
