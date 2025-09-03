@@ -307,19 +307,17 @@ export function ExperimentMetricForm({
                 )}
             </div>
             <div>
-                <LemonLabel className="mb-1">Goal</LemonLabel>
+                <LemonLabel className="mb-1">What is the goal for this metric?</LemonLabel>
                 <LemonSelect<ExperimentMetricGoal>
                     value={metric.goal || ExperimentMetricGoal.Increase}
                     onChange={(value) => handleSetMetric({ ...metric, goal: value })}
                     options={[
-                        { value: ExperimentMetricGoal.Increase, label: 'Increase' },
-                        { value: ExperimentMetricGoal.Decrease, label: 'Decrease' },
+                        { value: ExperimentMetricGoal.Increase, label: 'To increase' },
+                        { value: ExperimentMetricGoal.Decrease, label: 'To decrease' },
                     ]}
-                    fullWidth
                 />
                 <div className="text-muted text-sm mt-1">
-                    Choose whether you want this metric to increase or decrease. For example, conversion rates should
-                    increase, while bounce rates should decrease.
+                    For example, conversion rates should increase, while bounce rates should decrease.
                 </div>
             </div>
             <ExperimentMetricConversionWindowFilter metric={metric} handleSetMetric={handleSetMetric} />
