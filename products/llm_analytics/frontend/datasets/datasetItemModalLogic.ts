@@ -1,10 +1,8 @@
 import { actions, defaults, kea, key, path, props, propsChanged, reducers } from 'kea'
 import { forms } from 'kea-forms'
-import 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import '~/lib/api'
 import api from '~/lib/api'
 import { DatasetItem } from '~/types'
 
