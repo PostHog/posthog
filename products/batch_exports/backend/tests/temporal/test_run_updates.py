@@ -115,17 +115,18 @@ async def test_start_batch_export_run_raises_on_mocked_over_limit(activity_envir
     start = dt.datetime(2023, 4, 24, tzinfo=dt.UTC)
     end = dt.datetime(2023, 4, 25, tzinfo=dt.UTC)
 
-    inputs = StartBatchExportRunInputs(
-        team_id=team.id,
-        batch_export_id=str(batch_export.id),
-        data_interval_start=start.isoformat(),
-        data_interval_end=end.isoformat(),
-    )
+    with override_settings(BATCH_EXPORTS_ENABLE_BILLING_CHECK=True):
+        inputs = StartBatchExportRunInputs(
+            team_id=team.id,
+            batch_export_id=str(batch_export.id),
+            data_interval_start=start.isoformat(),
+            data_interval_end=end.isoformat(),
+        )
+
     fut: asyncio.Future[bool] = asyncio.Future()
     fut.set_result(False)
 
     with (
-        override_settings(BATCH_EXPORTS_ENABLE_BILLING_CHECK=True),
         unittest.mock.patch(
             "products.batch_exports.backend.temporal.batch_exports.check_is_over_limit", return_value=fut
         ),
@@ -141,6 +142,53 @@ async def test_start_batch_export_run_raises_on_mocked_over_limit(activity_envir
     assert run.data_interval_start == start
     assert run.data_interval_end == end
     assert run.status == BatchExportRun.Status.FAILED_BILLING
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_start_batch_export_run_does_not_check_billing_limit(activity_environment, team, batch_export):
+    """Test the 'start_batch_export_run' doesn't check billing limit when disabled.
+
+    There are two ways to disable billing check:
+    * With the `BATCH_EXPORTS_ENABLE_BILLING_CHECK` setting disabled.
+    * By passing `False` to the `check_billing` argument.
+
+    So, we check both.
+    """
+    start = dt.datetime(2023, 4, 24, tzinfo=dt.UTC)
+    end = dt.datetime(2023, 4, 25, tzinfo=dt.UTC)
+
+    with override_settings(BATCH_EXPORTS_ENABLE_BILLING_CHECK=False):
+        inputs_with_default = StartBatchExportRunInputs(
+            team_id=team.id,
+            batch_export_id=str(batch_export.id),
+            data_interval_start=start.isoformat(),
+            data_interval_end=end.isoformat(),
+        )
+    inputs_set = StartBatchExportRunInputs(
+        team_id=team.id,
+        batch_export_id=str(batch_export.id),
+        data_interval_start=start.isoformat(),
+        data_interval_end=end.isoformat(),
+        check_billing=False,
+    )
+    fut: asyncio.Future[bool] = asyncio.Future()
+    fut.set_result(False)
+
+    for inputs in (inputs_with_default, inputs_set):
+        with unittest.mock.patch(
+            "products.batch_exports.backend.temporal.batch_exports.check_is_over_limit", return_value=fut
+        ) as mocked:
+            run_id = await activity_environment.run(start_batch_export_run, inputs)
+
+            mocked.assert_not_called()
+
+        runs = BatchExportRun.objects.filter(batch_export=batch_export)
+        run = await sync_to_async(runs.get)(id=run_id)
+        assert run is not None
+        assert run.data_interval_start == start
+        assert run.data_interval_end == end
+        assert run.status == BatchExportRun.Status.STARTING
 
 
 @pytest.mark.django_db(transaction=True)

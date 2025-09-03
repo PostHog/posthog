@@ -348,6 +348,7 @@ class StartBatchExportRunInputs:
     # this can be removed once all backfills are finished
     is_backfill: bool = False
     backfill_id: str | None = None
+    check_billing: bool = dataclasses.field(default_factory=lambda: settings.BATCH_EXPORTS_ENABLE_BILLING_CHECK)
 
 
 BatchExportRunId = str
@@ -385,7 +386,7 @@ async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> BatchExpo
         inputs.data_interval_end,
     )
 
-    if settings.BATCH_EXPORTS_ENABLE_BILLING_CHECK is True:
+    if inputs.check_billing is True:
         is_over_limit = await check_is_over_limit(inputs.team_id)
     else:
         is_over_limit = False
