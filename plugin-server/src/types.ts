@@ -23,6 +23,7 @@ import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { EncryptedFields } from './cdp/encryption-utils'
 import { IntegrationManagerService } from './cdp/services/managers/integration-manager.service'
 import { CyclotronJobQueueKind, CyclotronJobQueueSource } from './cdp/types'
+import { InternalCaptureService } from './common/services/internal-capture'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { ActionManagerCDP } from './utils/action-manager-cdp'
@@ -155,7 +156,6 @@ export type CdpConfig = {
 
     HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: string
     HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: string
-    HOG_FUNCTION_MONITORING_EVENTS_PRODUCED_TOPIC: string
 
     CDP_EMAIL_TRACKING_URL: string
 }
@@ -313,6 +313,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
     CAPTURE_CONFIG_REDIS_HOST: string | null // Redis cluster to use to coordinate with capture (overflow, routing)
     LAZY_LOADER_DEFAULT_BUFFER_MS: number
+    CAPTURE_INTERNAL_URL: string
 
     // local directory might be a volume mount or a directory on disk (e.g. in local dev)
     SESSION_RECORDING_LOCAL_DIRECTORY: string
@@ -440,6 +441,7 @@ export interface Hub extends PluginsServerConfig {
     pubSub: PubSub
     integrationManager: IntegrationManagerService
     quotaLimiting: QuotaLimiting
+    internalCaptureService: InternalCaptureService
 }
 
 export interface PluginServerCapabilities {
