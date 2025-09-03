@@ -974,8 +974,8 @@ mod tests {
             let flag_row = FeatureFlagRow {
                 id: 10000 + i,
                 team_id: team.id,
-                name: Some(format!("Batch Test Flag {}", i)),
-                key: format!("batch_flag_{}", i),
+                name: Some(format!("Batch Test Flag {i}")),
+                key: format!("batch_flag_{i}"),
                 filters: json!({"groups": [{"rollout_percentage": 50}]}),
                 deleted: false,
                 active: true,
@@ -985,7 +985,7 @@ mod tests {
             };
             insert_flag_for_team_in_pg(writer.clone(), team.id, Some(flag_row))
                 .await
-                .expect(&format!("Failed to insert flag {}", i));
+                .unwrap_or_else(|_| panic!("Failed to insert flag {i}"));
         }
 
         // Test batch insert with 4 distinct_ids (3 persons, 1 with alt)
@@ -1018,23 +1018,20 @@ mod tests {
                 vec![distinct_id.clone()],
             )
             .await
-            .expect(&format!("Failed to get overrides for {}", distinct_id));
+            .unwrap_or_else(|_| panic!("Failed to get overrides for {distinct_id}"));
 
             assert_eq!(
                 overrides.len(),
                 4,
-                "Should have 4 overrides for distinct_id {}",
-                distinct_id
+                "Should have 4 overrides for distinct_id {distinct_id}"
             );
 
             for i in 1..=4 {
-                let flag_key = format!("batch_flag_{}", i);
+                let flag_key = format!("batch_flag_{i}");
                 assert_eq!(
                     overrides.get(&flag_key),
                     Some(&hash_key),
-                    "Override for {} should be set for distinct_id {}",
-                    flag_key,
-                    distinct_id
+                    "Override for {flag_key} should be set for distinct_id {distinct_id}"
                 );
             }
         }
@@ -1079,7 +1076,7 @@ mod tests {
         .await
         .expect("Failed to insert person1");
 
-        let person2_id = insert_person_for_team_in_pg(
+        let _person2_id = insert_person_for_team_in_pg(
             reader.clone(),
             team.id,
             "existing_user2".to_string(),
@@ -1093,8 +1090,8 @@ mod tests {
             let flag_row = FeatureFlagRow {
                 id: 20000 + i,
                 team_id: team.id,
-                name: Some(format!("Existing Test Flag {}", i)),
-                key: format!("existing_flag_{}", i),
+                name: Some(format!("Existing Test Flag {i}")),
+                key: format!("existing_flag_{i}"),
                 filters: json!({"groups": [{"rollout_percentage": 50}]}),
                 deleted: false,
                 active: true,
@@ -1104,7 +1101,7 @@ mod tests {
             };
             insert_flag_for_team_in_pg(writer.clone(), team.id, Some(flag_row))
                 .await
-                .expect(&format!("Failed to insert flag {}", i));
+                .unwrap_or_else(|_| panic!("Failed to insert flag {i}"));
         }
 
         // Manually insert some existing overrides
