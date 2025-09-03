@@ -77,7 +77,7 @@ export function isTaskExecutionMessage(
 }
 
 export function castAssistantQuery(
-    query: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery
+    query: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery | null
 ): TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery {
     if (isTrendsQuery(query)) {
         return query
@@ -88,7 +88,7 @@ export function castAssistantQuery(
     } else if (isHogQLQuery(query)) {
         return query
     }
-    throw new Error(`Unsupported query type: ${query.kind}`)
+    throw new Error(`Unsupported query type: ${query?.kind}`)
 }
 
 /**

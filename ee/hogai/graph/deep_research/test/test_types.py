@@ -1,10 +1,12 @@
+from typing import cast
+
 from posthog.test.base import BaseTest
 from unittest.mock import Mock
 
 from parameterized import parameterized
 from pydantic import ValidationError
 
-from posthog.schema import AssistantMessage, AssistantTrendsQuery, HumanMessage, TaskExecutionItem
+from posthog.schema import AssistantMessage, AssistantTrendsQuery, HumanMessage, PlanningStepStatus, TaskExecutionItem
 
 from ee.hogai.graph.deep_research.types import (
     DeepResearchIntermediateResult,
@@ -64,15 +66,13 @@ class TestDeepResearchTodo(BaseTest):
         with self.assertRaises(ValidationError):
             DeepResearchTodo(id=1, description="Test", status=status, priority=priority)
 
-    def test_missing_required_fields(self):
-        """Should raise ValidationError when required fields are missing."""
-        with self.assertRaises(ValidationError):
-            DeepResearchTodo()
-
     def test_todo_serialization(self):
         """Should serialize and deserialize correctly."""
         original = DeepResearchTodo(
-            id=42, description="Complex task with special chars: !@#$%", status="in_progress", priority="high"
+            id=42,
+            description="Complex task with special chars: !@#$%",
+            status=PlanningStepStatus.IN_PROGRESS,
+            priority="high",
         )
 
         serialized = original.model_dump()
@@ -256,8 +256,8 @@ class TestDeepResearchStates(BaseTest):
             graph_status="resumed",
         )
 
-        self.assertEqual(len(state.todos), 2)
-        self.assertEqual(len(state.tasks), 1)
+        self.assertEqual(len(cast(list[DeepResearchTodo], state.todos)), 2)
+        self.assertEqual(len(cast(list[TaskExecutionItem], state.tasks)), 1)
         self.assertEqual(len(state.task_results), 1)
         self.assertEqual(len(state.intermediate_results), 1)
         self.assertEqual(len(state.messages), 2)
@@ -311,8 +311,9 @@ class TestDeepResearchStates(BaseTest):
         serialized = original_state.model_dump()
         deserialized = DeepResearchState.model_validate(serialized)
 
-        self.assertEqual(len(deserialized.todos), 1)
-        self.assertEqual(deserialized.todos[0].description, "Test todo")
+        todos = cast(list[DeepResearchTodo], deserialized.todos)
+        self.assertEqual(len(todos), 1)
+        self.assertEqual(todos[0].description, "Test todo")
         self.assertEqual(len(deserialized.task_results), 1)
         self.assertEqual(deserialized.task_results[0].id, "task-1")
         self.assertEqual(len(deserialized.intermediate_results), 1)

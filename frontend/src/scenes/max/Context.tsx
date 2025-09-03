@@ -242,16 +242,16 @@ interface ContextDisplayProps {
 }
 
 export function ContextDisplay({ size = 'default' }: ContextDisplayProps): JSX.Element | null {
-    const { deepResearchMode, showDeepResearchModeToggle } = useValues(maxThreadLogic)
+    const { deepResearchMode, showContextUI } = useValues(maxThreadLogic)
     const { hasData, contextOptions, taxonomicGroupTypes, mainTaxonomicGroupType } = useValues(maxContextLogic)
     const { handleTaxonomicFilterChange } = useActions(maxContextLogic)
 
-    if (!showDeepResearchModeToggle) {
+    if (!showContextUI) {
         return null
     }
 
     return (
-        <div className="px-1 pt-1 w-full">
+        <div className="px-1 w-full">
             <div className="flex flex-wrap items-start gap-1 w-full">
                 {deepResearchMode ? (
                     <LemonButton

@@ -66,6 +66,9 @@ class TaskExecutorNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchS
             for task_result in state.task_results:
                 artifacts.extend(task_result.artifacts)
 
+            if not state.tasks:
+                raise ValueError("No tasks to execute")
+
             tasks = state.tasks.copy()
             input_tuples = []
             for task in tasks:
@@ -85,7 +88,7 @@ class TaskExecutorNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchS
                 writer(self._message_to_langgraph_update(reasoning_msg, DeepResearchNodeName.TASK_EXECUTOR))
 
             # Set up a callback to emit task-specific progress updates
-            def emit_task_progress(task_id: str, progress_text: str):
+            def emit_task_progress(task_id: str, progress_text: str | None):
                 for task in tasks:
                     if task.id == task_id:
                         task.progress_text = progress_text

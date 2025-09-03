@@ -1,10 +1,12 @@
 import uuid
+from typing import cast
 
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
+from pydantic import BaseModel
 
 from posthog.schema import (
     AssistantMessage,
@@ -164,11 +166,14 @@ class TestTaskExecutorNodeArun(TestTaskExecutorNode):
 
         result = await self.node.arun(state, config)
 
+        result = cast(PartialDeepResearchState, result)
         self.assertIsInstance(result, PartialDeepResearchState)
-        self.assertEqual(len(result.messages), 1)
-        self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
-        self.assertEqual(result.messages[0].content, "No tasks to execute")
-        self.assertEqual(result.messages[0].tool_call_id, "test_tool_call")
+        messages = cast(list[BaseModel], result.messages)
+        self.assertEqual(len(messages), 1)
+        result_message = cast(AssistantToolCallMessage, messages[0])
+        self.assertIsInstance(result_message, AssistantToolCallMessage)
+        self.assertEqual(result_message.content, "No tasks to execute")
+        self.assertEqual(result_message.tool_call_id, "test_tool_call")
         mock_logger.warning.assert_called_once_with("No research step provided to execute")
 
 
@@ -221,8 +226,8 @@ class TestTaskExecutorNodeExecuteTasks(TestTaskExecutorNode):
             self.assertIsInstance(result.messages[0], TaskExecutionMessage)
 
             self.assertIsInstance(result.messages[1], AssistantToolCallMessage)
-            self.assertEqual(result.messages[1].tool_call_id, "test_tool_call")
-            self.assertIn("Task completed successfully", result.messages[1].content)
+            self.assertEqual(cast(AssistantToolCallMessage, result.messages[1]).tool_call_id, "test_tool_call")
+            self.assertIn("Task completed successfully", cast(AssistantToolCallMessage, result.messages[1]).content)
 
             self.assertEqual(len(result.task_results), 1)
             self.assertEqual(result.task_results[0], mock_task_result)
@@ -359,7 +364,7 @@ class TestTaskExecutorNodeStateManagement(TestTaskExecutorNode):
             # Check task status was updated
             final_message = result.messages[0]
             self.assertIsInstance(final_message, TaskExecutionMessage)
-            updated_task = final_message.tasks[0]
+            updated_task = cast(TaskExecutionMessage, final_message).tasks[0]
             self.assertEqual(updated_task.status, TaskExecutionStatus.COMPLETED)
             self.assertIsNotNone(updated_task.artifact_ids)
             self.assertEqual(updated_task.artifact_ids, ["art_1"])
@@ -441,8 +446,9 @@ class TestTaskExecutorNodeEdgeCases(TestTaskExecutorNode):
             result = await self.node._execute_tasks(state, config, "test_tool_call")
 
             self.assertEqual(len(result.task_results), 2)
-            self.assertIn("Result 1", result.messages[1].content)
-            self.assertIn("Result 2", result.messages[1].content)
+            message_1 = cast(AssistantToolCallMessage, result.messages[1])
+            self.assertIn("Result 1", message_1.content)
+            self.assertIn("Result 2", message_1.content)
 
     @patch("ee.hogai.graph.deep_research.task_executor.nodes.get_stream_writer")
     async def test_tasks_with_artifact_dependencies(self, mock_get_stream_writer):
@@ -467,7 +473,7 @@ class TestTaskExecutorNodeEdgeCases(TestTaskExecutorNode):
         )
         config = RunnableConfig()
 
-        captured_input_tuples = None
+        captured_input_tuples: list[tuple[TaskExecutionItem, list[InsightArtifact]]] | None = None
 
         async def mock_astream(input_tuples, config):
             nonlocal captured_input_tuples
@@ -485,6 +491,7 @@ class TestTaskExecutorNodeEdgeCases(TestTaskExecutorNode):
 
             # Check that artifact was passed to the task
             self.assertIsNotNone(captured_input_tuples)
+            captured_input_tuples = cast(list[tuple[TaskExecutionItem, list[InsightArtifact]]], captured_input_tuples)
             self.assertEqual(len(captured_input_tuples), 1)
             task_tuple = captured_input_tuples[0]
             self.assertEqual(len(task_tuple[1]), 1)  # One artifact passed
@@ -509,13 +516,15 @@ class TestTaskExecutorNodeEdgeCases(TestTaskExecutorNode):
         if invalid_tasks is None:
             # No tasks should be handled gracefully
             result = await self.node.arun(state, config)
+            result = cast(PartialDeepResearchState, result)
             self.assertIsInstance(result, PartialDeepResearchState)
-            self.assertEqual(result.messages[0].content, "No tasks to execute")
+            self.assertEqual(cast(AssistantToolCallMessage, result.messages[0]).content, "No tasks to execute")
         elif invalid_tasks == []:
             # Empty list should be handled gracefully
             result = await self.node.arun(state, config)
+            result = cast(PartialDeepResearchState, result)
             self.assertIsInstance(result, PartialDeepResearchState)
-            self.assertEqual(result.messages[0].content, "No tasks to execute")
+            self.assertEqual(cast(AssistantToolCallMessage, result.messages[0]).content, "No tasks to execute")
         else:
             # Invalid task objects would cause validation errors during processing
             with patch.object(self.node, "_execute_tasks") as mock_execute:

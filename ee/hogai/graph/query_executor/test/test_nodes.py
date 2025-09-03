@@ -1,3 +1,5 @@
+from typing import cast
+
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
@@ -11,6 +13,7 @@ from posthog.schema import (
     AssistantRetentionFilter,
     AssistantRetentionQuery,
     AssistantToolCall,
+    AssistantToolCallMessage,
     AssistantTrendsEventsNode,
     AssistantTrendsQuery,
     FunnelVizType,
@@ -30,6 +33,7 @@ from ee.hogai.graph.query_executor.prompts import (
     TRENDS_EXAMPLE_PROMPT,
 )
 from ee.hogai.utils.types import AssistantState
+from ee.hogai.utils.types.base import PartialAssistantState
 
 
 class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
@@ -68,8 +72,9 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
             ),
             {},
         )
+        new_state = cast(PartialAssistantState, new_state)
         mock_process_query_dict.assert_called_once()  # Query processing started
-        msg = new_state.messages[0]
+        msg = cast(AssistantToolCallMessage, new_state.messages[0])
         self.assertIn(
             "Here is the results table of the TrendsQuery I created to answer your latest question:", msg.content
         )
@@ -105,8 +110,9 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
             ),
             {},
         )
+        new_state = cast(PartialAssistantState, new_state)
         mock_process_query_dict.assert_called_once()  # Query processing started
-        msg = new_state.messages[0]
+        msg = cast(AssistantMessage, new_state.messages[0])
         self.assertEqual(msg.content, "There was an unknown error running this query.")
         self.assertEqual(msg.type, "ai/failure")
         self.assertIsNotNone(msg.id)
@@ -138,10 +144,11 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
             ),
             {},
         )
+        new_state = cast(PartialAssistantState, new_state)
         mock_process_query_dict.assert_called_once()  # Query processing started
         msg = new_state.messages[0]
         self.assertEqual(
-            msg.content,
+            cast(AssistantMessage, msg).content,
             "There was an error running this query: This query exceeds the capabilities of our picolator. Try de-brolling its flim-flam.",
         )
         self.assertEqual(msg.type, "ai/failure")
@@ -193,8 +200,9 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
                 ),
                 {},
             )
+            new_state = cast(PartialAssistantState, new_state)
             mock_process_query_dict.assert_called_once()  # Query processing started
-            msg = new_state.messages[0]
+            msg = cast(AssistantMessage, new_state.messages[0])
             self.assertIn(
                 "Here is the results table of the TrendsQuery I created to answer your latest question:", msg.content
             )

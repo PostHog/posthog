@@ -539,20 +539,6 @@ function TaskExecutionAnswer({ message }: TaskExecutionAnswerProps): JSX.Element
                                     {task.description}
                                 </div>
 
-                                {task.progress_text && task.status !== TaskExecutionStatus.Pending && (
-                                    <div
-                                        className={`text-xs mt-0.5 font-medium ${
-                                            task.status === TaskExecutionStatus.InProgress
-                                                ? 'text-primary-alt animate-pulse'
-                                                : task.status === TaskExecutionStatus.Completed
-                                                  ? 'text-success'
-                                                  : 'text-danger'
-                                        }`}
-                                    >
-                                        {task.progress_text}
-                                    </div>
-                                )}
-
                                 {task.prompt && (
                                     <div
                                         className={clsx(
@@ -564,6 +550,24 @@ function TaskExecutionAnswer({ message }: TaskExecutionAnswerProps): JSX.Element
                                         )}
                                     >
                                         {task.prompt}
+                                    </div>
+                                )}
+
+                                {task.progress_text && task.status !== TaskExecutionStatus.Pending && (
+                                    <div
+                                        className={`text-xs mt-0.5 font-medium ${
+                                            task.status === TaskExecutionStatus.InProgress
+                                                ? 'text-primary-alt animate-pulse'
+                                                : task.status === TaskExecutionStatus.Completed
+                                                  ? 'text-success'
+                                                  : 'text-danger'
+                                        }`}
+                                    >
+                                        <MarkdownMessage
+                                            id={index.toString()}
+                                            className="mt-1.5 leading-6 px-1 text-[0.6875rem] font-semibold bg-surface-secondary rounded w-fit"
+                                            content={task.progress_text}
+                                        />
                                     </div>
                                 )}
                             </div>

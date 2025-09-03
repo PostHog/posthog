@@ -1,8 +1,11 @@
+from typing import cast
+
 from django.test import TestCase
 
 from posthog.schema import (
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
+    AssistantTrendsEventsNode,
     AssistantTrendsQuery,
     Mark,
     ProsemirrorJSONContent,
@@ -949,9 +952,9 @@ code here
 
         assert ph_query_node is not None, "Should create a ph-query node"
         assert ph_query_node.type == "ph-query", "Should have ph-query type"
-        assert "query" in ph_query_node.attrs, "Should have query in attrs"
+        assert "query" in cast(dict, ph_query_node.attrs), "Should have query in attrs"
 
-        query_attr = ph_query_node.attrs["query"]
+        query_attr = cast(dict, ph_query_node.attrs)["query"]
         assert isinstance(query_attr, dict), "Query attr should be a dict"
         assert query_attr["kind"] == "InsightVizNode", "Query should be wrapped in InsightVizNode"
         assert "source" in query_attr, "Query should have source field"
@@ -988,9 +991,9 @@ code here
                 break
 
         assert ph_query_node is not None, "Should find a ph-query node in the converted content"
-        assert "query" in ph_query_node.attrs, "ph-query node should have query attr"
+        assert "query" in cast(dict, ph_query_node.attrs), "ph-query node should have query attr"
 
-        query_attr = ph_query_node.attrs["query"]
+        query_attr = cast(dict, ph_query_node.attrs)["query"]
         assert isinstance(query_attr, dict), "Query attr should be a dict"
         assert query_attr["kind"] == "InsightVizNode", "Should have InsightVizNode structure"
         assert "source" in query_attr, "Should have source field"
@@ -1010,7 +1013,7 @@ code here
         # Simulate the deep research report scenario
         # 1. Create an AssistantQuery like the report node would generate
         assistant_trends_query = AssistantTrendsQuery(
-            kind="TrendsQuery", series=[{"kind": "EventsNode", "event": "$pageview", "math": "total"}]
+            kind="TrendsQuery", series=[AssistantTrendsEventsNode(kind="EventsNode", event="$pageview", math="total")]
         )
 
         # 2. Create InsightArtifact like DeepResearchReportNode._create_context() does
@@ -1057,7 +1060,7 @@ The data shows clear trends in user behavior."""
         assert ph_query_node is not None, "Should create ph-query node for insight"
 
         # 8. Verify the ph-query has the format frontend expects (preventing visualization crash)
-        query_data = ph_query_node.attrs["query"]
+        query_data = cast(dict, ph_query_node.attrs)["query"]
 
         # This is the key fix - query must be wrapped in InsightVizNode
         assert isinstance(query_data, dict), "Query data should be a dict"
@@ -1128,5 +1131,5 @@ The data shows clear trends in user behavior."""
                 self.kind = "UnsupportedQuery"
 
         with self.assertRaises(ValueError) as context:
-            cast_assistant_query(UnsupportedQuery())
+            cast_assistant_query(UnsupportedQuery())  # type: ignore
         assert "Unsupported query type: UnsupportedQuery" in str(context.exception)

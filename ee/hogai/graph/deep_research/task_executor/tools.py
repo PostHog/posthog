@@ -23,21 +23,18 @@ from posthog.exceptions_capture import capture_exception
 from ee.hogai.graph.deep_research.task_executor.prompts import AGENT_TASK_PROMPT_TEMPLATE
 from ee.hogai.graph.deep_research.types import DeepResearchSingleTaskResult
 from ee.hogai.utils.types import AssistantState, VisualizationMessage
-from ee.hogai.utils.types.base import AssistantMessageUnion, InsightArtifact
+from ee.hogai.utils.types.base import AnyAssistantGeneratedQuery, AssistantMessageUnion, InsightArtifact
 
 logger = structlog.get_logger(__name__)
 
 INSIGHT_SUBGRAPH_REASONING_MESSAGES = {
-    "query_planner": "📋 Planning query approach...",
-    "trends_generator": "📈 Generating trends analysis...",
-    "funnel_generator": "🔀 Building funnel analysis...",
-    "retention_generator": "📊 Analyzing retention patterns...",
-    "query_executor": "⚡ Executing query...",
-    "insight_rag_context": "🔍 Searching relevant context...",
+    "query_planner": "Planning query approach...",
+    "trends_generator": "Generating trends analysis...",
+    "funnel_generator": "Building funnel analysis...",
+    "retention_generator": "Analyzing retention patterns...",
+    "query_executor": "Executing query...",
+    "insight_rag_context": "Searching relevant context...",
 }
-
-TASK_COMPLETED_MESSAGE = "✅ Task completed"
-TASK_FAILED_MESSAGE = "❌ Task failed"
 
 
 class ExecuteTasksTool:
@@ -46,14 +43,14 @@ class ExecuteTasksTool:
     def __init__(self, insights_subgraph: CompiledStateGraph):
         self._insights_subgraph = insights_subgraph
         self._reasoning_callback: Optional[Callable[[ReasoningMessage], None]] = None
-        self._task_progress_callback: Optional[Callable[[str, str], None]] = None
+        self._task_progress_callback: Optional[Callable[[str, str | None], None]] = None
         self._task_nodes_seen: dict[str, set[str]] = {}
 
     def set_reasoning_callback(self, callback: Callable[[ReasoningMessage], None]):
         """Set a callback to emit reasoning messages during task execution."""
         self._reasoning_callback = callback
 
-    def set_task_progress_callback(self, callback: Callable[[str, str], None]):
+    def set_task_progress_callback(self, callback: Callable[[str, str | None], None]):
         """Set a callback to emit task-specific progress updates.
 
         Args:
@@ -163,7 +160,8 @@ class ExecuteTasksTool:
             config,
         )
         response = cast(LangchainAIMessage, response)
-        self._task_progress_callback(task.id, TASK_COMPLETED_MESSAGE)
+        if self._task_progress_callback:
+            self._task_progress_callback(task.id, None)
 
         return DeepResearchSingleTaskResult(
             id=task.id,
@@ -174,7 +172,8 @@ class ExecuteTasksTool:
         )
 
     def _failed_result(self, task: TaskExecutionItem) -> DeepResearchSingleTaskResult:
-        self._task_progress_callback(task.id, TASK_FAILED_MESSAGE)
+        if self._task_progress_callback:
+            self._task_progress_callback(task.id, None)
         return DeepResearchSingleTaskResult(
             id=task.id, description=task.description, result="", artifacts=[], status=TaskExecutionStatus.FAILED
         )
@@ -190,7 +189,7 @@ class ExecuteTasksTool:
                 artifact = InsightArtifact(
                     id=task.id,
                     description=task.prompt,
-                    query=message.answer,
+                    query=cast(AnyAssistantGeneratedQuery, message.answer),
                 )
                 artifacts.append(artifact)
         return artifacts

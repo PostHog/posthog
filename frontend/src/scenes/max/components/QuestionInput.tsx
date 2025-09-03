@@ -105,14 +105,16 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             }
                         }}
                     >
-                        {!isThreadVisible ? (
-                            <div className="flex items-start justify-between">
+                        <div className="pt-1">
+                            {!isThreadVisible ? (
+                                <div className="flex items-start justify-between">
+                                    <ContextDisplay size={contextDisplaySize} />
+                                    <div className="flex items-start gap-1 h-full mt-1 mr-1">{topActions}</div>
+                                </div>
+                            ) : (
                                 <ContextDisplay size={contextDisplaySize} />
-                                <div className="flex items-start gap-1 h-full mt-1 mr-1">{topActions}</div>
-                            </div>
-                        ) : (
-                            <ContextDisplay size={contextDisplaySize} />
-                        )}
+                            )}
+                        </div>
 
                         <SlashCommandAutocomplete visible={showAutocomplete} onClose={() => setShowAutocomplete(false)}>
                             <LemonTextArea

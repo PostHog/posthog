@@ -858,6 +858,7 @@ export const NotebookUpdateComponent: StoryFn = () => {
                 },
             ],
         },
+        id: 'notebook-update-message',
     }
 
     useStorybookMocks({
@@ -869,7 +870,7 @@ export const NotebookUpdateComponent: StoryFn = () => {
                             'event: conversation',
                             `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
                             'event: message',
-                            `data: ${JSON.stringify(humanMessage)}`,
+                            `data: ${JSON.stringify({ ...humanMessage, content: 'Update my analysis notebook' })}`,
                             'event: message',
                             `data: ${JSON.stringify(notebookMessage)}`,
                         ])
@@ -935,7 +936,7 @@ export const PlanningComponent: StoryFn = () => {
                             'event: conversation',
                             `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
                             'event: message',
-                            `data: ${JSON.stringify(humanMessage)}`,
+                            `data: ${JSON.stringify({ ...humanMessage, content: 'Create a comprehensive analysis plan' })}`,
                             'event: message',
                             `data: ${JSON.stringify(planningMessage)}`,
                         ])
@@ -986,6 +987,7 @@ export const TaskExecutionComponent: StoryFn = () => {
                 description: 'Calculating conversion rates',
                 prompt: 'Processing funnel metrics across key paths',
                 status: TaskExecutionStatus.InProgress,
+                progress_text: 'Exploring data',
             },
             {
                 id: 'task_4',
@@ -1011,7 +1013,7 @@ export const TaskExecutionComponent: StoryFn = () => {
                             'event: conversation',
                             `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
                             'event: message',
-                            `data: ${JSON.stringify(humanMessage)}`,
+                            `data: ${JSON.stringify({ ...humanMessage, content: 'Execute analysis tasks' })}`,
                             'event: message',
                             `data: ${JSON.stringify(taskExecutionMessage)}`,
                         ])
@@ -1087,7 +1089,7 @@ export const TaskExecutionWithFailure: StoryFn = () => {
                             'event: conversation',
                             `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
                             'event: message',
-                            `data: ${JSON.stringify(humanMessage)}`,
+                            `data: ${JSON.stringify({ ...humanMessage, content: 'Execute analysis with some failures' })}`,
                             'event: message',
                             `data: ${JSON.stringify(taskExecutionMessage)}`,
                         ])
@@ -1190,7 +1192,7 @@ export const MultiVisualizationInThread: StoryFn = () => {
                             'event: conversation',
                             `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
                             'event: message',
-                            `data: ${JSON.stringify(humanMsg)}`,
+                            `data: ${JSON.stringify({ ...humanMsg, content: 'Analyze our product metrics comprehensively' })}`,
                             'event: message',
                             `data: ${JSON.stringify(multiVizMessage)}`,
                         ])

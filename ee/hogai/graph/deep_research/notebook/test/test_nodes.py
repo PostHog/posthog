@@ -1,3 +1,4 @@
+from typing import cast
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
@@ -34,7 +35,11 @@ class TestDeepResearchNotebookPlanningNode(APIBaseTest):
             content=ProsemirrorJSONContent(
                 type="doc",
                 content=[
-                    {"type": "heading", "attrs": {"level": 1}, "content": [{"type": "text", "text": "Research Plan"}]}
+                    ProsemirrorJSONContent(
+                        type="heading",
+                        attrs={"level": 1},
+                        content=[ProsemirrorJSONContent(type="text", text="Research Plan")],
+                    )
                 ],
             ),
             id=str(uuid4()),
@@ -164,7 +169,9 @@ class TestDeepResearchNotebookPlanningNode(APIBaseTest):
         self.assertEqual(result.notebook_short_id, notebook_id)
         self.assertIsNone(result.previous_response_id)
         self.assertEqual(len(result.messages), 1)
-        self.assertEqual(result.messages[0].notebook_id, notebook_id)
+        self.assertIsInstance(result.messages[0], NotebookUpdateMessage)
+        result_message = cast(NotebookUpdateMessage, result.messages[0])
+        self.assertEqual(result_message.notebook_id, notebook_id)
 
     @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._astream_notebook")
     @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._aget_core_memory")

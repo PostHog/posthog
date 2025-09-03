@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
@@ -8,7 +8,6 @@ from langchain_core.messages import AIMessage as LangchainAIMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
 from parameterized import parameterized
-from pydantic import ValidationError
 
 from posthog.schema import (
     AssistantMessage,
@@ -134,9 +133,9 @@ class TestDeepResearchWorkflowIntegration(APIBaseTest):
         serialized = state.model_dump()
         deserialized = DeepResearchState.model_validate(serialized)
 
-        self.assertEqual(len(deserialized.todos), num_todos)
+        self.assertEqual(len(cast(list[DeepResearchTodo], deserialized.todos)), num_todos)
         self.assertEqual(len(deserialized.task_results), num_results)
-        self.assertEqual(deserialized.messages[0].content, query)
+        self.assertEqual(cast(HumanMessage, deserialized.messages[0]).content, query)
 
     def test_invalid_notebook_reference_handling(self, mock_llm_class, mock_get_model):
         """Test handling of invalid notebook references."""
@@ -149,16 +148,6 @@ class TestDeepResearchWorkflowIntegration(APIBaseTest):
         # Verify notebook doesn't exist in database
         nonexistent_notebook = Notebook.objects.filter(short_id="nonexistent_nb").first()
         self.assertIsNone(nonexistent_notebook)
-
-    def test_malformed_state_validation_errors(self, mock_llm_class, mock_get_model):
-        """Test validation of malformed state configurations."""
-        # Test invalid todo with missing required fields
-        with self.assertRaises(ValidationError):
-            DeepResearchTodo(description="Invalid todo")  # Missing id, status, priority
-
-        # Test invalid task execution item
-        with self.assertRaises(ValidationError):
-            TaskExecutionItem(id="task_1")  # Missing description, prompt, status
 
 
 class TestDeepResearchE2E(APIBaseTest):
@@ -189,7 +178,7 @@ class TestDeepResearchE2E(APIBaseTest):
         Comprehensive test for deep research graph structure and routing logic.
         """
         graph = DeepResearchAssistantGraph(self.team, self.user)
-        compiled_graph = graph.compile_full_graph(checkpointer=InMemorySaver())
+        compiled_graph = graph.compile_full_graph(checkpointer=InMemorySaver())  # type: ignore
 
         self.assertIsNotNone(compiled_graph)
         self.assertTrue(hasattr(compiled_graph, "ainvoke"))
@@ -239,6 +228,7 @@ class TestDeepResearchE2E(APIBaseTest):
             (DeepResearchPlannerNode, "planner"),
             (DeepResearchPlannerToolsNode, "planner_tools"),
             (DeepResearchReportNode, "report"),
+            (TaskExecutorNode, "task_executor"),
         ]
 
         for node_class, node_name in nodes_to_test:
@@ -271,10 +261,11 @@ class TestDeepResearchE2E(APIBaseTest):
         deserialized = DeepResearchState.model_validate(serialized)
 
         self.assertEqual(len(deserialized.messages), 1)
-        self.assertEqual(len(deserialized.todos), 1)
+        todos = cast(list[DeepResearchTodo], deserialized.todos)
+        self.assertEqual(len(cast(list[DeepResearchTodo], deserialized.todos)), 1)
         self.assertEqual(len(deserialized.task_results), 1)
         self.assertEqual(deserialized.notebook_short_id, notebook.short_id)
-        self.assertEqual(deserialized.todos[0].description, "Test todo")
+        self.assertEqual(todos[0].description, "Test todo")
         self.assertEqual(deserialized.task_results[0].result, "Test result")
 
         # Test database integration

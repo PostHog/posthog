@@ -49,6 +49,7 @@ class TestDeepResearchReportNode:
 
     def create_sample_artifact(self, artifact_id: str = "artifact_1", query_type: str = "trends") -> InsightArtifact:
         """Sample artifacts for testing."""
+        query: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
         if query_type == "trends":
             query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode()])
         elif query_type == "funnels":
@@ -227,7 +228,7 @@ class TestDeepResearchReportNode:
         """Test that artifacts without queries are skipped during formatting."""
         # Create artifact and then manually set query to None to test the edge case
         artifact = self.create_sample_artifact("artifact_1", "trends")
-        artifact.query = None
+        artifact.query = None  # type: ignore
 
         formatted_insights = self.node._format_insights([artifact])
 

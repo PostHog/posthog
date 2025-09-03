@@ -103,7 +103,7 @@ class TestDeepResearchOnboardingNode:
     def test_arun_successful_execution(self):
         """Test successful execution of the onboarding node."""
         mock_core_memory = MagicMock(spec=CoreMemory)
-        mock_core_memory.__str__ = MagicMock(return_value="Test core memory content")
+        mock_core_memory.configure_mock(**{"__str__.return_value": "Test core memory content"})
 
         mock_response = LangchainAIMessage(
             content="## Welcome to Deep Research\n\nLet me ask you some clarifying questions...",
@@ -144,7 +144,7 @@ class TestDeepResearchOnboardingNode:
     def test_arun_with_core_memory_formatting(self):
         """Test that core memory is properly formatted in the prompt."""
         mock_core_memory = MagicMock(spec=CoreMemory)
-        mock_core_memory.__str__ = MagicMock(return_value="User preferences: analytics focus, weekly reports")
+        mock_core_memory.configure_mock(**{"__str__.return_value": "User preferences: analytics focus, weekly reports"})
 
         with (
             patch.object(self.node, "_aget_core_memory", return_value=mock_core_memory),

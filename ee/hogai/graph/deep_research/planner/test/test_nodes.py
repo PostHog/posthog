@@ -1,4 +1,5 @@
 import warnings
+from typing import Any, cast
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
@@ -50,7 +51,7 @@ class TestDeepResearchPlannerNode(BaseTest):
 
     def _create_state(self, **kwargs):
         """DeepResearchState init"""
-        defaults = {
+        defaults: dict[str, Any] = {
             "messages": [],
             "todos": None,
             "tasks": None,
@@ -288,7 +289,7 @@ class TestDeepResearchPlannerNode(BaseTest):
 
                         self.assertEqual(len(result.messages), 2)
                         self.assertIsInstance(result.messages[0], AssistantMessage)
-                        self.assertEqual(result.messages[0].content, "This is my plan")
+                        self.assertEqual(cast(AssistantMessage, result.messages[0]).content, "This is my plan")
 
     def test_model_configuration(self):
         """Test model is properly configured with tools"""
@@ -314,7 +315,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
 
     def _create_state(self, **kwargs):
         """DeepResearchState init"""
-        defaults = {
+        defaults: dict[str, Any] = {
             "messages": [],
             "todos": None,
             "tasks": None,
@@ -346,7 +347,9 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
 
         self.assertEqual(len(result.messages), 1)
         self.assertIsInstance(result.messages[0], HumanMessage)
-        self.assertEqual(result.messages[0].content, "You have to use at least one tool to continue.")
+        self.assertEqual(
+            cast(HumanMessage, result.messages[0]).content, "You have to use at least one tool to continue."
+        )
 
     async def test_arun_multiple_tool_calls_error(self):
         """Test node execution raises error when multiple tool calls are present"""
@@ -383,16 +386,18 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
         if len(todos_data) == 0:
             self.assertEqual(len(result.messages), 1)
             self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
-            self.assertEqual(result.messages[0].content, "You have to provide at least one TO-DO.")
+            self.assertEqual(
+                cast(AssistantToolCallMessage, result.messages[0]).content, "You have to provide at least one TO-DO."
+            )
             self.assertIsNone(result.todos)
         else:
             self.assertEqual(len(result.messages), 2)
             self.assertIsInstance(result.messages[0], PlanningMessage)
             self.assertIsInstance(result.messages[1], AssistantToolCallMessage)
-            self.assertEqual(len(result.messages[0].steps), len(todos_data))
-            self.assertIn("Todos updated. Current list:", result.messages[1].content)
+            self.assertEqual(len(cast(PlanningMessage, result.messages[0]).steps), len(todos_data))
+            self.assertIn("Todos updated. Current list:", cast(AssistantToolCallMessage, result.messages[1]).content)
             self.assertIsNotNone(result.todos)
-            self.assertEqual(len(result.todos), len(todos_data))
+            self.assertEqual(len(cast(list[DeepResearchTodo], result.todos)), len(todos_data))
 
     @parameterized.expand(
         [
@@ -414,10 +419,11 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
         self.assertEqual(len(result.messages), 1)
         self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
 
+        result_message = cast(AssistantToolCallMessage, result.messages[0])
         if todos and len(todos) > 0:
-            self.assertIn("Current todos:", result.messages[0].content)
+            self.assertIn("Current todos:", result_message.content)
         else:
-            self.assertIn("No todos yet", result.messages[0].content)
+            self.assertIn("No todos yet", result_message.content)
 
     async def test_tools_requiring_todos_without_todos(self):
         """Test tools that require todos fail when no todos exist"""
@@ -433,7 +439,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
 
                 self.assertEqual(len(result.messages), 1)
                 self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
-                self.assertIn("No todos yet", result.messages[0].content)
+                self.assertIn("No todos yet", cast(AssistantToolCallMessage, result.messages[0]).content)
 
     @parameterized.expand(
         [
@@ -478,7 +484,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
         self.assertEqual(len(result.messages), 1)
         self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
 
-        self.assertIn("Current artifacts:", result.messages[0].content)
+        self.assertIn("Current artifacts:", cast(AssistantToolCallMessage, result.messages[0]).content)
 
     async def test_execute_tasks_tool(self):
         """Test execute_tasks tool execution returns tasks"""
@@ -515,7 +521,9 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
 
                 self.assertEqual(len(result.messages), 1)
                 self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
-                self.assertEqual(result.messages[0].content, NO_TASKS_RESULTS_TOOL_RESULT)
+                self.assertEqual(
+                    cast(AssistantToolCallMessage, result.messages[0]).content, NO_TASKS_RESULTS_TOOL_RESULT
+                )
 
     @parameterized.expand(
         [
@@ -542,13 +550,15 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
         if not content:
             self.assertEqual(len(result.messages), 1)
             self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
-            self.assertEqual(result.messages[0].content, WRITE_RESULT_FAILED_TOOL_RESULT)
+            self.assertEqual(
+                cast(AssistantToolCallMessage, result.messages[0]).content, WRITE_RESULT_FAILED_TOOL_RESULT
+            )
             self.assertEqual(len(result.intermediate_results), 0)
         else:
             self.assertEqual(len(result.messages), 2)
             self.assertIsInstance(result.messages[0], MultiVisualizationMessage)
             self.assertIsInstance(result.messages[1], AssistantToolCallMessage)
-            self.assertEqual(result.messages[1].content, WRITE_RESULT_TOOL_RESULT)
+            self.assertEqual(cast(AssistantToolCallMessage, result.messages[1]).content, WRITE_RESULT_TOOL_RESULT)
             self.assertEqual(len(result.intermediate_results), 1)
 
     async def test_result_write_tool_invalid_artifact_ids(self):
@@ -573,7 +583,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
 
         self.assertEqual(len(result.messages), 1)
         self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
-        self.assertIn("Invalid artifact IDs:", result.messages[0].content)
+        self.assertIn("Invalid artifact IDs:", cast(AssistantToolCallMessage, result.messages[0]).content)
 
     async def test_result_write_tool_with_visualizations(self):
         """Test result_write tool creates visualizations for artifacts with queries"""
@@ -602,6 +612,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
 
         viz_message = result.messages[0]
         self.assertIsInstance(viz_message, MultiVisualizationMessage)
+        viz_message = cast(MultiVisualizationMessage, viz_message)
         # Both artifacts have queries
         self.assertEqual(len(viz_message.visualizations), 2)
         self.assertEqual(viz_message.visualizations[0].query, "Chart")
@@ -625,7 +636,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
 
         self.assertEqual(len(result.messages), 1)
         self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
-        self.assertEqual(result.messages[0].content, FINALIZE_RESEARCH_TOOL_RESULT)
+        self.assertEqual(cast(AssistantToolCallMessage, result.messages[0]).content, FINALIZE_RESEARCH_TOOL_RESULT)
 
     async def test_unknown_tool_call(self):
         """Test node execution raises error for unknown tool calls"""
