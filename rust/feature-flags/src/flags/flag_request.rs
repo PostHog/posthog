@@ -24,11 +24,8 @@ where
     }))
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum FlagRequestType {
-    Decide,
-    LocalEvaluation,
-}
+// FlagRequestType moved to flag-analytics common crate
+pub use flag_analytics::FlagRequestType;
 
 #[derive(Default, Debug, Deserialize, Serialize)]
 pub struct FlagRequest {

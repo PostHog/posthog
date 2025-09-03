@@ -1,0 +1,11 @@
+[package]
+name = "flag-analytics"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+common-redis = { path = "../redis" }
+anyhow = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

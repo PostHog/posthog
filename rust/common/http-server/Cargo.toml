@@ -1,0 +1,13 @@
+[package]
+name = "http-server"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["signal"] }
+
+[dev-dependencies]
+tokio-test = { workspace = true }
+serde_urlencoded = { workspace = true }

@@ -8,9 +8,12 @@ members = [
     "common/alloc",
     "common/cookieless",
     "common/dns",
+    "common/flag-analytics",
     "common/health",
+    "common/http-server",
     "common/limiters",
     "common/metrics",
+    "common/redis",
     "common/symbol_data",
     "common/types",
     "feature-flags",
@@ -122,3 +125,7 @@ clickhouse = { version = "0.13.2", features = [
 
 # Used for decrypting django encrypted fields
 fernet = "0.2"
+zstd = "0.13"
+
+# Dev dependencies
+tokio-test = "0.4"

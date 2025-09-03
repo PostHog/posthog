@@ -44,6 +44,7 @@ pub enum QuotaResource {
     Recordings,
     Replay,
     FeatureFlags,
+    FlagDefinitions,
     Surveys,
     LLMEvents,
 }
@@ -56,6 +57,7 @@ impl QuotaResource {
             Self::Recordings => "recordings",
             Self::Replay => "replay",
             Self::FeatureFlags => "feature_flag_requests",
+            Self::FlagDefinitions => "flag_definitions_requests",
             Self::Surveys => "surveys",
             Self::LLMEvents => "llm_events",
         }
@@ -66,6 +68,7 @@ impl QuotaResource {
 pub enum ServiceName {
     SessionReplay,
     FeatureFlags,
+    FlagDefinitions,
     Capture,
     Cymbal,
 }
@@ -75,6 +78,7 @@ impl ServiceName {
         match self {
             ServiceName::SessionReplay => "session_replay".to_string(),
             ServiceName::FeatureFlags => "feature_flags".to_string(),
+            ServiceName::FlagDefinitions => "flag_definitions".to_string(),
             ServiceName::Capture => "capture".to_string(),
             ServiceName::Cymbal => "cymbal".to_string(),
         }

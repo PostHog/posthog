@@ -4,12 +4,12 @@ use crate::{
         types::{FlagsQueryParams, FlagsResponse},
     },
     flags::{
-        flag_analytics::SURVEY_TARGETING_FLAG_PREFIX,
         flag_models::{FeatureFlag, FeatureFlagList},
         flag_service::FlagService,
     },
 };
 use axum::extract::State;
+use flag_analytics::SURVEY_TARGETING_FLAG_PREFIX;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;

@@ -5,7 +5,6 @@ use opentelemetry::{KeyValue, Value};
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::trace::{BatchConfig, RandomIdGenerator, Sampler, Tracer};
 use opentelemetry_sdk::{runtime, Resource};
-use tokio::signal;
 use tracing::level_filters::LevelFilter;
 use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::fmt;
@@ -16,21 +15,12 @@ use tracing_subscriber::{EnvFilter, Layer};
 
 use feature_flags::config::Config;
 use feature_flags::server::serve;
+use http_server::graceful_shutdown;
 
 common_alloc::used!();
 
 async fn shutdown() {
-    let mut term = signal::unix::signal(signal::unix::SignalKind::terminate())
-        .expect("failed to register SIGTERM handler");
-
-    let mut interrupt = signal::unix::signal(signal::unix::SignalKind::interrupt())
-        .expect("failed to register SIGINT handler");
-
-    tokio::select! {
-        _ = term.recv() => {},
-        _ = interrupt.recv() => {},
-    };
-
+    graceful_shutdown().await;
     tracing::info!("Shutting down gracefully...");
 }
 

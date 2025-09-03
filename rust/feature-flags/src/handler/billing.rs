@@ -3,13 +3,10 @@ use crate::{
         errors::FlagError,
         types::{ConfigResponse, FlagsResponse},
     },
-    flags::{
-        flag_analytics::{increment_request_count, SURVEY_TARGETING_FLAG_PREFIX},
-        flag_models::FeatureFlagList,
-        flag_request::FlagRequestType,
-    },
+    flags::flag_models::FeatureFlagList,
 };
 use common_metrics::inc;
+use flag_analytics::{increment_request_count, FlagRequestType, SURVEY_TARGETING_FLAG_PREFIX};
 use limiters::redis::ServiceName;
 use std::collections::HashMap;
 

@@ -56,6 +56,7 @@ impl From<std::string::FromUtf8Error> for CustomRedisError {
 pub enum RedisValueFormat {
     Pickle,
     Utf8,
+    Zstd, // Zstandard compressed UTF-8 data
 }
 
 impl Default for RedisValueFormat {
@@ -176,6 +177,24 @@ impl Client for RedisClient {
                 let string_response = String::from_utf8(raw_bytes)?;
                 Ok(string_response)
             }
+            RedisValueFormat::Zstd => {
+                // Format: Zstandard-compressed pickle data
+                // This format is used by Django for compressing large cached values
+                // The data flow is: Original data -> Pickle serialization -> Zstandard compression
+                // To read: Decompress with Zstandard -> Deserialize with pickle
+
+                // Step 1: Decompress Zstandard data
+                let decompressed_bytes = zstd::decode_all(&raw_bytes[..]).map_err(|e| {
+                    CustomRedisError::ParseError(format!("Zstd decompression error: {}", e))
+                })?;
+
+                // Step 2: Deserialize the decompressed data using pickle format
+                // Note: This assumes the decompressed data is always in pickle format,
+                // which matches Django's compression strategy for cached values
+                let string_response: String =
+                    serde_pickle::from_slice(&decompressed_bytes, Default::default())?;
+                Ok(string_response)
+            }
         }
     }
 
@@ -192,6 +211,12 @@ impl Client for RedisClient {
         let bytes = match format {
             RedisValueFormat::Pickle => serde_pickle::to_vec(&v, Default::default())?,
             RedisValueFormat::Utf8 => v.into_bytes(),
+            RedisValueFormat::Zstd => {
+                // Compress UTF-8 data with Zstandard
+                zstd::encode_all(v.as_bytes(), 1).map_err(|e| {
+                    CustomRedisError::ParseError(format!("Zstd compression error: {}", e))
+                })?
+            }
         };
         let mut conn = self.connection.clone();
         let results = conn.set(k, bytes);
@@ -219,6 +244,12 @@ impl Client for RedisClient {
         let bytes = match format {
             RedisValueFormat::Pickle => serde_pickle::to_vec(&v, Default::default())?,
             RedisValueFormat::Utf8 => v.into_bytes(),
+            RedisValueFormat::Zstd => {
+                // Compress UTF-8 data with Zstandard
+                zstd::encode_all(v.as_bytes(), 1).map_err(|e| {
+                    CustomRedisError::ParseError(format!("Zstd compression error: {}", e))
+                })?
+            }
         };
         let mut conn = self.connection.clone();
         let seconds_usize = seconds as usize;

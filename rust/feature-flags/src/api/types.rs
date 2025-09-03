@@ -1,9 +1,12 @@
 use crate::flags::flag_matching::FeatureFlagMatch;
 use crate::flags::flag_models::FeatureFlag;
 use crate::{flags::flag_match_reason::FeatureFlagMatchReason, site_apps::WebJsUrl};
-use serde::{de, Deserialize, Deserializer, Serialize};
+use http_server::{
+    deserialize_optional_bool, deserialize_optional_timestamp, empty_string_as_none,
+};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{collections::HashMap, fmt, str::FromStr};
+use std::{collections::HashMap, str::FromStr};
 use uuid::Uuid;
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -410,76 +413,6 @@ pub enum SessionRecordingField {
 impl Default for SessionRecordingField {
     fn default() -> Self {
         SessionRecordingField::Disabled(false)
-    }
-}
-
-/// Generic deserializer that treats empty strings as None for any type that implements FromStr
-fn empty_string_as_none<'de, D, T>(de: D) -> Result<Option<T>, D::Error>
-where
-    D: Deserializer<'de>,
-    T: FromStr,
-    T::Err: fmt::Display,
-{
-    let opt = Option::<String>::deserialize(de)?;
-    match opt.as_deref() {
-        None | Some("") => Ok(None),
-        Some(s) => FromStr::from_str(s).map_err(de::Error::custom).map(Some),
-    }
-}
-
-/// Deserializer for timestamps that handles both strings and integers
-fn deserialize_optional_timestamp<'de, D>(de: D) -> Result<Option<i64>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum IntOrString {
-        Int(i64),
-        String(String),
-    }
-
-    let opt = Option::<IntOrString>::deserialize(de)?;
-    match opt {
-        None => Ok(None),
-        Some(IntOrString::Int(i)) => Ok(Some(i)),
-        Some(IntOrString::String(s)) if s.is_empty() => Ok(None),
-        Some(IntOrString::String(s)) => s.parse().map(Some).map_err(de::Error::custom),
-    }
-}
-
-/// Deserializer for boolean query parameters that treats presence as true
-/// Examples:
-/// - `?config` → Some(true)
-/// - `?config=` → Some(true)
-/// - `?config=true` → Some(true)
-/// - `?config=false` → Some(false)
-/// - `?config=1` → Some(true)
-/// - `?config=0` → Some(false)
-/// - missing → None
-fn deserialize_optional_bool<'de, D>(de: D) -> Result<Option<bool>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum BoolOrString {
-        Bool(bool),
-        String(String),
-    }
-
-    let opt = Option::<BoolOrString>::deserialize(de)?;
-    match opt {
-        None => Ok(None),
-        Some(BoolOrString::Bool(b)) => Ok(Some(b)),
-        Some(BoolOrString::String(s)) => {
-            match s.to_lowercase().as_str() {
-                "" => Ok(Some(true)), // Empty string = present = true
-                "true" | "1" | "yes" | "on" => Ok(Some(true)),
-                "false" | "0" | "no" | "off" => Ok(Some(false)),
-                _ => Ok(Some(true)), // Any other value = true (presence indicates true)
-            }
-        }
     }
 }
 

@@ -1,4 +1,3 @@
-#[cfg(test)]
 use crate::{
     api::{
         errors::FlagError,
@@ -10,7 +9,6 @@ use crate::{
     cohorts::cohort_cache_manager::CohortCacheManager,
     config::Config,
     flags::{
-        flag_analytics::SURVEY_TARGETING_FLAG_PREFIX,
         flag_models::{FeatureFlag, FeatureFlagList, FlagFilters, FlagPropertyGroup},
         flag_service::FlagService,
     },
@@ -29,6 +27,8 @@ use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
 use common_database::Client;
 use common_geoip::GeoIpClient;
+#[cfg(test)]
+use flag_analytics::SURVEY_TARGETING_FLAG_PREFIX;
 use reqwest::header::CONTENT_TYPE;
 use serde_json::{json, Value};
 use std::net::{Ipv4Addr, Ipv6Addr};
