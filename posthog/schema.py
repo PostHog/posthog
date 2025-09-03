@@ -14161,6 +14161,7 @@ class MaxInsightContext(BaseModel):
         extra="forbid",
     )
     description: Optional[str] = None
+    filtersOverride: Optional[DashboardFilter] = None
     id: str
     name: Optional[str] = None
     query: Union[
@@ -14224,6 +14225,7 @@ class MaxInsightContext(BaseModel):
         VectorSearchQuery,
     ] = Field(..., discriminator="kind")
     type: Literal["insight"] = "insight"
+    variablesOverride: Optional[dict[str, HogQLVariable]] = None
 
 
 class MaxUIContext(BaseModel):
@@ -14233,9 +14235,7 @@ class MaxUIContext(BaseModel):
     actions: Optional[list[MaxActionContext]] = None
     dashboards: Optional[list[MaxDashboardContext]] = None
     events: Optional[list[MaxEventContext]] = None
-    filters_override: Optional[DashboardFilter] = None
     insights: Optional[list[MaxInsightContext]] = None
-    variables_override: Optional[dict[str, HogQLVariable]] = None
 
 
 class QueryRequest(BaseModel):
