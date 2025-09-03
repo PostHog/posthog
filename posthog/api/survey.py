@@ -61,7 +61,17 @@ EMAIL_REGEX = r"^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
 FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS = [
     "linked_flag_id",
     "targeting_flag_filters",
-    "conditions",
+]
+
+# Does not include actions or events, as those are objects and thus are evaluated differently
+CONDITION_FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS = [
+    "url",
+    "urlMatchType",
+    "selector",
+    "seenSurveyWaitPeriodInDays",
+    "linkedFlagVariant",
+    "deviceTypes",
+    "deviceTypesMatchType",
 ]
 
 
@@ -450,22 +460,50 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 }
             )
 
-        return data
+        # Validate external survey constraints
+        if data.get("type") == Survey.SurveyType.EXTERNAL_SURVEY:
+            errors = {}
 
-    def _clear_external_survey_fields(self, data):
-        """Clear fields not applicable to external surveys"""
-        for field in FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS:
-            data[field] = None
-        data["remove_targeting_flag"] = True
-        if "appearance" in data and "surveyPopupDelaySeconds" in data["appearance"]:
-            data["appearance"]["surveyPopupDelaySeconds"] = None
+            # Check prohibited fields
+            for field in FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS:
+                if data.get(field) is not None:
+                    errors[field] = f"{field} is not allowed for external surveys"
+
+            # Check prohibited condition fields
+            if data.get("conditions"):
+                condition_errors = []
+                conditions = data["conditions"]
+
+                # Check individual condition fields
+                for field in CONDITION_FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS:
+                    if field in conditions and conditions[field] is not None:
+                        condition_errors.append(field)
+
+                # Check actions/events if they have values
+                for field in ["actions", "events"]:
+                    if field in conditions and isinstance(conditions[field], dict):
+                        values = conditions[field].get("values", [])
+                        if values:
+                            condition_errors.append(field)
+
+                if condition_errors:
+                    errors["conditions"] = (
+                        f"The following condition fields are not allowed for external surveys: {', '.join(condition_errors)}"
+                    )
+
+            # Check prohibited appearance fields
+            if "appearance" in data and data["appearance"] and "surveyPopupDelaySeconds" in data["appearance"]:
+                if data["appearance"]["surveyPopupDelaySeconds"] is not None:
+                    errors["appearance"] = {
+                        "surveyPopupDelaySeconds": "surveyPopupDelaySeconds is not allowed for external surveys"
+                    }
+
+            if errors:
+                raise serializers.ValidationError(errors)
 
         return data
 
     def create(self, validated_data):
-        if validated_data.get("type") == Survey.SurveyType.EXTERNAL_SURVEY:
-            self._clear_external_survey_fields(validated_data)
-
         if "remove_targeting_flag" in validated_data:
             validated_data.pop("remove_targeting_flag")
 
@@ -504,9 +542,6 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         before_update = Survey.objects.get(pk=instance.pk)
         user = self.context["request"].user
         changes = []
-
-        if validated_data.get("type") == Survey.SurveyType.EXTERNAL_SURVEY:
-            self._clear_external_survey_fields(validated_data)
 
         if validated_data.get("remove_targeting_flag"):
             if instance.targeting_flag:

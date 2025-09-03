@@ -3741,45 +3741,24 @@ class TestExternalSurveyValidation(APIBaseTest):
             filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
         )
 
-    def test_update_survey_to_external_clears_prohibited_fields(self):
-        """Test that converting any survey to external_survey clears prohibited fields and deletes targeting flags"""
-        # Create a targeting flag
-        targeting_flag = FeatureFlag.objects.create(
-            team=self.team,
-            key="survey-targeting-flag",
-            created_by=self.user,
-            filters={"groups": [{"properties": [], "rollout_percentage": 30}]},
-        )
-
-        # Create a regular survey with all possible fields that should be cleared
+    def test_update_survey_to_external_with_prohibited_fields_returns_validation_error(self):
+        """Test that converting survey to external_survey with prohibited fields returns validation errors"""
+        # Create a regular survey
         survey = Survey.objects.create(
             team=self.team,
             created_by=self.user,
-            name="Comprehensive Survey",
+            name="Regular Survey",
             type="popover",
             questions=[{"type": "open", "question": "Test question"}],
-            linked_flag=self.test_flag,
-            targeting_flag=targeting_flag,
-            conditions={"url": "https://example.com", "selector": ".test"},
         )
 
-        # Store flag IDs to verify they still exist after conversion
-        linked_flag_id = self.test_flag.id
-        targeting_flag_id = targeting_flag.id
-
-        # Verify initial state
-        survey.refresh_from_db()
-        assert survey.linked_flag_id is not None
-        assert survey.targeting_flag_id is not None
-        assert survey.conditions == {"url": "https://example.com", "selector": ".test"}
-
-        # Update to external survey type while trying to set prohibited fields
+        # Try to update to external survey type with prohibited fields
         response = self.client.patch(
             f"/api/projects/{self.team.id}/surveys/{survey.id}/",
             data={
                 "type": "external_survey",
-                "linked_flag_id": self.test_flag.id,  # Should be cleared even if provided
-                "targeting_flag_filters": {  # Should be cleared even if provided
+                "linked_flag_id": self.test_flag.id,
+                "targeting_flag_filters": {
                     "groups": [
                         {
                             "properties": [
@@ -3789,47 +3768,29 @@ class TestExternalSurveyValidation(APIBaseTest):
                         }
                     ]
                 },
-                "conditions": {"url": "https://different.com"},  # Should be cleared even if provided
+                "conditions": {"url": "https://different.com"},
                 "appearance": {
                     "backgroundColor": "#ffffff",
-                    "surveyPopupDelaySeconds": 5,  # Should be removed
-                    "submitButtonColor": "#000000",  # Should be preserved
+                    "surveyPopupDelaySeconds": 5,
+                    "submitButtonColor": "#000000",
                 },
             },
             format="json",
         )
 
-        assert response.status_code == status.HTTP_200_OK
-        response_data = response.json()
+        # Should return validation error
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        error_data = response.json()
 
-        # Verify all prohibited fields are cleared despite being in the request
-        assert response_data["conditions"] is None
-        assert response_data["linked_flag"] is None
-        assert response_data["targeting_flag"] is None
-        assert "surveyPopupDelaySeconds" == None
+        # The first validation error that's triggered should be about one of the prohibited fields
+        assert error_data["detail"] and "not allowed for external surveys" in error_data["detail"]
 
-        # Verify allowed fields are preserved
-        assert response_data["appearance"]["backgroundColor"] == "#ffffff"
-        assert response_data["appearance"]["submitButtonColor"] == "#000000"
-
-        # Verify fields are cleared in database
-        survey.refresh_from_db()
-        assert survey.linked_flag_id is None
-        assert survey.targeting_flag_id is None
-        assert survey.conditions is None
-
-        # Verify targeting flag was deleted (since it was associated with the survey)
-        assert not FeatureFlag.objects.filter(id=targeting_flag_id).exists()
-
-        # Verify linked flag still exists (it's user-managed, not auto-created)
-        assert FeatureFlag.objects.filter(id=linked_flag_id).exists()
-
-    def test_external_survey_with_all_prohibited_fields(self):
-        """Test creating external survey with all prohibited fields at once"""
+    def test_create_external_survey_with_prohibited_fields_returns_validation_error(self):
+        """Test creating external survey with prohibited fields returns validation errors"""
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
             data={
-                "name": "Comprehensive External Survey Test",
+                "name": "External Survey with Prohibited Fields",
                 "type": "external_survey",
                 "questions": [{"type": "open", "question": "What do you think?"}],
                 "linked_flag_id": self.test_flag.id,
@@ -3843,12 +3804,34 @@ class TestExternalSurveyValidation(APIBaseTest):
                         }
                     ]
                 },
-                "conditions": {"url": "https://example.com", "selector": ".test-button", "actions": {"values": []}},
+                "conditions": {"url": "https://example.com", "selector": ".test-button"},
                 "appearance": {
                     "backgroundColor": "#ffffff",
                     "surveyPopupDelaySeconds": 3,
                     "submitButtonColor": "#ff0000",
-                    "borderRadius": "8px",
+                },
+            },
+            format="json",
+        )
+
+        # Should return validation error
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        error_data = response.json()
+
+        # The first validation error should be about prohibited fields
+        assert error_data["detail"] and "not allowed for external surveys" in error_data["detail"]
+
+    def test_create_external_survey_without_prohibited_fields_succeeds(self):
+        """Test creating external survey without prohibited fields succeeds"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Valid External Survey",
+                "type": "external_survey",
+                "questions": [{"type": "open", "question": "What do you think?"}],
+                "appearance": {
+                    "backgroundColor": "#ffffff",
+                    "submitButtonColor": "#ff0000",
                 },
             },
             format="json",
@@ -3857,16 +3840,61 @@ class TestExternalSurveyValidation(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
         response_data = response.json()
 
-        # Verify all prohibited fields are cleared/removed
-        assert response_data["conditions"] is None
-        assert response_data["linked_flag"] is None
-        assert response_data["targeting_flag"] is None
-        assert "surveyPopupDelaySeconds" == None
-
-        # Verify allowed appearance fields are preserved
+        # Verify survey was created successfully
+        assert response_data["name"] == "Valid External Survey"
+        assert response_data["type"] == "external_survey"
         assert response_data["appearance"]["backgroundColor"] == "#ffffff"
         assert response_data["appearance"]["submitButtonColor"] == "#ff0000"
-        assert response_data["appearance"]["borderRadius"] == "8px"
+
+    def test_external_survey_allows_empty_conditions(self):
+        """Test that external surveys allow empty/default conditions"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "External Survey with Empty Conditions",
+                "type": "external_survey",
+                "questions": [{"type": "open", "question": "What do you think?"}],
+                "conditions": {
+                    "actions": {"values": []},
+                    "events": {"values": []},
+                    "deviceTypes": None,
+                    "deviceTypesMatchType": None,
+                    "linkedFlagVariant": None,
+                    "seenSurveyWaitPeriodInDays": None,
+                    "url": None,
+                    "urlMatchType": None,
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        response_data = response.json()
+        assert response_data["name"] == "External Survey with Empty Conditions"
+        assert response_data["type"] == "external_survey"
+
+    def test_external_survey_rejects_populated_conditions(self):
+        """Test that external surveys reject conditions with actual values"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "External Survey with Populated Conditions",
+                "type": "external_survey",
+                "questions": [{"type": "open", "question": "What do you think?"}],
+                "conditions": {
+                    "url": "https://example.com",
+                    "actions": {"values": [{"id": "123"}]},
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        error_data = response.json()
+        # Should have a conditions validation error listing the specific prohibited fields
+        assert error_data["detail"] and "condition fields are not allowed for external surveys" in error_data["detail"]
+        assert "url" in error_data["detail"]
+        assert "actions" in error_data["detail"]
 
     def test_non_external_survey_preserves_fields(self):
         """Test that non-external surveys preserve all fields normally"""
