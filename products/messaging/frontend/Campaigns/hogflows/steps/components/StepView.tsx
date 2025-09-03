@@ -34,9 +34,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
         }
     }, [action.type, isSelected])
 
-    // Validate the action against the Zod schema
-    const validationResult = actionValidationErrorsById[action.id]
-    const hasValidationError = validationResult?.valid === false
+    const hasValidationError = actionValidationErrorsById[action.id]?.valid === false
 
     return (
         <div

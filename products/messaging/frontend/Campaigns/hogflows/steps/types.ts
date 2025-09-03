@@ -132,23 +132,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             message_category_id: z.string().uuid().optional(),
             template_uuid: z.string().optional(), // May be used later to specify a specific template version
             template_id: z.literal('template-email'),
-            inputs: z.object({
-                email: z.object({
-                    value: z.object({
-                        to: z.object({
-                            email: z.string(),
-                        }),
-                        from: z.object({
-                            email: z.string().email(),
-                            name: z.string().min(1).max(100).optional(),
-                        }),
-                        preheader: z.string().optional(),
-                        subject: z.string().min(1),
-                        text: z.string().min(1),
-                        html: z.string().min(1),
-                    }),
-                }),
-            }),
+            inputs: z.record(CyclotronInputSchema),
         }),
     }),
 
