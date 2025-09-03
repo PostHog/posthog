@@ -7,6 +7,7 @@ from django.db import transaction
 from django.http import JsonResponse
 
 import structlog
+import posthoganalytics
 from loginas.utils import is_impersonated_session
 from rest_framework import request, serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
@@ -569,11 +570,18 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         ErrorTrackingStackFrame.objects.filter(team=self.team, symbol_set=symbol_set).delete()
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
 
+    # DEPRECATED: newer versions of the CLI use bulk uploads
     def create(self, request, *args, **kwargs) -> Response:
         # pull the symbol set reference from the query params
         chunk_id = request.query_params.get("chunk_id", None)
         multipart = request.query_params.get("multipart", False)
         release_id = request.query_params.get("release_id", None)
+
+        posthoganalytics.capture(
+            "error_tracking_symbol_set_deprecated_endpoint",
+            distinct_id=request.user.pk,
+            properties={"team_id": self.team.id, "endpoint": "create"},
+        )
 
         if not chunk_id:
             return Response({"detail": "chunk_id query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
@@ -593,9 +601,16 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         return Response({"ok": True}, status=status.HTTP_201_CREATED)
 
     @action(methods=["POST"], detail=False)
+    # DEPRECATED: we should eventually remove this once everyone is using a new enough version of the CLI
     def start_upload(self, request, **kwargs):
         chunk_id = request.query_params.get("chunk_id", None)
         release_id = request.query_params.get("release_id", None)
+
+        posthoganalytics.capture(
+            "error_tracking_symbol_set_deprecated_endpoint",
+            distinct_id=request.user.pk,
+            properties={"team_id": self.team.id, "endpoint": "start_upload"},
+        )
 
         if not settings.OBJECT_STORAGE_ENABLED:
             raise ValidationError(
