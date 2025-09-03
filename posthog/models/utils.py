@@ -24,7 +24,6 @@ from posthog.hogql import ast
 
 from posthog.constants import MAX_SLUG_LENGTH
 
-
 if TYPE_CHECKING:
     from random import Random
 
