@@ -38,7 +38,7 @@ def get_incremental_fields() -> dict[str, list[tuple[str, IncrementalFieldType]]
     return d
 
 
-def _extract_id_and_type_from_urn(urn: str) -> tuple[str, int] | None:
+def _extract_type_and_id_from_urn(urn: str) -> tuple[str, int] | None:
     """Extract ID from LinkedIn URN.
 
     Args:
@@ -226,7 +226,7 @@ def _flatten_linkedin_record(
             extracted_id: int | None = None
             virtual_column_name = None
             if urn_value:
-                urn_result = _extract_id_and_type_from_urn(urn_value)
+                urn_result = _extract_type_and_id_from_urn(urn_value)
                 if urn_result:
                     urn_type, extracted_id = urn_result
                     virtual_column_name = VIRTUAL_COLUMN_URN_MAPPING.get(urn_type)
@@ -240,7 +240,7 @@ def _flatten_linkedin_record(
         if field_name == "pivotValues":
             for pivot_value in record.get("pivotValues", []):
                 if isinstance(pivot_value, str):
-                    pivot_result = _extract_id_and_type_from_urn(pivot_value)
+                    pivot_result = _extract_type_and_id_from_urn(pivot_value)
                     if pivot_result:
                         pivot_type, pivot_extracted_id = pivot_result
                         pivot_name = VIRTUAL_COLUMN_URN_MAPPING.get(pivot_type)
