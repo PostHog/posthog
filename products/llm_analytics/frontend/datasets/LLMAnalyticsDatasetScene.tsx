@@ -4,7 +4,7 @@ import { combineUrl, router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonTab, LemonTabs } from '@posthog/lemon-ui'
+import { LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
 import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
 import { NotFound } from 'lib/components/NotFound'
@@ -21,7 +21,6 @@ import { SceneTextarea } from '~/lib/components/Scenes/SceneTextarea'
 import { Dataset } from '~/types'
 
 import { EditDatasetForm } from './EditDatasetForm'
-import { RefreshButton } from './RefreshButton'
 import { DatasetLogicProps, DatasetTab, isDataset, llmAnalyticsDatasetLogic } from './llmAnalyticsDatasetLogic'
 
 const RESOURCE_TYPE = 'dataset'
@@ -44,6 +43,7 @@ export function LLMAnalyticsDatasetScene(): JSX.Element {
         isNewDataset,
         datasetForm,
         dataset,
+        isDeletingDataset,
     } = useValues(llmAnalyticsDatasetLogic)
     const { submitDatasetForm, loadDataset, editDataset, deleteDataset, setDatasetFormValue, onUnmount } =
         useActions(llmAnalyticsDatasetLogic)
@@ -117,62 +117,66 @@ export function LLMAnalyticsDatasetScene(): JSX.Element {
                 }
             />
 
-            <ScenePanel>
-                <ScenePanelMetaInfo>
-                    <SceneTextInput
-                        name="name"
-                        defaultValue={datasetForm.name}
-                        onSave={(value) => {
-                            setDatasetFormValue('name', value)
-                            submitDatasetForm()
-                        }}
-                        dataAttrKey={RESOURCE_TYPE}
-                        isLoading={datasetLoading}
-                    />
-                    <SceneTextarea
-                        name="description"
-                        defaultValue={datasetForm.description}
-                        onSave={(value) => {
-                            setDatasetFormValue('description', value)
-                            submitDatasetForm()
-                        }}
-                        dataAttrKey={RESOURCE_TYPE}
-                        optional
-                        isLoading={datasetLoading}
-                    />
-                </ScenePanelMetaInfo>
-
-                <ScenePanelDivider />
-
-                <ScenePanelActions>
+            {isDataset(dataset) && (
+                <ScenePanel>
+                    <ScenePanelMetaInfo>
+                        <SceneTextInput
+                            name="name"
+                            defaultValue={datasetForm.name}
+                            onSave={(value) => {
+                                setDatasetFormValue('name', value)
+                                submitDatasetForm()
+                            }}
+                            dataAttrKey={RESOURCE_TYPE}
+                            isLoading={datasetLoading}
+                        />
+                        <SceneTextarea
+                            name="description"
+                            defaultValue={datasetForm.description}
+                            onSave={(value) => {
+                                setDatasetFormValue('description', value)
+                                submitDatasetForm()
+                            }}
+                            dataAttrKey={RESOURCE_TYPE}
+                            optional
+                            isLoading={datasetLoading}
+                        />
+                    </ScenePanelMetaInfo>
                     <ScenePanelDivider />
-                    <ButtonPrimitive
-                        onClick={() => {
-                            LemonDialog.open({
-                                title: 'Permanently delete dataset?',
-                                description: 'This action cannot be undone.',
-                                primaryButton: {
-                                    children: 'Delete',
-                                    type: 'primary',
-                                    status: 'danger',
-                                    'data-attr': 'confirm-delete-dataset',
-                                    onClick: deleteDataset,
-                                },
-                                secondaryButton: {
-                                    children: 'Close',
-                                    type: 'secondary',
-                                },
-                            })
-                        }}
-                        variant="danger"
-                        menuItem
-                        data-attr={`${RESOURCE_TYPE}-delete`}
-                    >
-                        <IconTrash />
-                        Delete
-                    </ButtonPrimitive>
-                </ScenePanelActions>
-            </ScenePanel>
+                    <ScenePanelActions>
+                        <ScenePanelDivider />
+                        <ButtonPrimitive
+                            onClick={() => {
+                                LemonDialog.open({
+                                    title: 'Permanently delete dataset?',
+                                    description: 'This action cannot be undone.',
+                                    primaryButton: {
+                                        children: 'Delete',
+                                        type: 'primary',
+                                        status: 'danger',
+                                        'data-attr': 'confirm-delete-dataset',
+                                        onClick: deleteDataset,
+                                    },
+                                    secondaryButton: {
+                                        children: 'Close',
+                                        type: 'secondary',
+                                    },
+                                })
+                            }}
+                            variant="danger"
+                            menuItem
+                            data-attr={`${RESOURCE_TYPE}-delete`}
+                            disabledReasons={{
+                                'Dataset is loading': datasetLoading,
+                                'Dataset is being deleted': isDeletingDataset,
+                            }}
+                        >
+                            <IconTrash />
+                            Delete
+                        </ButtonPrimitive>
+                    </ScenePanelActions>
+                </ScenePanel>
+            )}
 
             {displayEditForm ? <EditDatasetForm /> : isDataset(dataset) ? <DatasetTabs dataset={dataset} /> : null}
         </Form>
@@ -210,15 +214,7 @@ function DatasetTabs({ dataset }: { dataset: Dataset }): JSX.Element {
 }
 
 function DatasetItems(): JSX.Element {
-    return (
-        <>
-            <div className="flex justify-between items-center">
-                <RefreshButton onClick={() => {}} isRefreshing={false} />
-            </div>
-
-            <LemonDivider className="my-4" />
-        </>
-    )
+    return <>Not implemented</>
 }
 
 function DatasetMetadata({ dataset }: { dataset: Dataset }): JSX.Element {

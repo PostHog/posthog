@@ -1,7 +1,7 @@
 import { actions, afterMount, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import api from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
@@ -47,6 +47,7 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
         setActiveTab: (tab: DatasetTab) => ({ tab }),
         // beforeUnmount doesn't work as expected for scenes.
         onUnmount: true,
+        setDeletingDataset: (deleting: boolean) => ({ deleting }),
     }),
 
     reducers({
@@ -69,6 +70,14 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
             DatasetTab.Items as DatasetTab,
             {
                 setActiveTab: (_, { tab }) => tab,
+            },
+        ],
+
+        isDeletingDataset: [
+            false as boolean,
+            {
+                setDeletingDataset: (_, { deleting }) => deleting,
+                deleteDataset: () => true,
             },
         ],
     }),
@@ -168,6 +177,7 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
                 } catch {
                     lemonToast.error('Failed to delete dataset')
                 }
+                actions.setDeletingDataset(false)
             }
         },
 
@@ -188,6 +198,18 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
 
         loadDatasetSuccess: ({ dataset }) => {
             actions.setDatasetFormValues(getDatasetFormDefaults(dataset))
+        },
+    })),
+
+    urlToAction(({ actions, values }) => ({
+        [urls.llmAnalyticsDataset(':id')]: (_, searchParams) => {
+            if (
+                searchParams.tab &&
+                Object.values(DatasetTab).includes(searchParams.tab as DatasetTab) &&
+                searchParams.tab !== values.activeTab
+            ) {
+                actions.setActiveTab(searchParams.tab as DatasetTab)
+            }
         },
     })),
 
