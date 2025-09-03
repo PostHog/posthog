@@ -1,6 +1,10 @@
+import json
 import logging
+from datetime import timedelta
+from urllib.parse import urlencode
 
 from django.db.models import Q, QuerySet
+from django.utils.timezone import now
 
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.decorators import action
@@ -10,8 +14,9 @@ from posthog.api.activity_log import ActivityLogPagination, ActivityLogSerialize
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.exported_asset import ExportedAsset
+from posthog.tasks import exporter
 
-from .exporters import ExporterFactory
 from .field_discovery import AdvancedActivityLogFieldDiscovery
 from .filters import AdvancedActivityLogFilterManager
 
@@ -25,6 +30,34 @@ class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
     search_text = serializers.CharField(required=False, allow_blank=True)
     detail_filters = serializers.JSONField(required=False, default={})
     hogql_filter = serializers.CharField(required=False, allow_blank=True)
+
+
+class ActivityLogFlatExportSerializer(serializers.ModelSerializer):
+    organization_id = serializers.UUIDField()
+    project_id = serializers.CharField(source="team_id")
+    user_first_name = serializers.CharField(source="user.first_name", default="")
+    user_last_name = serializers.CharField(source="user.last_name", default="")
+    user_email = serializers.CharField(source="user.email", default="")
+    detail = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ActivityLog
+        fields = [
+            "id",
+            "organization_id",
+            "project_id",
+            "user_first_name",
+            "user_last_name",
+            "user_email",
+            "activity",
+            "scope",
+            "item_id",
+            "detail",
+            "created_at",
+        ]
+
+    def get_detail(self, obj):
+        return json.dumps(obj.detail) if obj.detail else ""
 
 
 class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins.ListModelMixin):
@@ -66,6 +99,13 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
 
         return base_queryset.order_by("-created_at")
 
+    def get_serializer_class(self):
+        # This query param is set by the CSV exporter to indicate that the response should be serialized in a flat format
+        if self.request.query_params.get("is_csv_export") == "1":
+            return ActivityLogFlatExportSerializer
+
+        return super().get_serializer_class()
+
     def list(self, request, *args, **kwargs):
         filters_serializer = AdvancedActivityLogFiltersSerializer(data=request.query_params)
         filters_serializer.is_valid(raise_exception=True)
@@ -90,16 +130,56 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     def export(self, request, **kwargs):
         export_format = request.data.get("format", "csv")
 
-        filters_serializer = AdvancedActivityLogFiltersSerializer(data=request.data.get("filters", {}))
-        filters_serializer.is_valid(raise_exception=True)
+        format_mapping = {
+            "csv": ExportedAsset.ExportFormat.CSV,
+            "xlsx": ExportedAsset.ExportFormat.XLSX,
+        }
 
-        queryset = self.filter_manager.apply_filters(self.dangerously_get_queryset(), filters_serializer.validated_data)
-        queryset = queryset[:10000]  # Limit export size for starters
+        if export_format not in format_mapping:
+            return Response({"error": f"Unsupported export format: {export_format}"}, status=400)
+
+        filters_serializer = AdvancedActivityLogFiltersSerializer(data=request.data.get("filters", {}))
+
+        if not filters_serializer.is_valid():
+            return Response({"error": "Filters are invalid"}, status=400)
+
+        query_params = {}
+        if self.request.query_params.get("include_organization_scoped"):
+            query_params["include_organization_scoped"] = "1"
+
+        # Transform body params to query params to include the filters in the export path
+        for key, value in filters_serializer.validated_data.items():
+            if value:
+                if isinstance(value, list):
+                    query_params[key] = ",".join(str(v) for v in value)
+                elif isinstance(value, dict):
+                    query_params[key] = json.dumps(value)
+                else:
+                    query_params[key] = str(value)
 
         try:
-            exporter = ExporterFactory.create_exporter(export_format, queryset)
-            return exporter.export()
-        except ValueError as e:
-            self.logger.exception(f"Invalid export format: {e}")
+            exported_asset = ExportedAsset.objects.create(
+                team=self.team,
+                export_format=format_mapping[export_format],
+                export_context={
+                    "path": f"/api/projects/{self.team_id}/advanced_activity_logs/?{urlencode(query_params)}",
+                    "method": "GET",
+                },
+                created_by=request.user,
+                expires_after=now() + timedelta(days=7),
+            )
+
+            exporter.export_asset.delay(exported_asset.id)
+
+            return Response(
+                {
+                    "id": exported_asset.id,
+                    "export_format": export_format,
+                },
+                status=202,
+            )
+
+        except Exception as e:
+            self.logger.exception(f"Failed to create export: {e}")
             capture_exception(e)
-            return Response({"error": "Invalid export format"}, status=400)
+            return Response({"error": "Failed to create export"}, status=500)
