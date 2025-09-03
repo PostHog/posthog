@@ -199,11 +199,11 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
         exportLogs: async ({ format }) => {
             try {
                 const filtersToExport = {
-                    start_date: values.filters.start_date || undefined,
-                    end_date: values.filters.end_date || undefined,
-                    users: values.filters.users || undefined,
-                    scopes: values.filters.scopes || undefined,
-                    activities: values.filters.activities || undefined,
+                    start_date: values.filters.start_date,
+                    end_date: values.filters.end_date,
+                    users: values.filters.users,
+                    scopes: values.filters.scopes,
+                    activities: values.filters.activities,
                 }
 
                 await api.create(`api/projects/@current/advanced_activity_logs/export/`, {
