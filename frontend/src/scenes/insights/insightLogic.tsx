@@ -61,13 +61,7 @@ export const createEmptyInsight = (
 
 export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType>([
     props({ filtersOverride: null, variablesOverride: null } as InsightLogicProps),
-    key((props) => {
-        const key = keyForInsightLogicProps('new')(props)
-        // if (key === 'new') {
-        //     throw new Error('Cannot initialize insightLogic with a key of "new". Please provide a unique key.')
-        // }
-        return key
-    }),
+    key((props) => keyForInsightLogicProps('new')(props)),
     path((key) => ['scenes', 'insights', 'insightLogic', key]),
     connect(() => ({
         values: [

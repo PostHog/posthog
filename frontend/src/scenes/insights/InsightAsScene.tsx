@@ -49,7 +49,7 @@ export function InsightAsScene({ insightId, attachTo, tabId }: InsightAsScenePro
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
-    useAttachedLogic(logic, attachTo)
+    useAttachedLogic(logic, attachTo) // insightLogic(insightProps)
     useAttachedLogic(insightDataLogic(insightProps), attachTo)
 
     const actuallyShowQueryEditor = insightMode === ItemMode.Edit && showQueryEditor
