@@ -23,6 +23,7 @@ import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/column
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
+import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -522,17 +523,17 @@ export function OverViewTab({
             />
             <div>{filtersSection}</div>
             <LemonDivider className="my-0" />
-            {count && (
-                <div>
-                    <span className="text-secondary ">
-                        {count
-                            ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} flag${
-                                  count === 1 ? '' : 's'
-                              }`
-                            : null}
-                    </span>
-                </div>
-            )}
+            <div>
+                <span className="text-secondary">
+                    {featureFlagsLoading ? (
+                        <WrappingLoadingSkeleton>1-100 of 150 flags</WrappingLoadingSkeleton>
+                    ) : count ? (
+                        `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} flag${
+                            count === 1 ? '' : 's'
+                        }`
+                    ) : null}
+                </span>
+            </div>
 
             <LemonTable
                 dataSource={featureFlags.results}
