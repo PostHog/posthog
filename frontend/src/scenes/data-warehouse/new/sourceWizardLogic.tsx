@@ -181,6 +181,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     props({} as SourceWizardLogicProps),
     actions({
         selectConnector: (connector: SourceConfig | null) => ({ connector }),
+        setInitialConnector: (connector: SourceConfig | null) => ({ connector }),
         toggleManualLinkFormVisible: (visible: boolean) => ({ visible }),
         handleRedirect: (source: ExternalDataSourceType, searchParams?: any) => ({ source, searchParams }),
         onClear: true,
@@ -247,6 +248,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             null as SourceConfig | null,
             {
                 selectConnector: (_, { connector }) => connector,
+                setInitialConnector: (_, { connector }) => connector,
             },
         ],
         isManualLinkFormVisible: [
@@ -262,6 +264,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 onBack: (state) => state - 1,
                 onClear: () => 1,
                 setStep: (_, { step }) => step,
+                setInitialConnector: () => 2,
             },
         ],
         databaseSchema: [
@@ -473,20 +476,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
                 if (currentStep === 4) {
                     return 'Importing your data...'
-                }
-
-                return ''
-            },
-        ],
-        modalCaption: [
-            (s) => [s.selectedConnector, s.currentStep, s.availableSources],
-            (selectedConnector, currentStep, availableSources) => {
-                if (currentStep === 2 && selectedConnector) {
-                    return availableSources[selectedConnector.name]?.caption
-                }
-
-                if (currentStep === 4) {
-                    return "Sit tight as we import your data! After it's done, you will be able to query it in PostHog."
                 }
 
                 return ''
