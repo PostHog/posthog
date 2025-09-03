@@ -5,6 +5,7 @@ import { expectLogic, partial } from 'kea-test-utils'
 
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -33,7 +34,9 @@ describe('insightSceneLogic', () => {
             },
         })
         initKeaTests()
-        logic = insightSceneLogic({ tabId: 'test-tab' })
+        sceneLogic.mount()
+        const tabId = sceneLogic.values.activeTabId
+        logic = insightSceneLogic({ tabId })
         logic.mount()
     })
 
