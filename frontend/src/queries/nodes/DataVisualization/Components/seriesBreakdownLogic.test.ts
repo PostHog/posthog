@@ -4,7 +4,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ChartDisplayType, ItemMode } from '~/types'
+import { ChartDisplayType } from '~/types'
 
 import { dataNodeLogic } from '../../DataNode/dataNodeLogic'
 import { DataVisualizationLogicProps, dataVisualizationLogic } from '../dataVisualizationLogic'
@@ -64,7 +64,7 @@ const dummyDataVisualizationLogicProps: DataVisualizationLogicProps = {
     setQuery: (query) => {
         globalQuery = query
     },
-    insightMode: ItemMode.View,
+    editMode: false,
     dataNodeCollectionId: 'new-test-SQL',
 }
 

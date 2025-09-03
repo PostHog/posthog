@@ -50,7 +50,7 @@ export function UserInterviews(): JSX.Element {
                     <LemonButton
                         type="primary"
                         icon={<IconDownload />}
-                        onClick={() => updateHasSeenProductIntroFor(ProductKey.USER_INTERVIEWS, true)}
+                        onClick={() => updateHasSeenProductIntroFor(ProductKey.USER_INTERVIEWS)}
                         to="https://posthog.com/recorder"
                         data-attr="install-recorder"
                     >

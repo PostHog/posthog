@@ -5,6 +5,7 @@ import { types as pgTypes } from 'pg'
 import { ConnectionOptions } from 'tls'
 
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+import { InternalCaptureService } from '~/common/services/internal-capture'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 
 import { getPluginServerCapabilities } from '../../capabilities'
@@ -156,6 +157,7 @@ export async function createHub(
     const encryptedFields = new EncryptedFields(serverConfig)
     const integrationManager = new IntegrationManagerService(pubSub, postgres, encryptedFields)
     const quotaLimiting = new QuotaLimiting(serverConfig, teamManager)
+    const internalCaptureService = new InternalCaptureService(serverConfig)
 
     const hub: Hub = {
         ...serverConfig,
@@ -202,6 +204,7 @@ export async function createHub(
         pubSub,
         integrationManager,
         quotaLimiting,
+        internalCaptureService,
     }
 
     return hub

@@ -13,6 +13,7 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { FeatureFlagHog } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -23,6 +24,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { cn } from 'lib/utils/css-classes'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { getAppContext } from 'lib/utils/getAppContext'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -31,6 +33,9 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Noun, groupsModel } from '~/models/groupsModel'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { AccessControlResourceType, ProductKey } from '~/types'
@@ -74,6 +79,7 @@ export function OverViewTab({
     const page = filters.page || 1
     const startCount = (page - 1) * FLAGS_PER_PAGE + 1
     const endCount = page * FLAGS_PER_PAGE < count ? page * FLAGS_PER_PAGE : count
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const tryInInsightsUrl = (featureFlag: FeatureFlagType): string => {
         const query: InsightVizNode = {
@@ -363,7 +369,7 @@ export function OverViewTab({
     ]
 
     const filtersSection = (
-        <div className="flex justify-between mb-4 gap-2 flex-wrap">
+        <div className="flex justify-between gap-2 flex-wrap">
             <LemonInput
                 className="w-60"
                 type="search"
@@ -491,7 +497,7 @@ export function OverViewTab({
     )
 
     return (
-        <>
+        <SceneContent forceNewSpacing>
             <ProductIntroduction
                 productName="Feature flags"
                 productKey={ProductKey.FEATURE_FLAGS}
@@ -501,18 +507,21 @@ export function OverViewTab({
                 action={() => router.actions.push(urls.featureFlag('new'))}
                 isEmpty={shouldShowEmptyState}
                 customHog={FeatureFlagHog}
+                className={cn(newSceneLayout && 'my-0')}
             />
             <div>{filtersSection}</div>
-            <LemonDivider className="my-4" />
-            <div className="mb-4">
-                <span className="text-secondary ">
-                    {count
-                        ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} flag${
-                              count === 1 ? '' : 's'
-                          }`
-                        : null}
-                </span>
-            </div>
+            <LemonDivider className="my-0" />
+            {count && (
+                <div>
+                    <span className="text-secondary ">
+                        {count
+                            ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} flag${
+                                  count === 1 ? '' : 's'
+                              }`
+                            : null}
+                    </span>
+                </div>
+            )}
 
             <LemonTable
                 dataSource={featureFlags.results}
@@ -535,16 +544,16 @@ export function OverViewTab({
                     })
                 }
             />
-        </>
+        </SceneContent>
     )
 }
 
 export function FeatureFlags(): JSX.Element {
     const { activeTab } = useValues(featureFlagsLogic)
     const { setActiveTab } = useActions(featureFlagsLogic)
-
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     return (
-        <div className="feature_flags">
+        <SceneContent className="feature_flags">
             <PageHeader
                 buttons={
                     <AccessControlledLemonButton
@@ -561,9 +570,19 @@ export function FeatureFlags(): JSX.Element {
                     </AccessControlledLemonButton>
                 }
             />
+            <SceneTitleSection
+                name="Feature flags"
+                description="Use feature flags to safely deploy and roll back new features in an easy-to-manage way. Roll variants out to certain groups, a percentage of users, or everyone all at once."
+                resourceType={{
+                    type: 'feature_flag',
+                    typePlural: 'Feature flags',
+                }}
+            />
+            <SceneDivider />
             <LemonTabs
                 activeKey={activeTab}
                 onChange={(newKey) => setActiveTab(newKey)}
+                sceneInset={newSceneLayout}
                 tabs={[
                     {
                         key: FeatureFlagsTab.OVERVIEW,
@@ -578,7 +597,7 @@ export function FeatureFlags(): JSX.Element {
                 ]}
                 data-attr="feature-flags-tab-navigation"
             />
-        </div>
+        </SceneContent>
     )
 }
 

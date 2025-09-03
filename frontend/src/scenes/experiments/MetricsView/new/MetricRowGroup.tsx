@@ -26,6 +26,7 @@ import {
     getNiceTickValues,
     isDeltaPositive,
     isSignificant,
+    isWinning,
 } from '../shared/utils'
 import { ChartCell } from './ChartCell'
 import { DetailsButton } from './DetailsButton'
@@ -252,7 +253,7 @@ export function MetricRowGroup({
                             visibility: tooltipState.isPositioned ? 'visible' : 'hidden',
                         }}
                     >
-                        {renderTooltipContent(tooltipState.variantResult)}
+                        {renderTooltipContent(tooltipState.variantResult, metric)}
                     </div>,
                     document.body
                 )}
@@ -381,6 +382,7 @@ export function MetricRowGroup({
                 const isLastRow = index === variantResults.length - 1
                 const significant = isSignificant(variant)
                 const deltaPositive = isDeltaPositive(variant)
+                const winning = isWinning(variant, metric.goal)
                 const deltaText = formatDeltaPercent(variant)
 
                 return (
@@ -426,7 +428,7 @@ export function MetricRowGroup({
                                 <span
                                     className={`${
                                         significant
-                                            ? deltaPositive
+                                            ? winning
                                                 ? 'text-success font-semibold'
                                                 : 'text-danger font-semibold'
                                             : 'text-text-primary'
@@ -435,7 +437,7 @@ export function MetricRowGroup({
                                     {deltaText}
                                 </span>
                                 {significant && deltaPositive !== undefined && (
-                                    <span className={`flex-shrink-0 ${deltaPositive ? 'text-success' : 'text-danger'}`}>
+                                    <span className={`flex-shrink-0 ${winning ? 'text-success' : 'text-danger'}`}>
                                         {deltaPositive ? (
                                             <IconTrending className="w-4 h-4" />
                                         ) : (
@@ -449,6 +451,7 @@ export function MetricRowGroup({
                         {/* Chart */}
                         <ChartCell
                             variantResult={variant}
+                            metric={metric}
                             axisRange={axisRange}
                             metricUuid={metric.uuid}
                             isAlternatingRow={isAlternatingRow}

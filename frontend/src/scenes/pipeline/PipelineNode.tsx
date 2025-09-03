@@ -5,7 +5,9 @@ import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs/LemonTabs'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { HogFunctionMetricsV2 } from 'scenes/hog-functions/metrics/HogFunctionMetricsV2'
+import { BatchExportsMetrics } from 'scenes/data-pipelines/batch-exports/BatchExportsMetrics'
+import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
+import { HogFunctionMetrics } from 'scenes/hog-functions/metrics/HogFunctionMetrics'
 import { HogFunctionTesting } from 'scenes/hog-functions/testing/HogFunctionTesting'
 import { PipelineNodeLogs } from 'scenes/pipeline/PipelineNodeLogs'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -16,7 +18,6 @@ import { ActivityScope, PipelineNodeTab, PipelineStage, PipelineTab } from '~/ty
 import { BatchExportBackfills } from '../data-pipelines/batch-exports/BatchExportBackfills'
 import { BatchExportRuns } from '../data-pipelines/batch-exports/BatchExportRuns'
 import { HogFunctionLogs } from '../hog-functions/logs/HogFunctionLogs'
-import { HogFunctionMetrics } from '../hog-functions/metrics/HogFunctionMetrics'
 import { PipelineNodeConfiguration } from './PipelineNodeConfiguration'
 import { PipelineNodeMetrics } from './PipelineNodeMetrics'
 import { PipelineNodeLogicProps, pipelineNodeLogic } from './pipelineNodeLogic'
@@ -63,8 +64,10 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
         [PipelineNodeTab.Configuration]: <PipelineNodeConfiguration />,
         [PipelineNodeTab.Metrics]:
             node.backend === PipelineBackend.HogFunction ? (
-                <FlaggedFeature flag="cdp-app-metrics-new" fallback={<HogFunctionMetrics id={node.id} />}>
-                    <HogFunctionMetricsV2 id={node.id} />
+                <HogFunctionMetrics id={node.id} />
+            ) : node.backend === PipelineBackend.BatchExport ? (
+                <FlaggedFeature flag="batch-export-new-metrics" fallback={<PipelineNodeMetrics id={id} />}>
+                    <BatchExportsMetrics id={id.toString()} />
                 </FlaggedFeature>
             ) : (
                 <PipelineNodeMetrics id={id} />
@@ -72,6 +75,10 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
         [PipelineNodeTab.Logs]:
             node.backend === PipelineBackend.HogFunction ? (
                 <HogFunctionLogs hogFunctionId={id.toString().substring(4)} />
+            ) : node.backend === PipelineBackend.BatchExport ? (
+                <FlaggedFeature flag="batch-export-new-logs" fallback={<PipelineNodeLogs id={id} stage={stage} />}>
+                    <LogsViewer sourceType="batch_export" sourceId={id.toString()} instanceLabel="run" />
+                </FlaggedFeature>
             ) : (
                 <PipelineNodeLogs id={id} stage={stage} />
             ),

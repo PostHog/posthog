@@ -16,15 +16,12 @@ import { useEffect } from 'react'
 import { twMerge } from 'tailwind-merge'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
-import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { FunnelsQuery, TrendsQuery } from '~/queries/schema/schema-general'
 import { InsightShortId } from '~/types'
 
 import { MaxInstance, MaxInstanceProps } from './Max'
-import { MaxFloatingInput } from './MaxFloatingInput'
 import conversationList from './__mocks__/conversationList.json'
 import { ToolRegistration } from './max-constants'
 import { maxContextLogic } from './maxContextLogic'
@@ -66,7 +63,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-01-28', // To stabilize relative dates
-        featureFlags: [FEATURE_FLAGS.ARTIFICIAL_HOG, FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG],
+        featureFlags: [FEATURE_FLAGS.ARTIFICIAL_HOG],
     },
 }
 export default meta
@@ -566,138 +563,6 @@ export const ThreadScrollsToBottomOnNewMessages: StoryFn = () => {
     )
 }
 ThreadScrollsToBottomOnNewMessages.parameters = {
-    testOptions: {
-        waitForLoadersToDisappear: false,
-    },
-}
-
-export const FloatingInput: StoryFn = () => {
-    const { closeSidePanel } = useActions(sidePanelLogic)
-    const { setIsFloatingMaxExpanded } = useActions(maxGlobalLogic)
-    useDelayedOnMountEffect(() => {
-        closeSidePanel()
-        setIsFloatingMaxExpanded(false)
-    })
-
-    return <MaxFloatingInput />
-}
-
-export const ExpandedFloatingInput: StoryFn = () => {
-    const { setIsFloatingMaxExpanded } = useActions(maxGlobalLogic)
-    useDelayedOnMountEffect(() => {
-        setIsFloatingMaxExpanded(true)
-    })
-
-    return <MaxFloatingInput />
-}
-
-export const ExpandedFloatingInputWithContextualTools: StoryFn = () => {
-    const { registerTool } = useActions(maxGlobalLogic)
-
-    useEffect(() => {
-        // Register sample contextual tools
-        registerTool({
-            identifier: 'create_insight' as ToolRegistration['identifier'],
-            name: 'Create insight',
-            description: 'Max can create a new insight',
-            context: {
-                dashboard_id: 'test-dashboard',
-                available_events: ['$pageview', '$identify', 'button_clicked'],
-                current_filters: { date_range: 'last_7_days' },
-            },
-            callback: (toolOutput) => {
-                console.info('Creating insight:', toolOutput)
-            },
-        })
-
-        registerTool({
-            identifier: 'analyze_funnel' as ToolRegistration['identifier'],
-            name: 'Analyze funnel',
-            description: 'Max can analyze a funnel',
-            context: {
-                existing_funnels: ['signup_funnel', 'checkout_funnel'],
-                conversion_metrics: { signup_rate: 0.15, checkout_rate: 0.08 },
-            },
-            callback: (toolOutput) => {
-                console.info('Analyzing funnel:', toolOutput)
-            },
-        })
-
-        registerTool({
-            identifier: 'export_data' as ToolRegistration['identifier'],
-            name: 'Export data',
-            description: 'Max can export data in various formats',
-            context: {
-                available_formats: ['csv', 'json', 'parquet'],
-                current_query: { event: '$pageview', breakdown: 'browser' },
-            },
-            callback: (toolOutput) => {
-                console.info('Exporting data:', toolOutput)
-            },
-        })
-    }, [registerTool])
-
-    return <MaxFloatingInput />
-}
-
-export const ExpandedFloatingInputWithSuggestions: StoryFn = () => {
-    const { setIsFloatingMaxExpanded, setShowFloatingMaxSuggestions } = useActions(maxGlobalLogic)
-    useEffect(() => {
-        setIsFloatingMaxExpanded(true)
-        setShowFloatingMaxSuggestions(true)
-    }, [setIsFloatingMaxExpanded, setShowFloatingMaxSuggestions])
-
-    return <MaxFloatingInput />
-}
-
-export const ExpandedFloatingInputMobileView: StoryFn = () => {
-    useStorybookMocks({
-        get: {
-            '/api/organizations/@current/': () => [
-                200,
-                {
-                    ...MOCK_DEFAULT_ORGANIZATION,
-                    is_ai_data_processing_approved: true,
-                },
-            ],
-        },
-    })
-
-    return <MaxFloatingInput />
-}
-ExpandedFloatingInputMobileView.parameters = {
-    viewport: {
-        defaultViewport: 'mobile2',
-    },
-}
-
-export const ExpandedFloatingInputThread: StoryFn = () => {
-    const { setIsFloatingMaxExpanded } = useActions(maxGlobalLogic)
-    const { setConversationId } = useActions(maxLogic)
-    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
-    const { askMax } = useActions(threadLogic)
-    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
-
-    useEffect(() => {
-        setIsFloatingMaxExpanded(true)
-    }, [setIsFloatingMaxExpanded])
-
-    useEffect(() => {
-        if (dataProcessingAccepted) {
-            setTimeout(() => {
-                setConversationId(CONVERSATION_ID)
-                askMax(humanMessage.content)
-            }, 0)
-        }
-    }, [dataProcessingAccepted, setConversationId, askMax])
-
-    if (!dataProcessingAccepted) {
-        return <></>
-    }
-
-    return <MaxFloatingInput />
-}
-ExpandedFloatingInputThread.parameters = {
     testOptions: {
         waitForLoadersToDisappear: false,
     },

@@ -1142,6 +1142,11 @@ class ExperimentExposureTimeSeries(BaseModel):
     variant: str
 
 
+class ExperimentMetricGoal(StrEnum):
+    INCREASE = "increase"
+    DECREASE = "decrease"
+
+
 class ExperimentMetricMathType(StrEnum):
     TOTAL = "total"
     SUM = "sum"
@@ -3696,6 +3701,7 @@ class ExperimentMetricBaseProperties(BaseModel):
     )
     conversion_window: Optional[int] = None
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
+    goal: Optional[ExperimentMetricGoal] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     name: Optional[str] = None
     response: Optional[dict[str, Any]] = None
@@ -11497,6 +11503,7 @@ class ExperimentRatioMetric(BaseModel):
     conversion_window: Optional[int] = None
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
     denominator: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
+    goal: Optional[ExperimentMetricGoal] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     metric_type: Literal["ratio"] = "ratio"
     name: Optional[str] = None
@@ -12359,6 +12366,7 @@ class ExperimentFunnelMetric(BaseModel):
     conversion_window: Optional[int] = None
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
     funnel_order_type: Optional[StepOrderValue] = None
+    goal: Optional[ExperimentMetricGoal] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     metric_type: Literal["funnel"] = "funnel"
     name: Optional[str] = None
@@ -12374,6 +12382,7 @@ class ExperimentMeanMetric(BaseModel):
     )
     conversion_window: Optional[int] = None
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
+    goal: Optional[ExperimentMetricGoal] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     lower_bound_percentile: Optional[float] = None
     metric_type: Literal["mean"] = "mean"
