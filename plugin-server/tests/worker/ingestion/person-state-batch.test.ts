@@ -233,7 +233,8 @@ describe('PersonState.processEvent()', () => {
         processPerson = true,
         timestampParam = timestamp,
         team = mainTeam,
-        moveLimit: number = 0
+        moveLimit: number = 0,
+        batchSize?: number
     ) {
         const fullEvent = {
             team_id: teamId,
@@ -247,7 +248,14 @@ describe('PersonState.processEvent()', () => {
             customHub ? customHub.db.kafkaProducer : hub.db.kafkaProducer
         )
 
-        const mergeMode = moveLimit > 0 ? { type: 'LIMIT' as const, limit: moveLimit } : createDefaultSyncMergeMode()
+        let mergeMode
+        if (moveLimit > 0) {
+            mergeMode = { type: 'LIMIT' as const, limit: moveLimit }
+        } else if (batchSize !== undefined) {
+            mergeMode = { type: 'SYNC' as const, batchSize }
+        } else {
+            mergeMode = createDefaultSyncMergeMode()
+        }
 
         const context = new PersonContext(
             fullEvent as any,
@@ -3244,6 +3252,247 @@ describe('PersonState.processEvent()', () => {
                     'person2-merged-distinct-id',
                 ])
             )
+        })
+
+        describe('SYNC mode with batch processing', () => {
+            it('merges all distinct IDs when batch size is larger than total distinct IDs', async () => {
+                const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, [
+                    { distinctId: firstUserDistinctId },
+                ])
+                const second = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, [
+                    { distinctId: secondUserDistinctId },
+                ])
+
+                // Add a few more distinct IDs to the source person
+                const repo = new PostgresPersonRepository(hub.db.postgres)
+                await repo.addDistinctId(second, 'second-2', 0)
+                await repo.addDistinctId(second, 'second-3', 0)
+
+                // Use SYNC mode with batch size larger than total distinct IDs (5 > 3)
+                const mergeService: PersonMergeService = personMergeService(
+                    {},
+                    hub,
+                    repo,
+                    true,
+                    timestamp,
+                    mainTeam,
+                    0, // no move limit
+                    5 // batch size
+                )
+
+                jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
+                jest.spyOn(repo, 'moveDistinctIds')
+
+                const result = await mergeService.mergePeople({
+                    mergeInto: first,
+                    mergeIntoDistinctId: firstUserDistinctId,
+                    otherPerson: second,
+                    otherPersonDistinctId: secondUserDistinctId,
+                })
+
+                expect(result.success).toBe(true)
+                if (!result.success) {
+                    throw new Error('Merge should have succeeded')
+                }
+
+                const person = result.person
+                const kafkaAcks = result.kafkaAck
+                const context = mergeService.getContext()
+                await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+
+                // Should have called moveDistinctIds only once since batch size > total distinct IDs
+                expect(repo.moveDistinctIds).toHaveBeenCalledTimes(1)
+
+                // Verify all distinct IDs were moved
+                const distinctIds = await fetchDistinctIdValues(hub.db.postgres, person!)
+                expect(distinctIds).toEqual(
+                    expect.arrayContaining([firstUserDistinctId, secondUserDistinctId, 'second-2', 'second-3'])
+                )
+                expect(distinctIds.length).toBe(4)
+            })
+
+            it('merges all distinct IDs in multiple batches when batch size is smaller than total', async () => {
+                const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, [
+                    { distinctId: firstUserDistinctId },
+                ])
+                const second = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, [
+                    { distinctId: secondUserDistinctId },
+                ])
+
+                // Add several distinct IDs to the source person
+                const repo = new PostgresPersonRepository(hub.db.postgres)
+                await repo.addDistinctId(second, 'second-2', 0)
+                await repo.addDistinctId(second, 'second-3', 0)
+                await repo.addDistinctId(second, 'second-4', 0)
+                await repo.addDistinctId(second, 'second-5', 0)
+
+                // Use SYNC mode with small batch size (2 < 5 total distinct IDs)
+                const mergeService: PersonMergeService = personMergeService(
+                    {},
+                    hub,
+                    repo,
+                    true,
+                    timestamp,
+                    mainTeam,
+                    0, // no move limit
+                    2 // small batch size
+                )
+
+                jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
+                jest.spyOn(repo, 'moveDistinctIds')
+
+                const result = await mergeService.mergePeople({
+                    mergeInto: first,
+                    mergeIntoDistinctId: firstUserDistinctId,
+                    otherPerson: second,
+                    otherPersonDistinctId: secondUserDistinctId,
+                })
+
+                expect(result.success).toBe(true)
+                if (!result.success) {
+                    throw new Error('Merge should have succeeded')
+                }
+
+                const person = result.person
+                const kafkaAcks = result.kafkaAck
+                const context = mergeService.getContext()
+                await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+
+                // Should have called moveDistinctIds multiple times due to batching
+                expect(repo.moveDistinctIds).toHaveBeenCalledTimes(3) // 5 distinct IDs / 2 batch size = 3 calls (2+2+1)
+
+                // Verify all distinct IDs were moved despite batching
+                const distinctIds = await fetchDistinctIdValues(hub.db.postgres, person!)
+                expect(distinctIds).toEqual(
+                    expect.arrayContaining([
+                        firstUserDistinctId,
+                        secondUserDistinctId,
+                        'second-2',
+                        'second-3',
+                        'second-4',
+                        'second-5',
+                    ])
+                )
+                expect(distinctIds.length).toBe(6)
+            })
+
+            it('handles edge case with batch size of 1', async () => {
+                const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, [
+                    { distinctId: firstUserDistinctId },
+                ])
+                const second = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, [
+                    { distinctId: secondUserDistinctId },
+                ])
+
+                // Add one more distinct ID to the source person
+                const repo = new PostgresPersonRepository(hub.db.postgres)
+                await repo.addDistinctId(second, 'second-2', 0)
+
+                // Use SYNC mode with batch size of 1
+                const mergeService: PersonMergeService = personMergeService(
+                    {},
+                    hub,
+                    repo,
+                    true,
+                    timestamp,
+                    mainTeam,
+                    0, // no move limit
+                    1 // batch size of 1
+                )
+
+                jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
+                jest.spyOn(repo, 'moveDistinctIds')
+
+                const result = await mergeService.mergePeople({
+                    mergeInto: first,
+                    mergeIntoDistinctId: firstUserDistinctId,
+                    otherPerson: second,
+                    otherPersonDistinctId: secondUserDistinctId,
+                })
+
+                console.log('result', result)
+                expect(result.success).toBe(true)
+                if (!result.success) {
+                    throw new Error('Merge should have succeeded')
+                }
+
+                const person = result.person
+                const kafkaAcks = result.kafkaAck
+                const context = mergeService.getContext()
+                await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+
+                // Once all for each distinct ID moved, then one more to make sure all distinct IDs were moved
+                expect(repo.moveDistinctIds).toHaveBeenCalledTimes(3)
+
+                // Verify all distinct IDs were moved
+                const distinctIds = await fetchDistinctIdValues(hub.db.postgres, person!)
+                expect(distinctIds).toEqual(
+                    expect.arrayContaining([firstUserDistinctId, secondUserDistinctId, 'second-2'])
+                )
+                expect(distinctIds.length).toBe(3)
+            })
+
+            it('handles SYNC mode with undefined batch size (unlimited)', async () => {
+                const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, [
+                    { distinctId: firstUserDistinctId },
+                ])
+                const second = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, [
+                    { distinctId: secondUserDistinctId },
+                ])
+
+                // Add several distinct IDs to the source person
+                const repo = new PostgresPersonRepository(hub.db.postgres)
+                await repo.addDistinctId(second, 'second-2', 0)
+                await repo.addDistinctId(second, 'second-3', 0)
+                await repo.addDistinctId(second, 'second-4', 0)
+
+                // Use default SYNC mode (undefined batch size = unlimited)
+                const mergeService: PersonMergeService = personMergeService(
+                    {},
+                    hub,
+                    repo,
+                    true,
+                    timestamp,
+                    mainTeam,
+                    0 // no move limit, no batch size
+                )
+
+                jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
+                jest.spyOn(repo, 'moveDistinctIds')
+
+                const result = await mergeService.mergePeople({
+                    mergeInto: first,
+                    mergeIntoDistinctId: firstUserDistinctId,
+                    otherPerson: second,
+                    otherPersonDistinctId: secondUserDistinctId,
+                })
+
+                expect(result.success).toBe(true)
+                if (!result.success) {
+                    throw new Error('Merge should have succeeded')
+                }
+
+                const person = result.person
+                const kafkaAcks = result.kafkaAck
+                const context = mergeService.getContext()
+                await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+
+                // Should have called moveDistinctIds only once (unlimited batch size)
+                expect(repo.moveDistinctIds).toHaveBeenCalledTimes(1)
+
+                // Verify all distinct IDs were moved
+                const distinctIds = await fetchDistinctIdValues(hub.db.postgres, person!)
+                expect(distinctIds).toEqual(
+                    expect.arrayContaining([
+                        firstUserDistinctId,
+                        secondUserDistinctId,
+                        'second-2',
+                        'second-3',
+                        'second-4',
+                    ])
+                )
+                expect(distinctIds.length).toBe(5)
+            })
         })
     })
 })

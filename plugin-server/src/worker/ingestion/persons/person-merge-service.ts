@@ -3,6 +3,7 @@ import { Counter } from 'prom-client'
 
 import { Properties } from '@posthog/plugin-scaffold'
 
+import { TopicMessage } from '../../../kafka/producer'
 import { InternalPerson } from '../../../types'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { logger } from '../../../utils/logger'
@@ -488,48 +489,89 @@ export class PersonMergeService {
                         this.context.distinctId
                     )
 
-                    const perCallLimit =
-                        this.context.mergeMode.type === 'LIMIT' ? this.context.mergeMode.limit : undefined
-                    const distinctIdResult = await tx.moveDistinctIds(
-                        currentSourcePerson,
-                        currentTargetPerson,
-                        this.context.distinctId,
-                        perCallLimit
-                    )
+                    let allDistinctIdMessages: TopicMessage[] = []
 
-                    if (!distinctIdResult.success) {
-                        if (distinctIdResult.error === 'SourceNotFound') {
-                            throw new SourcePersonNotFoundError('Source person no longer exists')
-                        } else if (distinctIdResult.error === 'TargetNotFound') {
-                            throw new TargetPersonNotFoundError('Target person no longer exists')
+                    if (this.context.mergeMode.type === 'SYNC' && this.context.mergeMode.batchSize) {
+                        // SYNC mode with batch size - move all distinct IDs in batches
+                        const batchSize = this.context.mergeMode.batchSize
+                        let hasMore = true
+                        let hasProcessedAnyDistinctIds = false
+
+                        while (hasMore) {
+                            const distinctIdResult = await tx.moveDistinctIds(
+                                currentSourcePerson,
+                                currentTargetPerson,
+                                this.context.distinctId,
+                                batchSize
+                            )
+
+                            if (!distinctIdResult.success) {
+                                if (distinctIdResult.error === 'SourceNotFound') {
+                                    if (hasProcessedAnyDistinctIds) {
+                                        // Source person not found after we've already moved some distinct IDs
+                                        // This means we've moved all distinct IDs
+                                        hasMore = false
+                                        break
+                                    } else {
+                                        // Source person not found on first attempt - this is a real error
+                                        throw new SourcePersonNotFoundError('Source person no longer exists')
+                                    }
+                                } else if (distinctIdResult.error === 'TargetNotFound') {
+                                    throw new TargetPersonNotFoundError('Target person no longer exists')
+                                }
+                            } else {
+                                allDistinctIdMessages.push(...distinctIdResult.messages)
+                                hasProcessedAnyDistinctIds = true
+
+                                // Check if we moved fewer than the batch size, indicating we're done
+                                hasMore = distinctIdResult.distinctIdsMoved.length >= batchSize
+                            }
                         }
-                    }
-
-                    const distinctIdMessages = distinctIdResult.success ? distinctIdResult.messages : []
-
-                    // If moved count equals the per-call limit, verify if it's a partial move by checking remaining IDs
-                    const movedCount = distinctIdResult.success ? distinctIdResult.distinctIdsMoved.length : 0
-                    const hitLimit = perCallLimit ? movedCount >= perCallLimit : false
-
-                    if (hitLimit) {
-                        const remaining = await tx.fetchPersonDistinctIds(
+                    } else {
+                        // Original behavior for LIMIT mode or SYNC without batchSize
+                        const perCallLimit =
+                            this.context.mergeMode.type === 'LIMIT' ? this.context.mergeMode.limit : undefined
+                        const distinctIdResult = await tx.moveDistinctIds(
                             currentSourcePerson,
+                            currentTargetPerson,
                             this.context.distinctId,
-                            1
+                            perCallLimit
                         )
-                        if (remaining.length > 0) {
-                            personMergeFailureCounter.labels({ call: this.context.event.event }).inc()
-                            // Drop the event by throwing an error that the pipeline will map to DLQ/no-retry
-                            logger.error('🤔', 'person merge move limit hit', {
-                                team_id: this.context.team.id,
-                                distinct_id: this.context.distinctId,
-                            })
-                            throw new PersonMergeLimitExceededError('person_merge_move_limit_hit')
+
+                        if (!distinctIdResult.success) {
+                            if (distinctIdResult.error === 'SourceNotFound') {
+                                throw new SourcePersonNotFoundError('Source person no longer exists')
+                            } else if (distinctIdResult.error === 'TargetNotFound') {
+                                throw new TargetPersonNotFoundError('Target person no longer exists')
+                            }
+                        }
+
+                        allDistinctIdMessages = distinctIdResult.success ? distinctIdResult.messages : []
+
+                        // If moved count equals the per-call limit, verify if it's a partial move by checking remaining IDs
+                        const movedCount = distinctIdResult.success ? distinctIdResult.distinctIdsMoved.length : 0
+                        const hitLimit = perCallLimit ? movedCount >= perCallLimit : false
+
+                        if (hitLimit) {
+                            const remaining = await tx.fetchPersonDistinctIds(
+                                currentSourcePerson,
+                                this.context.distinctId,
+                                1
+                            )
+                            if (remaining.length > 0) {
+                                personMergeFailureCounter.labels({ call: this.context.event.event }).inc()
+                                // Drop the event by throwing an error that the pipeline will map to DLQ/no-retry
+                                logger.error('🤔', 'person merge move limit hit', {
+                                    team_id: this.context.team.id,
+                                    distinct_id: this.context.distinctId,
+                                })
+                                throw new PersonMergeLimitExceededError('person_merge_move_limit_hit')
+                            }
                         }
                     }
 
                     const deletePersonMessages = await tx.deletePerson(currentSourcePerson, this.context.distinctId)
-                    return [person, [...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages]]
+                    return [person, [...updatePersonMessages, ...allDistinctIdMessages, ...deletePersonMessages]]
                 }
             )
 
