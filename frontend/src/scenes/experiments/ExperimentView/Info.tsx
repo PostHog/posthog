@@ -6,7 +6,6 @@ import { IconGear, IconPencil, IconRefresh, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonModal, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
@@ -73,7 +72,6 @@ export const ExperimentLastRefresh = ({
 export function Info(): JSX.Element {
     const {
         experiment,
-        featureFlags,
         legacyPrimaryMetricsResults,
         legacySecondaryMetricsResults,
         primaryMetricsResults,
@@ -82,7 +80,6 @@ export function Info(): JSX.Element {
         secondaryMetricsResultsLoading,
         statsMethod,
         usesNewQueryRunner,
-        isExperimentDraft,
         experimentLoading,
     } = useValues(experimentLogic)
     const { updateExperiment, refreshExperimentResults } = useActions(experimentLogic)
@@ -177,22 +174,20 @@ export function Info(): JSX.Element {
                         <Label intent="menu">Stats Engine</Label>
                         <div className="inline-flex deprecated-space-x-2">
                             <span>{statsMethod === ExperimentStatsMethod.Bayesian ? 'Bayesian' : 'Frequentist'}</span>
-                            {usesNewQueryRunner &&
-                                (isExperimentDraft ||
-                                    featureFlags[FEATURE_FLAGS.EXPERIMENTS_DEV_STATS_METHOD_TOGGLE]) && (
-                                    <>
-                                        <LemonButton
-                                            type="secondary"
-                                            size="xsmall"
-                                            onClick={() => {
-                                                openStatsEngineModal()
-                                            }}
-                                            icon={<IconGear />}
-                                            tooltip="Change stats engine"
-                                        />
-                                        <StatsMethodModal />
-                                    </>
-                                )}
+                            {usesNewQueryRunner && (
+                                <>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="xsmall"
+                                        onClick={() => {
+                                            openStatsEngineModal()
+                                        }}
+                                        icon={<IconGear />}
+                                        tooltip="Change stats engine"
+                                    />
+                                    <StatsMethodModal />
+                                </>
+                            )}
                         </div>
                     </div>
                 </div>

@@ -1,9 +1,12 @@
 import { useValues } from 'kea'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs/LemonTabs'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { BatchExportsMetrics } from 'scenes/data-pipelines/batch-exports/BatchExportsMetrics'
+import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 import { HogFunctionMetrics } from 'scenes/hog-functions/metrics/HogFunctionMetrics'
 import { HogFunctionTesting } from 'scenes/hog-functions/testing/HogFunctionTesting'
 import { PipelineNodeLogs } from 'scenes/pipeline/PipelineNodeLogs'
@@ -62,12 +65,20 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
         [PipelineNodeTab.Metrics]:
             node.backend === PipelineBackend.HogFunction ? (
                 <HogFunctionMetrics id={node.id} />
+            ) : node.backend === PipelineBackend.BatchExport ? (
+                <FlaggedFeature flag="batch-export-new-metrics" fallback={<PipelineNodeMetrics id={id} />}>
+                    <BatchExportsMetrics id={id.toString()} />
+                </FlaggedFeature>
             ) : (
                 <PipelineNodeMetrics id={id} />
             ),
         [PipelineNodeTab.Logs]:
             node.backend === PipelineBackend.HogFunction ? (
                 <HogFunctionLogs hogFunctionId={id.toString().substring(4)} />
+            ) : node.backend === PipelineBackend.BatchExport ? (
+                <FlaggedFeature flag="batch-export-new-logs" fallback={<PipelineNodeLogs id={id} stage={stage} />}>
+                    <LogsViewer sourceType="batch_export" sourceId={id.toString()} instanceLabel="run" />
+                </FlaggedFeature>
             ) : (
                 <PipelineNodeLogs id={id} stage={stage} />
             ),

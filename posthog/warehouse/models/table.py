@@ -164,7 +164,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         placeholder_context = HogQLContext(team_id=self.team.pk)
         s3_table_func = build_function_call(
             url=self.url_pattern,
-            format=self.format,
+            format="Delta"  # Use deltaLake() to get table schema for evolved tables
+            if self.format == "DeltaS3Wrapper"
+            else self.format,
             access_key=self.credential.access_key,
             access_secret=self.credential.access_secret,
             context=placeholder_context,
