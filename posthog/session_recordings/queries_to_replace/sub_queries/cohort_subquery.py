@@ -10,12 +10,18 @@ from posthog.session_recordings.queries_to_replace.sub_queries.base_query import
 class CohortPropertyGroupsSubQuery(SessionRecordingsListingBaseQuery):
     raw_cohort_to_distinct_id = """
     SELECT
-    distinct_id
-FROM raw_person_distinct_ids
-WHERE distinct_id in (SELECT distinct_id FROM raw_person_distinct_ids WHERE 1=1 AND {cohort_predicate})
-GROUP BY distinct_id
-HAVING argMax(is_deleted, version) = 0 AND {cohort_predicate}
-    """
+        distinct_id
+    FROM
+        raw_person_distinct_ids
+    WHERE distinct_id in (
+        SELECT distinct_id
+        FROM raw_person_distinct_ids
+        WHERE 1=1 AND {cohort_predicate}
+        )
+    GROUP BY
+        distinct_id
+    HAVING argMax(is_deleted, version) = 0
+        """
 
     def __init__(self, team: Team, query: RecordingsQuery):
         super().__init__(team, query)

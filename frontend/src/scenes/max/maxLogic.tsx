@@ -16,6 +16,7 @@ import { productUrls } from '~/products'
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import { Conversation, ConversationDetail, ConversationStatus, SidePanelTab } from '~/types'
 
+import { IconSurveys } from 'lib/lemon-ui/icons'
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import type { maxLogicType } from './maxLogicType'
@@ -555,6 +556,23 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
             },
         ],
         tooltip: 'Max can help you set up PostHog SDKs in your stack.',
+    },
+    {
+        label: 'Surveys',
+        icon: <IconSurveys />,
+        suggestions: [
+            {
+                content: 'Create a survey to collect NPS responses from users',
+            },
+            {
+                content: 'Create a survey to CSAT responses from users',
+            },
+            {
+                content: 'Create a survey to measure product market fit',
+            },
+        ],
+        url: urls.surveys(),
+        tooltip: 'Max can help you create surveys to collect feedback from your users.',
     },
     {
         label: 'Docs',

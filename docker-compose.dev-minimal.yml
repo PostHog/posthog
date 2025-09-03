@@ -114,3 +114,10 @@ services:
         depends_on:
             - redis
             - db
+
+    cassandra:
+        extends:
+            file: docker-compose.base.yml
+            service: cassandra
+        ports:
+            - '9042:9042'

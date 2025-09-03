@@ -40,7 +40,7 @@ class TestActionToExpr(BaseTest):
                                 "elements_chain =~ {regex}",
                                 {
                                     "regex": ast.Constant(
-                                        value='(^|;)a.*?\\.active\\..*?nav\\-link([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                                        value='(^|;)a.*?\\.active\\..*?nav\\-link([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
                                     )
                                 },
                             ),

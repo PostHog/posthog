@@ -298,6 +298,18 @@ const featureFlagActionsMapping: Record<
     _create_in_folder: () => null,
 }
 
+const getActorName = (logItem: ActivityLogItem): JSX.Element => {
+    const userName = userNameForLogItem(logItem)
+    if (logItem.detail.trigger?.job_type === 'scheduled_change') {
+        return (
+            <>
+                <strong>{userName}</strong> <span className="text-muted">(via scheduled change)</span>
+            </>
+        )
+    }
+    return <strong>{userName}</strong>
+}
+
 export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope != 'FeatureFlag') {
         console.error('feature flag describer received a non-feature flag activity')
@@ -309,11 +321,7 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
             description: (
                 <SentenceList
                     listParts={[<>created a new feature flag:</>]}
-                    prefix={
-                        <>
-                            <strong>{userNameForLogItem(logItem)}</strong>
-                        </>
-                    }
+                    prefix={getActorName(logItem)}
                     suffix={<> {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</>}
                 />
             ),
@@ -348,17 +356,7 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
 
         if (changes.length) {
             return {
-                description: (
-                    <SentenceList
-                        listParts={changes}
-                        prefix={
-                            <>
-                                <strong>{userNameForLogItem(logItem)}</strong>
-                            </>
-                        }
-                        suffix={changeSuffix}
-                    />
-                ),
+                description: <SentenceList listParts={changes} prefix={getActorName(logItem)} suffix={changeSuffix} />,
             }
         }
     }

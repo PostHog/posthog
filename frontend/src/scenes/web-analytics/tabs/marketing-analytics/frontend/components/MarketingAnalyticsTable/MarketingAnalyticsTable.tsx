@@ -203,6 +203,7 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
             }, {} as Record<string, QueryContextColumn>),
             ...conversionGoalColumns,
         },
+        formatNumbers: true,
     }
 
     return (

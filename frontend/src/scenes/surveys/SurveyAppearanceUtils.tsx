@@ -11,6 +11,7 @@ export function PresentationTypeCard({
     onClick,
     value,
     active,
+    disabled,
 }: {
     title: string
     description?: string
@@ -18,12 +19,14 @@ export function PresentationTypeCard({
     onClick: () => void
     value: any
     active: boolean
+    disabled?: boolean
 }): JSX.Element {
     return (
         <div
             className={clsx(
                 'border rounded relative px-4 py-2 overflow-hidden h-[180px] w-[200px]',
-                active ? 'border-accent' : 'border-primary'
+                active ? 'border-accent' : 'border-primary',
+                disabled && 'opacity-50'
             )}
         >
             <p className="font-semibold m-0">{title}</p>
@@ -35,6 +38,7 @@ export function PresentationTypeCard({
                 name="type"
                 value={value}
                 type="radio"
+                disabled={disabled}
             />
         </div>
     )

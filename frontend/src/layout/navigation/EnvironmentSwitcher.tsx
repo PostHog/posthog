@@ -150,12 +150,8 @@ export function EnvironmentSwitcherOverlay({
             )
         }
 
-        const otherProjectsItems: Array<JSX.Element> = [
-            <Label intent="menu" className="px-2" key="other-projects-label">
-                Other projects
-            </Label>,
-            <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />,
-        ]
+        const otherProjectsItems: Array<JSX.Element> = []
+
         for (const [projectId, [projectName, projectTeams]] of searchedProjectsMap.entries()) {
             if (projectId === currentTeam?.project_id) {
                 continue
@@ -210,6 +206,17 @@ export function EnvironmentSwitcherOverlay({
                     </Combobox.Group>
                 </>
             )
+            // Only show the other projects label if there are other projects
+            if (otherProjectsItems.length > 0) {
+                otherProjectsItems.splice(
+                    0,
+                    0,
+                    <Label intent="menu" className="px-2" key="other-projects-label">
+                        Other projects
+                    </Label>,
+                    <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
+                )
+            }
             for (const team of projectTeams) {
                 otherProjectsItems.push(convertTeamToMenuItem(team, currentTeam))
             }
@@ -256,7 +263,7 @@ export function EnvironmentSwitcherOverlay({
                 >
                     <span className="truncate">{currentProject?.name ?? 'Project'}</span>
                     <LemonTag size="small" className="border-text-3000 uppercase ml-1.5">
-                        {currentTeam.name}
+                        <span className="truncate max-w-[100px]">{currentTeam.name}</span>
                     </LemonTag>
                     <DropdownMenuOpenIndicator />
                 </ButtonPrimitive>

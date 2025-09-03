@@ -22,6 +22,7 @@ describe('CDP API', () => {
     let app: express.Application
     let api: CdpApi
     let hogFunction: HogFunctionType
+    let hogFunctionMultiFetch: HogFunctionType
 
     const globals: Partial<HogFunctionInvocationGlobals> = {
         groups: {},
@@ -69,6 +70,12 @@ describe('CDP API', () => {
 
         hogFunction = await insertHogFunction({
             ...HOG_EXAMPLES.simple_fetch,
+            ...HOG_INPUTS_EXAMPLES.simple_fetch,
+            ...HOG_FILTERS_EXAMPLES.no_filters,
+        })
+
+        hogFunctionMultiFetch = await insertHogFunction({
+            ...HOG_EXAMPLES.recursive_fetch,
             ...HOG_INPUTS_EXAMPLES.simple_fetch,
             ...HOG_FILTERS_EXAMPLES.no_filters,
         })
@@ -182,6 +189,38 @@ describe('CDP API', () => {
                 {
                     level: 'debug',
                     message: expect.stringContaining('Function completed in'),
+                },
+            ],
+        })
+    })
+
+    it('can invoke a function with multiple fetches', async () => {
+        mockFetch.mockImplementation(() =>
+            Promise.resolve({
+                status: 201,
+                headers: { 'Content-Type': 'application/json' },
+                json: () => Promise.resolve({ real: true }),
+                text: () => Promise.resolve(JSON.stringify({ real: true })),
+            })
+        )
+        const res = await supertest(app)
+            .post(
+                `/api/projects/${hogFunctionMultiFetch.team_id}/hog_functions/${hogFunctionMultiFetch.id}/invocations`
+            )
+            .send({ globals, mock_async_functions: false })
+
+        expect(res.body.errors).toMatchInlineSnapshot(`
+            [
+              "Exceeded maximum number of async steps: 5",
+            ]
+        `)
+
+        expect(mockFetch).toHaveBeenCalledTimes(5)
+        expect(res.body).toMatchObject({
+            logs: [
+                {
+                    level: 'error',
+                    message: expect.stringContaining('Error executing function'),
                 },
             ],
         })

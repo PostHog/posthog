@@ -126,7 +126,7 @@ class ExperimentHoldout(RootTeamMixin, models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
 
-class ExperimentSavedMetric(RootTeamMixin, models.Model):
+class ExperimentSavedMetric(ModelActivityMixin, RootTeamMixin, models.Model):
     name = models.CharField(max_length=400)
     description = models.CharField(max_length=400, null=True, blank=True)
     team = models.ForeignKey("Team", on_delete=models.CASCADE)

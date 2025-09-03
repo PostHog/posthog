@@ -37,7 +37,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -81,7 +80,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -125,7 +123,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -169,7 +166,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -228,7 +224,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -272,7 +267,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -316,7 +310,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -360,7 +353,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -404,7 +396,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -448,7 +439,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -492,7 +482,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -530,7 +519,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -568,7 +556,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -606,7 +593,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -644,7 +630,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -682,7 +667,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -720,7 +704,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -758,7 +741,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -796,7 +778,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -834,7 +815,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -872,7 +852,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -916,7 +895,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -960,7 +938,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -1004,7 +981,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -1048,7 +1024,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -1092,7 +1067,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -1136,7 +1110,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -1186,7 +1159,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -1224,7 +1196,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -1262,7 +1233,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -1300,7 +1270,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -1338,7 +1307,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -1376,7 +1344,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -1414,7 +1381,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -1452,7 +1418,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -1490,7 +1455,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -1528,7 +1492,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -1572,7 +1535,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -1616,7 +1578,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -1660,7 +1621,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -1698,7 +1658,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -1742,7 +1701,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -1786,7 +1744,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -1835,7 +1792,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -1884,7 +1840,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -1933,7 +1888,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -1977,7 +1931,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -2042,7 +1995,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -2107,7 +2059,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -2151,7 +2102,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -2216,7 +2166,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -2281,7 +2230,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -2340,7 +2288,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -2399,7 +2346,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -2443,7 +2389,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -2487,7 +2432,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -2531,7 +2475,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -2575,7 +2518,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -2619,7 +2561,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -2663,7 +2604,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -2707,7 +2647,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -2751,7 +2690,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -2795,7 +2733,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -2839,7 +2776,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -2883,7 +2819,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -2927,7 +2862,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -2971,7 +2905,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -3015,7 +2948,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -3092,7 +3024,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -3136,7 +3067,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -3213,7 +3143,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -3257,7 +3186,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -3307,7 +3235,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -3345,7 +3272,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -3383,7 +3309,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -3421,7 +3346,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -3459,7 +3383,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -3503,7 +3426,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -3547,7 +3469,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -3591,7 +3512,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -3635,7 +3555,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -3673,7 +3592,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -3711,7 +3629,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -3755,7 +3672,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -3799,7 +3715,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -3843,7 +3758,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -3887,7 +3801,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -3931,7 +3844,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -3975,7 +3887,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -4019,7 +3930,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -4063,7 +3973,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -4106,7 +4015,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -4149,7 +4057,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -4245,7 +4152,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -4282,10 +4188,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      FROM cohortpeople
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))
                                                                                                                                                                                                                                                                                                                                                                        GROUP BY person_distinct_id2.distinct_id
-                                                                                                                                                                                                                                                                                                                                                                       HAVING and(ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0), notIn(person_distinct_id2.person_id,
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     (SELECT cohortpeople.person_id AS person_id
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      FROM cohortpeople
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))
+                                                                                                                                                                                                                                                                                                                                                                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0))))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
@@ -4297,7 +4200,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -4393,7 +4295,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -4430,10 +4331,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      FROM cohortpeople
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))
                                                                                                                                                                                                                                                                                                                                                                        GROUP BY person_distinct_id2.distinct_id
-                                                                                                                                                                                                                                                                                                                                                                       HAVING and(ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0), notIn(person_distinct_id2.person_id,
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     (SELECT cohortpeople.person_id AS person_id
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      FROM cohortpeople
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))
+                                                                                                                                                                                                                                                                                                                                                                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0))))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
@@ -4445,7 +4343,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -4541,7 +4438,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -4578,10 +4474,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      FROM cohortpeople
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))
                                                                                                                                                                                                                                                                                                                                                                        GROUP BY person_distinct_id2.distinct_id
-                                                                                                                                                                                                                                                                                                                                                                       HAVING and(ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0), notIn(person_distinct_id2.person_id,
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     (SELECT cohortpeople.person_id AS person_id
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      FROM cohortpeople
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))
+                                                                                                                                                                                                                                                                                                                                                                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0))))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
@@ -4593,7 +4486,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -4689,7 +4581,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -4726,10 +4617,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      FROM cohortpeople
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))
                                                                                                                                                                                                                                                                                                                                                                        GROUP BY person_distinct_id2.distinct_id
-                                                                                                                                                                                                                                                                                                                                                                       HAVING and(ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0), notIn(person_distinct_id2.person_id,
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     (SELECT cohortpeople.person_id AS person_id
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      FROM cohortpeople
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))
+                                                                                                                                                                                                                                                                                                                                                                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0))))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
@@ -4741,7 +4629,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -4800,7 +4687,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -4859,7 +4745,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -4897,7 +4782,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -4947,7 +4831,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -4997,7 +4880,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -5047,7 +4929,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -5097,7 +4978,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -5147,7 +5027,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -5197,7 +5076,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -5247,7 +5125,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -5297,7 +5174,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -5341,7 +5217,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -5385,7 +5260,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -5429,7 +5303,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -5473,7 +5346,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -5517,7 +5389,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -5570,7 +5441,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -5623,7 +5493,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -5667,7 +5536,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -5711,7 +5579,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -5791,7 +5658,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -5871,7 +5737,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -5909,7 +5774,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -5947,7 +5811,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -5994,7 +5857,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -6032,7 +5894,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -6076,7 +5937,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -6126,7 +5986,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -6170,7 +6029,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -6220,7 +6078,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -6264,7 +6121,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -6308,7 +6164,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -6352,7 +6207,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -6396,7 +6250,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -6440,7 +6293,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -6484,7 +6336,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -6528,7 +6379,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -6572,7 +6422,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -6616,7 +6465,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -6660,7 +6508,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -6704,7 +6551,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -6748,7 +6594,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -6792,7 +6637,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -6851,7 +6695,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -6895,7 +6738,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -6954,7 +6796,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -6998,7 +6839,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -7057,7 +6897,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -7101,7 +6940,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
@@ -7160,7 +6998,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1

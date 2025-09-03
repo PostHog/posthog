@@ -9,7 +9,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { autoCaptureEventToDescription } from 'lib/utils'
+import { autoCaptureEventToDescription, humanFriendlyNumber } from 'lib/utils'
 import { GroupActorDisplay } from 'scenes/persons/GroupActorDisplay'
 import { PersonDisplay, PersonDisplayProps } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
@@ -352,5 +352,11 @@ export function renderColumn(
             // do nothing
         }
     }
+
+    // Add number formatting for numeric values
+    if (context?.formatNumbers && typeof value === 'number') {
+        return humanFriendlyNumber(value)
+    }
+
     return String(value)
 }

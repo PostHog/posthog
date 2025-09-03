@@ -47,7 +47,7 @@ from posthog.models.property import (
 )
 from posthog.models.property.property import ValueT
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
-from posthog.session_recordings.queries.session_query import SessionQuery
+from posthog.session_recordings.queries_to_replace.session_query import SessionQuery
 from posthog.queries.util import PersonPropertiesMode
 from posthog.utils import is_json, is_valid_regex
 from posthog.schema import PropertyOperator
@@ -833,7 +833,7 @@ def build_selector_regex(selector: Selector) -> str:
             regex += r".*?"
             for key, value in sorted(tag.ch_attributes.items()):
                 regex += rf'{re.escape(key)}="{re.escape(str(value))}".*?'
-        regex += r'([-_a-zA-Z0-9\.:"= ]*?)?($|;|:([^;^\s]*(;|$|\s)))'
+        regex += r'([-_a-zA-Z0-9\.:"= \[\]\(\),]*?)?($|;|:([^;^\s]*(;|$|\s)))'
         if tag.direct_descendant:
             regex += r".*"
     if regex:

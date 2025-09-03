@@ -1283,6 +1283,12 @@ export const surveyLogic = kea<surveyLogicType>([
                         )`
             },
         ],
+        isExternalSurveyFFEnabled: [
+            (s) => [s.enabledFlags],
+            (enabledFlags: FeatureFlagsSet): boolean => {
+                return !!enabledFlags[FEATURE_FLAGS.EXTERNAL_SURVEYS]
+            },
+        ],
         isAdaptiveLimitFFEnabled: [
             (s) => [s.enabledFlags],
             (enabledFlags: FeatureFlagsSet): boolean => {

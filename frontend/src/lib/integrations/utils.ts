@@ -11,10 +11,10 @@ import IconSalesforce from 'public/services/salesforce.png'
 import IconSlack from 'public/services/slack.png'
 import IconSnapchat from 'public/services/snapchat.png'
 import IconMetaAds from 'public/services/meta-ads.png'
+import IconTwilio from 'public/services/twilio.png'
 
 import { capitalizeFirstLetter } from 'lib/utils'
 import { IntegrationKind } from '~/types'
-import { IconTwilio } from 'lib/lemon-ui/icons'
 
 export const ICONS: Record<IntegrationKind, any> = {
     slack: IconSlack,

@@ -20,12 +20,16 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self.team = Team.objects.create(organization=self.organization, name="New Team")
 
     @patch(
-        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch(
+        "posthog.session_recordings.queries_to_delete.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
     def test_2023_08_01_version_stored_snapshots_can_be_gathered(
-        self, mock_list_objects: MagicMock, _mock_exists: MagicMock
+        self, mock_list_objects: MagicMock, _mock_exists_old: MagicMock, _mock_exists_new: MagicMock
     ) -> None:
         session_id = str(uuid.uuid4())
         lts_storage_path = "purposefully/not/what/we/would/calculate/to/prove/this/is/used"
@@ -76,7 +80,11 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         }
 
     @patch(
-        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch(
+        "posthog.session_recordings.queries_to_delete.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.stream_from", return_value=setup_stream_from())
@@ -86,8 +94,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self,
         mock_list_objects: MagicMock,
         mock_get_presigned_url: MagicMock,
-        mock_requests: MagicMock,
-        _mock_exists: MagicMock,
+        _mock_stream_from: MagicMock,
+        _mock_exists_old: MagicMock,
+        _mock_exists_new: MagicMock,
     ) -> None:
         session_id = str(uuid.uuid4())
         lts_storage_path = "purposefully/not/what/we/would/calculate/to/prove/this/is/used"

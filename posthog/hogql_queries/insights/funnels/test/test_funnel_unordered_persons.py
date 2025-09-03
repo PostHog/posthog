@@ -5,7 +5,7 @@ from django.utils import timezone
 
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
-from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.session_recordings.queries_to_replace.test.session_replay_sql import produce_replay_summary
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,

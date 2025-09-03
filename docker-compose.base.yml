@@ -11,8 +11,13 @@ services:
         volumes:
             - /root/.caddy
         environment:
+            CADDY_TLS_BLOCK: ''
+            CADDY_HOST: 'http://localhost:8000'
             CADDYFILE: |
-                http://localhost:8000 {
+                {
+                ${CADDY_TLS_BLOCK}
+                }
+                ${CADDY_HOST} {
                     @replay-capture {
                         path /s
                         path /s/*
@@ -390,6 +395,23 @@ services:
         networks:
             - otel_network
 
+    cassandra:
+        image: cassandra:4.1
+        restart: on-failure
+        environment:
+            - HEAP_NEWSIZE=128M
+            - MAX_HEAP_SIZE=512M
+        healthcheck:
+            test: ['CMD-SHELL', 'cqlsh -e "SELECT now() FROM system.local;" || exit 1']
+            interval: 30s
+            timeout: 10s
+            retries: 5
+        volumes:
+            - cassandra_data:/var/lib/cassandra
+
 networks:
     otel_network:
         driver: bridge
+
+volumes:
+    cassandra_data:

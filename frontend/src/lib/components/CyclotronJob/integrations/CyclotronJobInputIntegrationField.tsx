@@ -15,6 +15,7 @@ import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
 import { CyclotronJobInputSchemaType } from '~/types'
 
 import { CyclotronJobInputConfiguration } from '../types'
+import { TwilioPhoneNumberPicker } from 'lib/integrations/TwilioIntegrationHelpers'
 
 export type CyclotronJobInputIntegrationFieldProps = {
     schema: CyclotronJobInputSchemaType
@@ -138,6 +139,9 @@ export function CyclotronJobInputIntegrationField({
     }
     if (schema.integration_field === 'linear_team') {
         return <LinearTeamPicker value={value} onChange={(x) => onChange?.(x)} integration={integration} />
+    }
+    if (schema.integration_field === 'twilio_phone_number') {
+        return <TwilioPhoneNumberPicker value={value} onChange={(x) => onChange?.(x)} integration={integration} />
     }
     return (
         <div className="text-danger">

@@ -11,7 +11,7 @@ from ee.hogai.session_summaries.utils import (
     get_column_index,
 )
 from posthog.session_recordings.models.metadata import RecordingMetadata
-from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+from posthog.session_recordings.queries_to_replace.session_replay_events import SessionReplayEvents
 from posthog.models import Team
 from posthog.session_recordings.constants import EXTRA_SUMMARY_EVENT_FIELDS, COLUMNS_TO_REMOVE_FROM_LLM_CONTEXT
 

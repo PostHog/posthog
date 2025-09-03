@@ -2,7 +2,7 @@ import { IntegrationType } from '~/types'
 import { EmailSetupModal } from './EmailSetup/EmailSetupModal'
 import { SlackSetupModal } from './SlackSetup/SlackSetupModal'
 import { TwilioSetupModal } from './TwilioSetup/TwilioSetupModal'
-import { ChannelType } from './messageChannelsLogic'
+import { ChannelType } from './MessageChannels'
 
 interface ChannelSetupModalProps {
     isOpen: boolean

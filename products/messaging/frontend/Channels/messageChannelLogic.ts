@@ -18,8 +18,6 @@ export const messageChannelLogic = kea<messageChannelLogicType>([
                 switch (integration?.kind) {
                     case 'email':
                         return integration.config.domain
-                    case 'twilio':
-                        return integration.config.phone_number
                     default:
                         return integration.display_name
                 }
@@ -28,7 +26,7 @@ export const messageChannelLogic = kea<messageChannelLogicType>([
         isVerificationRequired: [
             () => [(_, props) => props],
             ({ integration }): boolean => {
-                return ['email', 'twilio'].includes(integration?.kind)
+                return ['email'].includes(integration?.kind)
             },
         ],
         isVerified: [

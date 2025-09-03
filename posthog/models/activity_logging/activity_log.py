@@ -42,6 +42,7 @@ ActivityScope = Literal[
     "Dashboard",
     "Replay",
     "Experiment",
+    "ExperimentSavedMetric",
     "Survey",
     "EarlyAccessFeature",
     "SessionRecordingPlaylist",
@@ -198,6 +199,10 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "exposure_cohort",
         "holdout",
         "saved_metrics",
+        "experimenttosavedmetric_set",
+    ],
+    "ExperimentSavedMetric": [
+        "experiments",
         "experimenttosavedmetric_set",
     ],
     "Person": [
