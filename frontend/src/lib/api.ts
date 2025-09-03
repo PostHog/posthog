@@ -897,6 +897,14 @@ export class ApiRequest {
         return this.userInterviews(teamId).addPathComponent(id)
     }
 
+    // # Users
+    public users(email?: string): ApiRequest {
+        if (email) {
+            return this.addPathComponent('users').withQueryString({ email })
+        }
+        return this.addPathComponent('users')
+    }
+
     // # Tasks
     public tasks(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('tasks')
@@ -3169,6 +3177,12 @@ const api = {
             data: Pick<UserInterviewType, 'summary'>
         ): Promise<UserInterviewType> {
             return await new ApiRequest().userInterview(id).update({ data })
+        },
+    },
+
+    users: {
+        async list(email?: string): Promise<PaginatedResponse<UserType>> {
+            return await new ApiRequest().users(email).get()
         },
     },
 

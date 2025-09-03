@@ -12,6 +12,7 @@ pub fn create_identify_event(
     user_id: &str,
     device_id: &str,
     event_uuid: Uuid,
+    timestamp: chrono::DateTime<chrono::Utc>,
 ) -> Result<InternallyCapturedEvent, Error> {
     // Validate and trim inputs
     let user_id = user_id.trim();
@@ -57,7 +58,7 @@ pub fn create_identify_event(
         uuid: Some(event_uuid),
         event: "$identify".to_string(),
         properties: properties.into_iter().collect(),
-        timestamp: Some(Utc::now().to_rfc3339()),
+        timestamp: Some(timestamp.to_rfc3339()),
         set: None,
         set_once: None,
         offset: None,
@@ -94,7 +95,10 @@ mod tests {
         let device_id = "device456";
         let event_uuid = Uuid::now_v7();
 
-        let result = create_identify_event(team_id, token, user_id, device_id, event_uuid).unwrap();
+        let timestamp = Utc::now();
+        let result =
+            create_identify_event(team_id, token, user_id, device_id, event_uuid, timestamp)
+                .unwrap();
 
         assert_eq!(result.team_id, team_id);
         assert_eq!(result.inner.token, token);
@@ -136,7 +140,10 @@ mod tests {
         let device_id = "test_device";
         let event_uuid = Uuid::now_v7();
 
-        let result = create_identify_event(team_id, token, user_id, device_id, event_uuid).unwrap();
+        let timestamp = Utc::now();
+        let result =
+            create_identify_event(team_id, token, user_id, device_id, event_uuid, timestamp)
+                .unwrap();
 
         // Verify the event has all required fields
         assert!(!result.inner.data.is_empty());
@@ -161,7 +168,10 @@ mod tests {
         let device_id = "device:123:abc";
         let event_uuid = Uuid::now_v7();
 
-        let result = create_identify_event(team_id, token, user_id, device_id, event_uuid).unwrap();
+        let timestamp = Utc::now();
+        let result =
+            create_identify_event(team_id, token, user_id, device_id, event_uuid, timestamp)
+                .unwrap();
 
         // Verify basic structure
         assert_eq!(result.team_id, team_id);
@@ -193,7 +203,8 @@ mod tests {
         let event_uuid = Uuid::now_v7();
 
         // Test with empty strings (should fail)
-        let result = create_identify_event(team_id, token, "", "", event_uuid);
+        let timestamp = Utc::now();
+        let result = create_identify_event(team_id, token, "", "", event_uuid, timestamp);
         assert!(result.is_err(), "Should reject empty user_id");
         assert!(result
             .unwrap_err()
@@ -201,14 +212,15 @@ mod tests {
             .contains("user_id cannot be empty"));
 
         // Test with whitespace-only strings (should fail)
-        let result = create_identify_event(team_id, token, "   ", "device123", event_uuid);
+        let result =
+            create_identify_event(team_id, token, "   ", "device123", event_uuid, timestamp);
         assert!(result.is_err(), "Should reject whitespace-only user_id");
         assert!(result
             .unwrap_err()
             .to_string()
             .contains("user_id cannot be empty"));
 
-        let result = create_identify_event(team_id, token, "user123", "   ", event_uuid);
+        let result = create_identify_event(team_id, token, "user123", "   ", event_uuid, timestamp);
         assert!(result.is_err(), "Should reject whitespace-only device_id");
         assert!(result
             .unwrap_err()
@@ -218,8 +230,14 @@ mod tests {
         // Test with very long strings (should succeed)
         let long_user_id = "a".repeat(1000);
         let long_device_id = "b".repeat(1000);
-        let result =
-            create_identify_event(team_id, token, &long_user_id, &long_device_id, event_uuid);
+        let result = create_identify_event(
+            team_id,
+            token,
+            &long_user_id,
+            &long_device_id,
+            event_uuid,
+            timestamp,
+        );
         assert!(result.is_ok(), "Should handle very long strings");
 
         // Test with unicode characters (should succeed)
@@ -231,6 +249,7 @@ mod tests {
             unicode_user_id,
             unicode_device_id,
             event_uuid,
+            timestamp,
         );
         assert!(result.is_ok(), "Should handle unicode characters");
 
@@ -254,7 +273,10 @@ mod tests {
         let device_id = "device456";
         let event_uuid = Uuid::now_v7();
 
-        let result = create_identify_event(team_id, token, user_id, device_id, event_uuid).unwrap();
+        let timestamp = Utc::now();
+        let result =
+            create_identify_event(team_id, token, user_id, device_id, event_uuid, timestamp)
+                .unwrap();
         let data: RawEvent = serde_json::from_str(&result.inner.data).unwrap();
 
         // Verify exact JSON structure
@@ -291,10 +313,13 @@ mod tests {
         let event_uuid1 = Uuid::now_v7();
         let event_uuid2 = Uuid::now_v7();
 
+        let timestamp = Utc::now();
         let result1 =
-            create_identify_event(team_id, token, user_id, device_id, event_uuid1).unwrap();
+            create_identify_event(team_id, token, user_id, device_id, event_uuid1, timestamp)
+                .unwrap();
         let result2 =
-            create_identify_event(team_id, token, user_id, device_id, event_uuid2).unwrap();
+            create_identify_event(team_id, token, user_id, device_id, event_uuid2, timestamp)
+                .unwrap();
 
         // UUIDs should be preserved
         assert_eq!(result1.inner.uuid, event_uuid1);
@@ -317,7 +342,10 @@ mod tests {
         let device_id = "device456";
         let event_uuid = Uuid::now_v7();
 
-        let result = create_identify_event(team_id, token, user_id, device_id, event_uuid).unwrap();
+        let timestamp = Utc::now();
+        let result =
+            create_identify_event(team_id, token, user_id, device_id, event_uuid, timestamp)
+                .unwrap();
 
         // Verify CapturedEvent structure
         assert_eq!(result.inner.uuid, event_uuid);
@@ -334,6 +362,38 @@ mod tests {
     }
 
     #[test]
+    fn test_identify_event_preserves_timestamp() {
+        let team_id = 123;
+        let token = "test_token";
+        let user_id = "user123";
+        let device_id = "device456";
+        let event_uuid = Uuid::now_v7();
+
+        // Use a specific timestamp that's not "now"
+        let specific_timestamp = chrono::DateTime::parse_from_rfc3339("2023-10-15T14:30:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+
+        let result = create_identify_event(
+            team_id,
+            token,
+            user_id,
+            device_id,
+            event_uuid,
+            specific_timestamp,
+        )
+        .unwrap();
+
+        // Parse the data and verify timestamp is preserved
+        let data: RawEvent = serde_json::from_str(&result.inner.data).unwrap();
+        assert_eq!(data.timestamp, Some(specific_timestamp.to_rfc3339()));
+
+        // Also verify the timestamp is not a "now" timestamp
+        let now = Utc::now();
+        assert_ne!(data.timestamp, Some(now.to_rfc3339()));
+    }
+
+    #[test]
     fn test_identify_event_with_edge_case_ids() {
         let team_id = 123;
         let token = "test_token";
@@ -347,8 +407,10 @@ mod tests {
             ("user123", " "),   // Whitespace-only device_id
         ];
 
+        let timestamp = Utc::now();
         for (user_id, device_id) in failing_cases {
-            let result = create_identify_event(team_id, token, user_id, device_id, event_uuid);
+            let result =
+                create_identify_event(team_id, token, user_id, device_id, event_uuid, timestamp);
             assert!(
                 result.is_err(),
                 "Should reject invalid case: user_id='{user_id}', device_id='{device_id}'"
@@ -366,7 +428,8 @@ mod tests {
         ];
 
         for (user_id, device_id) in valid_cases {
-            let result = create_identify_event(team_id, token, user_id, device_id, event_uuid);
+            let result =
+                create_identify_event(team_id, token, user_id, device_id, event_uuid, timestamp);
             assert!(
                 result.is_ok(),
                 "Should accept valid case: user_id='{user_id}', device_id='{device_id}'"

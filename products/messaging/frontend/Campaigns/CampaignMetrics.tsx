@@ -1,14 +1,11 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
 
 import { LemonSelect } from '@posthog/lemon-ui'
 
 import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
+import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
-
-import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
-import { ChartDisplayType } from '~/types'
 
 import { campaignLogic } from './campaignLogic'
 import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
@@ -17,10 +14,7 @@ const METRICS_INFO = {
     succeeded: 'Total number of events processed successfully',
     failed: 'Total number of events that had errors during processing',
     filtered: 'Total number of events that were filtered out',
-    dropped: 'Total number of events that were dropped during processing',
-    disabled_temporarily:
-        'Total number of events that were skipped due to the destination being temporarily disabled (due to issues such as the destination being down or rate-limited)',
-    disabled_permanently:
+    disabled:
         'Total number of events that were skipped due to the destination being permanently disabled (due to prolonged issues with the destination)',
 }
 
@@ -45,16 +39,11 @@ export function CampaignMetrics({ id }: CampaignMetricsProps): JSX.Element {
     const { campaign } = useValues(campaignLogic({ id }))
 
     const { appMetricsTrendsLoading, getSingleTrendSeries, appMetricsTrends, params } = useValues(logic)
-    const { loadAppMetricsTrends, loadAppMetricsTrendsPreviousPeriod, setParams } = useActions(logic)
-
-    useEffect(() => {
-        loadAppMetricsTrends()
-        loadAppMetricsTrendsPreviousPeriod()
-    }, [loadAppMetricsTrends, loadAppMetricsTrendsPreviousPeriod])
+    const { setParams } = useActions(logic)
 
     return (
-        <div>
-            <div className="flex flex-row gap-2 flex-wrap justify-between mb-2">
+        <div className="flex flex-col gap-2">
+            <div className="flex flex-row gap-2 flex-wrap justify-between">
                 <div>
                     <LemonSelect
                         size="small"
@@ -87,7 +76,7 @@ export function CampaignMetrics({ id }: CampaignMetricsProps): JSX.Element {
                 <AppMetricsFilters logicKey={logicKey} />
             </div>
 
-            <div className="flex flex-row gap-2 mb-2 flex-wrap justify-center">
+            <div className="flex flex-row gap-2 flex-wrap justify-center">
                 <AppMetricSummary
                     name="Success"
                     description={METRICS_INFO.succeeded}
@@ -114,46 +103,14 @@ export function CampaignMetrics({ id }: CampaignMetricsProps): JSX.Element {
 
                 <AppMetricSummary
                     name="Disabled"
-                    description={METRICS_INFO.disabled_permanently}
+                    description={METRICS_INFO.disabled}
                     loading={appMetricsTrendsLoading}
                     timeSeries={getSingleTrendSeries('disabled_permanently')}
                     previousPeriodTimeSeries={getSingleTrendSeries('disabled_permanently', true)}
                 />
             </div>
 
-            <div className="border rounded min-h-[20rem] h-[70vh] bg-white">
-                {appMetricsTrends && (
-                    <LineGraph
-                        className="p-2"
-                        xData={{
-                            column: {
-                                name: 'date',
-                                type: {
-                                    name: 'DATE',
-                                    isNumerical: false,
-                                },
-                                label: 'Date',
-                                dataIndex: 0,
-                            },
-                            data: appMetricsTrends.labels,
-                        }}
-                        yData={appMetricsTrends.series.map((x) => ({
-                            column: {
-                                name: x.name,
-                                type: { name: 'INTEGER', isNumerical: true },
-                                label: x.name,
-                                dataIndex: 0,
-                            },
-                            data: x.values,
-                        }))}
-                        visualizationType={ChartDisplayType.ActionsLineGraph}
-                        chartSettings={{
-                            showLegend: true,
-                            showTotalRow: true,
-                        }}
-                    />
-                )}
-            </div>
+            <AppMetricsTrends appMetricsTrends={appMetricsTrends} loading={appMetricsTrendsLoading} />
         </div>
     )
 }
