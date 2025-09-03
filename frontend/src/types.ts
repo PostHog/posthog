@@ -4186,6 +4186,11 @@ export enum ExperimentMetricMathType {
     HogQL = 'hogql',
 }
 
+export enum ExperimentMetricGoal {
+    Increase = 'increase',
+    Decrease = 'decrease',
+}
+
 export enum ActorGroupType {
     Person = 'person',
     GroupPrefix = 'group',
