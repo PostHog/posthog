@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconInfo, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSwitch, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSwitch, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
@@ -24,12 +24,22 @@ export function ExternalDataSourceConfiguration({
 }: {
     buttonRef?: React.RefObject<HTMLButtonElement>
 }): JSX.Element {
-    const { dataWarehouseSources, joins } = useValues(revenueAnalyticsSettingsLogic)
-    const { updateSource } = useActions(revenueAnalyticsSettingsLogic)
+    const { dataWarehouseSources, dataWarehouseSourcesLoading, joins } = useValues(revenueAnalyticsSettingsLogic)
+    const { updateSourceRevenueAnalyticsConfig } = useActions(revenueAnalyticsSettingsLogic)
     const { toggleEditJoinModal, toggleNewJoinModal } = useActions(viewLinkLogic)
     const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     const revenueSources =
         dataWarehouseSources?.results.filter((source) => VALID_REVENUE_SOURCES.includes(source.source_type)) ?? []
+
+    const disabledReasonForRevenueAnalyticsConfig = (source: ExternalDataSource): string | undefined => {
+        if (!source.revenue_analytics_config.enabled) {
+            return 'Revenue analytics is not enabled for this source'
+        }
+        if (dataWarehouseSourcesLoading) {
+            return 'Updating...'
+        }
+        return undefined
+    }
 
     return (
         <SceneSection
@@ -75,23 +85,23 @@ export function ExternalDataSourceConfiguration({
                         key: 'source',
                         title: '',
                         width: 0,
-                        render: (_, item: ExternalDataSource) => {
-                            return <DataWarehouseSourceIcon type={item.source_type} />
+                        render: (_, source: ExternalDataSource) => {
+                            return <DataWarehouseSourceIcon type={source.source_type} />
                         },
                     },
                     {
                         key: 'prefix',
                         title: 'Source',
-                        render: (_, item: ExternalDataSource) => {
+                        render: (_, source: ExternalDataSource) => {
                             return (
                                 <Link
                                     to={urls.pipelineNode(
                                         PipelineStage.Source,
-                                        `managed-${item.id}`,
+                                        `managed-${source.id}`,
                                         PipelineNodeTab.Schemas
                                     )}
                                 >
-                                    {item.source_type}&nbsp;{item.prefix && `(${item.prefix})`}
+                                    {source.source_type}&nbsp;{source.prefix && `(${source.prefix})`}
                                 </Link>
                             )
                         },
@@ -106,11 +116,11 @@ export function ExternalDataSourceConfiguration({
                                 </Tooltip>
                             </span>
                         ),
-                        render: (_, item: ExternalDataSource) => {
-                            const itemPrefix = item.prefix
-                                ? `${item.source_type.toLowerCase()}.${item.prefix.replace(/_+$/, '')}`
-                                : item.source_type.toLowerCase()
-                            const joinName = `${itemPrefix}.customer_revenue_view`
+                        render: (_, source: ExternalDataSource) => {
+                            const sourcePrefix = source.prefix
+                                ? `${source.source_type.toLowerCase()}.${source.prefix.replace(/_+$/, '')}`
+                                : source.source_type.toLowerCase()
+                            const joinName = `${sourcePrefix}.customer_revenue_view`
                             const join = joins.find(
                                 (join) => join.source_table_name === joinName && join.joining_table_name === 'persons'
                             )
@@ -126,6 +136,7 @@ export function ExternalDataSourceConfiguration({
                                             type="secondary"
                                             size="small"
                                             onClick={() => toggleEditJoinModal(join)}
+                                            disabledReason={disabledReasonForRevenueAnalyticsConfig(source)}
                                         >
                                             {join.source_table_name}.{join.source_table_key}
                                         </LemonButton>
@@ -145,6 +156,7 @@ export function ExternalDataSourceConfiguration({
                                                     field_name: 'persons',
                                                 })
                                             }
+                                            disabledReason={disabledReasonForRevenueAnalyticsConfig(source)}
                                         >
                                             Add join
                                         </LemonButton>
@@ -163,11 +175,11 @@ export function ExternalDataSourceConfiguration({
                                 </Tooltip>
                             </span>
                         ),
-                        render: (_, item: ExternalDataSource) => {
-                            const itemPrefix = item.prefix
-                                ? `${item.source_type.toLowerCase()}.${item.prefix.replace(/_+$/, '')}`
-                                : item.source_type.toLowerCase()
-                            const joinName = `${itemPrefix}.customer_revenue_view`
+                        render: (_, source: ExternalDataSource) => {
+                            const sourcePrefix = source.prefix
+                                ? `${source.source_type.toLowerCase()}.${source.prefix.replace(/_+$/, '')}`
+                                : source.source_type.toLowerCase()
+                            const joinName = `${sourcePrefix}.customer_revenue_view`
                             const join = joins.find(
                                 (join) => join.source_table_name === joinName && join.joining_table_name === 'groups'
                             )
@@ -183,6 +195,7 @@ export function ExternalDataSourceConfiguration({
                                             type="secondary"
                                             size="small"
                                             onClick={() => toggleEditJoinModal(join)}
+                                            disabledReason={disabledReasonForRevenueAnalyticsConfig(source)}
                                         >
                                             {join.source_table_name}.{join.source_table_key}
                                         </LemonButton>
@@ -202,6 +215,7 @@ export function ExternalDataSourceConfiguration({
                                                     field_name: 'groups',
                                                 })
                                             }
+                                            disabledReason={disabledReasonForRevenueAnalyticsConfig(source)}
                                         >
                                             Add join
                                         </LemonButton>
@@ -213,12 +227,16 @@ export function ExternalDataSourceConfiguration({
                     {
                         key: 'revenue_analytics_enabled',
                         title: 'Enabled?',
-                        render: (_, item: ExternalDataSource) => {
+                        render: (_, source: ExternalDataSource) => {
                             return (
                                 <LemonSwitch
-                                    checked={item.revenue_analytics_enabled}
+                                    checked={source.revenue_analytics_config.enabled}
+                                    disabledReason={dataWarehouseSourcesLoading ? 'Updating...' : undefined}
                                     onChange={(checked) =>
-                                        updateSource({ ...item, revenue_analytics_enabled: checked })
+                                        updateSourceRevenueAnalyticsConfig({
+                                            source,
+                                            config: { enabled: checked },
+                                        })
                                     }
                                 />
                             )
@@ -238,25 +256,32 @@ export function ExternalDataSourceConfiguration({
                                 </Tooltip>
                             </span>
                         ),
-                        render: (_, item: ExternalDataSource) => {
+                        render: (_, source: ExternalDataSource) => {
                             return (
                                 <LemonSwitch
                                     checked={
-                                        item.revenue_analytics_enabled &&
-                                        item.revenue_analytics_settings.include_invoiceless_charges
+                                        source.revenue_analytics_config.enabled &&
+                                        source.revenue_analytics_config.include_invoiceless_charges
                                     }
-                                    disabled={!item.revenue_analytics_enabled}
+                                    disabledReason={disabledReasonForRevenueAnalyticsConfig(source)}
                                     onChange={(checked) =>
-                                        updateSource({
-                                            ...item,
-                                            revenue_analytics_settings: {
-                                                ...item.revenue_analytics_settings,
-                                                include_invoiceless_charges: checked,
-                                            },
+                                        updateSourceRevenueAnalyticsConfig({
+                                            source,
+                                            config: { include_invoiceless_charges: checked },
                                         })
                                     }
                                 />
                             )
+                        },
+                    },
+                    {
+                        key: 'loading',
+                        render: () => {
+                            if (!dataWarehouseSourcesLoading) {
+                                return null
+                            }
+
+                            return <Spinner />
                         },
                     },
                 ]}

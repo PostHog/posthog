@@ -3522,17 +3522,6 @@ export interface RevenueAnalyticsConfig {
     filter_test_accounts: boolean
 }
 
-export interface ExternalDataSourceRevenueAnalyticsSettings {
-    /**
-     * By default, Revenue analytics considers both your invoices and any invoiceless charges
-     * when calculating your revenue - and exposing it through the `revenue_item` views.
-     * Mark this as false if we should only consider your invoices and omit invoiceless charges from the calculations.
-     *
-     * @default true
-     */
-    include_invoiceless_charges: boolean
-}
-
 export interface PageURL {
     url: string
     count: number

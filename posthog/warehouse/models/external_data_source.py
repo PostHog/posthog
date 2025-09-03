@@ -6,10 +6,9 @@ from django.db import models
 import structlog
 import temporalio
 
-from posthog.schema import ExternalDataSourceRevenueAnalyticsSettings
-
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
@@ -49,19 +48,18 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     job_inputs = EncryptedJSONField(null=True, blank=True)
     are_tables_created = models.BooleanField(default=False)
     prefix = models.CharField(max_length=100, null=True, blank=True)
+
+    # DEPRECATED: Check inside `revenue_analytics_config` instead
     revenue_analytics_enabled = models.BooleanField(default=False, blank=True, null=True)
-    _revenue_analytics_settings = models.JSONField(db_column="revenue_analytics_settings", default=dict, null=False)
 
     __repr__ = sane_repr("id", "source_id", "connection_id", "destination_id", "team_id")
 
-    @property
-    def revenue_analytics_settings(self) -> ExternalDataSourceRevenueAnalyticsSettings:
-        return ExternalDataSourceRevenueAnalyticsSettings.model_validate(self._revenue_analytics_settings or {})
+    @cached_property
+    def revenue_analytics_config(self):
+        from .revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 
-    @revenue_analytics_settings.setter
-    def revenue_analytics_settings(self, value: ExternalDataSourceRevenueAnalyticsSettings | dict) -> None:
-        validated = ExternalDataSourceRevenueAnalyticsSettings.model_validate(value or {})
-        self._revenue_analytics_settings = validated.model_dump()
+        config, _ = ExternalDataSourceRevenueAnalyticsConfig.objects.get_or_create(external_data_source=self)
+        return config
 
     def soft_delete(self):
         self.deleted = True

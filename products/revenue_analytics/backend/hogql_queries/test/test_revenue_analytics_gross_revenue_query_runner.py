@@ -397,10 +397,8 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
         )
 
     def test_disabling_invoiceless_charges(self):
-        self.source.revenue_analytics_settings = {"include_invoiceless_charges": False}
-        self.source.save()
-        self.source.refresh_from_db()
-        self.assertFalse(self.source.revenue_analytics_settings.include_invoiceless_charges)
+        self.source.revenue_analytics_config.include_invoiceless_charges = False
+        self.source.revenue_analytics_config.save()
 
         # Use huge date range to collect all data
         results = self._run_revenue_analytics_gross_revenue_query(
