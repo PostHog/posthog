@@ -87,7 +87,7 @@ export function HogFlowEditorPanel(): JSX.Element | null {
                             {hasConfigurationErrors && (
                                 <Tooltip title={`Some fields need attention: ${fieldsWithErrors}`}>
                                     <div>
-                                        <LemonBadge status="warning" size="large" content="!" />
+                                        <LemonBadge status="warning" size="small" content="!" />
                                     </div>
                                 </Tooltip>
                             )}

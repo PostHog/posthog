@@ -68,7 +68,11 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                     <div className="max-w-full text-[0.3rem]/1.5 text-muted text-ellipsis">{action.description}</div>
                 </div>
             </div>
-            {hasValidationError && <LemonBadge status="warning" size="small" content="!" position="top-right" />}
+            {hasValidationError && (
+                <div className="absolute top-0 right-0 scale-75">
+                    <LemonBadge status="warning" size="small" content="!" position="top-right" />
+                </div>
+            )}
             {mode === 'metrics' && (
                 <div
                     style={{
