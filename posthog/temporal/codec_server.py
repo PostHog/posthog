@@ -26,7 +26,7 @@ def decode_payloads(request):
         response = JsonResponse({})
         response["Access-Control-Allow-Origin"] = cors_origin
         response["Access-Control-Allow-Methods"] = "POST, OPTIONS"
-        response["Access-Control-Allow-Headers"] = "Content-Type, X-Namespace, Authorization, x-namespace"
+        response["Access-Control-Allow-Headers"] = "Content-Type, X-Namespace, Authorization"
         return response
 
     try:
@@ -74,10 +74,7 @@ def decode_payloads(request):
                     response_metadata = {}
                     if decrypted_payload.metadata:
                         for key, value in decrypted_payload.metadata.items():
-                            if isinstance(value, bytes):
-                                response_metadata[key] = base64.b64encode(value).decode("utf-8")
-                            else:
-                                response_metadata[key] = str(value)
+                            response_metadata[key] = base64.b64encode(value).decode("utf-8")
 
                     decoded_payloads.append(
                         {
@@ -99,7 +96,7 @@ def decode_payloads(request):
         response = JsonResponse({"error": "Invalid JSON"}, status=400)
         response["Access-Control-Allow-Origin"] = cors_origin
         return response
-    except Exception as e:
-        response = JsonResponse({"error": str(e)}, status=500)
+    except Exception:
+        response = JsonResponse({"generic error"}, status=500)
         response["Access-Control-Allow-Origin"] = cors_origin
         return response

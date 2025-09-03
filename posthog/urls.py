@@ -258,8 +258,9 @@ if settings.TEST:
         return HttpResponse()
 
     urlpatterns.append(path("delete_events/", delete_events))
-    # Temporal codec server endpoint for UI decryption - needed for tests
-    urlpatterns.append(path("decode", decode_payloads, name="temporal_decode"))
+    # Temporal codec server endpoint for UI decryption - needed for tests (if not added already in DEBUG)
+    if not settings.DEBUG:
+        urlpatterns.append(path("decode", decode_payloads, name="temporal_decode"))
 
 
 # Routes added individually to remove login requirement
