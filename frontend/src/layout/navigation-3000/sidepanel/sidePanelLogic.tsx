@@ -60,16 +60,23 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             (selectedTab, sidePanelOpen, isCloudOrDev, featureFlags, sceneSidePanelContext, currentTeam) => {
                 const tabs: SidePanelTab[] = []
 
-                if (featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] || (sidePanelOpen && selectedTab === SidePanelTab.Max)) {
+                if (
+                    currentTeam &&
+                    (featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] || (sidePanelOpen && selectedTab === SidePanelTab.Max))
+                ) {
                     // Show Max if user is already enrolled into beta OR they got a link to Max (even if they haven't enrolled)
                     tabs.push(SidePanelTab.Max)
                 }
-                tabs.push(SidePanelTab.Notebooks)
+                if (currentTeam) {
+                    tabs.push(SidePanelTab.Notebooks)
+                }
                 tabs.push(SidePanelTab.Docs)
                 if (isCloudOrDev) {
                     tabs.push(SidePanelTab.Support)
                 }
-                tabs.push(SidePanelTab.Activity)
+                if (currentTeam) {
+                    tabs.push(SidePanelTab.Activity)
+                }
 
                 if (currentTeam?.created_at) {
                     const teamCreatedAt = dayjs(currentTeam.created_at)
@@ -79,14 +86,20 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     }
                 }
 
-                if (featureFlags[FEATURE_FLAGS.DISCUSSIONS]) {
+                if (currentTeam && featureFlags[FEATURE_FLAGS.DISCUSSIONS]) {
                     tabs.push(SidePanelTab.Discussion)
                 }
 
-                if (sceneSidePanelContext.access_control_resource && sceneSidePanelContext.access_control_resource_id) {
+                if (
+                    currentTeam &&
+                    sceneSidePanelContext.access_control_resource &&
+                    sceneSidePanelContext.access_control_resource_id
+                ) {
                     tabs.push(SidePanelTab.AccessControl)
                 }
-                tabs.push(SidePanelTab.Exports)
+                if (currentTeam) {
+                    tabs.push(SidePanelTab.Exports)
+                }
                 tabs.push(SidePanelTab.Settings)
 
                 if (isCloudOrDev) {
