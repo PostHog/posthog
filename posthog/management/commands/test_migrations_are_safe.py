@@ -48,8 +48,10 @@ def validate_migration_sql(sql) -> bool:
             # Ignore for brand-new tables
             and (table_being_altered not in tables_created_so_far or table_being_altered not in new_tables)
         ):
-            # Check if this is adding a column with a constant default (safe in PostgreSQL 11+)
-            if "ADD COLUMN" in operation_sql and "DEFAULT" in operation_sql:
+            # Check if this is adding/altering a column with a constant default (safe in PostgreSQL 11+)
+            if ("ADD COLUMN" in operation_sql and "DEFAULT" in operation_sql) or (
+                "ALTER COLUMN" in operation_sql and "SET DEFAULT" in operation_sql
+            ):
                 # Extract the default value to check if it's a constant
                 # Match DEFAULT followed by either a quoted string or unquoted value until NOT NULL or end of significant tokens
                 default_match = re.search(
@@ -70,7 +72,8 @@ def validate_migration_sql(sql) -> bool:
                             "CURRENT_TIME",
                         ]  # Functions marked as stable in postgres
                     ):
-                        # This is safe - adding a column with a constant default doesn't require table rewrite in PostgreSQL 11+
+                        # This is safe - adding/altering a column with a constant default
+                        # doesn't require table rewrite in PostgreSQL 11+
                         continue
 
             print(
