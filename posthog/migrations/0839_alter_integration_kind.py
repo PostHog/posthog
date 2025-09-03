@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0837_alter_externaldatasource_source_type"),
+        ("posthog", "0838_remove_null_values_from_team_arrays"),
     ]
 
     operations = [
