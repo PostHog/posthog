@@ -8,7 +8,6 @@ const NUM_LETTERMARK_STYLES = 8
 
 export enum LettermarkColor {
     Gray = 'gray',
-    DarkGray = 'dark-gray',
 }
 
 export interface LettermarkProps {
