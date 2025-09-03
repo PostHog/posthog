@@ -947,9 +947,12 @@ mod tests {
         .expect("Failed to insert person3");
 
         // Add additional distinct_id for person1 to test multiple distinct_ids per person
-        let mut conn = writer.get_connection().await.expect("Failed to get connection");
+        let mut conn = writer
+            .get_connection()
+            .await
+            .expect("Failed to get connection");
         let mut transaction = conn.begin().await.expect("Failed to begin transaction");
-        
+
         sqlx::query(
             "INSERT INTO posthog_persondistinctid (team_id, person_id, distinct_id, version)
              VALUES ($1, $2, $3, 0)",
@@ -961,7 +964,10 @@ mod tests {
         .await
         .expect("Failed to add alt distinct_id");
 
-        transaction.commit().await.expect("Failed to commit transaction");
+        transaction
+            .commit()
+            .await
+            .expect("Failed to commit transaction");
 
         // Create 4 feature flags with experience continuity
         for i in 1..=4 {
@@ -1020,7 +1026,7 @@ mod tests {
                 "Should have 4 overrides for distinct_id {}",
                 distinct_id
             );
-            
+
             for i in 1..=4 {
                 let flag_key = format!("batch_flag_{}", i);
                 assert_eq!(
@@ -1035,10 +1041,13 @@ mod tests {
 
         // Verify the actual count in the database
         // batch_user1 and batch_user1_alt map to same person, so 3 persons * 4 flags = 12 overrides
-        let mut conn = reader.get_connection().await.expect("Failed to get connection");
+        let mut conn = reader
+            .get_connection()
+            .await
+            .expect("Failed to get connection");
         let count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM posthog_featureflaghashkeyoverride 
-             WHERE team_id = $1 AND hash_key = $2"
+             WHERE team_id = $1 AND hash_key = $2",
         )
         .bind(team.id)
         .bind(&hash_key)
@@ -1046,7 +1055,10 @@ mod tests {
         .await
         .expect("Failed to count overrides");
 
-        assert_eq!(count, 12, "Should have exactly 12 overrides in database (3 persons * 4 flags)");
+        assert_eq!(
+            count, 12,
+            "Should have exactly 12 overrides in database (3 persons * 4 flags)"
+        );
     }
 
     #[tokio::test]
@@ -1096,9 +1108,12 @@ mod tests {
         }
 
         // Manually insert some existing overrides
-        let mut conn = writer.get_connection().await.expect("Failed to get connection");
+        let mut conn = writer
+            .get_connection()
+            .await
+            .expect("Failed to get connection");
         let mut transaction = conn.begin().await.expect("Failed to begin transaction");
-        
+
         // Person1 has override for flag 1
         sqlx::query(
             "INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
@@ -1112,7 +1127,10 @@ mod tests {
         .await
         .expect("Failed to insert existing override");
 
-        transaction.commit().await.expect("Failed to commit transaction");
+        transaction
+            .commit()
+            .await
+            .expect("Failed to commit transaction");
 
         // Try batch insert - should only insert the missing combinations
         let distinct_ids = vec!["existing_user1".to_string(), "existing_user2".to_string()];
@@ -1156,16 +1174,22 @@ mod tests {
         );
 
         // Verify the count - should have 6 total (2 existing + 4 new)
-        let mut conn = reader.get_connection().await.expect("Failed to get connection");
+        let mut conn = reader
+            .get_connection()
+            .await
+            .expect("Failed to get connection");
         let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM posthog_featureflaghashkeyoverride WHERE team_id = $1"
+            "SELECT COUNT(*) FROM posthog_featureflaghashkeyoverride WHERE team_id = $1",
         )
         .bind(team.id)
         .fetch_one(&mut *conn)
         .await
         .expect("Failed to count overrides");
 
-        assert_eq!(count, 6, "Should have 6 total overrides (2 existing + 4 new)");
+        assert_eq!(
+            count, 6,
+            "Should have 6 total overrides (2 existing + 4 new)"
+        );
     }
 
     #[rstest]
