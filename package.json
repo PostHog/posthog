@@ -78,7 +78,7 @@
             "stylelint --fix --allow-empty-input",
             "prettier --write"
         ],
-        "{cypress,playwright,frontend,products,common,ee}/**/*.{js,jsx,mjs,ts,tsx}": [
+        "{playwright,frontend,products,common,ee}/**/*.{js,jsx,mjs,ts,tsx}": [
             "oxlint --fix --fix-suggestions --fix-dangerously --quiet",
             "prettier --write"
         ],

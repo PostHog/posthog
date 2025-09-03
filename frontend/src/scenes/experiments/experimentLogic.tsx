@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -1530,23 +1531,28 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         breadcrumbs: [
-            (s) => [s.experiment, s.experimentId],
-            (experiment, experimentId): Breadcrumb[] => [
-                {
-                    key: Scene.Experiments,
-                    name: 'Experiments',
-                    path: urls.experiments(),
-                },
-                {
-                    key: [Scene.Experiment, experimentId],
-                    name: experiment?.name || '',
-                    onRename: async (name: string) => {
-                        // :KLUDGE: work around a type error when using asyncActions accessed via a callback passed to selectors()
-                        const logic = experimentLogic({ experimentId })
-                        await logic.asyncActions.updateExperiment({ name })
+            (s) => [s.experiment, s.experimentId, s.featureFlags],
+            (experiment, experimentId, featureFlags): Breadcrumb[] => {
+                const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+                return [
+                    {
+                        key: Scene.Experiments,
+                        name: 'Experiments',
+                        path: urls.experiments(),
                     },
-                },
-            ],
+                    {
+                        key: [Scene.Experiment, experimentId],
+                        name: experiment?.name || '',
+                        ...(!newSceneLayout && {
+                            onRename: async (name: string) => {
+                                // :KLUDGE: work around a type error when using asyncActions accessed via a callback passed to selectors()
+                                const logic = experimentLogic({ experimentId })
+                                await logic.asyncActions.updateExperiment({ name })
+                            },
+                        }),
+                    },
+                ]
+            },
         ],
         projectTreeRef: [
             () => [(_, props: ExperimentLogicProps) => props.experimentId],

@@ -412,6 +412,19 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             if not session_recording_id:
                 raise NotFound("Invalid replay export - missing session_recording_id")
 
+            # Validate session_recording_id format (UUID-like)
+            if not isinstance(session_recording_id, str) or len(session_recording_id) > 200:
+                raise NotFound("Invalid session_recording_id format")
+
+            # Validate timestamp is a number if present
+            if timestamp is not None:
+                try:
+                    timestamp = float(timestamp)
+                    if timestamp < 0:  # Negative timestamps don't make sense
+                        timestamp = 0
+                except (ValueError, TypeError):
+                    timestamp = 0  # Default to start if invalid
+
             # Create a SessionRecording object for the replay
             try:
                 # First, try to get existing recording from database
@@ -431,6 +444,10 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 asset_title = "Session Recording"
                 asset_description = f"Recording {session_recording_id}"
 
+                mode = resource.export_context.get("mode")
+                if mode not in ("screenshot", "video"):
+                    mode = "screenshot"
+
                 recording_data = SessionRecordingSerializer(recording, context=context).data
 
                 exported_data.update(
@@ -442,7 +459,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                         "exportToken": export_access_token,
                         "noBorder": True,
                         "autoplay": True,
-                        "mode": "screenshot",
+                        "mode": mode,
                     }
                 )
 

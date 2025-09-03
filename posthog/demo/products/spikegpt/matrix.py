@@ -1,7 +1,5 @@
-import datetime as dt
-
 from posthog.demo.matrix.matrix import Cluster, Matrix
-from posthog.models import Cohort, FeatureFlag
+from posthog.models import Cohort
 
 from .models import SpikeGPTPerson
 
@@ -67,20 +65,3 @@ class SpikeGPTMatrix(Matrix):
             ],
         )
         team.test_account_filters = [{"key": "id", "type": "cohort", "value": real_users_cohort.pk}]
-
-        FeatureFlag.objects.create(
-            team=team,
-            key="llm-observability",
-            name="Breaking the fourth wall: PostHog's LLM analytics flag.",
-            filters={"groups": [{"variant": None, "properties": [], "rollout_percentage": 100}]},
-            created_by=user,
-            created_at=dt.datetime.fromtimestamp(0),  # Epoch
-        )
-        FeatureFlag.objects.create(
-            team=team,
-            key="artificial-hog",
-            name="PostHog AI",
-            filters={"groups": [{"variant": None, "properties": [], "rollout_percentage": 100}]},
-            created_by=user,
-            created_at=dt.datetime.fromtimestamp(0),  # Epoch
-        )

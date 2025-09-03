@@ -1,6 +1,6 @@
-import json
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from rest_framework import exceptions
 
@@ -18,13 +18,13 @@ from ee.hogai.session_summaries.utils import load_custom_template
 
 
 def remove_excessive_content_from_session_summary_for_llm(
-    session_summary_str: str,
+    session_summary_dict: dict[str, Any],
 ) -> IntermediateSessionSummarySerializer:
     """Remove excessive content from session summary for LLM when using for group summaries"""
-    session_summary = IntermediateSessionSummarySerializer(data=json.loads(session_summary_str))
+    session_summary = IntermediateSessionSummarySerializer(data=session_summary_dict)
     if not session_summary.is_valid():
         raise ValueError(
-            f"Caught invalid session summary when removing excessive content for group summaries ({session_summary.errors}): {session_summary_str}"
+            f"Caught invalid session summary when removing excessive content for group summaries ({session_summary.errors}): {session_summary_dict}"
         )
     return session_summary
 

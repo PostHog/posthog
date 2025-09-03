@@ -1,15 +1,16 @@
 import { useMemo } from 'react'
 
-import { LemonLabel, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonLabel, LemonSkeleton, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils'
 
-import { AppMetricColor, AppMetricsTrend } from './AppMetricsTrend'
+import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
+import { ChartDisplayType } from '~/types'
+
 import { AppMetricsTimeSeriesResponse } from './appMetricsLogic'
 
 export type AppMetricSummaryProps = {
     name: string
-    color: AppMetricColor
     description: string
     timeSeries: AppMetricsTimeSeriesResponse | null
     previousPeriodTimeSeries?: AppMetricsTimeSeriesResponse | null
@@ -20,7 +21,6 @@ export function AppMetricSummary({
     name,
     timeSeries,
     previousPeriodTimeSeries,
-    color,
     description,
     loading,
 }: AppMetricSummaryProps): JSX.Element {
@@ -62,13 +62,51 @@ export function AppMetricSummary({
             </div>
 
             <div className="flex-1 mt-2">
-                <AppMetricsTrend
-                    timeSeries={timeSeries}
-                    color={color}
-                    loading={loading}
-                    mode="compact"
-                    className="h-[10rem]"
-                />
+                <div className="h-[10rem]">
+                    {loading ? (
+                        <SpinnerOverlay />
+                    ) : !timeSeries ? (
+                        <div className="flex-1 flex items-center justify-center">
+                            <LemonLabel>No data</LemonLabel>
+                        </div>
+                    ) : (
+                        <LineGraph
+                            xData={{
+                                column: {
+                                    name: 'date',
+                                    type: {
+                                        name: 'DATE',
+                                        isNumerical: false,
+                                    },
+                                    label: 'Date',
+                                    dataIndex: 0,
+                                },
+                                data: timeSeries.labels,
+                            }}
+                            yData={timeSeries.series.map((x) => ({
+                                column: {
+                                    name: x.name,
+                                    type: { name: 'INTEGER', isNumerical: true },
+                                    label: x.name,
+                                    dataIndex: 0,
+                                },
+                                data: x.values,
+                            }))}
+                            visualizationType={ChartDisplayType.ActionsLineGraph}
+                            chartSettings={{
+                                showLegend: false,
+                                showTotalRow: false,
+                                showXAxisBorder: false,
+                                showYAxisBorder: false,
+                                showXAxisTicks: false,
+                                leftYAxisSettings: {
+                                    showTicks: false,
+                                    showGridLines: false,
+                                },
+                            }}
+                        />
+                    )}
+                </div>
             </div>
         </div>
     )
