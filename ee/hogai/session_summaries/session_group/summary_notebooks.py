@@ -15,7 +15,6 @@ from posthog.models.notebook.util import (
     create_text_content,
 )
 from posthog.models.team import Team
-from posthog.models.team.team import check_is_feature_available_for_team
 from posthog.models.user import User
 from posthog.temporal.ai.session_summary.types.group import SessionSummaryStep
 
@@ -233,7 +232,11 @@ async def update_notebook_from_summary_content(
 
 
 def generate_notebook_content_from_summary(
-    summary: EnrichedSessionGroupSummaryPatternsList, session_ids: list[str], project_name: str, team_id: int
+    summary: EnrichedSessionGroupSummaryPatternsList,
+    session_ids: list[str],
+    project_name: str,
+    team_id: int,
+    tasks_available: bool = False,
 ) -> TipTapNode:
     """Convert summary data to notebook structure."""
     patterns = summary.patterns
@@ -262,7 +265,9 @@ def generate_notebook_content_from_summary(
 
     # Pattern details
     for pattern in patterns:
-        pattern_content = _create_pattern_section(pattern=pattern, total_sessions=total_sessions, team_id=team_id)
+        pattern_content = _create_pattern_section(
+            pattern=pattern, total_sessions=total_sessions, team_id=team_id, tasks_available=tasks_available
+        )
         content.extend(pattern_content)
 
     content.append(
@@ -338,7 +343,7 @@ def _create_summary_table(patterns: list[EnrichedSessionGroupSummaryPattern], to
 
 
 def _create_pattern_section(
-    pattern: EnrichedSessionGroupSummaryPattern, total_sessions: int, team_id: int
+    pattern: EnrichedSessionGroupSummaryPattern, total_sessions: int, team_id: int, tasks_available: bool
 ) -> TipTapContent:
     """Create detailed pattern section content."""
     content = []
@@ -395,7 +400,7 @@ def _create_pattern_section(
         content.append(_create_line_separator())
         content.extend(example_content)
     content.append(_create_line_separator())
-    if check_is_feature_available_for_team(team_id, "TASK_SUMMARIES"):
+    if tasks_available:
         try:
             # Action: allow creating a task directly from this pattern in Notebooks (behind feature flag)
             task_description_lines = [
