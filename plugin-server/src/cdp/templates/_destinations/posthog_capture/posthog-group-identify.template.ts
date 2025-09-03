@@ -53,7 +53,7 @@ postHogCapture({
             key: 'group_properties',
             label: 'Group properties',
             required: false,
-            default: { id: '${inputs.group_key}' },
+            default: { id: '{inputs.group_key}' },
             secret: false,
             hidden: false,
             description: 'The properties to update on the group.',
