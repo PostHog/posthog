@@ -13,7 +13,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="sharingconfiguration",
             name="password_required",
-            field=models.BooleanField(blank=True, default=False, null=True),
+            field=models.BooleanField(blank=True, null=True),
         ),
         migrations.CreateModel(
             name="SharePassword",
