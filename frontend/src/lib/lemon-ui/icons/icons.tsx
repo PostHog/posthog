@@ -1847,6 +1847,7 @@ export function IconVerticalAlignCenter(props: LemonIconProps): JSX.Element {
     )
 }
 
+/** @deprecated and will be replaced soon*/
 export function IconRecordingClip(props: LemonIconProps): JSX.Element {
     return (
         <LemonIconBase viewBox="0 0 24 24" {...props}>

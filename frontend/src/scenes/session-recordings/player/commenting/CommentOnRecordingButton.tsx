@@ -82,11 +82,11 @@ export function CommentOnRecordingButton(): JSX.Element {
                     <>
                         {quickEmojiIsOpen ? (
                             <>
-                                Stop commenting emoji <KeyboardShortcut e />
+                                Close emoji picker <KeyboardShortcut e />
                             </>
                         ) : (
                             <>
-                                Comment emoji on this recording <KeyboardShortcut e />
+                                Emoji react at the current timestamp <KeyboardShortcut e />
                             </>
                         )}
                     </>
