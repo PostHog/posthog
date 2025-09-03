@@ -162,7 +162,7 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
                     lemonToast.success('Insight added to dashboard')
                 }
             } finally {
-                eventUsageLogic.actions.reportSavedInsightToDashboard()
+                eventUsageLogic.actions.reportSavedInsightToDashboard(insight, dashboardId)
                 actions.setDashboardUpdateLoading(insight.id, false)
             }
         },
@@ -182,7 +182,7 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
                     lemonToast.success('Insight removed from dashboard')
                 }
             } finally {
-                eventUsageLogic.actions.reportRemovedInsightFromDashboard()
+                eventUsageLogic.actions.reportRemovedInsightFromDashboard(insight, dashboardId)
                 actions.setDashboardUpdateLoading(insight.id, false)
             }
         },
