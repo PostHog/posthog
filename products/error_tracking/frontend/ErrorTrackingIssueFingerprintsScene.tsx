@@ -11,7 +11,11 @@ import { errorTrackingIssueFingerprintsSceneLogic } from './errorTrackingIssueFi
 
 export type ErrorTrackingIssueFingerprint = { fingerprint: string; count: number; types: string[]; messages: string[] }
 
-export const scene: SceneExport = {
+export interface ErrorTrackingIssueFingerprintsSceneProps {
+    id: string
+}
+
+export const scene: SceneExport<ErrorTrackingIssueFingerprintsSceneProps> = {
     component: ErrorTrackingIssueFingerprintsScene,
     logic: errorTrackingIssueFingerprintsSceneLogic,
     paramsToProps: ({ params: { id } }) => ({ id }),

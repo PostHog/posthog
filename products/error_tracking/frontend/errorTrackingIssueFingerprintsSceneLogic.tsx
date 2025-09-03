@@ -9,14 +9,13 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import { ErrorTrackingIssueFingerprint } from './ErrorTrackingIssueFingerprintsScene'
+import {
+    ErrorTrackingIssueFingerprint,
+    ErrorTrackingIssueFingerprintsSceneProps,
+} from './ErrorTrackingIssueFingerprintsScene'
 import { issueActionsLogic } from './components/IssueActions/issueActionsLogic'
 import type { errorTrackingIssueFingerprintsSceneLogicType } from './errorTrackingIssueFingerprintsSceneLogicType'
 import { errorTrackingIssueFingerprintsQuery } from './queries'
-
-interface ErrorTrackingIssueFingerprintsSceneProps {
-    id: string
-}
 
 export const errorTrackingIssueFingerprintsSceneLogic = kea<errorTrackingIssueFingerprintsSceneLogicType>([
     path((key) => ['scenes', 'error-tracking', 'errorTrackingIssueFingerprintsSceneLogic', key]),
