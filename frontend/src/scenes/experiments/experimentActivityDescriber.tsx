@@ -46,6 +46,23 @@ const UnknownAction = ({ logItem }: { logItem: ActivityLogItem }): JSX.Element =
     )
 }
 
+// Helper to determine the right preposition based on the action text
+const getPreposition = (text: string): string => {
+    if (text.includes('added') || text.includes('set')) {
+        return 'to'
+    }
+
+    if (text.includes('removed')) {
+        return 'from'
+    }
+
+    if (text.includes('changed') || text.includes('returned')) {
+        return 'for'
+    }
+
+    return 'on'
+}
+
 /**
  * Formats the result from getExperimentChangeDescription into a human-readable string
  * Handles arrays by joining with commas and "and" for the last item
@@ -56,20 +73,6 @@ const humanizeExperimentChange = (
 ): string | JSX.Element | null => {
     if (result === null) {
         return null
-    }
-
-    // Helper to determine the right preposition based on the action text
-    const getPreposition = (text: string): string => {
-        if (text.includes('added') || text.includes('set')) {
-            return 'to'
-        }
-        if (text.includes('removed')) {
-            return 'from'
-        }
-        if (text.includes('changed') || text.includes('returned')) {
-            return 'for'
-        }
-        return 'on'
     }
 
     if (Array.isArray(result)) {
