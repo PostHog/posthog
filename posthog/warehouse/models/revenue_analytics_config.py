@@ -4,6 +4,8 @@ from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
+from posthog.warehouse.types import ExternalDataSourceType
+
 from .external_data_source import ExternalDataSource
 
 logger = logging.getLogger(__name__)
@@ -26,6 +28,11 @@ class ExternalDataSourceRevenueAnalyticsConfig(models.Model):
 def create_external_data_source_revenue_analytics_config(sender, instance, created, **kwargs):
     try:
         if created:
-            ExternalDataSourceRevenueAnalyticsConfig.objects.get_or_create(external_data_source=instance)
+            ExternalDataSourceRevenueAnalyticsConfig.objects.get_or_create(
+                external_data_source=instance,
+                defaults={
+                    "enabled": instance.source_type == ExternalDataSourceType.STRIPE,
+                },
+            )
     except Exception as e:
         logger.warning(f"Error creating external data source revenue analytics config: {e}")

@@ -445,8 +445,7 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix",
-         "posthog_externaldatasource"."revenue_analytics_enabled"
+         "posthog_externaldatasource"."prefix"
   FROM "posthog_externaldatasource"
   WHERE ("posthog_externaldatasource"."source_type" IN ('Stripe')
          AND "posthog_externaldatasource"."team_id" = 99999

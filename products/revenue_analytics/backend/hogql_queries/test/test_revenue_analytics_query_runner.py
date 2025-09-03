@@ -46,7 +46,6 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             source_id="src_test",
             connection_id="conn_test",
             source_type=ExternalDataSourceType.STRIPE,
-            revenue_analytics_enabled=True,
         )
 
         # Create a schema that's running but has never synced
@@ -70,7 +69,6 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             source_id="src_test",
             connection_id="conn_test",
             source_type=ExternalDataSourceType.STRIPE,
-            revenue_analytics_enabled=True,
         )
 
         # Create schemas with different sync intervals
@@ -106,7 +104,6 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             source_id="src_test",
             connection_id="conn_test",
             source_type=ExternalDataSourceType.STRIPE,
-            revenue_analytics_enabled=True,
         )
 
         # Create schemas without sync intervals
@@ -141,7 +138,6 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             source_id="src_test",
             connection_id="conn_test",
             source_type=ExternalDataSourceType.STRIPE,
-            revenue_analytics_enabled=True,
         )
 
         # Create schemas with mixed sync intervals
@@ -187,7 +183,6 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             source_id="src_test",
             connection_id="conn_test",
             source_type=ExternalDataSourceType.POSTGRES,  # Not Stripe
-            revenue_analytics_enabled=True,
         )
 
         # Create a schema for the non-Stripe source
@@ -213,8 +208,9 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             source_id="src_test",
             connection_id="conn_test",
             source_type=ExternalDataSourceType.STRIPE,
-            revenue_analytics_enabled=False,  # Disabled
         )
+        source.revenue_analytics_config.enabled = False
+        source.revenue_analytics_config.save()
 
         # Create a schema for the disabled source
         ExternalDataSchema.objects.create(
@@ -239,7 +235,6 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             source_id="src_test",
             connection_id="conn_test",
             source_type=ExternalDataSourceType.STRIPE,
-            revenue_analytics_enabled=True,
         )
 
         # Create a schema that shouldn't sync
@@ -265,7 +260,6 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             source_id="src_test",
             connection_id="conn_test",
             source_type=ExternalDataSourceType.STRIPE,
-            revenue_analytics_enabled=True,
         )
 
         # Create a schema that's running but has never synced (first-time sync)
@@ -295,13 +289,12 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
     def test_cache_target_age_complex_scenario(self):
         """Test a complex scenario with multiple schemas and edge cases"""
 
-        # Create a Stripe source with revenue analytics enabled
+        # Create a Stripe source with revenue analytics enabled (default)
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="src_test",
             connection_id="conn_test",
             source_type=ExternalDataSourceType.STRIPE,
-            revenue_analytics_enabled=True,
         )
 
         # Create multiple schemas with different configurations
