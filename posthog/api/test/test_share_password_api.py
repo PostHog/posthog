@@ -242,7 +242,7 @@ class TestSharePasswordAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         # Since authentication failed, response is HTML with unlock page text
         response_text = response.content.decode("utf-8")
-        self.assertIn("Don't have a password? Ask the person who shared this with you!", response_text)
+        self.assertIn('"{\\"type\\": \\"unlock\\"}"', response_text)
 
         # Now delete password1
         response = self.client.delete(
@@ -260,4 +260,4 @@ class TestSharePasswordAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         # Since authentication failed, response is HTML with unlock page text
         response_text = response.content.decode("utf-8")
-        self.assertIn("Don't have a password? Ask the person who shared this with you!", response_text)
+        self.assertIn('"{\\"type\\": \\"unlock\\"}"', response_text)

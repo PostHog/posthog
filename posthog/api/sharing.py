@@ -162,6 +162,7 @@ class SharePasswordCreateSerializer(serializers.Serializer):
 class SharingConfigurationSerializer(serializers.ModelSerializer):
     settings = serializers.JSONField(required=False, allow_null=True)
     share_passwords = serializers.SerializerMethodField()
+    password_required = serializers.SerializerMethodField()
 
     class Meta:
         model = SharingConfiguration
@@ -182,6 +183,9 @@ class SharingConfigurationSerializer(serializers.ModelSerializer):
         except Exception as e:
             capture_exception(e)
             raise serializers.ValidationError("Invalid settings format")
+
+    def get_password_required(self, obj):
+        return obj.password_required or False
 
     def get_share_passwords(self, obj):
         # Return empty list for unsaved instances to avoid database relationship access
