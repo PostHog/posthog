@@ -12,11 +12,13 @@ import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { StepFunctionNode, hogFunctionStepLogic } from './hogFunctionStepLogic'
 
 export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }): JSX.Element {
-    const { configuration, templateLoading, template, configurationValidationErrors } = useValues(
-        hogFunctionStepLogic({ node })
-    )
-
+    const { hogFunctionTemplatesById, hogFunctionTemplatesByIdLoading } = useValues(hogFlowEditorLogic)
+    const templateId = node.data.config.template_id
+    const template = hogFunctionTemplatesById[templateId]
     const { setCampaignActionConfig } = useActions(hogFlowEditorLogic)
+
+    const stepLogic = hogFunctionStepLogic({ node, template })
+    const { configuration, configurationValidationErrors } = useValues(stepLogic)
 
     useEffect(() => {
         setCampaignActionConfig(node.id, {
@@ -24,7 +26,7 @@ export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }):
         })
     }, [configuration.inputs, template, setCampaignActionConfig, node.id])
 
-    if (templateLoading) {
+    if (hogFunctionTemplatesByIdLoading) {
         return (
             <div className="flex justify-center items-center">
                 <Spinner />

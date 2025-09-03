@@ -1,9 +1,7 @@
 import { Node } from '@xyflow/react'
-import { afterMount, kea, key, listeners, path, props } from 'kea'
+import { kea, key, path, props, propsChanged } from 'kea'
 import { forms } from 'kea-forms'
-import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
 import { templateToConfiguration } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 
 import { HogFunctionTemplateType } from '~/types'
@@ -23,32 +21,13 @@ export type StepFunctionNode = Node<
 
 export interface HogFunctionStepLogicProps {
     node?: StepFunctionNode
+    template?: HogFunctionTemplateType
 }
 
 export const hogFunctionStepLogic = kea<hogFunctionStepLogicType>([
     path(['products', 'messaging', 'frontend', 'Campaigns', 'hogflows', 'steps']),
     props({} as HogFunctionStepLogicProps),
     key(({ node }: HogFunctionStepLogicProps) => `${node?.id}_${node?.data.config.template_id}`),
-    loaders(({ props }) => ({
-        template: [
-            null as HogFunctionTemplateType | null,
-            {
-                loadTemplate: async () => {
-                    const templateId = props.node?.data.config.template_id
-                    if (!templateId) {
-                        return null
-                    }
-
-                    const res = await api.hogFunctions.getTemplate(templateId)
-
-                    if (!res) {
-                        throw new Error('Template not found')
-                    }
-                    return res
-                },
-            },
-        ],
-    })),
     forms(({ props }) => ({
         configuration: {
             defaults: {
@@ -57,19 +36,15 @@ export const hogFunctionStepLogic = kea<hogFunctionStepLogicType>([
         },
     })),
 
-    listeners(({ actions, values }) => ({
-        loadTemplateSuccess: ({ template }) => {
-            // Set the inputs to be the defaults if not already set
-            if (template && Object.keys(values.configuration.inputs ?? {}).length === 0) {
-                actions.setConfigurationValues({
-                    inputs: templateToConfiguration(template).inputs ?? {},
-                })
-            }
-        },
-    })),
-    afterMount(({ props, actions }) => {
-        if (props.node?.data.config.template_id) {
-            actions.loadTemplate()
+    propsChanged(({ actions, props, values }, oldProps) => {
+        const { template } = props
+        console.log('props changed', template, oldProps.template)
+        console.log('template changed', template, values.configuration.inputs)
+        if (template && Object.keys(values.configuration.inputs ?? {}).length === 0) {
+            console.log('setting inputs', templateToConfiguration(template).inputs)
+            actions.setConfigurationValues({
+                inputs: templateToConfiguration(template).inputs ?? {},
+            })
         }
     }),
 ])
