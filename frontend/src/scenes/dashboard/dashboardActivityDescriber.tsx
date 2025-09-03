@@ -188,7 +188,7 @@ export function dashboardActivityDescriber(logItem: ActivityLogItem, asNotificat
         try {
             for (const change of logItem.detail.changes || []) {
                 if (!change?.field || !dashboardActionsMapping[change.field]) {
-                    continue // insight updates have to have a "field" to be described
+                    continue // dashboard updates have to have a "field" to be described
                 }
 
                 const actionHandler = dashboardActionsMapping[change.field]
@@ -209,7 +209,7 @@ export function dashboardActivityDescriber(logItem: ActivityLogItem, asNotificat
                 }
             }
         } catch (e) {
-            console.error('Error while summarizing insight update', e)
+            console.error('Error while summarizing dashboard update', e)
             posthog.captureException(e)
         }
 

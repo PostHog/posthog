@@ -357,6 +357,27 @@ def team_api_test_factory():
             expected_activity = [
                 {
                     "_state": ANY,
+                    "id": ANY,
+                    "team_id": team.pk,
+                    "organization_id": ANY,
+                    "user_id": None,
+                    "was_impersonated": False,
+                    "is_system": True,
+                    "activity": "created",
+                    "item_id": ANY,
+                    "scope": "Dashboard",
+                    "detail": {
+                        "name": "My App Dashboard",
+                        "type": "dashboard",
+                        "changes": [],
+                        "context": None,
+                        "short_id": None,
+                        "trigger": None,
+                    },
+                    "created_at": ANY,
+                },
+                {
+                    "_state": ANY,
                     "activity": "deleted",
                     "created_at": ANY,
                     "detail": {
