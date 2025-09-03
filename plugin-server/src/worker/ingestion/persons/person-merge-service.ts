@@ -12,67 +12,17 @@ import { captureIngestionWarning } from '../utils'
 import { personMergeFailureCounter } from './metrics'
 import { PersonContext } from './person-context'
 import { PersonCreateService } from './person-create-service'
-// Import result types for future use (currently unused to maintain backward compatibility)
 import {
     PersonMergeLimitExceededError,
     PersonMergeRaceConditionError,
     PersonMergeResult,
     SourcePersonNotFoundError,
     TargetPersonNotFoundError,
-    MergeAction as _MergeAction,
-    MergeMode as _MergeMode,
-    PersonMergeError as _PersonMergeError,
-    determineMergeMode as _determineMergeMode,
-    isAsyncMode as _isAsyncMode,
-    isLimitMode as _isLimitMode,
-    isSyncMode as _isSyncMode,
     createMergeError,
     createMergeSuccess,
 } from './person-merge-types'
 import { applyEventPropertyUpdates, computeEventPropertyUpdates } from './person-update'
 import { PersonsStoreTransaction } from './persons-store-transaction'
-
-// TODO: Future usage example with class-based errors (actions decided by consumer):
-// const result = await this.merge(...)
-// if (result.success) {
-//   return result.person
-// } else {
-//   const error = result.error
-//   const mergeMode = this.context.mergeMode // Configuration-based mode
-//
-//   // Consumer decides the action based on error type, merge mode, and context
-//   if (error instanceof PersonMergeLimitExceededError) {
-//     logger.info(`Merge limit exceeded, mode: ${mergeMode.type}`)
-//
-//     // Action depends on the configured merge mode
-//     const shouldRedirect = mergeMode.type === 'ASYNC' || mergeMode.type === 'LIMIT'
-//
-//     if (shouldRedirect) {
-//       switch (mergeMode.type) {
-//         case 'ASYNC':
-//           logger.info(`Redirecting to async topic: ${mergeMode.topic}`)
-//           await this.redirectToAsyncMerge(event, mergeMode.topic)
-//           break
-//         case 'LIMIT':
-//           logger.warn(`Sending to DLQ due to limit: ${mergeMode.limit}`)
-//           await this.sendToDLQ(event, error)
-//           break
-//       }
-//     } else {
-//       // SYNC mode - continue with normal processing
-//       logger.info(`Processing with sync mode`)
-//       // Continue with normal processing
-//     }
-//   } else if (error instanceof PersonMergeRaceConditionError) {
-//     logger.warn('Race condition detected, ignoring merge', { error: error.message })
-//   } else if (error instanceof PersonMergePersonNotFoundError) {
-//     logger.warn(`Person not found: ${error.personType}`, { error: error.message })
-//   } else {
-//     // Use recommended action as fallback
-//     const action = getRecommendedAction(error, mergeMode)
-//     logger.warn('Using recommended action', { action, mergeMode: mergeMode.type, error: error.message })
-//   }
-// }
 
 export const mergeFinalFailuresCounter = new Counter({
     name: 'person_merge_final_failure_total',
@@ -325,7 +275,6 @@ export class PersonMergeService {
                 otherPersonDistinctId: otherPersonDistinctId,
             })
 
-            // Just return the result directly since mergeDistinctIds now also uses result types
             return result
         } else {
             // Neither Distinct ID points at an existing Person
@@ -388,10 +337,6 @@ export class PersonMergeService {
         }
     }
 
-    /**
-     * Merge persons using result types instead of exceptions
-     * This is the main merge method using result types for clean error handling
-     */
     public async mergePeople({
         mergeInto,
         mergeIntoDistinctId,

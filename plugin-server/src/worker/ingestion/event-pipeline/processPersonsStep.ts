@@ -42,7 +42,6 @@ export async function processPersonsStep(
     if (isPipelineOk(result)) {
         return createPipelineOk([event, result.value, kafkaAck])
     } else {
-        // Forward DLQ/drop results
-        return result as PipelineStepResult<[PluginEvent, Person, Promise<void>]>
+        return result
     }
 }

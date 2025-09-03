@@ -316,11 +316,6 @@ export class EventPipelineRunner {
         if (!isPipelineOk(personStepResult)) {
             // Handle DLQ/drop cases - return early from pipeline
             if (isPipelineDlq(personStepResult)) {
-                logger.warn('Event sent to DLQ during person processing', {
-                    team_id: event.team_id,
-                    distinct_id: event.distinct_id,
-                    reason: personStepResult.reason,
-                })
                 await this.sendToDLQ(event, personStepResult.error, 'processPersonsStep')
             } else if (isPipelineDrop(personStepResult)) {
                 logger.info('Event dropped during person processing', {
@@ -375,6 +370,16 @@ export class EventPipelineRunner {
     }
 
     private async sendToDLQ(event: PluginEvent, error: any, stepName: string): Promise<void> {
+        logger.warn('Event sent to DLQ', {
+            step: stepName,
+            team_id: event.team_id,
+            distinct_id: event.distinct_id,
+            event: event.event,
+            error: error?.message || 'Unknown error',
+        })
+
+        pipelineStepDLQCounter.labels(stepName).inc()
+
         await captureIngestionWarning(
             this.hub.db.kafkaProducer,
             event.team_id,
@@ -397,7 +402,6 @@ export class EventPipelineRunner {
                 `plugin_server_ingest_event:${stepName}`
             )
             await this.hub.db.kafkaProducer.queueMessages(message)
-            pipelineStepDLQCounter.labels(stepName).inc()
         } catch (dlqError) {
             logger.error('Failed to send event to DLQ', {
                 step: stepName,
@@ -405,15 +409,11 @@ export class EventPipelineRunner {
                 distinct_id: event.distinct_id,
                 error: dlqError,
             })
+            captureException(dlqError, {
+                tags: { team_id: event.team_id, pipeline_step: stepName },
+                extra: { event, error: dlqError },
+            })
         }
-
-        logger.warn('Event sent to DLQ', {
-            step: stepName,
-            team_id: event.team_id,
-            distinct_id: event.distinct_id,
-            event: event.event,
-            error: error?.message || 'Unknown error',
-        })
     }
 
     private reportStalled(stepName: string) {

@@ -55,13 +55,10 @@ export class PersonEventProcessor {
             personFromMerge = mergeResult.person
             identifyOrAliasKafkaAck = mergeResult.kafkaAck
         } else {
-            // Handle merge error with action-based approach
             const errorResult = await this.handleMergeError(mergeResult.error, this.context.event)
             if (errorResult) {
-                // Error was handled (redirected, dropped, or sent to DLQ)
                 return [errorResult, Promise.resolve()]
             }
-            // For other errors, log and continue with normal flow
             logger.warn('Merge operation failed, continuing with normal property updates', {
                 error: mergeResult.error.message,
                 team_id: this.context.team.id,
@@ -168,10 +165,6 @@ export class PersonEventProcessor {
         return this.context
     }
 
-    /**
-     * Handle merge errors with action-based approach
-     * Returns pipeline result if error was handled (redirected/DLQ/drop), null to continue normal processing
-     */
     private async handleMergeError(error: any, event: PluginEvent): Promise<PipelineStepResult<Person> | null> {
         const mergeMode = this.context.mergeMode
 

@@ -1,26 +1,6 @@
 import { InternalPerson } from '../../../types'
 
 /**
- * Person Merge Result Types
- *
- * This module defines the result types for person merge operations, replacing
- * exception-based error handling with explicit result types. Actions are
- * determined by the consumer based on the error type.
- *
- * Design principles:
- * - Actions are handled by the caller, not embedded in the errors
- * - Each error type provides context for the caller to decide the action
- * - Type safety is enforced through TypeScript classes
- * - Helper functions provide convenient type guards and constructors
- */
-
-/**
- * Actions that can be taken when a person merge operation fails
- * These are decided by the consumer based on the error type
- */
-export type MergeAction = 'drop' | 'ignore' | 'dlq' | 'redirect'
-
-/**
  * Base class for all person merge errors
  */
 export abstract class PersonMergeError extends Error {
@@ -117,21 +97,6 @@ export type MergeMode =
           topic: string
           limit: number
       }
-
-/**
- * Type guard functions for MergeMode
- */
-export function isSyncMode(mode: MergeMode): mode is Extract<MergeMode, { type: 'SYNC' }> {
-    return mode.type === 'SYNC'
-}
-
-export function isLimitMode(mode: MergeMode): mode is Extract<MergeMode, { type: 'LIMIT' }> {
-    return mode.type === 'LIMIT'
-}
-
-export function isAsyncMode(mode: MergeMode): mode is Extract<MergeMode, { type: 'ASYNC' }> {
-    return mode.type === 'ASYNC'
-}
 
 /**
  * Helper function to create a successful merge result
