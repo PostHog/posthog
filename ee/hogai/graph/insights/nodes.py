@@ -238,6 +238,7 @@ class InsightSearchNode(AssistantNode):
 
         return PartialAssistantState(
             messages=messages_to_return,
+            insight_ids=evaluation_result["selected_insights"],
             search_insights_query=None,
             root_tool_call_id=None,
             root_tool_insight_plan=None,

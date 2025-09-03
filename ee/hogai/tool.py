@@ -91,6 +91,31 @@ class session_summarization(BaseModel):
     )
 
 
+class create_dashboard(BaseModel):
+    """
+    Create a dashboard with insights based on the user's request.
+    Use this tool when users ask to create, build, or make a new dashboard with insights.
+    This tool will search for existing insights that match the user's requirements,
+    or create new insights if none are found, then combine them into a dashboard.
+    Do not call the search_insights tool if this tool is used.
+    """
+
+    search_insights_query: str = Field(
+        description="The user's query to search for insights. "
+        "Include all relevant context from earlier messages too, as the tool won't see that conversation history."
+    )
+    create_dashboard_query: str = Field(
+        description=(
+            "The user's complete request for dashboard creation. "
+            "Include all relevant context from earlier messages too, as the tool won't see that conversation history. "
+            "Examples: "
+            "'Create a dashboard showing user engagement metrics with signup funnel and retention data' "
+            "'Build a revenue dashboard with conversion rates and top performing features' "
+            "'Make a product analytics dashboard tracking feature usage and user behavior'"
+        )
+    )
+
+
 class search_documentation(BaseModel):
     """
     Answer the question using the latest PostHog documentation. This performs a documentation search.

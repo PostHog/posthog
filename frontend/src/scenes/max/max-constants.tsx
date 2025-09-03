@@ -62,6 +62,11 @@ export const TOOL_DEFINITIONS: Omit<
         product: null,
         flag: 'max-session-summarization',
     },
+    create_dashboard: {
+        name: 'Create dashboards',
+        description: 'Create dashboards with insights based on your requirements',
+        product: null,
+    },
     search_docs: {
         name: 'Search docs',
         description: 'Search docs for answers regarding PostHog',

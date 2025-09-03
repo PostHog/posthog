@@ -70,7 +70,7 @@ class QueryExecutorNode(AssistantNode):
         if isinstance(viz_message.answer, AssistantHogQLQuery):
             formatted_query_result = f"{example_prompt}\n\n{SQL_QUERY_PROMPT.format(query=viz_message.answer.query)}\n\n{formatted_query_result}"
 
-        return PartialAssistantState(
+        partial_state = PartialAssistantState(
             messages=[
                 AssistantToolCallMessage(content=formatted_query_result, id=str(uuid4()), tool_call_id=tool_call_id)
             ],
@@ -79,6 +79,27 @@ class QueryExecutorNode(AssistantNode):
             root_tool_insight_type=None,
             rag_context=None,
         )
+
+        # If create_dashboard_query is set, save the insight directly and store the ID
+        if state.create_dashboard_query:
+            from posthog.models import Insight
+
+            # Save the insight immediately in the QueryExecutor (synchronous)
+            # Truncate name and description to fit database constraints
+            insight_name = (viz_message.query or "Dashboard Insight")[:400]  # Max 400 chars
+            insight_description = (viz_message.plan or "Generated for dashboard")[:400]  # Max 400 chars
+
+            insight = Insight.objects.create(
+                name=insight_name,
+                team=self._team,
+                created_by=self._user,
+                query=viz_message.answer.model_dump(mode="json", exclude_none=True),
+                description=insight_description,
+            )
+
+            partial_state.insight_ids = [insight.id]
+
+        return partial_state
 
     def _get_example_prompt(self, viz_message: VisualizationMessage) -> str:
         if isinstance(viz_message.answer, AssistantTrendsQuery):
