@@ -196,9 +196,15 @@ impl MessageProcessor for DeduplicationProcessor {
         // Parse the captured event and extract the raw event from it
         let raw_event = match serde_json::from_slice::<CapturedEvent>(payload) {
             Ok(captured_event) => {
+                let now = captured_event.now.clone();
                 // The RawEvent is serialized in the data field
                 match serde_json::from_str::<RawEvent>(&captured_event.data) {
-                    Ok(raw_event) => raw_event,
+                    Ok(mut raw_event) => {
+                        if raw_event.timestamp.is_none() {
+                            raw_event.timestamp = Some(now);
+                        }
+                        raw_event
+                    }
                     Err(e) => {
                         error!(
                             "Failed to parse RawEvent from data field at {}:{} offset {}: {}",

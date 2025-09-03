@@ -127,7 +127,7 @@ impl From<&RawEvent> for DeduplicationKey {
             .timestamp
             .as_ref()
             .and_then(|t| t.parse::<u64>().ok())
-            .unwrap_or_else(|| chrono::Utc::now().timestamp() as u64);
+            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis() as u64);
 
         let distinct_id = raw_event
             .distinct_id
@@ -303,7 +303,6 @@ impl DeduplicationStore {
             // Emit field differences metric
             self.metrics
                 .histogram("deduplication_field_differences")
-                .with_label("lib", &lib_name)
                 .with_label("lib_version", &lib_version)
                 .record(similarity.different_field_count as f64);
 
@@ -311,7 +310,6 @@ impl DeduplicationStore {
             self.metrics
                 .histogram("deduplication_property_differences")
                 .with_label("lib", &lib_name)
-                .with_label("lib_version", &lib_version)
                 .record(similarity.different_property_count as f64);
 
             // Emit individual counters for each mismatched field
@@ -320,7 +318,6 @@ impl DeduplicationStore {
                     .counter("deduplication_field_mismatch_total")
                     .with_label("field", field_name)
                     .with_label("lib", &lib_name)
-                    .with_label("lib_version", &lib_version)
                     .increment(1);
             }
 

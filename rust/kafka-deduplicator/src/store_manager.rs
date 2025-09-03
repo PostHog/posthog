@@ -140,8 +140,8 @@ impl StoreManager {
                 topic, partition
             );
 
-            // Get the store path before dropping the store
-            let store_path = self.build_store_path(topic, partition);
+            // Get the actual store path from the store instance (it has the timestamp)
+            let store_path = store.get_db_path().display().to_string();
 
             // Drop the store explicitly to close RocksDB
             drop(store);
@@ -197,12 +197,16 @@ impl StoreManager {
     }
 
     /// Build the path for a store based on topic and partition
+    /// Each store gets a unique timestamp-based subdirectory to avoid conflicts
     fn build_store_path(&self, topic: &str, partition: i32) -> String {
+        // Create a unique subdirectory for this store instance
+        let timestamp = chrono::Utc::now().timestamp_millis();
         format!(
-            "{}/{}_{}",
+            "{}/{}_{}/{}",
             self.store_config.path.display(),
             topic.replace('/', "_"),
-            partition
+            partition,
+            timestamp
         )
     }
 
