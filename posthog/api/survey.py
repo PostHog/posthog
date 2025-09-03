@@ -450,13 +450,13 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         """Clear fields not applicable to external surveys"""
         fields_to_clear = [
             "linked_flag_id",
-            "conditions",
             "targeting_flag_filters",
+            "conditions",
         ]
         for field in fields_to_clear:
             data[field] = None
         data["remove_targeting_flag"] = True
-        if "appearance" in data:
+        if "appearance" in data and "surveyPopupDelaySeconds" in data["appearance"]:
             data["appearance"]["surveyPopupDelaySeconds"] = None
 
         return data
