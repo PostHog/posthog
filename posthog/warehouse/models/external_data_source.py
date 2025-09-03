@@ -5,7 +5,6 @@ from django.db import models
 
 import structlog
 import temporalio
-from pydantic import ValidationError
 
 from posthog.schema import ExternalDataSourceRevenueAnalyticsSettings
 
@@ -60,12 +59,9 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return ExternalDataSourceRevenueAnalyticsSettings.model_validate(self._revenue_analytics_settings or {})
 
     @revenue_analytics_settings.setter
-    def revenue_analytics_settings(self, value: dict) -> None:
-        try:
-            validated = ExternalDataSourceRevenueAnalyticsSettings.model_validate(value or {})
-            self._revenue_analytics_settings = validated.model_dump()
-        except Exception as e:
-            raise ValidationError(f"Invalid revenue analytics settings: {str(e)}")
+    def revenue_analytics_settings(self, value: ExternalDataSourceRevenueAnalyticsSettings | dict) -> None:
+        validated = ExternalDataSourceRevenueAnalyticsSettings.model_validate(value or {})
+        self._revenue_analytics_settings = validated.model_dump()
 
     def soft_delete(self):
         self.deleted = True
