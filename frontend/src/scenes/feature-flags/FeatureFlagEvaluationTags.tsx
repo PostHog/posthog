@@ -11,8 +11,6 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { colorForString } from 'lib/utils'
 
-import { tagsModel } from '~/models/tagsModel'
-
 import { featureFlagLogic } from './featureFlagLogic'
 
 interface FeatureFlagEvaluationTagsProps {

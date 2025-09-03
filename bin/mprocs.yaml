@@ -1,6 +1,6 @@
 procs:
     backend:
-        shell: 'uv sync --active && bin/check_postgres_up && bin/check_kafka_clickhouse_up && ./bin/start-backend'
+        shell: 'uv sync --active && ./bin/start-backend'
 
     celery-worker:
         shell: 'uv sync --active && bin/check_postgres_up && bin/check_kafka_clickhouse_up && ./bin/start-celery worker'

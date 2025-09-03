@@ -42,13 +42,8 @@ from posthog.helpers.encrypted_flag_payloads import (
     get_decrypted_flag_payloads,
 )
 from posthog.models import FeatureFlag, Tag
-from posthog.models.activity_logging.activity_log import (
-    Detail,
-    activity_page_response,
-    changes_between,
-    load_activity,
-    log_activity,
-)
+from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
+from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import get_dependent_cohorts
