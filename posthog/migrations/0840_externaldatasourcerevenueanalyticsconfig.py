@@ -26,4 +26,18 @@ class Migration(migrations.Migration):
                 ("include_invoiceless_charges", models.BooleanField(default=True)),
             ],
         ),
+        # For some crazy reason Django does NOT include the default value in the database,
+        # so let's set it manually.
+        migrations.RunSQL(
+            """
+            ALTER TABLE posthog_externaldatasourcerevenueanalyticsconfig ALTER COLUMN enabled SET DEFAULT true;
+            """.strip(),
+            reverse_sql=migrations.RunSQL.noop,
+        ),
+        migrations.RunSQL(
+            """
+            ALTER TABLE posthog_externaldatasourcerevenueanalyticsconfig ALTER COLUMN include_invoiceless_charges SET DEFAULT true;
+            """.strip(),
+            reverse_sql=migrations.RunSQL.noop,
+        ),
     ]
