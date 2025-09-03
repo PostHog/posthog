@@ -4,6 +4,7 @@ use tempfile::TempDir;
 
 use common_types::RawEvent;
 use kafka_deduplicator::checkpoint::{CheckpointConfig, CheckpointExporter, CheckpointUploader};
+use kafka_deduplicator::kafka::types::Partition;
 use kafka_deduplicator::rocksdb::deduplication_store::{
     DeduplicationStore, DeduplicationStoreConfig,
 };
@@ -226,9 +227,13 @@ async fn test_checkpoint_exporter_creation() {
 
     let uploader = MockUploader::new().unwrap();
     let exporter = CheckpointExporter::new(config, Box::new(uploader));
+    let test_partition = Partition::new("test_topic".to_string(), 111);
 
-    assert!(!exporter.is_checkpointing().await);
-    assert!(exporter.last_checkpoint_timestamp().await.is_none());
+    assert!(!exporter.is_checkpointing(&test_partition).await);
+    assert!(exporter
+        .last_checkpoint_timestamp(&test_partition)
+        .await
+        .is_none());
 }
 
 #[tokio::test]
@@ -267,7 +272,11 @@ async fn test_manual_checkpoint() {
     assert!(result.unwrap()); // Should return true indicating checkpoint was performed
 
     // Check that checkpoint timestamp was updated
-    assert!(exporter.last_checkpoint_timestamp().await.is_some());
+    let test_partition = Partition::new(store.get_topic().to_string(), store.get_partition());
+    assert!(exporter
+        .last_checkpoint_timestamp(&test_partition)
+        .await
+        .is_some());
 }
 
 #[tokio::test]
