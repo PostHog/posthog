@@ -189,7 +189,6 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: collections.abc.Mapping[str, typing.Any]) -> BatchExportDestination:
         """Create a BatchExportDestination."""
-        self.create_validate(validated_data)
         export_destination = BatchExportDestination.objects.create(**validated_data)
         return export_destination
 
