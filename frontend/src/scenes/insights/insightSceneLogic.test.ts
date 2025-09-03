@@ -33,7 +33,7 @@ describe('insightSceneLogic', () => {
             },
         })
         initKeaTests()
-        logic = insightSceneLogic()
+        logic = insightSceneLogic({ tabId: 'test-tab' })
         logic.mount()
     })
 
