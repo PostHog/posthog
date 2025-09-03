@@ -46,7 +46,8 @@ export class HogFlowExecutorService {
     public createHogFlowInvocation(
         globals: HogFunctionInvocationGlobals,
         hogFlow: HogFlow,
-        filterGlobals: HogFunctionFilterGlobals
+        filterGlobals: HogFunctionFilterGlobals,
+        currentActionId?: HogFlow['actions'][number]['id']
     ): CyclotronJobInvocationHogFlow {
         return {
             id: new UUIDT().toString(),
@@ -61,6 +62,13 @@ export class HogFlowExecutorService {
             filterGlobals,
             queue: 'hogflow',
             queuePriority: 1,
+            debugMode: Boolean(currentAction),
+            state: {
+                currentAction: {
+                    id: currentActionId,
+                    startedAtTimestamp: Date.now()
+                },
+            },
         }
     }
 
@@ -134,7 +142,7 @@ export class HogFlowExecutorService {
     }
 
     async execute(
-        invocation: CyclotronJobInvocationHogFlow
+        invocation: CyclotronJobInvocationHogFlow,
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> {
         let result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null = null
         const metrics: MinimalAppMetric[] = []
@@ -158,8 +166,12 @@ export class HogFlowExecutorService {
             logs.push(...result.logs)
             metrics.push(...result.metrics)
 
-            // If we have finished _or_ something has been scheduled to run later _or_ we have reached the max async functions then we break the loop
-            if (result.finished || result.invocation.queueScheduledAt) {
+            /**
+             * If we have finished _or_ something has been scheduled to run later _or_ we are performing step-by-step debugging
+             * or_ we have reached the max async functions then we break the loop
+             */
+             
+            if (result.finished || result.invocation.queueScheduledAt || result.invocation.debugMode) {
                 break
             }
         }
@@ -285,7 +297,7 @@ export class HogFlowExecutorService {
             earlyExitResult.logs.push({
                 level: 'info',
                 timestamp: DateTime.now(),
-                message: `Workflow exited early due to exit_condition: ${hogFlow.exit_condition} (${exitReason})`,
+                message: `Workflow exited early due to exit condition: ${hogFlow.exit_condition} (${exitReason})`,
             })
             earlyExitResult.metrics.push({
                 team_id: hogFlow.team_id,

@@ -270,6 +270,7 @@ export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
     hogFlow: HogFlow
     person?: CyclotronPerson
     filterGlobals: HogFunctionFilterGlobals
+    debugMode?: boolean
 }
 
 export type HogFlowInvocationContext = {
