@@ -29,3 +29,9 @@ pub const PARTITION_LAST_COMMITTED_OFFSET: &str = "kafka_partition_last_committe
 
 /// Counter for out-of-order completions
 pub const OUT_OF_ORDER_COMPLETIONS: &str = "kafka_out_of_order_completions_total";
+
+/// Counter for messages force-cleared during partition revocation
+pub const MESSAGES_FORCE_CLEARED: &str = "kafka_messages_force_cleared_total";
+
+/// Counter for completion channel send failures
+pub const COMPLETION_CHANNEL_FAILURES: &str = "kafka_completion_channel_failures_total";

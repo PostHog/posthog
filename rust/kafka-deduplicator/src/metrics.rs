@@ -14,10 +14,8 @@ impl MetricsHelper {
     }
 
     /// Create a metrics helper with topic and partition labels
-    pub fn with_partition(topic: &str, partition: i32) -> Self {
-        let mut labels = HashMap::new();
-        labels.insert("topic".to_string(), topic.to_string());
-        labels.insert("partition".to_string(), partition.to_string());
+    pub fn with_partition(_topic: &str, _partition: i32) -> Self {
+        let labels = HashMap::new();
 
         Self {
             baseline_labels: labels,
@@ -52,6 +50,15 @@ impl MetricsHelper {
     /// Record a gauge metric with baseline labels
     pub fn gauge(&self, name: &str) -> GaugeHelper {
         GaugeHelper {
+            name: name.to_string(),
+            baseline_labels: self.baseline_labels.clone(),
+            additional_labels: HashMap::new(),
+        }
+    }
+
+    /// Record a summary metric with baseline labels
+    pub fn summary(&self, name: &str) -> SummaryHelper {
+        SummaryHelper {
             name: name.to_string(),
             baseline_labels: self.baseline_labels.clone(),
             additional_labels: HashMap::new(),

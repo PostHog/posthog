@@ -286,24 +286,21 @@ impl DeduplicationStore {
             }
 
             // Extract library info and emit duplicate metric with labels
-            let (lib_name, lib_version) = extract_library_info(raw_event);
+            let (lib_name, _lib_version) = extract_library_info(raw_event);
             self.metrics
                 .counter(DUPLICATE_EVENTS_TOTAL_COUNTER)
                 .with_label("lib", &lib_name)
-                .with_label("lib_version", &lib_version)
                 .increment(1);
 
             // Emit similarity histogram metric
             self.metrics
                 .histogram("deduplication_similarity_score")
                 .with_label("lib", &lib_name)
-                .with_label("lib_version", &lib_version)
                 .record(similarity.overall_score);
 
             // Emit field differences metric
             self.metrics
                 .histogram("deduplication_field_differences")
-                .with_label("lib_version", &lib_version)
                 .record(similarity.different_field_count as f64);
 
             // Emit property differences metric
