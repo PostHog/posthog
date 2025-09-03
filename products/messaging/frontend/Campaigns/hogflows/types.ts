@@ -1,6 +1,8 @@
 import { Node } from '@xyflow/react'
 import { z } from 'zod'
 
+import { CyclotronJobInputsValidationResult } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
+
 import { HogFlowActionSchema } from './steps/types'
 
 const HogFlowEdgeSchema = z.object({
@@ -49,3 +51,7 @@ export interface HogFlow extends z.infer<typeof HogFlowSchema> {}
 export interface HogFlowEdge extends z.infer<typeof HogFlowEdgeSchema> {}
 export type HogFlowAction = z.infer<typeof HogFlowActionSchema> & Record<string, unknown>
 export interface HogFlowActionNode extends Node<HogFlowAction> {}
+
+export type HogFlowActionValidationResult = CyclotronJobInputsValidationResult & {
+    schema: z.ZodError | null
+}

@@ -6,10 +6,7 @@ import { router } from 'kea-router'
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import {
-    CyclotronJobInputsValidation,
-    CyclotronJobInputsValidationResult,
-} from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
+import { CyclotronJobInputsValidation } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { urls } from 'scenes/urls'
 
@@ -18,7 +15,7 @@ import { HogFunctionTemplateType } from '~/types'
 import type { campaignLogicType } from './campaignLogicType'
 import { campaignSceneLogic } from './campaignSceneLogic'
 import { HogFlowActionSchema, isFunctionAction } from './hogflows/steps/types'
-import { type HogFlow, type HogFlowAction, type HogFlowEdge } from './hogflows/types'
+import { type HogFlow, type HogFlowAction, HogFlowActionValidationResult, type HogFlowEdge } from './hogflows/types'
 
 export interface CampaignLogicProps {
     id?: string
@@ -140,15 +137,7 @@ export const campaignLogic = kea<campaignLogicType>([
                                 ? 'At least one event or action is required'
                                 : undefined,
                     },
-                    actions: actions.some((action) => {
-                        if (['trigger', 'exit'].includes(action.type)) {
-                            return false
-                        }
-                        const schemaValidation = HogFlowActionSchema.safeParse(action)
-                        const configValidation = values.actionConfigValidationErrors[action.id]?.valid ?? true
-
-                        return !schemaValidation.success || !configValidation
-                    })
+                    actions: actions.some((action) => !(values.actionValidationErrorsById[action.id]?.valid ?? true))
                         ? 'Some fields need work'
                         : undefined,
                 } as DeepPartialMap<HogFlow, ValidationErrorType>
@@ -190,28 +179,43 @@ export const campaignLogic = kea<campaignLogicType>([
             },
         ],
 
-        actionConfigValidationErrors: [
+        actionValidationErrorsById: [
             (s) => [s.campaign, s.hogFunctionTemplatesById],
-            (campaign, hogFunctionTemplatesById): Record<string, CyclotronJobInputsValidationResult | null> => {
+            (campaign, hogFunctionTemplatesById): Record<string, HogFlowActionValidationResult | null> => {
                 return campaign.actions.reduce(
                     (acc, action) => {
-                        if (isFunctionAction(action)) {
+                        const result: HogFlowActionValidationResult = {
+                            valid: true,
+                            schema: null,
+                            errors: {},
+                        }
+                        const schemaValidation = HogFlowActionSchema.safeParse(action)
+
+                        if (!schemaValidation.success) {
+                            result.valid = false
+                            result.schema = schemaValidation.error
+                        } else if (isFunctionAction(action)) {
                             const template = hogFunctionTemplatesById[action.config.template_id]
                             if (!template) {
-                                acc[action.id] = {
-                                    valid: false,
-                                    errors: {},
+                                result.valid = false
+                                result.errors = {
+                                    // This is a special case for the template_id field which might need to go to a geneirc error message
+                                    _template_id: 'Template not found',
                                 }
                             } else {
-                                acc[action.id] = CyclotronJobInputsValidation.validate(
+                                const configValidation = CyclotronJobInputsValidation.validate(
                                     action.config.inputs,
                                     template.inputs_schema ?? []
                                 )
+                                result.valid = configValidation.valid
+                                result.errors = configValidation.errors
                             }
                         }
+
+                        acc[action.id] = result
                         return acc
                     },
-                    {} as Record<string, CyclotronJobInputsValidationResult>
+                    {} as Record<string, HogFlowActionValidationResult>
                 )
             },
         ],

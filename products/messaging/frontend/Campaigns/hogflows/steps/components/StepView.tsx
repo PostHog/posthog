@@ -3,15 +3,16 @@ import { useMemo } from 'react'
 
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
 
+import { campaignLogic } from '../../../campaignLogic'
 import { NODE_HEIGHT, NODE_WIDTH } from '../../constants'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import { HogFlowAction } from '../../types'
 import { getHogFlowStep } from '../HogFlowSteps'
-import { HogFlowActionSchema } from '../types'
 import { StepViewMetrics } from './StepViewMetrics'
 
 export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
     const { selectedNode, mode } = useValues(hogFlowEditorLogic)
+    const { actionValidationErrorsById } = useValues(campaignLogic)
     const isSelected = selectedNode?.id === action.id
 
     const height = mode === 'metrics' ? NODE_HEIGHT + 10 : NODE_HEIGHT
@@ -34,8 +35,8 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
     }, [action.type, isSelected])
 
     // Validate the action against the Zod schema
-    const validationResult = HogFlowActionSchema.safeParse(action)
-    const hasValidationError = !['trigger', 'exit'].includes(action.type) && !validationResult.success
+    const validationResult = actionValidationErrorsById[action.id]
+    const hasValidationError = validationResult?.valid === false
 
     return (
         <div

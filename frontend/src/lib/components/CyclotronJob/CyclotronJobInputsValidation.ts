@@ -8,12 +8,14 @@ export type CyclotronJobInputsValidationResult = {
 export class CyclotronJobInputsValidation {
     // Returns a list an object of errors for each input
     static validate(
-        inputs: Record<string, CyclotronJobInputType>,
-        inputsSchema: CyclotronJobInputSchemaType[]
+        // oxlint-disable-next-line no-unused-vars
+        _inputs: Record<string, CyclotronJobInputType>,
+        // oxlint-disable-next-line no-unused-vars
+        _inputsSchema: CyclotronJobInputSchemaType[]
     ): CyclotronJobInputsValidationResult {
         return {
             valid: false,
-            errors: { foo: 'bar' },
+            errors: { foo: 'bar', url: 'bar' },
         }
     }
 }

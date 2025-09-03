@@ -1,13 +1,14 @@
 import { useActions, useValues } from 'kea'
 
 import { IconExternal } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { urls } from 'scenes/urls'
 
 import { CategorySelect } from 'products/messaging/frontend/OptOuts/CategorySelect'
 
+import { campaignLogic } from '../../campaignLogic'
 import { HogFlowFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { getHogFlowStep } from '../steps/HogFlowSteps'
@@ -17,6 +18,8 @@ import { HogFlowAction } from '../types'
 export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
     const { selectedNode, categories, categoriesLoading } = useValues(hogFlowEditorLogic)
     const { setCampaignAction } = useActions(hogFlowEditorLogic)
+    const { actionValidationErrorsById } = useValues(campaignLogic)
+    const validationResult = actionValidationErrorsById[selectedNode?.id ?? '']
 
     if (!selectedNode) {
         return null
@@ -33,6 +36,15 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                 innerClassName="flex flex-col gap-2 p-3"
                 styledScrollbars
             >
+                {validationResult?.schema && (
+                    <div>
+                        {Object.entries(validationResult.schema.errors).map(([key, value]) => (
+                            <LemonBanner type="error" key={key}>
+                                {value.message}
+                            </LemonBanner>
+                        ))}
+                    </div>
+                )}
                 {Step?.renderConfiguration(selectedNode)}
             </ScrollableShadows>
 

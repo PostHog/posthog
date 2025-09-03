@@ -8,17 +8,22 @@ import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInpu
 
 import { CyclotronJobInputType } from '~/types'
 
+import { campaignLogic } from '../../campaignLogic'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { StepFunctionNode, hogFunctionStepLogic } from './hogFunctionStepLogic'
 
 export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }): JSX.Element {
-    const { hogFunctionTemplatesById, hogFunctionTemplatesByIdLoading } = useValues(hogFlowEditorLogic)
+    const { hogFunctionTemplatesById, hogFunctionTemplatesByIdLoading, actionValidationErrorsById } =
+        useValues(campaignLogic)
+    const { setCampaignActionConfig } = useActions(hogFlowEditorLogic)
+
     const templateId = node.data.config.template_id
     const template = hogFunctionTemplatesById[templateId]
-    const { setCampaignActionConfig } = useActions(hogFlowEditorLogic)
 
     const stepLogic = hogFunctionStepLogic({ node, template })
     const { configuration, configurationValidationErrors } = useValues(stepLogic)
+
+    const validationResult = actionValidationErrorsById[node.id]
 
     useEffect(() => {
         setCampaignActionConfig(node.id, {
@@ -41,6 +46,7 @@ export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }):
     return (
         <Form logic={hogFunctionStepLogic} props={{ node }} formKey="configuration" className="flex flex-col gap-2">
             <CyclotronJobInputs
+                errors={validationResult?.errors}
                 configuration={{
                     inputs: node.data.config.inputs as Record<string, CyclotronJobInputType>,
                     inputs_schema: template?.inputs_schema ?? [],
