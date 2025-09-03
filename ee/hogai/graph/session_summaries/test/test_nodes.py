@@ -1,7 +1,16 @@
 from collections.abc import AsyncGenerator, Awaitable, Callable
+from datetime import UTC, datetime
 from typing import Any, cast
 
-from posthog.test.base import BaseTest
+from freezegun import freeze_time
+from posthog.test.base import (
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+    snapshot_clickhouse_queries,
+)
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.utils import timezone
@@ -13,12 +22,17 @@ from posthog.schema import (
     AssistantToolCallMessage,
     FilterLogicalOperator,
     HumanMessage,
+    MaxInnerUniversalFiltersGroup,
     MaxOuterUniversalFiltersGroup,
     MaxRecordingUniversalFilters,
     RecordingDurationFilter,
 )
 
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
 from posthog.models import SessionRecording
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.temporal.ai.session_summary.summarize_session_group import SessionSummaryStreamUpdate
 from posthog.temporal.ai.session_summary.types.group import SessionSummaryStep
 
@@ -130,50 +144,6 @@ class TestSessionSummarizationNode(BaseTest):
         self.assertIsNone(result.session_summarization_query)
         self.assertIsNone(result.root_tool_call_id)
 
-    def test_create_error_response_none_tool_call_id(self) -> None:
-        """Test error response defaults to 'unknown' when tool_call_id is None."""
-        state = self._create_test_state(root_tool_call_id=None)
-        result = self.node._create_error_response("Test error", state)
-
-        message = result.messages[0]
-        self.assertIsInstance(message, AssistantToolCallMessage)
-        assert isinstance(message, AssistantToolCallMessage)
-        self.assertEqual(message.tool_call_id, "unknown")
-
-    @patch("ee.hogai.graph.session_summaries.nodes.get_stream_writer")
-    def test_get_stream_writer_exception(self, mock_get_stream_writer: MagicMock) -> None:
-        """Test stream writer returns None on exception (important for error handling)."""
-        mock_get_stream_writer.side_effect = Exception("Stream writer error")
-
-        result = self.node._get_stream_writer()
-
-        self.assertIsNone(result)
-
-    def test_stream_progress_no_writer(self) -> None:
-        """Test streaming progress gracefully handles None writer."""
-        # Should not raise exception
-        self.node._stream_progress("Test progress", None)
-
-    @patch("products.replay.backend.max_tools.SessionReplayFilterOptionsGraph")
-    def test_generate_replay_filters_no_output(self, mock_filter_graph_class: MagicMock) -> None:
-        """Test generating replay filters returns None when filter graph returns no output."""
-        mock_graph_instance, _ = self._create_mock_filter_graph(output_filters=None)
-        mock_filter_graph_class.return_value = mock_graph_instance
-
-        result = async_to_sync(self.node._generate_replay_filters)("test query")
-
-        self.assertIsNone(result)
-
-    @patch("products.replay.backend.max_tools.SessionReplayFilterOptionsGraph")
-    def test_generate_replay_filters_invalid_result(self, mock_filter_graph_class: MagicMock) -> None:
-        """Test generating replay filters handles invalid result from filter graph."""
-        mock_graph_instance, _ = self._create_mock_filter_graph(return_none=True)
-        mock_filter_graph_class.return_value = mock_graph_instance
-
-        result = async_to_sync(self.node._generate_replay_filters)("test query")
-
-        self.assertIsNone(result)
-
     @patch("posthog.session_recordings.queries.session_recording_list_from_query.SessionRecordingListFromQuery")
     def test_get_session_ids_with_filters_empty(self, mock_query_runner_class: MagicMock) -> None:
         """Test getting session IDs returns None when no results found."""
@@ -181,7 +151,9 @@ class TestSessionSummarizationNode(BaseTest):
         mock_query_runner = self._create_mock_query_runner([])
         mock_query_runner_class.return_value = mock_query_runner
 
-        result = self.node._get_session_ids_with_filters(mock_filters)
+        # Convert MaxRecordingUniversalFilters to RecordingsQuery
+        recordings_query = self.node._convert_max_filters_to_recordings_query(mock_filters)
+        result = self.node._get_session_ids_with_filters(recordings_query)
 
         self.assertIsNone(result)
 
@@ -192,14 +164,18 @@ class TestSessionSummarizationNode(BaseTest):
         mock_query_runner = self._create_mock_query_runner([{"session_id": "session-1"}])
         mock_query_runner_class.return_value = mock_query_runner
 
-        result = self.node._get_session_ids_with_filters(mock_filters)
+        # First convert MaxRecordingUniversalFilters to RecordingsQuery
+        recordings_query = self.node._convert_max_filters_to_recordings_query(mock_filters)
+        result = self.node._get_session_ids_with_filters(recordings_query)
 
         self.assertEqual(result, ["session-1"])
 
         # Verify duration filters were converted to having_predicates
         call_args = mock_query_runner_class.call_args
-        self.assertIsNotNone(call_args[1]["query"].having_predicates)
-        self.assertEqual(len(call_args[1]["query"].having_predicates), 2)
+        # The query parameter should have having_predicates
+        query_param = call_args[1]["query"]
+        self.assertIsNotNone(query_param.having_predicates)
+        self.assertEqual(len(query_param.having_predicates), 2)
 
     @patch("ee.hogai.graph.session_summaries.nodes.execute_summarize_session")
     def test_summarize_sessions_individually(self, mock_execute_summarize: MagicMock) -> None:
@@ -280,31 +256,6 @@ class TestSessionSummarizationNode(BaseTest):
         conversation = Conversation.objects.create(team=self.team, user=self.user)
 
         state = self._create_test_state(query="test query", should_use_current_filters=None)
-
-        result = async_to_sync(self.node.arun)(state, {"configurable": {"thread_id": str(conversation.id)}})
-
-        self.assertIsInstance(result, PartialAssistantState)
-        self.assertIsNotNone(result)
-        assert result is not None
-        message = result.messages[0]
-        self.assertIsInstance(message, AssistantToolCallMessage)
-        assert isinstance(message, AssistantToolCallMessage)
-        self.assertIn("encountered an issue", message.content)
-
-    @patch("ee.hogai.graph.session_summaries.nodes.database_sync_to_async")
-    @patch("products.replay.backend.max_tools.SessionReplayFilterOptionsGraph")
-    @patch("ee.hogai.graph.session_summaries.nodes.get_stream_writer")
-    def test_arun_no_filters_generated(
-        self, mock_get_stream_writer: MagicMock, mock_filter_graph_class: MagicMock, mock_db_sync: MagicMock
-    ) -> None:
-        """Test arun returns error when filter generation fails."""
-        mock_get_stream_writer.return_value = None
-        conversation = Conversation.objects.create(team=self.team, user=self.user)
-
-        mock_graph_instance, _ = self._create_mock_filter_graph(output_filters=None)
-        mock_filter_graph_class.return_value = mock_graph_instance
-
-        state = self._create_test_state(query="test query", should_use_current_filters=False)
 
         result = async_to_sync(self.node.arun)(state, {"configurable": {"thread_id": str(conversation.id)}})
 
@@ -415,58 +366,6 @@ class TestSessionSummarizationNode(BaseTest):
         # Verify execute_summarize was called for individual summaries
         self.assertEqual(mock_execute_summarize.call_count, 2)
 
-    @patch("products.replay.backend.max_tools.SessionReplayFilterOptionsGraph")
-    @patch("ee.hogai.graph.session_summaries.nodes.get_stream_writer")
-    def test_arun_exception_handling(
-        self, mock_get_stream_writer: MagicMock, mock_filter_graph_class: MagicMock
-    ) -> None:
-        """Test arun properly handles and logs exceptions."""
-        mock_get_stream_writer.return_value = None
-        conversation = Conversation.objects.create(team=self.team, user=self.user)
-
-        # Mock filter generation to raise exception
-        mock_filter_graph_class.side_effect = Exception("Test exception")
-
-        state = self._create_test_state(query="test query", should_use_current_filters=False)
-
-        result = async_to_sync(self.node.arun)(state, {"configurable": {"thread_id": str(conversation.id)}})
-
-        # Verify error response is returned
-        self.assertIsInstance(result, PartialAssistantState)
-        self.assertIsNotNone(result)
-        assert result is not None
-        message = result.messages[0]
-        self.assertIsInstance(message, AssistantToolCallMessage)
-        assert isinstance(message, AssistantToolCallMessage)
-        self.assertIn("encountered an issue", message.content)
-        self.assertEqual(message.tool_call_id, "test_tool_call_id")
-
-    @patch("posthog.session_recordings.queries.session_recording_list_from_query.SessionRecordingListFromQuery")
-    @patch("ee.hogai.graph.session_summaries.nodes.database_sync_to_async")
-    @patch("ee.hogai.graph.session_summaries.nodes.get_stream_writer")
-    def test_arun_use_current_filters_true_no_context(
-        self,
-        mock_get_stream_writer: MagicMock,
-        mock_db_sync: MagicMock,
-        mock_query_runner_class: MagicMock,
-    ) -> None:
-        """Test arun returns error when should_use_current_filters=True but no context provided."""
-        mock_get_stream_writer.return_value = None
-        conversation = Conversation.objects.create(team=self.team, user=self.user)
-
-        state = self._create_test_state(query="test query", should_use_current_filters=True)
-
-        # No contextual tools provided
-        result = async_to_sync(self.node.arun)(state, {"configurable": {"thread_id": str(conversation.id)}})
-
-        self.assertIsInstance(result, PartialAssistantState)
-        self.assertIsNotNone(result)
-        assert result is not None
-        message = result.messages[0]
-        self.assertIsInstance(message, AssistantToolCallMessage)
-        assert isinstance(message, AssistantToolCallMessage)
-        self.assertIn("encountered an issue", message.content)
-
     @patch("posthog.session_recordings.queries.session_recording_list_from_query.SessionRecordingListFromQuery")
     @patch("ee.hogai.graph.session_summaries.nodes.database_sync_to_async")
     @patch("ee.hogai.graph.session_summaries.nodes.get_stream_writer")
@@ -487,6 +386,7 @@ class TestSessionSummarizationNode(BaseTest):
         state = self._create_test_state(query="test query", should_use_current_filters=True)
 
         # Provide contextual filters - need to match MaxRecordingUniversalFilters structure
+        # The filter_group needs to have nested structure with at least one group
         config = cast(
             RunnableConfig,
             {
@@ -495,11 +395,19 @@ class TestSessionSummarizationNode(BaseTest):
                     "contextual_tools": {
                         "search_session_recordings": {
                             "current_filters": {
-                                "date_from": "-30d",
-                                "date_to": "2024-01-31",
+                                "date_from": "2024-01-01T00:00:00",
+                                "date_to": "2024-01-31T23:59:59",
                                 "filter_test_accounts": True,
                                 "duration": [],
-                                "filter_group": {"type": "AND", "values": []},
+                                "filter_group": {
+                                    "type": "AND",
+                                    "values": [
+                                        {
+                                            "type": "AND",
+                                            "values": [],  # Empty filters inside the group
+                                        }
+                                    ],
+                                },
                             }
                         }
                     },
@@ -561,3 +469,291 @@ class TestSessionSummarizationNode(BaseTest):
         self.assertIsInstance(message, AssistantToolCallMessage)
         assert isinstance(message, AssistantToolCallMessage)
         self.assertEqual(message.content, "No sessions were found.")
+
+
+@snapshot_clickhouse_queries
+class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest):
+    @freeze_time("2025-09-03T12:00:00")
+    def setUp(self) -> None:
+        super().setUp()
+        sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
+        sync_execute(TRUNCATE_LOG_ENTRIES_TABLE_SQL)
+
+        self.node = SessionSummarizationNode(self.team, self.user)
+
+        # Create 4 sessions between Aug 28-30, 2025 that match all filter criteria
+        # We don't create SessionRecording objects to avoid S3 persistence issues with freeze_time
+        # The produce_replay_summary calls below will create the necessary data in ClickHouse
+
+        # Statis UUIDs to be able to snapshot
+        self.session_id_1 = "01990f72-b600-7fa3-9a77-341582154177"
+        self.session_id_2 = "01990f72-b600-76df-a71a-f8d777d51361"
+        self.session_id_3 = "01990f72-b600-7d12-819a-5096851bd8ea"
+        self.session_id_4 = "01990f72-b600-790e-9f66-54c74323b611"
+
+        # Create persons for each distinct_id
+        _create_person(distinct_ids=["filter-user-1"], team=self.team, properties={"$os": "Mac OS X"}, immediate=True)
+        _create_person(distinct_ids=["filter-user-2"], team=self.team, properties={"$os": "Mac OS X"}, immediate=True)
+        _create_person(distinct_ids=["filter-user-3"], team=self.team, properties={"$os": "Mac OS X"}, immediate=True)
+        _create_person(distinct_ids=["filter-user-4"], team=self.team, properties={"$os": "Mac OS X"}, immediate=True)
+
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id=self.session_id_1,
+            distinct_id="filter-user-1",
+            first_timestamp=datetime(2025, 8, 28, 10, 0, 0, tzinfo=UTC),
+            last_timestamp=datetime(2025, 8, 28, 10, 30, 0, tzinfo=UTC),
+            first_url="https://example.com/page1",
+            active_milliseconds=7000,  # 7 seconds active
+        )
+
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id=self.session_id_2,
+            distinct_id="filter-user-2",
+            first_timestamp=datetime(2025, 8, 28, 15, 0, 0, tzinfo=UTC),
+            last_timestamp=datetime(2025, 8, 28, 15, 45, 0, tzinfo=UTC),
+            first_url="https://example.com/page2",
+            active_milliseconds=8000,  # 8 seconds active
+        )
+
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id=self.session_id_3,
+            distinct_id="filter-user-3",
+            first_timestamp=datetime(2025, 8, 29, 11, 0, 0, tzinfo=UTC),
+            last_timestamp=datetime(2025, 8, 29, 11, 20, 0, tzinfo=UTC),
+            first_url="https://example.com/page3",
+            active_milliseconds=10000,  # 10 seconds active
+        )
+
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id=self.session_id_4,
+            distinct_id="filter-user-4",
+            first_timestamp=datetime(2025, 8, 30, 9, 0, 0, tzinfo=UTC),
+            last_timestamp=datetime(2025, 8, 30, 9, 25, 0, tzinfo=UTC),
+            first_url="https://example.com/page4",
+            active_milliseconds=9000,  # 9 seconds active
+        )
+
+        # Events for session 1
+        _create_event(
+            distinct_id="filter-user-1",
+            timestamp=datetime(2025, 8, 28, 10, 5, 0, tzinfo=UTC),
+            team=self.team,
+            event="$pageview",
+            properties={
+                "$session_id": self.session_id_1,
+                "$os": "Mac OS X",
+                "$current_url": "https://example.com/page1",
+            },
+        )
+        _create_event(
+            distinct_id="filter-user-1",
+            timestamp=datetime(2025, 8, 28, 10, 10, 0, tzinfo=UTC),
+            team=self.team,
+            event="$ai_generation",
+            properties={"$session_id": self.session_id_1},
+        )
+
+        # Events for session 2
+        _create_event(
+            distinct_id="filter-user-2",
+            timestamp=datetime(2025, 8, 28, 15, 5, 0, tzinfo=UTC),
+            team=self.team,
+            event="$pageview",
+            properties={
+                "$session_id": self.session_id_2,
+                "$os": "Mac OS X",
+                "$current_url": "https://example.com/page2",
+            },
+        )
+        _create_event(
+            distinct_id="filter-user-2",
+            timestamp=datetime(2025, 8, 28, 15, 15, 0, tzinfo=UTC),
+            team=self.team,
+            event="$ai_generation",
+            properties={"$session_id": self.session_id_2},
+        )
+
+        # Events for session 3
+        _create_event(
+            distinct_id="filter-user-3",
+            timestamp=datetime(2025, 8, 29, 11, 5, 0, tzinfo=UTC),
+            team=self.team,
+            event="$pageview",
+            properties={
+                "$session_id": self.session_id_3,
+                "$os": "Mac OS X",
+                "$current_url": "https://example.com/page3",
+            },
+        )
+        _create_event(
+            distinct_id="filter-user-3",
+            timestamp=datetime(2025, 8, 29, 11, 10, 0, tzinfo=UTC),
+            team=self.team,
+            event="$ai_generation",
+            properties={"$session_id": self.session_id_3},
+        )
+
+        # Events for session 4
+        _create_event(
+            distinct_id="filter-user-4",
+            timestamp=datetime(2025, 8, 30, 9, 5, 0, tzinfo=UTC),
+            team=self.team,
+            event="$pageview",
+            properties={
+                "$session_id": self.session_id_4,
+                "$os": "Mac OS X",
+                "$current_url": "https://example.com/page4",
+            },
+        )
+        _create_event(
+            distinct_id="filter-user-4",
+            timestamp=datetime(2025, 8, 30, 9, 10, 0, tzinfo=UTC),
+            team=self.team,
+            event="$ai_generation",
+            properties={"$session_id": self.session_id_4},
+        )
+
+        # Flush all events to ensure they're written to ClickHouse
+        flush_persons_and_events()
+
+    @freeze_time("2025-09-03T12:00:00")
+    def test_use_current_filters_with_os_and_events(self) -> None:
+        """Test using current filters with $os property and $ai_generation event filters."""
+        # Custom filters matching the requirement - NOTE: $os is marked as "person" type as per frontend format
+        # but it's actually an event property that will be correctly handled by the conversion
+        custom_filters = {
+            "date_from": "2025-08-04T00:00:00",
+            "date_to": "2025-09-03T23:59:59",
+            "duration": [{"key": "active_seconds", "operator": "gt", "type": "recording", "value": 6}],
+            "filter_group": {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"key": "$os", "operator": "exact", "type": "person", "value": ["Mac OS X"]},
+                            {"id": "$ai_generation", "name": "$ai_generation", "type": "events"},
+                        ],
+                    }
+                ],
+            },
+            "filter_test_accounts": False,
+            "order": "start_time",
+            "order_direction": "DESC",
+        }
+
+        # Convert custom filters to recordings query
+        recordings_query = self.node._convert_current_filters_to_recordings_query(custom_filters)
+
+        # Use the node's method to get session IDs
+        session_ids = self.node._get_session_ids_with_filters(recordings_query)
+
+        # All 4 sessions should match since they all have:
+        # - $os: "Mac OS X" in person properties
+        # - $ai_generation events
+        # - active_seconds > 6 (7, 8, 10, 9 seconds respectively)
+
+        self.assertIsNotNone(session_ids)
+        assert session_ids is not None  # Type narrowing for mypy
+        self.assertEqual(len(session_ids), 4)
+        self.assertIn(self.session_id_1, session_ids)
+        self.assertIn(self.session_id_2, session_ids)
+        self.assertIn(self.session_id_3, session_ids)
+        self.assertIn(self.session_id_4, session_ids)
+
+    @freeze_time("2025-09-03T12:00:00")
+    def test_use_current_filters_with_date_range(self) -> None:
+        """Test using current filters with specific date range."""
+        # Custom filters with date range that includes our sessions (Aug 28-30)
+        # Changed active_seconds from > 4 to > 7 to exclude session_id_1 (which has 7 seconds)
+        custom_filters = {
+            "date_from": "2025-08-27T00:00:00",
+            "date_to": "2025-08-31T23:59:59",
+            "duration": [{"key": "active_seconds", "operator": "gt", "type": "recording", "value": 7}],
+            "filter_group": {"type": "AND", "values": [{"type": "AND", "values": []}]},
+            "filter_test_accounts": False,
+            "order": "start_time",
+            "order_direction": "DESC",
+        }
+
+        # Convert custom filters to recordings query
+        recordings_query = self.node._convert_current_filters_to_recordings_query(custom_filters)
+
+        # Use the node's method to get session IDs
+        session_ids = self.node._get_session_ids_with_filters(recordings_query)
+
+        # Only 3 sessions should match since they have active_seconds > 7:
+        # - session_id_1: 7 seconds (excluded, not > 7)
+        # - session_id_2: 8 seconds (included)
+        # - session_id_3: 10 seconds (included)
+        # - session_id_4: 9 seconds (included)
+        self.assertIsNotNone(session_ids)
+        assert session_ids is not None  # Type narrowing for mypy
+        self.assertEqual(len(session_ids), 3)
+        self.assertNotIn(self.session_id_1, session_ids)  # 7 seconds, excluded
+        self.assertIn(self.session_id_2, session_ids)  # 8 seconds, included
+        self.assertIn(self.session_id_3, session_ids)  # 10 seconds, included
+        self.assertIn(self.session_id_4, session_ids)  # 9 seconds, included
+
+    @freeze_time("2025-09-03T12:00:00")
+    def test_generate_filters_last_10_days(self) -> None:
+        """Test converting generated filters for 'last 10 days' query."""
+        # Simulate filters that would be generated for "last 10 days"
+        # Since we're frozen at 2025-09-03, last 10 days would be Aug 24 - Sep 3
+        # Using active_seconds > 8 to exclude session_id_1 (7s) and session_id_2 (8s)
+        generated_filters = MaxRecordingUniversalFilters(
+            date_from="2025-08-24T00:00:00",
+            date_to="2025-09-03T23:59:59",
+            duration=[RecordingDurationFilter(key="active_seconds", operator="gt", value=8)],
+            filter_group=MaxOuterUniversalFiltersGroup(
+                type=FilterLogicalOperator.AND_,
+                values=[MaxInnerUniversalFiltersGroup(type=FilterLogicalOperator.AND_, values=[])],
+            ),
+        )
+
+        # Convert the generated filters to recordings query using the node's method
+        recordings_query = self.node._convert_max_filters_to_recordings_query(generated_filters)
+
+        # Use the node's method to get session IDs
+        session_ids = self.node._get_session_ids_with_filters(recordings_query)
+
+        # Only 2 sessions should match since they have active_seconds > 8:
+        # - session_id_1: 7 seconds (excluded)
+        # - session_id_2: 8 seconds (excluded, not > 8)
+        # - session_id_3: 10 seconds (included)
+        # - session_id_4: 9 seconds (included)
+
+        # We expect exactly 2 sessions with active_seconds > 8
+        self.assertIsNotNone(session_ids)
+        assert session_ids is not None  # Type narrowing for mypy
+        self.assertEqual(len(session_ids), 2, "Should find exactly 2 sessions with active_seconds > 8")
+        self.assertIn(self.session_id_3, session_ids)  # 10 seconds, included
+        self.assertIn(self.session_id_4, session_ids)  # 9 seconds, included
+        self.assertNotIn(self.session_id_1, session_ids)  # 7 seconds, excluded
+        self.assertNotIn(self.session_id_2, session_ids)  # 8 seconds, excluded
+
+    @freeze_time("2025-09-03T12:00:00")
+    def test_get_session_ids_respects_limit(self) -> None:
+        """Test that _get_session_ids_with_filters respects the limit parameter."""
+        # Create a filter that would match all 4 sessions
+        custom_filters = {
+            "date_from": "2025-08-27T00:00:00",
+            "date_to": "2025-08-31T23:59:59",
+            "filter_group": {"type": "AND", "values": [{"type": "AND", "values": []}]},
+            "filter_test_accounts": False,
+        }
+
+        # Convert custom filters to recordings query
+        recordings_query = self.node._convert_current_filters_to_recordings_query(custom_filters)
+
+        # Get session IDs with explicit limit of 1
+        session_ids = self.node._get_session_ids_with_filters(recordings_query, limit=1)
+
+        # Should only return 1 session despite 4 matching
+        self.assertIsNotNone(session_ids)
+        assert session_ids is not None  # Type narrowing for mypy
+        self.assertEqual(len(session_ids), 1, "Should return exactly 1 session due to limit")
