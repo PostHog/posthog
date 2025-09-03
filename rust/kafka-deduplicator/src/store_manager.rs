@@ -1,7 +1,6 @@
 use anyhow::{Context, Result};
 use dashmap::DashMap;
 use std::path::PathBuf;
-use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 
 use crate::kafka::types::Partition;
@@ -21,11 +20,6 @@ pub struct StoreManager {
 
     /// Configuration for creating new stores
     store_config: DeduplicationStoreConfig,
-
-    /// Lock to ensure directory creation is serialized
-    /// This prevents race conditions when multiple workers try to create
-    /// the parent directory simultaneously
-    directory_lock: RwLock<()>,
 }
 
 impl StoreManager {
@@ -34,7 +28,6 @@ impl StoreManager {
         Self {
             stores: DashMap::new(),
             store_config,
-            directory_lock: RwLock::new(()),
         }
     }
 
@@ -63,25 +56,18 @@ impl StoreManager {
         }
 
         // Slow path: need to create the store
-        // We use a two-phase approach:
-        // 1. Ensure directory exists (with lock to prevent races)
-        // 2. Try to create and insert the store atomically
-
-        let store_path = self.build_store_path(topic, partition);
-
-        // Phase 1: Ensure parent directory exists
-        // We use a write lock here to serialize directory creation
-        {
-            let _lock = self.directory_lock.write().await;
-            self.ensure_directory_exists(&store_path)?;
-        }
-
-        // Phase 2: Try to create and insert the store
         // DashMap's entry API ensures only one worker creates the store
         let result = self
             .stores
             .entry(partition_key.clone())
             .or_try_insert_with(|| {
+                // Generate store path inside the closure so only the creating thread generates it
+                let store_path = self.build_store_path(topic, partition);
+                
+                // Ensure parent directory exists
+                // Note: This is inside the closure so only the creating thread does this
+                self.ensure_directory_exists(&store_path)?;
+                
                 info!(
                     "Creating new deduplication store for partition {}:{} at path: {}",
                     topic, partition, store_path
@@ -117,18 +103,19 @@ impl StoreManager {
                     Ok(store.clone())
                 } else {
                     // Real failure - no one succeeded in creating the store
-                    // Log the full error chain to understand the root cause
-                    error!(
-                        "Failed to create store for {}:{} at path {}: {:?}",
-                        topic, partition, store_path, e
-                    );
-
-                    // Also log the error chain for more detail
+                    // Build the complete error chain
+                    let mut error_chain = vec![format!("{:?}", e)];
                     let mut source = e.source();
                     while let Some(err) = source {
-                        error!("  Caused by: {}", err);
+                        error_chain.push(format!("Caused by: {}", err));
                         source = err.source();
                     }
+                    
+                    error!(
+                        "Failed to create store for {}:{} - {}",
+                        topic, partition,
+                        error_chain.join(" -> ")
+                    );
 
                     Err(e)
                 }
