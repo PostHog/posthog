@@ -295,6 +295,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         openExplorer: true,
         takeScreenshot: true,
         getClip: (format: ExporterFormat, duration: number = 5) => ({ format, duration }),
+        exportRecording: (
+            format: ExporterFormat,
+            timestamp: number = 0,
+            mode: SessionRecordingPlayerMode,
+            duration: number = 5
+        ) => ({ format, timestamp, mode, duration }),
         closeExplorer: true,
         openHeatmap: true,
         setExplorerProps: (props: SessionRecordingPlayerExplorerProps | null) => ({ props }),
@@ -1422,81 +1428,37 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 height: parseFloat(iframe.height),
             })
         },
-        takeScreenshot: async () => {
+        exportRecording: ({ format, timestamp = 0, mode, duration = 5 }) => {
             actions.setPause()
             const iframe = values.rootFrame?.querySelector('iframe')
             if (!iframe) {
-                lemonToast.error('Cannot take screenshot. Please try again.')
+                lemonToast.error('Cannot export recording. Please try again.')
                 return
             }
 
+            actions.startReplayExport(values.sessionRecordingId, format, timestamp, duration, mode, {
+                width: iframe?.width ? Number(iframe.width) : 1400,
+                height: iframe?.height ? Number(iframe.height) : 600,
+                css_selector: '.replayer-wrapper',
+                filename: `replay-${values.sessionRecordingId}`,
+            })
+        },
+        takeScreenshot: async () => {
             // We need to subtract 1 second as the player starts immediately
             const timestamp = Math.max(0, getCurrentPlayerTime(values.logicProps) - 1)
-
-            actions.startReplayExport(
-                values.sessionRecordingId,
-                ExporterFormat.PNG,
-                timestamp,
-                5,
-                SessionRecordingPlayerMode.Screenshot,
-                {
-                    width: iframe?.width ? Number(iframe.width) : 1400,
-                    height: iframe?.height ? Number(iframe.height) : 600,
-                    css_selector: '.replayer-wrapper',
-                    filename: `replay-${values.sessionRecordingId}`,
-                }
-            )
+            actions.exportRecording(ExporterFormat.PNG, timestamp, SessionRecordingPlayerMode.Screenshot)
         },
         getClip: async ({ format, duration = 5 }) => {
-            actions.setPause()
-            const iframe = values.rootFrame?.querySelector('iframe')
-            if (!iframe) {
-                lemonToast.error('Cannot take screenshot. Please try again.')
-                return
-            }
-
             // We need to subtract 1 second as the player starts immediately
             const timestamp = Math.max(0, getCurrentPlayerTime(values.logicProps) - 1)
-
-            actions.startReplayExport(
-                values.sessionRecordingId,
-                format,
-                timestamp,
-                duration,
-                SessionRecordingPlayerMode.Screenshot,
-                {
-                    width: iframe?.width ? Number(iframe.width) : 1400,
-                    height: iframe?.height ? Number(iframe.height) : 600,
-                    css_selector: '.replayer-wrapper',
-                    filename: `replay-${values.sessionRecordingId}`,
-                }
-            )
+            actions.exportRecording(format, timestamp, SessionRecordingPlayerMode.Screenshot, duration)
         },
         exportRecordingToVideoFile: async () => {
-            actions.setPause()
-            const iframe = values.rootFrame?.querySelector('iframe')
-            if (!iframe) {
-                lemonToast.error('Cannot export recording to video. Please try again.')
-                return
-            }
-
             const duration = values.sessionPlayerData?.durationMs
                 ? Math.floor(values.sessionPlayerData?.durationMs / 1000)
                 : 5
 
-            actions.startReplayExport(
-                values.sessionRecordingId,
-                ExporterFormat.MP4,
-                0,
-                duration,
-                SessionRecordingPlayerMode.Video,
-                {
-                    width: iframe?.width ? Number(iframe.width) : 1400,
-                    height: iframe?.height ? Number(iframe.height) : 600,
-                    css_selector: '.replayer-wrapper',
-                    filename: `replay-${values.sessionRecordingId}`,
-                }
-            )
+            actions.exportRecording(ExporterFormat.MP4, 0, SessionRecordingPlayerMode.Video, duration)
         },
         openHeatmap: () => {
             actions.setPause()

@@ -28,11 +28,13 @@ function ClipParams(): JSX.Element {
                             value: ExporterFormat.GIF,
                             label: 'GIF',
                             tooltip: 'Animated GIF - smaller file size, good for sharing',
+                            'data-attr': 'replay-screenshot-gif',
                         },
                         {
                             value: ExporterFormat.MP4,
                             label: 'MP4',
                             tooltip: 'Video file - higher quality, better for detailed analysis',
+                            'data-attr': 'replay-screenshot-mp4',
                         },
                     ]}
                 />
@@ -88,7 +90,7 @@ export function ClipRecording(): JSX.Element {
             <LemonButton
                 size="xsmall"
                 onClick={() => {
-                    setPause(true)
+                    setPause()
                     setShowingClipParams(!showingClipParams)
                 }}
                 tooltip={
@@ -102,7 +104,7 @@ export function ClipRecording(): JSX.Element {
                     </div>
                 }
                 icon={<IconRecordingClip className="text-xl" />}
-                data-attr="replay-screenshot-gif"
+                data-attr="replay-clip"
                 tooltipPlacement="top"
             />
         </LemonDropdown>
