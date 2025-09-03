@@ -64,7 +64,7 @@ export function ExportsList(): JSX.Element {
                         icon={<IconDownload />}
                         disabledReason={failedReason || disabledReason}
                         onClick={() => downloadExport(exportAsset)}
-                        data-attr={`download-export-${exportAsset.id}`}
+                        data-attr={`audit-logs-download-export-${exportAsset.id}`}
                     >
                         Download
                     </LemonButton>
@@ -86,7 +86,6 @@ export function ExportsList(): JSX.Element {
                 loading={exportsLoading}
                 rowKey="id"
                 emptyState="No exports found"
-                data-attr="exports-table"
             />
         </div>
     )

@@ -26,6 +26,7 @@ export function AdvancedActivityLogFiltersPanel(): JSX.Element {
                                     fullWidth
                                     onClick={() => exportLogs('csv')}
                                     loading={exportsLoading}
+                                    data-attr="audit-logs-export-csv"
                                 >
                                     Export as CSV
                                 </LemonButton>
@@ -34,12 +35,14 @@ export function AdvancedActivityLogFiltersPanel(): JSX.Element {
                                     fullWidth
                                     onClick={() => exportLogs('xlsx')}
                                     loading={exportsLoading}
+                                    data-attr="audit-logs-export-xlsx"
                                 >
                                     Export as Excel
                                 </LemonButton>
                             </div>
                         }
                         placement="bottom-end"
+                        data-attr="audit-logs-export-dropdown"
                     >
                         <LemonButton
                             size="small"
