@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { processAiEvent } from './process-ai-event'
+import { normalizeTraceProperties, processAiEvent } from './process-ai-event'
 import { costsByModel } from './providers'
 
 jest.mock('./providers', () => {
@@ -473,5 +473,258 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.00022, 5)
             expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.00033, 5)
         })
+    })
+})
+
+describe('normalizeTraceProperties()', () => {
+    it('converts numeric trace_id to string', () => {
+        const event: PluginEvent = {
+            event: '$ai_span',
+            properties: {
+                $ai_trace_id: 12345,
+                $ai_parent_id: 67890,
+            },
+            ip: '',
+            site_url: '',
+            team_id: 0,
+            now: '',
+            distinct_id: '',
+            uuid: '',
+            timestamp: '',
+        }
+        const result = normalizeTraceProperties(event)
+        expect(result.properties!.$ai_trace_id).toBe('12345')
+        expect(result.properties!.$ai_parent_id).toBe('67890')
+    })
+
+    it('preserves string trace_id', () => {
+        const event: PluginEvent = {
+            event: '$ai_span',
+            properties: {
+                $ai_trace_id: 'abc-123',
+                $ai_parent_id: 'def-456',
+            },
+            ip: '',
+            site_url: '',
+            team_id: 0,
+            now: '',
+            distinct_id: '',
+            uuid: '',
+            timestamp: '',
+        }
+        const result = normalizeTraceProperties(event)
+        expect(result.properties!.$ai_trace_id).toBe('abc-123')
+        expect(result.properties!.$ai_parent_id).toBe('def-456')
+    })
+
+    it('handles null and undefined values', () => {
+        const event: PluginEvent = {
+            event: '$ai_span',
+            properties: {
+                $ai_trace_id: null,
+                $ai_parent_id: undefined,
+            },
+            ip: '',
+            site_url: '',
+            team_id: 0,
+            now: '',
+            distinct_id: '',
+            uuid: '',
+            timestamp: '',
+        }
+        const result = normalizeTraceProperties(event)
+        expect(result.properties!.$ai_trace_id).toBe(null)
+        expect(result.properties!.$ai_parent_id).toBe(undefined)
+    })
+
+    it('normalizes span_id and generation_id', () => {
+        const event: PluginEvent = {
+            event: '$ai_generation',
+            properties: {
+                $ai_span_id: 111,
+                $ai_generation_id: 222,
+            },
+            ip: '',
+            site_url: '',
+            team_id: 0,
+            now: '',
+            distinct_id: '',
+            uuid: '',
+            timestamp: '',
+        }
+        const result = normalizeTraceProperties(event)
+        expect(result.properties!.$ai_span_id).toBe('111')
+        expect(result.properties!.$ai_generation_id).toBe('222')
+    })
+
+    it('handles boolean trace IDs', () => {
+        const event: PluginEvent = {
+            event: '$ai_span',
+            properties: {
+                $ai_trace_id: true,
+                $ai_parent_id: false,
+            },
+            ip: '',
+            site_url: '',
+            team_id: 0,
+            now: '',
+            distinct_id: '',
+            uuid: '',
+            timestamp: '',
+        }
+        const result = normalizeTraceProperties(event)
+        expect(result.properties!.$ai_trace_id).toBe('true')
+        expect(result.properties!.$ai_parent_id).toBe('false')
+    })
+
+    it('sets arrays to undefined', () => {
+        const event: PluginEvent = {
+            event: '$ai_span',
+            properties: {
+                $ai_trace_id: [1, 2, 3],
+                $ai_parent_id: ['a', 'b', 'c'],
+            },
+            ip: '',
+            site_url: '',
+            team_id: 0,
+            now: '',
+            distinct_id: '',
+            uuid: '',
+            timestamp: '',
+        }
+        const result = normalizeTraceProperties(event)
+        expect(result.properties!.$ai_trace_id).toBe(undefined)
+        expect(result.properties!.$ai_parent_id).toBe(undefined)
+    })
+
+    it('sets objects to undefined', () => {
+        const event: PluginEvent = {
+            event: '$ai_span',
+            properties: {
+                $ai_trace_id: { id: 123, type: 'trace' },
+                $ai_parent_id: { nested: { value: 456 } },
+            },
+            ip: '',
+            site_url: '',
+            team_id: 0,
+            now: '',
+            distinct_id: '',
+            uuid: '',
+            timestamp: '',
+        }
+        const result = normalizeTraceProperties(event)
+        expect(result.properties!.$ai_trace_id).toBe(undefined)
+        expect(result.properties!.$ai_parent_id).toBe(undefined)
+    })
+
+    it('handles mixed valid and invalid types', () => {
+        const event: PluginEvent = {
+            event: '$ai_span',
+            properties: {
+                $ai_trace_id: 123,
+                $ai_parent_id: 'string-id',
+                $ai_span_id: [1, 2],
+                $ai_generation_id: { id: 'gen' },
+            },
+            ip: '',
+            site_url: '',
+            team_id: 0,
+            now: '',
+            distinct_id: '',
+            uuid: '',
+            timestamp: '',
+        }
+        const result = normalizeTraceProperties(event)
+        expect(result.properties!.$ai_trace_id).toBe('123')
+        expect(result.properties!.$ai_parent_id).toBe('string-id') // Already a string
+        expect(result.properties!.$ai_span_id).toBe(undefined)
+        expect(result.properties!.$ai_generation_id).toBe(undefined)
+    })
+
+    it('handles event without properties', () => {
+        const event: PluginEvent = {
+            event: '$ai_span',
+            ip: '',
+            site_url: '',
+            team_id: 0,
+            now: '',
+            distinct_id: '',
+            uuid: '',
+            timestamp: '',
+        }
+        const result = normalizeTraceProperties(event)
+        expect(result).toEqual(event)
+    })
+})
+
+describe('processAiEvent() trace normalization', () => {
+    it('normalizes trace properties for all AI event types', () => {
+        const eventTypes = ['$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback']
+
+        for (const eventType of eventTypes) {
+            const event: PluginEvent = {
+                event: eventType,
+                properties: {
+                    $ai_trace_id: 123,
+                    $ai_parent_id: 456,
+                    $ai_model: 'testing_model',
+                    $ai_input_tokens: 100,
+                    $ai_output_tokens: 50,
+                },
+                ip: '',
+                site_url: '',
+                team_id: 0,
+                now: '',
+                distinct_id: '',
+                uuid: '',
+                timestamp: '',
+            }
+            const result = processAiEvent(event)
+            expect(result.properties!.$ai_trace_id).toBe('123')
+            expect(result.properties!.$ai_parent_id).toBe('456')
+        }
+    })
+
+    it('normalizes trace properties even for non-cost events', () => {
+        const event: PluginEvent = {
+            event: '$ai_metric',
+            properties: {
+                $ai_trace_id: 999,
+                $ai_metric_name: 'test_metric',
+                $ai_metric_value: 42,
+            },
+            ip: '',
+            site_url: '',
+            team_id: 0,
+            now: '',
+            distinct_id: '',
+            uuid: '',
+            timestamp: '',
+        }
+        const result = processAiEvent(event)
+        expect(result.properties!.$ai_trace_id).toBe('999')
+        // Should not have cost fields added
+        expect(result.properties!.$ai_total_cost_usd).toBeUndefined()
+    })
+
+    it('does not normalize non-AI events', () => {
+        const event: PluginEvent = {
+            event: '$pageview',
+            properties: {
+                $ai_trace_id: 123,
+                $ai_parent_id: 456,
+            },
+            ip: '',
+            site_url: '',
+            team_id: 0,
+            now: '',
+            distinct_id: '',
+            uuid: '',
+            timestamp: '',
+        }
+        const result = processAiEvent(event)
+        // Should not be normalized since it's not an AI event
+        expect(result.properties!.$ai_trace_id).toBe(123)
+        expect(result.properties!.$ai_parent_id).toBe(456)
     })
 })
