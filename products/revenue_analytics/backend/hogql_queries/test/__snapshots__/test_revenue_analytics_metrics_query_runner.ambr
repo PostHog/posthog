@@ -9,7 +9,7 @@
          countIf(subquery.customer_id, ifNull(greaterOrEquals(subquery.subscription_count, 1), 0)) AS customer_count,
          countIf(subquery.customer_id, subquery.is_new_customer) AS new_customer_count,
          countIf(subquery.customer_id, subquery.is_churned_customer) AS churned_customer_count,
-         ifNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 0) AS arpu,
+         ifNull(accurateCastOrNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS arpu,
          multiIf(ifNull(equals(customer_count, 0), 0), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(equals(churned_customer_count, 0), 0), NULL, divideDecimal(arpu, accurateCastOrNull(divide(churned_customer_count, customer_count), 'Decimal64(10)'))) AS ltv
   FROM
     (SELECT revenue_analytics_subscription.source_label AS breakdown_by,
@@ -55,18 +55,18 @@
                      addDays(max_timestamp, 45.0) AS max_timestamp_plus_dropoff_days
               FROM events
               LEFT OUTER JOIN
-                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id
                  FROM person
                  WHERE equals(person.team_id, 99999)
                  GROUP BY person.id
-                 HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
               WHERE and(equals(events.team_id, 99999), 1)
               GROUP BY subscription_id,
                        person_id)
@@ -127,12 +127,12 @@
                   if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
            FROM events
            LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
            ORDER BY timestamp DESC) AS `revenue_analytics.events.purchase.revenue_item_events_revenue_view`) AS revenue_analytics_revenue_item ON equals(revenue_analytics_subscription.id, revenue_analytics_revenue_item.subscription_id)
      GROUP BY revenue_analytics_subscription.customer_id,
@@ -167,7 +167,7 @@
          countIf(subquery.customer_id, ifNull(greaterOrEquals(subquery.subscription_count, 1), 0)) AS customer_count,
          countIf(subquery.customer_id, subquery.is_new_customer) AS new_customer_count,
          countIf(subquery.customer_id, subquery.is_churned_customer) AS churned_customer_count,
-         ifNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 0) AS arpu,
+         ifNull(accurateCastOrNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS arpu,
          multiIf(ifNull(equals(customer_count, 0), 0), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(equals(churned_customer_count, 0), 0), NULL, divideDecimal(arpu, accurateCastOrNull(divide(churned_customer_count, customer_count), 'Decimal64(10)'))) AS ltv
   FROM
     (SELECT revenue_analytics_subscription.source_label AS breakdown_by,
@@ -213,18 +213,18 @@
                      addDays(max_timestamp, 45.0) AS max_timestamp_plus_dropoff_days
               FROM events
               LEFT OUTER JOIN
-                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id
                  FROM person
                  WHERE equals(person.team_id, 99999)
                  GROUP BY person.id
-                 HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
               WHERE and(equals(events.team_id, 99999), 1)
               GROUP BY subscription_id,
                        person_id)
@@ -305,12 +305,12 @@
                   if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
            FROM events
            LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
            ORDER BY timestamp DESC) AS `revenue_analytics.events.purchase.revenue_item_events_revenue_view`
         UNION ALL SELECT `stripe.posthog_test.revenue_item_revenue_view`.id AS id,
@@ -461,18 +461,18 @@
              (SELECT DISTINCT events__person.id AS person_id
               FROM events
               LEFT OUTER JOIN
-                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id
                  FROM person
                  WHERE equals(person.team_id, 99999)
                  GROUP BY person.id
-                 HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
               WHERE and(equals(events.team_id, 99999), 1)) AS events ON equals(persons.id, events.person_id)
            ORDER BY persons.created_at DESC) AS `revenue_analytics.events.purchase.customer_events_revenue_view`
         UNION ALL SELECT `stripe.posthog_test.customer_revenue_view`.id AS id,
@@ -543,7 +543,7 @@
          countIf(subquery.customer_id, ifNull(greaterOrEquals(subquery.subscription_count, 1), 0)) AS customer_count,
          countIf(subquery.customer_id, subquery.is_new_customer) AS new_customer_count,
          countIf(subquery.customer_id, subquery.is_churned_customer) AS churned_customer_count,
-         ifNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 0) AS arpu,
+         ifNull(accurateCastOrNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS arpu,
          multiIf(ifNull(equals(customer_count, 0), 0), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(equals(churned_customer_count, 0), 0), NULL, divideDecimal(arpu, accurateCastOrNull(divide(churned_customer_count, customer_count), 'Decimal64(10)'))) AS ltv
   FROM
     (SELECT revenue_analytics_subscription.source_label AS breakdown_by,
@@ -589,18 +589,18 @@
                      addDays(max_timestamp, 45.0) AS max_timestamp_plus_dropoff_days
               FROM events
               LEFT OUTER JOIN
-                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id
                  FROM person
                  WHERE equals(person.team_id, 99999)
                  GROUP BY person.id
-                 HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
               WHERE and(equals(events.team_id, 99999), 1)
               GROUP BY subscription_id,
                        person_id)
@@ -681,12 +681,12 @@
                   if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
            FROM events
            LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
            ORDER BY timestamp DESC) AS `revenue_analytics.events.purchase.revenue_item_events_revenue_view`
         UNION ALL SELECT `stripe.posthog_test.revenue_item_revenue_view`.id AS id,
@@ -837,18 +837,18 @@
              (SELECT DISTINCT events__person.id AS person_id
               FROM events
               LEFT OUTER JOIN
-                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id
                  FROM person
                  WHERE equals(person.team_id, 99999)
                  GROUP BY person.id
-                 HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
               WHERE and(equals(events.team_id, 99999), 1)) AS events ON equals(persons.id, events.person_id)
            ORDER BY persons.created_at DESC) AS `revenue_analytics.events.purchase.customer_events_revenue_view`
         UNION ALL SELECT `stripe.posthog_test.customer_revenue_view`.id AS id,
@@ -919,7 +919,7 @@
          countIf(subquery.customer_id, ifNull(greaterOrEquals(subquery.subscription_count, 1), 0)) AS customer_count,
          countIf(subquery.customer_id, subquery.is_new_customer) AS new_customer_count,
          countIf(subquery.customer_id, subquery.is_churned_customer) AS churned_customer_count,
-         ifNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 0) AS arpu,
+         ifNull(accurateCastOrNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS arpu,
          multiIf(ifNull(equals(customer_count, 0), 0), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(equals(churned_customer_count, 0), 0), NULL, divideDecimal(arpu, accurateCastOrNull(divide(churned_customer_count, customer_count), 'Decimal64(10)'))) AS ltv
   FROM
     (SELECT revenue_analytics_subscription.source_label AS breakdown_by,
@@ -965,18 +965,18 @@
                      addDays(max_timestamp, 45.0) AS max_timestamp_plus_dropoff_days
               FROM events
               LEFT OUTER JOIN
-                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id
                  FROM person
                  WHERE equals(person.team_id, 99999)
                  GROUP BY person.id
-                 HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
               WHERE and(equals(events.team_id, 99999), 1)
               GROUP BY subscription_id,
                        person_id)
@@ -1057,12 +1057,12 @@
                   if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
            FROM events
            LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
            ORDER BY timestamp DESC) AS `revenue_analytics.events.purchase.revenue_item_events_revenue_view`
         UNION ALL SELECT `stripe.posthog_test.revenue_item_revenue_view`.id AS id,
@@ -1198,7 +1198,7 @@
          countIf(subquery.customer_id, ifNull(greaterOrEquals(subquery.subscription_count, 1), 0)) AS customer_count,
          countIf(subquery.customer_id, subquery.is_new_customer) AS new_customer_count,
          countIf(subquery.customer_id, subquery.is_churned_customer) AS churned_customer_count,
-         ifNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 0) AS arpu,
+         ifNull(accurateCastOrNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS arpu,
          multiIf(ifNull(equals(customer_count, 0), 0), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(equals(churned_customer_count, 0), 0), NULL, divideDecimal(arpu, accurateCastOrNull(divide(churned_customer_count, customer_count), 'Decimal64(10)'))) AS ltv
   FROM
     (SELECT revenue_analytics_subscription.source_label AS breakdown_by,
@@ -1244,18 +1244,18 @@
                      addDays(max_timestamp, 45.0) AS max_timestamp_plus_dropoff_days
               FROM events
               LEFT OUTER JOIN
-                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id
                  FROM person
                  WHERE equals(person.team_id, 99999)
                  GROUP BY person.id
-                 HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
               WHERE and(equals(events.team_id, 99999), 1)
               GROUP BY subscription_id,
                        person_id)
@@ -1336,12 +1336,12 @@
                   if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
            FROM events
            LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
            ORDER BY timestamp DESC) AS `revenue_analytics.events.purchase.revenue_item_events_revenue_view`
         UNION ALL SELECT `stripe.posthog_test.revenue_item_revenue_view`.id AS id,
@@ -1477,7 +1477,7 @@
          countIf(subquery.customer_id, ifNull(greaterOrEquals(subquery.subscription_count, 1), 0)) AS customer_count,
          countIf(subquery.customer_id, subquery.is_new_customer) AS new_customer_count,
          countIf(subquery.customer_id, subquery.is_churned_customer) AS churned_customer_count,
-         ifNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 0) AS arpu,
+         ifNull(accurateCastOrNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS arpu,
          multiIf(ifNull(equals(customer_count, 0), 0), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(equals(churned_customer_count, 0), 0), NULL, divideDecimal(arpu, accurateCastOrNull(divide(churned_customer_count, customer_count), 'Decimal64(10)'))) AS ltv
   FROM
     (SELECT concat(ifNull(toString(revenue_analytics_subscription.source_label), ''), ' - ', ifNull(toString(if(or(isNull(revenue_analytics_product.name), empty(revenue_analytics_product.name)), '<none>', revenue_analytics_product.name)), '')) AS breakdown_by,
@@ -1523,18 +1523,18 @@
                      addDays(max_timestamp, 45.0) AS max_timestamp_plus_dropoff_days
               FROM events
               LEFT OUTER JOIN
-                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id
                  FROM person
                  WHERE equals(person.team_id, 99999)
                  GROUP BY person.id
-                 HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
               WHERE and(equals(events.team_id, 99999), 1)
               GROUP BY subscription_id,
                        person_id)
@@ -1615,12 +1615,12 @@
                   if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
            FROM events
            LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
            ORDER BY timestamp DESC) AS `revenue_analytics.events.purchase.revenue_item_events_revenue_view`
         UNION ALL SELECT `stripe.posthog_test.revenue_item_revenue_view`.id AS id,
@@ -1725,26 +1725,10 @@
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_charges/posthog_test_stripe_charge/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `paid` Int8, `amount` Int64, `object` String, `source` String, `status` String, `created` DateTime, `invoice` String, `outcome` String, `captured` Int8, `currency` String, `customer` String, `disputed` Int8, `livemode` Int8, `metadata` String, `refunded` Int8, `description` String, `receipt_url` String, `failure_code` String, `fraud_details` String, `radar_options` String, `receipt_email` String, `payment_intent` String, `payment_method` String, `amount_captured` Int64, `amount_refunded` Int64, `billing_details` String, `failure_message` String, `balance_transaction` String, `statement_descriptor` String, `payment_method_details` String, `calculated_statement_descriptor` String') AS posthog_test_stripe_charge
            WHERE and(or(isNull(invoice_id), empty(invoice_id)), equals(posthog_test_stripe_charge.status, 'succeeded'))) AS `stripe.posthog_test.revenue_item_revenue_view`) AS revenue_analytics_revenue_item ON equals(revenue_analytics_subscription.id, revenue_analytics_revenue_item.subscription_id)
      LEFT JOIN
-       (SELECT `revenue_analytics.events.purchase.product_events_revenue_view`.id AS id,
-               `revenue_analytics.events.purchase.product_events_revenue_view`.source_label AS source_label,
-               `revenue_analytics.events.purchase.product_events_revenue_view`.name AS name
-        FROM
-          (SELECT product_id AS id,
-                  'revenue_analytics.events.purchase' AS source_label,
-                  product_id AS name
-           FROM
-             (SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '') AS product_id
-              FROM events
-              WHERE and(equals(events.team_id, 99999), 1))
-           ORDER BY id ASC) AS `revenue_analytics.events.purchase.product_events_revenue_view`
-        UNION ALL SELECT `stripe.posthog_test.product_revenue_view`.id AS id,
-                         `stripe.posthog_test.product_revenue_view`.source_label AS source_label,
-                         `stripe.posthog_test.product_revenue_view`.name AS name
-        FROM
-          (SELECT posthog_test_stripe_product.id AS id,
-                  'stripe.posthog_test' AS source_label,
-                  posthog_test_stripe_product.name AS name
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_products/posthog_test_stripe_product/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `type` String, `active` UInt8, `images` String, `object` String, `created` DateTime, `features` String, `livemode` UInt8, `metadata` String, `tax_code` String, `attributes` String, `updated_at` DateTime, `description` String, `default_price_id` String') AS posthog_test_stripe_product) AS `stripe.posthog_test.product_revenue_view`) AS revenue_analytics_product ON equals(revenue_analytics_subscription.product_id, revenue_analytics_product.id)
+       (SELECT posthog_test_stripe_product.id AS id,
+               'stripe.posthog_test' AS source_label,
+               posthog_test_stripe_product.name AS name
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_products/posthog_test_stripe_product/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `type` String, `active` UInt8, `images` String, `object` String, `created` DateTime, `features` String, `livemode` UInt8, `metadata` String, `tax_code` String, `attributes` String, `updated_at` DateTime, `description` String, `default_price_id` String') AS posthog_test_stripe_product) AS revenue_analytics_product ON equals(revenue_analytics_subscription.product_id, revenue_analytics_product.id)
      GROUP BY revenue_analytics_subscription.customer_id,
               breakdown_by,
               period_start
@@ -1777,7 +1761,7 @@
          countIf(subquery.customer_id, ifNull(greaterOrEquals(subquery.subscription_count, 1), 0)) AS customer_count,
          countIf(subquery.customer_id, subquery.is_new_customer) AS new_customer_count,
          countIf(subquery.customer_id, subquery.is_churned_customer) AS churned_customer_count,
-         ifNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 0) AS arpu,
+         ifNull(accurateCastOrNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS arpu,
          multiIf(ifNull(equals(customer_count, 0), 0), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(equals(churned_customer_count, 0), 0), NULL, divideDecimal(arpu, accurateCastOrNull(divide(churned_customer_count, customer_count), 'Decimal64(10)'))) AS ltv
   FROM
     (SELECT revenue_analytics_subscription.source_label AS breakdown_by,
@@ -1823,18 +1807,18 @@
                      addDays(max_timestamp, 45.0) AS max_timestamp_plus_dropoff_days
               FROM events
               LEFT OUTER JOIN
-                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id
                  FROM person
                  WHERE equals(person.team_id, 99999)
                  GROUP BY person.id
-                 HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
               WHERE and(equals(events.team_id, 99999), 1)
               GROUP BY subscription_id,
                        person_id)
@@ -1915,12 +1899,12 @@
                   if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
            FROM events
            LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
            ORDER BY timestamp DESC) AS `revenue_analytics.events.purchase.revenue_item_events_revenue_view`
         UNION ALL SELECT `stripe.posthog_test.revenue_item_revenue_view`.id AS id,
@@ -2056,7 +2040,7 @@
          countIf(subquery.customer_id, ifNull(greaterOrEquals(subquery.subscription_count, 1), 0)) AS customer_count,
          countIf(subquery.customer_id, subquery.is_new_customer) AS new_customer_count,
          countIf(subquery.customer_id, subquery.is_churned_customer) AS churned_customer_count,
-         ifNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 0) AS arpu,
+         ifNull(accurateCastOrNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS arpu,
          multiIf(ifNull(equals(customer_count, 0), 0), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(equals(churned_customer_count, 0), 0), NULL, divideDecimal(arpu, accurateCastOrNull(divide(churned_customer_count, customer_count), 'Decimal64(10)'))) AS ltv
   FROM
     (SELECT revenue_analytics_subscription.source_label AS breakdown_by,
@@ -2102,18 +2086,18 @@
                      addDays(max_timestamp, 45.0) AS max_timestamp_plus_dropoff_days
               FROM events
               LEFT OUTER JOIN
-                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id
                  FROM person
                  WHERE equals(person.team_id, 99999)
                  GROUP BY person.id
-                 HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
               WHERE and(equals(events.team_id, 99999), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), '%ARS%'), 1))
               GROUP BY subscription_id,
                        person_id)
@@ -2194,12 +2178,12 @@
                   if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
            FROM events
            LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), '%ARS%'), 1), isNotNull(amount)))
            ORDER BY timestamp DESC) AS `revenue_analytics.events.purchase.revenue_item_events_revenue_view`
         UNION ALL SELECT `stripe.posthog_test.revenue_item_revenue_view`.id AS id,
@@ -2350,18 +2334,18 @@
              (SELECT DISTINCT events__person.id AS person_id
               FROM events
               LEFT OUTER JOIN
-                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id
                  FROM person
                  WHERE equals(person.team_id, 99999)
                  GROUP BY person.id
-                 HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
               WHERE and(equals(events.team_id, 99999), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), '%ARS%'), 1))) AS events ON equals(persons.id, events.person_id)
            ORDER BY persons.created_at DESC) AS `revenue_analytics.events.purchase.customer_events_revenue_view`
         UNION ALL SELECT `stripe.posthog_test.customer_revenue_view`.id AS id,
@@ -2432,7 +2416,7 @@
          countIf(subquery.customer_id, ifNull(greaterOrEquals(subquery.subscription_count, 1), 0)) AS customer_count,
          countIf(subquery.customer_id, subquery.is_new_customer) AS new_customer_count,
          countIf(subquery.customer_id, subquery.is_churned_customer) AS churned_customer_count,
-         ifNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 0) AS arpu,
+         ifNull(accurateCastOrNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS arpu,
          multiIf(ifNull(equals(customer_count, 0), 0), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(equals(churned_customer_count, 0), 0), NULL, divideDecimal(arpu, accurateCastOrNull(divide(churned_customer_count, customer_count), 'Decimal64(10)'))) AS ltv
   FROM
     (SELECT revenue_analytics_subscription.source_label AS breakdown_by,
@@ -2478,18 +2462,18 @@
                      addDays(max_timestamp, 45.0) AS max_timestamp_plus_dropoff_days
               FROM events
               LEFT OUTER JOIN
-                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id
                  FROM person
                  WHERE equals(person.team_id, 99999)
                  GROUP BY person.id
-                 HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
               WHERE and(equals(events.team_id, 99999), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), '%ARS%'), 1))
               GROUP BY subscription_id,
                        person_id)
@@ -2570,12 +2554,12 @@
                   if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
            FROM events
            LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), '%ARS%'), 1), isNotNull(amount)))
            ORDER BY timestamp DESC) AS `revenue_analytics.events.purchase.revenue_item_events_revenue_view`
         UNION ALL SELECT `stripe.posthog_test.revenue_item_revenue_view`.id AS id,
@@ -2726,18 +2710,18 @@
              (SELECT DISTINCT events__person.id AS person_id
               FROM events
               LEFT OUTER JOIN
-                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id
                  FROM person
                  WHERE equals(person.team_id, 99999)
                  GROUP BY person.id
-                 HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
               WHERE and(equals(events.team_id, 99999), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), '%ARS%'), 1))) AS events ON equals(persons.id, events.person_id)
            ORDER BY persons.created_at DESC) AS `revenue_analytics.events.purchase.customer_events_revenue_view`
         UNION ALL SELECT `stripe.posthog_test.customer_revenue_view`.id AS id,
@@ -2808,7 +2792,7 @@
          countIf(subquery.customer_id, ifNull(greaterOrEquals(subquery.subscription_count, 1), 0)) AS customer_count,
          countIf(subquery.customer_id, subquery.is_new_customer) AS new_customer_count,
          countIf(subquery.customer_id, subquery.is_churned_customer) AS churned_customer_count,
-         ifNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 0) AS arpu,
+         ifNull(accurateCastOrNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS arpu,
          multiIf(ifNull(equals(customer_count, 0), 0), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(equals(churned_customer_count, 0), 0), NULL, divideDecimal(arpu, accurateCastOrNull(divide(churned_customer_count, customer_count), 'Decimal64(10)'))) AS ltv
   FROM
     (SELECT revenue_analytics_subscription.source_label AS breakdown_by,
@@ -2854,18 +2838,18 @@
                      addDays(max_timestamp, 45.0) AS max_timestamp_plus_dropoff_days
               FROM events
               LEFT OUTER JOIN
-                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id
                  FROM person
                  WHERE equals(person.team_id, 99999)
                  GROUP BY person.id
-                 HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
               WHERE and(equals(events.team_id, 99999), 1)
               GROUP BY subscription_id,
                        person_id)
@@ -2946,12 +2930,12 @@
                   if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
            FROM events
            LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
            ORDER BY timestamp DESC) AS `revenue_analytics.events.purchase.revenue_item_events_revenue_view`
         UNION ALL SELECT `stripe.posthog_test.revenue_item_revenue_view`.id AS id,
@@ -3056,26 +3040,10 @@
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_charges/posthog_test_stripe_charge/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `paid` Int8, `amount` Int64, `object` String, `source` String, `status` String, `created` DateTime, `invoice` String, `outcome` String, `captured` Int8, `currency` String, `customer` String, `disputed` Int8, `livemode` Int8, `metadata` String, `refunded` Int8, `description` String, `receipt_url` String, `failure_code` String, `fraud_details` String, `radar_options` String, `receipt_email` String, `payment_intent` String, `payment_method` String, `amount_captured` Int64, `amount_refunded` Int64, `billing_details` String, `failure_message` String, `balance_transaction` String, `statement_descriptor` String, `payment_method_details` String, `calculated_statement_descriptor` String') AS posthog_test_stripe_charge
            WHERE and(or(isNull(invoice_id), empty(invoice_id)), equals(posthog_test_stripe_charge.status, 'succeeded'))) AS `stripe.posthog_test.revenue_item_revenue_view`) AS revenue_analytics_revenue_item ON equals(revenue_analytics_subscription.id, revenue_analytics_revenue_item.subscription_id)
      LEFT JOIN
-       (SELECT `revenue_analytics.events.purchase.product_events_revenue_view`.id AS id,
-               `revenue_analytics.events.purchase.product_events_revenue_view`.source_label AS source_label,
-               `revenue_analytics.events.purchase.product_events_revenue_view`.name AS name
-        FROM
-          (SELECT product_id AS id,
-                  'revenue_analytics.events.purchase' AS source_label,
-                  product_id AS name
-           FROM
-             (SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '') AS product_id
-              FROM events
-              WHERE and(equals(events.team_id, 99999), 1))
-           ORDER BY id ASC) AS `revenue_analytics.events.purchase.product_events_revenue_view`
-        UNION ALL SELECT `stripe.posthog_test.product_revenue_view`.id AS id,
-                         `stripe.posthog_test.product_revenue_view`.source_label AS source_label,
-                         `stripe.posthog_test.product_revenue_view`.name AS name
-        FROM
-          (SELECT posthog_test_stripe_product.id AS id,
-                  'stripe.posthog_test' AS source_label,
-                  posthog_test_stripe_product.name AS name
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_products/posthog_test_stripe_product/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `type` String, `active` UInt8, `images` String, `object` String, `created` DateTime, `features` String, `livemode` UInt8, `metadata` String, `tax_code` String, `attributes` String, `updated_at` DateTime, `description` String, `default_price_id` String') AS posthog_test_stripe_product) AS `stripe.posthog_test.product_revenue_view`) AS revenue_analytics_product ON equals(revenue_analytics_subscription.product_id, revenue_analytics_product.id)
+       (SELECT posthog_test_stripe_product.id AS id,
+               'stripe.posthog_test' AS source_label,
+               posthog_test_stripe_product.name AS name
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_products/posthog_test_stripe_product/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `type` String, `active` UInt8, `images` String, `object` String, `created` DateTime, `features` String, `livemode` UInt8, `metadata` String, `tax_code` String, `attributes` String, `updated_at` DateTime, `description` String, `default_price_id` String') AS posthog_test_stripe_product) AS revenue_analytics_product ON equals(revenue_analytics_subscription.product_id, revenue_analytics_product.id)
      WHERE in(revenue_analytics_product.name,
               tuple('Product A', 'Product C'))
      GROUP BY revenue_analytics_subscription.customer_id,
@@ -3110,7 +3078,7 @@
          countIf(subquery.customer_id, ifNull(greaterOrEquals(subquery.subscription_count, 1), 0)) AS customer_count,
          countIf(subquery.customer_id, subquery.is_new_customer) AS new_customer_count,
          countIf(subquery.customer_id, subquery.is_churned_customer) AS churned_customer_count,
-         ifNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 0) AS arpu,
+         ifNull(accurateCastOrNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS arpu,
          multiIf(ifNull(equals(customer_count, 0), 0), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(equals(churned_customer_count, 0), 0), NULL, divideDecimal(arpu, accurateCastOrNull(divide(churned_customer_count, customer_count), 'Decimal64(10)'))) AS ltv
   FROM
     (SELECT revenue_analytics_subscription.source_label AS breakdown_by,
@@ -3156,18 +3124,18 @@
                      addDays(max_timestamp, 45.0) AS max_timestamp_plus_dropoff_days
               FROM events
               LEFT OUTER JOIN
-                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id
                  FROM person
                  WHERE equals(person.team_id, 99999)
                  GROUP BY person.id
-                 HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
               WHERE and(equals(events.team_id, 99999), 1)
               GROUP BY subscription_id,
                        person_id)
@@ -3248,12 +3216,12 @@
                   if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
            FROM events
            LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
            ORDER BY timestamp DESC) AS `revenue_analytics.events.purchase.revenue_item_events_revenue_view`
         UNION ALL SELECT `stripe.posthog_test.revenue_item_revenue_view`.id AS id,
@@ -3358,26 +3326,10 @@
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_charges/posthog_test_stripe_charge/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `paid` Int8, `amount` Int64, `object` String, `source` String, `status` String, `created` DateTime, `invoice` String, `outcome` String, `captured` Int8, `currency` String, `customer` String, `disputed` Int8, `livemode` Int8, `metadata` String, `refunded` Int8, `description` String, `receipt_url` String, `failure_code` String, `fraud_details` String, `radar_options` String, `receipt_email` String, `payment_intent` String, `payment_method` String, `amount_captured` Int64, `amount_refunded` Int64, `billing_details` String, `failure_message` String, `balance_transaction` String, `statement_descriptor` String, `payment_method_details` String, `calculated_statement_descriptor` String') AS posthog_test_stripe_charge
            WHERE and(or(isNull(invoice_id), empty(invoice_id)), equals(posthog_test_stripe_charge.status, 'succeeded'))) AS `stripe.posthog_test.revenue_item_revenue_view`) AS revenue_analytics_revenue_item ON equals(revenue_analytics_subscription.id, revenue_analytics_revenue_item.subscription_id)
      LEFT JOIN
-       (SELECT `revenue_analytics.events.purchase.product_events_revenue_view`.id AS id,
-               `revenue_analytics.events.purchase.product_events_revenue_view`.source_label AS source_label,
-               `revenue_analytics.events.purchase.product_events_revenue_view`.name AS name
-        FROM
-          (SELECT product_id AS id,
-                  'revenue_analytics.events.purchase' AS source_label,
-                  product_id AS name
-           FROM
-             (SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '') AS product_id
-              FROM events
-              WHERE and(equals(events.team_id, 99999), 1))
-           ORDER BY id ASC) AS `revenue_analytics.events.purchase.product_events_revenue_view`
-        UNION ALL SELECT `stripe.posthog_test.product_revenue_view`.id AS id,
-                         `stripe.posthog_test.product_revenue_view`.source_label AS source_label,
-                         `stripe.posthog_test.product_revenue_view`.name AS name
-        FROM
-          (SELECT posthog_test_stripe_product.id AS id,
-                  'stripe.posthog_test' AS source_label,
-                  posthog_test_stripe_product.name AS name
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_products/posthog_test_stripe_product/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `type` String, `active` UInt8, `images` String, `object` String, `created` DateTime, `features` String, `livemode` UInt8, `metadata` String, `tax_code` String, `attributes` String, `updated_at` DateTime, `description` String, `default_price_id` String') AS posthog_test_stripe_product) AS `stripe.posthog_test.product_revenue_view`) AS revenue_analytics_product ON equals(revenue_analytics_subscription.product_id, revenue_analytics_product.id)
+       (SELECT posthog_test_stripe_product.id AS id,
+               'stripe.posthog_test' AS source_label,
+               posthog_test_stripe_product.name AS name
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_products/posthog_test_stripe_product/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `type` String, `active` UInt8, `images` String, `object` String, `created` DateTime, `features` String, `livemode` UInt8, `metadata` String, `tax_code` String, `attributes` String, `updated_at` DateTime, `description` String, `default_price_id` String') AS posthog_test_stripe_product) AS revenue_analytics_product ON equals(revenue_analytics_subscription.product_id, revenue_analytics_product.id)
      WHERE ifNull(equals(revenue_analytics_product.name, 'Product C'), 0)
      GROUP BY revenue_analytics_subscription.customer_id,
               breakdown_by,
@@ -3411,7 +3363,7 @@
          countIf(subquery.customer_id, ifNull(greaterOrEquals(subquery.subscription_count, 1), 0)) AS customer_count,
          countIf(subquery.customer_id, subquery.is_new_customer) AS new_customer_count,
          countIf(subquery.customer_id, subquery.is_churned_customer) AS churned_customer_count,
-         ifNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 0) AS arpu,
+         ifNull(accurateCastOrNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS arpu,
          multiIf(ifNull(equals(customer_count, 0), 0), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(equals(churned_customer_count, 0), 0), NULL, divideDecimal(arpu, accurateCastOrNull(divide(churned_customer_count, customer_count), 'Decimal64(10)'))) AS ltv
   FROM
     (SELECT concat(ifNull(toString(revenue_analytics_subscription.source_label), ''), ' - ', ifNull(toString(if(or(isNull(revenue_analytics_product.name), empty(revenue_analytics_product.name)), '<none>', revenue_analytics_product.name)), '')) AS breakdown_by,
@@ -3457,18 +3409,18 @@
                      addDays(max_timestamp, 45.0) AS max_timestamp_plus_dropoff_days
               FROM events
               LEFT OUTER JOIN
-                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id
                  FROM person
                  WHERE equals(person.team_id, 99999)
                  GROUP BY person.id
-                 HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
               WHERE and(equals(events.team_id, 99999), 1)
               GROUP BY subscription_id,
                        person_id)
@@ -3549,12 +3501,12 @@
                   if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
            FROM events
            LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
            ORDER BY timestamp DESC) AS `revenue_analytics.events.purchase.revenue_item_events_revenue_view`
         UNION ALL SELECT `stripe.posthog_test.revenue_item_revenue_view`.id AS id,
@@ -3659,26 +3611,10 @@
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_charges/posthog_test_stripe_charge/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `paid` Int8, `amount` Int64, `object` String, `source` String, `status` String, `created` DateTime, `invoice` String, `outcome` String, `captured` Int8, `currency` String, `customer` String, `disputed` Int8, `livemode` Int8, `metadata` String, `refunded` Int8, `description` String, `receipt_url` String, `failure_code` String, `fraud_details` String, `radar_options` String, `receipt_email` String, `payment_intent` String, `payment_method` String, `amount_captured` Int64, `amount_refunded` Int64, `billing_details` String, `failure_message` String, `balance_transaction` String, `statement_descriptor` String, `payment_method_details` String, `calculated_statement_descriptor` String') AS posthog_test_stripe_charge
            WHERE and(or(isNull(invoice_id), empty(invoice_id)), equals(posthog_test_stripe_charge.status, 'succeeded'))) AS `stripe.posthog_test.revenue_item_revenue_view`) AS revenue_analytics_revenue_item ON equals(revenue_analytics_subscription.id, revenue_analytics_revenue_item.subscription_id)
      LEFT JOIN
-       (SELECT `revenue_analytics.events.purchase.product_events_revenue_view`.id AS id,
-               `revenue_analytics.events.purchase.product_events_revenue_view`.source_label AS source_label,
-               `revenue_analytics.events.purchase.product_events_revenue_view`.name AS name
-        FROM
-          (SELECT product_id AS id,
-                  'revenue_analytics.events.purchase' AS source_label,
-                  product_id AS name
-           FROM
-             (SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '') AS product_id
-              FROM events
-              WHERE and(equals(events.team_id, 99999), 1))
-           ORDER BY id ASC) AS `revenue_analytics.events.purchase.product_events_revenue_view`
-        UNION ALL SELECT `stripe.posthog_test.product_revenue_view`.id AS id,
-                         `stripe.posthog_test.product_revenue_view`.source_label AS source_label,
-                         `stripe.posthog_test.product_revenue_view`.name AS name
-        FROM
-          (SELECT posthog_test_stripe_product.id AS id,
-                  'stripe.posthog_test' AS source_label,
-                  posthog_test_stripe_product.name AS name
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_products/posthog_test_stripe_product/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `type` String, `active` UInt8, `images` String, `object` String, `created` DateTime, `features` String, `livemode` UInt8, `metadata` String, `tax_code` String, `attributes` String, `updated_at` DateTime, `description` String, `default_price_id` String') AS posthog_test_stripe_product) AS `stripe.posthog_test.product_revenue_view`) AS revenue_analytics_product ON equals(revenue_analytics_subscription.product_id, revenue_analytics_product.id)
+       (SELECT posthog_test_stripe_product.id AS id,
+               'stripe.posthog_test' AS source_label,
+               posthog_test_stripe_product.name AS name
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_products/posthog_test_stripe_product/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `type` String, `active` UInt8, `images` String, `object` String, `created` DateTime, `features` String, `livemode` UInt8, `metadata` String, `tax_code` String, `attributes` String, `updated_at` DateTime, `description` String, `default_price_id` String') AS posthog_test_stripe_product) AS revenue_analytics_product ON equals(revenue_analytics_subscription.product_id, revenue_analytics_product.id)
      WHERE ifNull(equals(revenue_analytics_product.name, 'Product C'), 0)
      GROUP BY revenue_analytics_subscription.customer_id,
               breakdown_by,

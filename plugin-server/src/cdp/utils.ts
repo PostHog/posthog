@@ -3,18 +3,10 @@ import { DateTime } from 'luxon'
 import { gunzip, gzip } from 'zlib'
 
 import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
-import { safeClickhouseString } from '../utils/db/utils'
 import { parseJSON } from '../utils/json-parse'
-import { UUIDT, castTimestampOrNow, clickHouseTimestampToISO } from '../utils/utils'
+import { castTimestampOrNow, clickHouseTimestampToISO } from '../utils/utils'
 import { CdpInternalEvent } from './schema'
-import {
-    HogFunctionCapturedEvent,
-    HogFunctionInvocationGlobals,
-    HogFunctionType,
-    LogEntry,
-    LogEntrySerialized,
-    MinimalLogEntry,
-} from './types'
+import { HogFunctionInvocationGlobals, HogFunctionType, LogEntry, LogEntrySerialized, MinimalLogEntry } from './types'
 
 // ID of functions that are hidden from normal users and used by us for special testing
 // For example, transformations use this to only run if in comparison mode
@@ -144,22 +136,6 @@ export function convertInternalEventToHogFunctionInvocationGlobals(
     }
 
     return context
-}
-
-export const convertToCaptureEvent = (event: HogFunctionCapturedEvent, team: Team): any => {
-    return {
-        uuid: new UUIDT().toString(),
-        distinct_id: safeClickhouseString(event.distinct_id),
-        data: JSON.stringify({
-            event: event.event,
-            distinct_id: event.distinct_id,
-            properties: event.properties,
-            timestamp: event.timestamp,
-        }),
-        now: DateTime.now().toISO(),
-        sent_at: DateTime.now().toISO(),
-        token: team.api_token,
-    }
 }
 
 export const gzipObject = async <T extends object>(object: T): Promise<string> => {

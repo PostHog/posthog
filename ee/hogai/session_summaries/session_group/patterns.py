@@ -350,6 +350,7 @@ def combine_patterns_ids_with_events_context(
 ) -> dict[int, list[PatternAssignedEventSegmentContext]]:
     """Map pattern IDs to enriched event contexts using assignments context."""
     pattern_event_ids_mapping: dict[int, list[PatternAssignedEventSegmentContext]] = {}
+    patterns_with_removed_non_blocking_exceptions = set()
     # Iterate over patterns to which we assigned event ids
     for pattern_id, event_ids in combined_patterns_assignments.items():
         for event_id in event_ids:
@@ -369,9 +370,20 @@ def combine_patterns_ids_with_events_context(
             event_segment_context = _enrich_pattern_assigned_event_with_session_summary_data(
                 pattern_assigned_event, session_summaries
             )
+            # Skip non-blocking exceptions, allow blocking ones and abandonment (no exception)
+            if event_segment_context.target_event.exception == "non-blocking":
+                patterns_with_removed_non_blocking_exceptions.add(pattern_id)
+                continue
             if pattern_id not in pattern_event_ids_mapping:
                 pattern_event_ids_mapping[pattern_id] = []
             pattern_event_ids_mapping[pattern_id].append(event_segment_context)
+    # If we removed all non-blocking exceptions for some patterns - it's not a failure
+    for pattern_id in patterns_with_removed_non_blocking_exceptions:
+        if pattern_id in pattern_event_ids_mapping:
+            # Avoid touching patterns that have events left even after removing non-blocking exceptions
+            continue
+        # Let's back the patterns we emptied, so we can properly calculate failure ratio
+        pattern_event_ids_mapping[pattern_id] = []
     return pattern_event_ids_mapping
 
 
@@ -408,13 +420,15 @@ def combine_patterns_with_events_context(
 ) -> EnrichedSessionGroupSummaryPatternsList:
     """Attach event context and stats to each extracted pattern."""
     combined_patterns = []
+    non_failed_empty_patterns_count = 0
     for pattern in patterns.patterns:
         pattern_id = pattern.pattern_id
-        pattern_events = pattern_id_to_event_context_mapping.get(int(pattern_id), [])
+        pattern_events = pattern_id_to_event_context_mapping.get(int(pattern_id))
         if not pattern_events:
-            logger.exception(
-                f"No events found for pattern {pattern_id} when combining patterns with events context: {pattern_id_to_event_context_mapping}"
-            )
+            if pattern_events is not None:
+                # If the pattern has not events, but is in the mapping - it's not a failure,
+                # it means we made it empty by removing non-blocking exceptions
+                non_failed_empty_patterns_count += 1
             continue
         enriched_pattern = EnrichedSessionGroupSummaryPattern(
             **pattern.model_dump(),
@@ -423,10 +437,15 @@ def combine_patterns_with_events_context(
         )
         combined_patterns.append(enriched_pattern)
     # If not enough patterns were properly enriched - fail the activity
-    if ceil(len(patterns.patterns) * FAILED_PATTERNS_ENRICHMENT_MIN_RATIO) > len(combined_patterns):
+    minimum_expected_patterns_count = ceil(len(patterns.patterns) * FAILED_PATTERNS_ENRICHMENT_MIN_RATIO)
+    successful_patterns_count = len(combined_patterns) + non_failed_empty_patterns_count
+    failed_patterns_count = len(patterns.patterns) - successful_patterns_count
+    if minimum_expected_patterns_count > successful_patterns_count:
         exception_message = (
             f"Too many patterns failed to enrich with session meta, when summarizing {len(session_ids)} "
-            f"sessions ({logging_session_ids(session_ids)}) for user {user_id}"
+            f"sessions ({logging_session_ids(session_ids)}) for user {user_id}. "
+            f"Input: {len(patterns.patterns)}; success: {successful_patterns_count} "
+            f"(enriched: {len(combined_patterns)}); failure: {failed_patterns_count}"
         )
         logger.exception(exception_message)
         raise ApplicationError(exception_message)
