@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCamera, IconPause, IconPlay, IconRewindPlay, IconVideoCamera } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -168,7 +168,6 @@ export function PlayerController(): JSX.Element {
                             <Screenshot />
                             {featureFlags[FEATURE_FLAGS.REPLAY_EXPORT_SHORT_VIDEO] && <Clip />}
                             {playlistLogic ? <PlayerUpNext playlistLogic={playlistLogic} /> : undefined}
-                            <LemonDivider vertical />
                         </>
                     )}
                     <CinemaMode />
