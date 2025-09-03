@@ -22,7 +22,7 @@ import { insightCommandLogic } from './insightCommandLogic'
 import { insightDataLogic } from './insightDataLogic'
 import { insightLogic } from './insightLogic'
 
-export interface InsightProps {
+export interface InsightAsSceneProps {
     insightId: InsightShortId | 'new'
     tabId?: string
     attachTo?: BuiltLogic<Logic> | LogicWrapper<Logic>
@@ -30,7 +30,7 @@ export interface InsightProps {
 
 let uniqueCount = 0
 
-export function Insight({ insightId, attachTo, tabId }: InsightProps): JSX.Element | null {
+export function InsightAsScene({ insightId, attachTo, tabId }: InsightAsSceneProps): JSX.Element | null {
     // insightSceneLogic
     const { insightMode, insight, filtersOverride, variablesOverride, hasOverrides, freshQuery } =
         useValues(insightSceneLogic)

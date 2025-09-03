@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { NotFound } from 'lib/components/NotFound'
-import { Insight } from 'scenes/insights/Insight'
+import { InsightAsScene } from 'scenes/insights/InsightAsScene'
 import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -36,7 +36,7 @@ export function InsightScene({ tabId }: InsightSceneProps = { tabId: 'insight-sc
             (insight?.query?.kind !== NodeKind.DataVisualizationNode || insightMode !== ItemMode.Edit))
     ) {
         return (
-            <Insight
+            <InsightAsScene
                 insightId={insightId}
                 tabId={tabId || 'insight-scene-empty'}
                 attachTo={insightSceneLogic({ tabId })}
