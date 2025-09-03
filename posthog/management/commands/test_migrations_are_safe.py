@@ -53,9 +53,12 @@ def validate_migration_sql(sql) -> bool:
                 "ALTER COLUMN" in operation_sql and "SET DEFAULT" in operation_sql
             ):
                 # Extract the default value to check if it's a constant
-                # Match DEFAULT followed by either a quoted string or unquoted value until NOT NULL or end of significant tokens
+                # Match DEFAULT followed by either a quoted string or unquoted value including typecast until NOT NULL or end of significant tokens
+                # regexr.com is your friend when trying to understand this regex
                 default_match = re.search(
-                    r"DEFAULT\s+((?:'[^']*')|(?:[^'\s]+(?:\s+[^'\s]+)*?))\s+(?:NOT\s+NULL|;|$)", operation_sql, re.I
+                    r"DEFAULT\s+((?:'[^']*')|(?:[^'\s]+(?:\s+[^'\s]+)*?))(\s+|::\w+\s+)(?:NOT\s+NULL|;|$)",
+                    operation_sql,
+                    re.I,
                 )
                 if default_match:
                     default_value = default_match.group(1).strip()
