@@ -1,32 +1,36 @@
 import json
-from typing import Any, NotRequired, Required, TypedDict, cast
+from dataclasses import dataclass
+from typing import Any
 from urllib.parse import urlencode
 
 import requests
 import structlog
 from requests import HTTPError, RequestException, Timeout
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 logger = structlog.get_logger(__name__)
 
 
-class SSOTokenResponse(TypedDict):
-    access_token: Required[str]
-    token_type: Required[str]
-    id_token: NotRequired[str]
-    expires_in: NotRequired[int]
-    scope: NotRequired[str]
-    refresh_token: NotRequired[str]
-    error: NotRequired[str]
-    error_description: NotRequired[str]
+@dataclass
+class SSOTokenResponse:
+    access_token: str
+    token_type: str
+    id_token: str | None = None
+    expires_in: int | None = None
+    scope: str | None = None
+    refresh_token: str | None = None
+    error: str | None = None
+    error_description: str | None = None
 
 
-class ExperimentationResult(TypedDict):
+@dataclass
+class ExperimentationResult:
     success: bool
-    item_id: NotRequired[str]
-    item_count: NotRequired[int]
-    error: NotRequired[str]
-    status_code: NotRequired[int]
-    error_detail: NotRequired[str]
+    item_id: str | None = None
+    item_count: int | None = None
+    error: str | None = None
+    status_code: int | None = None
+    error_detail: str | None = None
 
 
 class VercelAPIClient:
@@ -45,6 +49,7 @@ class VercelAPIClient:
             return exc.response.status_code
         return None
 
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     def _request(
         self, method: str, url: str, operation_name: str, **kwargs
     ) -> tuple[requests.Response | None, dict[str, Any]]:
@@ -97,11 +102,14 @@ class VercelAPIClient:
                 resource_id=resource_id,
                 item_count=len(items),
             )
-            return {"success": True, "item_count": len(items)}
+            return ExperimentationResult(success=True, item_count=len(items))
 
-        result: ExperimentationResult = {"success": False}
-        result.update(cast(ExperimentationResult, error_info))
-        return result
+        return ExperimentationResult(
+            success=False,
+            error=error_info.get("error"),
+            status_code=error_info.get("status_code"),
+            error_detail=error_info.get("error_detail"),
+        )
 
     def update_experimentation_item(
         self, integration_config_id: str, resource_id: str, item_id: str, data: dict[str, Any]
@@ -120,11 +128,14 @@ class VercelAPIClient:
                 resource_id=resource_id,
                 item_id=item_id,
             )
-            return {"success": True, "item_id": item_id}
+            return ExperimentationResult(success=True, item_id=item_id)
 
-        result: ExperimentationResult = {"success": False}
-        result.update(cast(ExperimentationResult, error_info))
-        return result
+        return ExperimentationResult(
+            success=False,
+            error=error_info.get("error"),
+            status_code=error_info.get("status_code"),
+            error_detail=error_info.get("error_detail"),
+        )
 
     def delete_experimentation_item(
         self, integration_config_id: str, resource_id: str, item_id: str
@@ -140,11 +151,14 @@ class VercelAPIClient:
                 resource_id=resource_id,
                 item_id=item_id,
             )
-            return {"success": True, "item_id": item_id}
+            return ExperimentationResult(success=True, item_id=item_id)
 
-        result: ExperimentationResult = {"success": False}
-        result.update(cast(ExperimentationResult, error_info))
-        return result
+        return ExperimentationResult(
+            success=False,
+            error=error_info.get("error"),
+            status_code=error_info.get("status_code"),
+            error_detail=error_info.get("error_detail"),
+        )
 
     def sso_token_exchange(
         self,
@@ -180,8 +194,18 @@ class VercelAPIClient:
         if response:
             logger.info("Successfully exchanged Vercel SSO token", has_state=state is not None)
             try:
-                return response.json()
-            except json.JSONDecodeError:
+                json_data = response.json()
+                return SSOTokenResponse(
+                    access_token=json_data["access_token"],
+                    token_type=json_data["token_type"],
+                    id_token=json_data.get("id_token"),
+                    expires_in=json_data.get("expires_in"),
+                    scope=json_data.get("scope"),
+                    refresh_token=json_data.get("refresh_token"),
+                    error=json_data.get("error"),
+                    error_description=json_data.get("error_description"),
+                )
+            except (json.JSONDecodeError, KeyError):
                 logger.exception("Failed to parse JSON response during Vercel SSO token exchange")
 
         return None
