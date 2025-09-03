@@ -963,7 +963,7 @@ async def _run_s3_batch_export_workflow(
     await assert_metrics_in_clickhouse(
         clickhouse_client,
         batch_export_id,
-        {("success", "succeeded"): 1, ("rows", "rows_exported"): run.records_completed},
+        {("success", "succeeded"): 1, ("rows", "rows_exported"): run.records_completed or 0},
     )
 
     await assert_clickhouse_records_in_s3(
