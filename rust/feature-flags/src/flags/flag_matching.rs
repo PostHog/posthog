@@ -1471,7 +1471,11 @@ impl FeatureFlagMatcher {
                         self.process_hash_key_override(hash_key, target_distinct_ids)
                             .await
                     }
-                    // If no hash key override is provided, we need to look up existing overrides
+                    // If no hash key override is provided, we need to look up existing overrides.
+                    // Most of the time this is fine because our client side sdks usually include $anon_distinct_id in their requests, 
+                    // but if a customer is using hash key overrides across a client sdk and a server sdk then the experience 
+                    // will be inconsistent because server sdks won't include $anon_distinct_id in their requests.
+                    // In addition, this behavior is consistent with /decide. 
                     None => {
                         match get_feature_flag_hash_key_overrides(
                             self.reader.clone(),
