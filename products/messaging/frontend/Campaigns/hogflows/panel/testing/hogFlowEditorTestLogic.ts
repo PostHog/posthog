@@ -22,6 +22,7 @@ import {
 } from '~/types'
 
 import { CampaignLogicProps, campaignLogic } from '../../../campaignLogic'
+import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import { HogFlow } from '../../types'
 import type { hogFlowEditorTestLogicType } from './hogFlowEditorTestLogicType'
 
@@ -45,7 +46,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
     props({} as CampaignLogicProps),
     key((props) => `${props.id}`),
     connect((props: CampaignLogicProps) => ({
-        values: [campaignLogic(props), ['campaign']],
+        values: [campaignLogic(props), ['campaign'], hogFlowEditorLogic, ['selectedNodeId']],
     })),
     actions({
         setTestResult: (testResult: HogflowTestResult | null) => ({ testResult }),
@@ -249,7 +250,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                         configuration: {},
                         globals: JSON.parse(testInvocation.globals),
                         mock_async_functions: testInvocation.mock_async_functions,
-                        current_action_id: values.testResult?.result?.state?.currentAction?.id,
+                        current_action_id: values.selectedNodeId,
                     })
 
                     actions.setTestResult(apiResponse)
