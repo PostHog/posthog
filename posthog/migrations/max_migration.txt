@@ -1,1 +1,5 @@
+<<<<<<< HEAD
 0837_alter_externaldatasource_source_type
+=======
+0823_add_updated_at_to_featureflag
+>>>>>>> 607d5eebf6 (feat: Add sorting by 'Updated At' to feature flags list)
