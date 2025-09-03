@@ -189,7 +189,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
             tag_queries(team_id=self.team.pk, table_id=self.id, warehouse_query=True)
 
-            # The cluster is a little broken right now, and so this can itermittently fail.
+            # The cluster is a little broken right now, and so this can intermittently fail.
             # See https://posthog.slack.com/archives/C076R4753Q8/p1756901693184169 for context
             attempts = 5
             for i in range(attempts):
