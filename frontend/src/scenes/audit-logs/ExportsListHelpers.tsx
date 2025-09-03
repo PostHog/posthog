@@ -15,10 +15,12 @@ export const getStatusTag = (exportAsset: ExportedAsset): JSX.Element => {
 export const getHumanReadableFormat = (format: string): string => {
     const lowerFormat = format.toLowerCase()
 
-    if (['csv', 'text/csv'].includes(lowerFormat)) {
+    const csvMatchers = ['csv', 'text/csv']
+    if (csvMatchers.some((matcher) => lowerFormat.includes(matcher))) {
         return 'CSV'
     }
-    if (['xlsx', 'excel', 'spreadsheet'].includes(lowerFormat)) {
+    const excelMatchers = ['xlsx', 'excel', 'spreadsheet']
+    if (excelMatchers.some((matcher) => lowerFormat.includes(matcher))) {
         return 'Excel'
     }
 
