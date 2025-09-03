@@ -55,15 +55,6 @@ impl MetricsHelper {
             additional_labels: HashMap::new(),
         }
     }
-
-    /// Record a summary metric with baseline labels
-    pub fn summary(&self, name: &str) -> SummaryHelper {
-        SummaryHelper {
-            name: name.to_string(),
-            baseline_labels: self.baseline_labels.clone(),
-            additional_labels: HashMap::new(),
-        }
-    }
 }
 
 /// Helper for counter metrics
