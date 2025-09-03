@@ -16118,6 +16118,9 @@
                 "description": {
                     "type": ["string", "null"]
                 },
+                "filtersOverride": {
+                    "$ref": "#/definitions/DashboardFilter"
+                },
                 "id": {
                     "$ref": "#/definitions/InsightShortId"
                 },
@@ -16130,6 +16133,12 @@
                 "type": {
                     "const": "insight",
                     "type": "string"
+                },
+                "variablesOverride": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/HogQLVariable"
+                    },
+                    "type": "object"
                 }
             },
             "required": ["type", "id", "query"],
@@ -16258,20 +16267,11 @@
                     },
                     "type": "array"
                 },
-                "filters_override": {
-                    "$ref": "#/definitions/DashboardFilter"
-                },
                 "insights": {
                     "items": {
                         "$ref": "#/definitions/MaxInsightContext"
                     },
                     "type": "array"
-                },
-                "variables_override": {
-                    "additionalProperties": {
-                        "$ref": "#/definitions/HogQLVariable"
-                    },
-                    "type": "object"
                 }
             },
             "type": "object"
