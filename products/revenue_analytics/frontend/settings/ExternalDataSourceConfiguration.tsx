@@ -117,7 +117,7 @@ export function ExternalDataSourceConfiguration({
 
                             return (
                                 <span className="flex flex-row items-center gap-2 my-2">
-                                    <span>
+                                    <span className="no-wrap">
                                         Joined to <code>persons</code> via:
                                     </span>
 
@@ -174,7 +174,7 @@ export function ExternalDataSourceConfiguration({
 
                             return (
                                 <span className="flex flex-row items-center gap-2 my-2">
-                                    <span>
+                                    <span className="no-wrap">
                                         Joined to <code>groups</code> via:
                                     </span>
 
