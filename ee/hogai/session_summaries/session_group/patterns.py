@@ -369,6 +369,9 @@ def combine_patterns_ids_with_events_context(
             event_segment_context = _enrich_pattern_assigned_event_with_session_summary_data(
                 pattern_assigned_event, session_summaries
             )
+            # Skip non-blocking exceptions, allow blocking ones and abandonment (no exception)
+            if event_segment_context.target_event.exception == "non-blocking":
+                continue
             if pattern_id not in pattern_event_ids_mapping:
                 pattern_event_ids_mapping[pattern_id] = []
             pattern_event_ids_mapping[pattern_id].append(event_segment_context)
@@ -412,9 +415,7 @@ def combine_patterns_with_events_context(
         pattern_id = pattern.pattern_id
         pattern_events = pattern_id_to_event_context_mapping.get(int(pattern_id), [])
         if not pattern_events:
-            logger.exception(
-                f"No events found for pattern {pattern_id} when combining patterns with events context: {pattern_id_to_event_context_mapping}"
-            )
+            # Skip patterns if no relevant events were found
             continue
         enriched_pattern = EnrichedSessionGroupSummaryPattern(
             **pattern.model_dump(),
