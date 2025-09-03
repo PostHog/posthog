@@ -81,11 +81,20 @@ export function Editor(): JSX.Element {
                 Details.configure({
                     persist: true,
                     HTMLAttributes: {
-                        class: 'details',
+                        class: 'Section',
+                    },
+                    openClassName: 'Section--open',
+                }),
+                DetailsSummary.configure({
+                    HTMLAttributes: {
+                        class: 'font-bold text-lg',
                     },
                 }),
-                DetailsSummary,
-                DetailsContent,
+                DetailsContent.configure({
+                    // HTMLAttributes: {
+                    //     class: 'font-bold',
+                    // },
+                }),
                 TableOfContents.configure({
                     getIndex: getHierarchicalIndexes,
                     onUpdate(content) {

@@ -18,6 +18,9 @@ export type {
 
 export enum RichContentNodeType {
     Mention = 'ph-mention',
+    Section = 'ph-section',
+    SectionSummary = 'ph-section-summary',
+    SectionContent = 'ph-section-content',
 }
 
 export interface RichContentEditorType {
