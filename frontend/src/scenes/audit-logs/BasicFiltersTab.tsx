@@ -24,6 +24,7 @@ export const BasicFiltersTab = (): JSX.Element => {
                         setFilters({ start_date: start_date as string | null, end_date: end_date as string | null })
                     }}
                     placeholder="All time"
+                    data-attr="audit-logs-date-filter"
                 />
             </div>
 
@@ -33,10 +34,14 @@ export const BasicFiltersTab = (): JSX.Element => {
                     value={filters.users[0] || null}
                     onChange={(user) => setFilters({ users: user ? [user] : [] })}
                     options={
-                        availableFilters?.static_filters?.users?.map((u) => ({ label: u.label, value: u.value })) || []
+                        availableFilters?.static_filters?.users?.map((u: any) => ({
+                            label: u.label,
+                            value: u.value,
+                        })) || []
                     }
                     placeholder="All users"
                     allowClear
+                    data-attr="audit-logs-user-filter"
                 />
             </div>
 
@@ -46,13 +51,14 @@ export const BasicFiltersTab = (): JSX.Element => {
                     value={filters.scopes[0] || null}
                     onChange={(scope) => setFilters({ scopes: scope ? [scope as ActivityScope] : [] })}
                     options={
-                        availableFilters?.static_filters?.scopes?.map((s) => ({
+                        availableFilters?.static_filters?.scopes?.map((s: any) => ({
                             label: humanizeScope(s.value, true),
                             value: s.value,
                         })) || []
                     }
                     placeholder="All scopes"
                     allowClear
+                    data-attr="audit-logs-scope-filter"
                 />
             </div>
 
@@ -62,13 +68,14 @@ export const BasicFiltersTab = (): JSX.Element => {
                     value={filters.activities[0] || null}
                     onChange={(activity) => setFilters({ activities: activity ? [activity] : [] })}
                     options={
-                        availableFilters?.static_filters?.activities?.map((a) => ({
+                        availableFilters?.static_filters?.activities?.map((a: any) => ({
                             label: humanizeActivity(a.value),
                             value: a.value,
                         })) || []
                     }
                     placeholder="All actions"
                     allowClear
+                    data-attr="audit-logs-action-filter"
                 />
             </div>
         </div>

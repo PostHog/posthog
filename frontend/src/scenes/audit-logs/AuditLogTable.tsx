@@ -40,6 +40,7 @@ export function AuditLogTableRow({ logItem }: AuditLogTableRowProps): JSX.Elemen
             <div
                 className="grid grid-cols-12 gap-4 py-3 px-4 hover:bg-accent-3000 items-center text-sm cursor-pointer"
                 onClick={() => setExpanded(!expanded)}
+                data-attr="audit-log-row"
             >
                 <div className="col-span-4">
                     <div className="truncate">
@@ -83,6 +84,7 @@ export function AuditLogTableRow({ logItem }: AuditLogTableRowProps): JSX.Elemen
                             setExpanded(!expanded)
                         }}
                         aria-label={expanded ? 'Collapse row' : 'Expand row'}
+                        data-attr="audit-log-expand-button"
                     >
                         {expanded ? <IconCollapse /> : <IconExpand />}
                     </button>
@@ -146,6 +148,7 @@ const ActivityDetailsSection = ({ logItem }: { logItem: HumanizedActivityLogItem
         <LemonTabs
             activeKey={activeTab}
             onChange={(key) => setActiveTab(key as ActivityLogTabs)}
+            data-attr="audit-log-details-tabs"
             tabs={[
                 logItem.extendedDescription
                     ? {

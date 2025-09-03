@@ -22,6 +22,7 @@ export function AdvancedActivityLogFiltersPanel(): JSX.Element {
                         type="secondary"
                         disabledReason={!hasActiveFilters ? 'No active filters' : undefined}
                         onClick={clearAllFilters}
+                        data-attr="audit-logs-clear-filters"
                     >
                         Clear all
                     </LemonButton>
@@ -31,6 +32,7 @@ export function AdvancedActivityLogFiltersPanel(): JSX.Element {
             <LemonTabs
                 activeKey={activeTab}
                 onChange={setActiveTab}
+                data-attr="audit-logs-filter-tabs"
                 tabs={[
                     {
                         key: 'basic',

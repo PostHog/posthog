@@ -34,7 +34,7 @@ export function AdvancedActivityLogsList(): JSX.Element {
             </div>
 
             <div className="flex justify-center mt-6">
-                <PaginationControl {...paginationState} />
+                <PaginationControl {...paginationState} data-attr="audit-logs-pagination" />
             </div>
         </div>
     )
