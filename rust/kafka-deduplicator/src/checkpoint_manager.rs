@@ -89,7 +89,20 @@ impl CheckpointManager {
 
                             // Flush the store
                             if let Err(e) = store.flush() {
-                                error!("Failed to flush store {}:{}: {}", partition.topic(), partition.partition_number(), e);
+                                error!(
+                                    "Failed to flush store {}:{}: {:?}",
+                                    partition.topic(),
+                                    partition.partition_number(),
+                                    e
+                                );
+
+                                // Log the error chain for more detail
+                                let mut source = e.source();
+                                while let Some(err) = source {
+                                    error!("  Caused by: {}", err);
+                                    source = err.source();
+                                }
+
                                 continue;
                             }
 

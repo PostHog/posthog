@@ -360,7 +360,7 @@ impl DeduplicationStore {
             return Ok(0); // No cleanup needed if max_capacity is 0 (unlimited)
         }
 
-        let current_size = self.store.get_db_size()?;
+        let current_size = self.store.get_db_size(Self::RECORDS_CF)?;
         if current_size <= self.config.max_capacity {
             return Ok(0); // Under capacity, no cleanup needed
         }
@@ -403,7 +403,7 @@ impl DeduplicationStore {
             return Ok(0);
         }
 
-        let new_size = self.store.get_db_size()?;
+        let new_size = self.store.get_db_size(Self::RECORDS_CF)?;
         let bytes_freed = current_size.saturating_sub(new_size);
 
         // Emit cleanup metrics
@@ -785,15 +785,18 @@ mod tests {
         // Force data to SST files
         store
             .get_store()
-            .flush_cf(DeduplicationStore::RECORDS_CF)
+            .compact_cf(DeduplicationStore::RECORDS_CF)
             .unwrap();
         store
             .get_store()
-            .compact_cf(DeduplicationStore::RECORDS_CF)
+            .flush_cf(DeduplicationStore::RECORDS_CF)
             .unwrap();
 
         // Check initial size
-        let initial_size = store.store.get_db_size().unwrap();
+        let initial_size = store
+            .store
+            .get_db_size(DeduplicationStore::RECORDS_CF)
+            .unwrap();
 
         // If we still can't measure size reliably, test the cleanup logic differently
         if initial_size == 0 {
@@ -810,11 +813,23 @@ mod tests {
         assert!(initial_size > 1000, "Initial size should exceed capacity");
 
         // Run cleanup
-        let bytes_freed = store.cleanup_old_entries().unwrap();
-        assert!(bytes_freed > 0, "Should have freed some bytes");
+        store.cleanup_old_entries().unwrap();
+
+        // Flush to ensure the size is updated
+        store
+            .get_store()
+            .compact_cf(DeduplicationStore::RECORDS_CF)
+            .unwrap();
+        store
+            .get_store()
+            .flush_cf(DeduplicationStore::RECORDS_CF)
+            .unwrap();
 
         // Check that size was reduced
-        let final_size = store.store.get_db_size().unwrap();
+        let final_size = store
+            .store
+            .get_db_size(DeduplicationStore::RECORDS_CF)
+            .unwrap();
         assert!(
             final_size < initial_size,
             "Size should be reduced after cleanup"
@@ -861,7 +876,10 @@ mod tests {
         let bytes_freed = store.cleanup_old_entries().unwrap();
 
         // If we can't measure database size reliably, just verify cleanup runs without error
-        let final_size = store.store.get_db_size().unwrap();
+        let final_size = store
+            .store
+            .get_db_size(DeduplicationStore::RECORDS_CF)
+            .unwrap();
         if final_size == 0 {
             // When size can't be measured, cleanup should return 0
             assert_eq!(

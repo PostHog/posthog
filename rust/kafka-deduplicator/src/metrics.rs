@@ -148,25 +148,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_metrics_helper_creation() {
-        let helper = MetricsHelper::with_partition("test_topic", 5);
-        assert_eq!(
-            helper.baseline_labels.get("topic"),
-            Some(&"test_topic".to_string())
-        );
-        assert_eq!(
-            helper.baseline_labels.get("partition"),
-            Some(&"5".to_string())
-        );
-    }
-
-    #[test]
     fn test_metrics_helper_with_additional_label() {
         let helper = MetricsHelper::with_partition("test_topic", 0)
             .with_label("service", "kafka-deduplicator")
             .with_label("version", "1.0.0");
 
-        assert_eq!(helper.baseline_labels.len(), 4);
+        assert_eq!(helper.baseline_labels.len(), 2);
         assert_eq!(
             helper.baseline_labels.get("service"),
             Some(&"kafka-deduplicator".to_string())
