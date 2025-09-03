@@ -54,6 +54,12 @@ export class HogFlowExecutorService {
             state: {
                 event: globals.event,
                 actionStepCount: 0,
+                currentAction: currentActionId
+                    ? {
+                          id: currentActionId,
+                          startedAtTimestamp: Date.now(),
+                      }
+                    : undefined,
             },
             teamId: hogFlow.team_id,
             functionId: hogFlow.id, // TODO: Include version?
@@ -62,13 +68,7 @@ export class HogFlowExecutorService {
             filterGlobals,
             queue: 'hogflow',
             queuePriority: 1,
-            debugMode: Boolean(currentAction),
-            state: {
-                currentAction: {
-                    id: currentActionId,
-                    startedAtTimestamp: Date.now()
-                },
-            },
+            debugMode: Boolean(currentActionId),
         }
     }
 
@@ -142,7 +142,7 @@ export class HogFlowExecutorService {
     }
 
     async execute(
-        invocation: CyclotronJobInvocationHogFlow,
+        invocation: CyclotronJobInvocationHogFlow
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> {
         let result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null = null
         const metrics: MinimalAppMetric[] = []
@@ -170,7 +170,7 @@ export class HogFlowExecutorService {
              * If we have finished _or_ something has been scheduled to run later _or_ we are performing step-by-step debugging
              * or_ we have reached the max async functions then we break the loop
              */
-             
+
             if (result.finished || result.invocation.queueScheduledAt || result.invocation.debugMode) {
                 break
             }
