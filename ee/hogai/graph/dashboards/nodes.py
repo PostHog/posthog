@@ -1,5 +1,5 @@
-import time
-from typing import Literal
+from collections.abc import AsyncIterator
+from typing import Any, Literal
 from uuid import uuid4
 
 import structlog
@@ -9,7 +9,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.config import get_stream_writer
 from langgraph.types import StreamWriter
 
-from posthog.schema import AssistantToolCallMessage
+from posthog.schema import AssistantMessage, AssistantToolCallMessage
 
 from posthog.models import Dashboard, DashboardTile, Insight
 from posthog.sync import database_sync_to_async
@@ -65,8 +65,6 @@ class DashboardCreatorNode(AssistantNode):
             logger.exception("Failed to stream reasoning message", error=str(e), content=content)
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
-        start_time = time.time()
-        conversation_id = config.get("configurable", {}).get("thread_id", "unknown")
         writer = self._get_stream_writer()
 
         if not state.create_dashboard_query:
@@ -119,8 +117,6 @@ class DashboardCreatorNode(AssistantNode):
                 f"Error in DashboardCreatorNode: {e}",
                 extra={
                     "team_id": getattr(self._team, "id", "unknown"),
-                    "conversation_id": conversation_id,
-                    "execution_time_ms": round((time.time() - start_time) * 1000, 2),
                     "error": str(e),
                 },
                 exc_info=True,
@@ -164,11 +160,6 @@ class DashboardCreatorNode(AssistantNode):
             self._stream_reasoning(content="Creating new insights for your dashboard", writer=writer)
 
             # Import the insights graph here to avoid circular imports
-            from collections.abc import AsyncIterator
-            from typing import Any
-
-            from posthog.schema import AssistantMessage
-
             from ee.hogai.graph.graph import InsightsAssistantGraph
 
             # Create state for insights creation
