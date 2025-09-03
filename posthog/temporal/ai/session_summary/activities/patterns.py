@@ -433,7 +433,7 @@ async def combine_patterns_from_chunks_activity(inputs: SessionGroupSummaryPatte
     _, _, redis_output_key = get_redis_state_client(
         key_base=inputs.redis_key_base,
         output_label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
-        state_id=",".join(inputs.session_ids),
+        state_id=generate_state_id_from_session_ids(inputs.session_ids),
     )
     # Check if combined patterns are already in Redis (for all the sessions at once)
     success = await get_data_class_from_redis(
