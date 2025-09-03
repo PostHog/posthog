@@ -38,6 +38,7 @@ class TestVercelIntegration(TestCase):
         return team, resource
 
     def make_feature_flag(self, team, name, description, archived):
+        # archived maps to the deleted field in FeatureFlag model
         return FeatureFlag.objects.create(
             team=team,
             key=name,

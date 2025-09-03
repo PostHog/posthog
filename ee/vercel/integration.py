@@ -1,4 +1,5 @@
 import copy
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -647,7 +648,7 @@ class VercelIntegration:
         }
 
 
-def _safe_vercel_sync(operation_name: str, item_id: str | int, team: Team, sync_func):
+def _safe_vercel_sync(operation_name: str, item_id: str | int, team: Team, sync_func: Callable[[], None]) -> None:
     if not VercelIntegration._get_vercel_resource_for_team(team):
         return
 
@@ -662,7 +663,7 @@ def _safe_vercel_sync(operation_name: str, item_id: str | int, team: Team, sync_
 
 
 @receiver(post_save, sender=FeatureFlag)
-def update_resource_experimentation_item(sender, instance: FeatureFlag, created, **kwargs):
+def sync_feature_flag_experimentation_item(sender, instance: FeatureFlag, created, **kwargs):
     _safe_vercel_sync(
         "sync feature flag to Vercel",
         instance.pk,
@@ -682,7 +683,7 @@ def delete_resource_experimentation_item(sender, instance: FeatureFlag, **kwargs
 
 
 @receiver(post_save, sender=Experiment)
-def update_experiment_experimentation_item(sender, instance: Experiment, created, **kwargs):
+def sync_experiment_experimentation_item(sender, instance: Experiment, created, **kwargs):
     _safe_vercel_sync(
         "sync experiment to Vercel",
         instance.pk,
