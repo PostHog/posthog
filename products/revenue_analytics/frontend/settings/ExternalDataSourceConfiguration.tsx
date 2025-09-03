@@ -126,8 +126,8 @@ export function ExternalDataSourceConfiguration({
                             )
 
                             return (
-                                <span className="flex flex-row items-center gap-2 my-2">
-                                    <span className="no-wrap">
+                                <span className="flex flex-row flex-nowrap items-center gap-2 my-2 min-w-[300px]">
+                                    <span className="whitespace-nowrap">
                                         Joined to <code>persons</code> via:
                                     </span>
 
@@ -185,8 +185,8 @@ export function ExternalDataSourceConfiguration({
                             )
 
                             return (
-                                <span className="flex flex-row items-center gap-2 my-2">
-                                    <span className="no-wrap">
+                                <span className="flex flex-row flex-nowrap items-center gap-2 my-2 min-w-[300px]">
+                                    <span className="whitespace-nowrap">
                                         Joined to <code>groups</code> via:
                                     </span>
 
