@@ -1,10 +1,8 @@
-import json
-import base64
-
 from django.conf import settings
 from django.test import Client, TestCase
 
-from temporalio.api.common.v1 import Payload
+from google.protobuf import json_format
+from temporalio.api.common.v1 import Payload, Payloads
 
 from posthog.temporal.common.codec import EncryptionCodec
 
@@ -15,40 +13,47 @@ class CodecServerTestCase(TestCase):
         self.codec = EncryptionCodec(settings)
 
     def test_decode_endpoint_handles_options(self):
-        response = self.client.options("/decode")
+        response = self.client.options("/decode", HTTP_ORIGIN="https://temporal-ui.posthog.orb.local")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Access-Control-Allow-Origin"], "https://temporal-ui.posthog.orb.local")
         self.assertEqual(response["Access-Control-Allow-Methods"], "POST, OPTIONS")
 
     def test_decode_empty_payloads(self):
-        response = self.client.post("/decode", json.dumps({"payloads": []}), content_type="application/json")
+        payloads = Payloads(payloads=[])
+        request_data = json_format.MessageToJson(payloads)
+
+        response = self.client.post(
+            "/decode",
+            request_data,
+            content_type="application/json",
+            HTTP_ORIGIN="https://temporal-ui.posthog.orb.local",
+        )
         self.assertEqual(response.status_code, 200)
-        data = json.loads(response.content)
-        self.assertEqual(data, {"payloads": []})
+
+        response_payloads = json_format.Parse(response.content, Payloads())
+        self.assertEqual(len(response_payloads.payloads), 0)
 
     def test_decode_encrypted_payload(self):
         original_payload = Payload(metadata={"encoding": b"json/plain"}, data=b'{"test": "data"}')
-
         encrypted_data = self.codec.encrypt(original_payload.SerializeToString())
 
-        request_payload = {
-            "payloads": [
-                {
-                    "metadata": {"encoding": base64.b64encode(b"binary/encrypted").decode("utf-8")},
-                    "data": base64.b64encode(encrypted_data).decode("utf-8"),
-                }
-            ]
-        }
+        encrypted_payload = Payload(metadata={"encoding": b"binary/encrypted"}, data=encrypted_data)
 
-        response = self.client.post("/decode", json.dumps(request_payload), content_type="application/json")
+        payloads = Payloads(payloads=[encrypted_payload])
+        request_data = json_format.MessageToJson(payloads)
+
+        response = self.client.post(
+            "/decode",
+            request_data,
+            content_type="application/json",
+            HTTP_ORIGIN="https://temporal-ui.posthog.orb.local",
+        )
 
         self.assertEqual(response.status_code, 200)
-        data = json.loads(response.content)
 
-        self.assertEqual(len(data["payloads"]), 1)
-        decoded_payload = data["payloads"][0]
+        response_payloads = json_format.Parse(response.content, Payloads())
+        self.assertEqual(len(response_payloads.payloads), 1)
 
-        self.assertIn("metadata", decoded_payload)
-        self.assertEqual(base64.b64decode(decoded_payload["metadata"]["encoding"]), b"json/plain")
-
-        self.assertEqual(base64.b64decode(decoded_payload["data"]), b'{"test": "data"}')
+        decoded_payload = response_payloads.payloads[0]
+        self.assertEqual(decoded_payload.metadata["encoding"], b"json/plain")
+        self.assertEqual(decoded_payload.data, b'{"test": "data"}')
