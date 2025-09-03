@@ -147,6 +147,14 @@ class _SharedAssistantState(BaseState):
     """
     The insight generation plan.
     """
+    query_planner_previous_response_id: Optional[str] = Field(default=None)
+    """
+    The ID of the previous OpenAI Responses API response made by the query planner.
+    """
+    query_planner_intermediate_messages: Optional[Sequence[LangchainBaseMessage]] = Field(default=None)
+    """
+    The intermediate messages from the query planner agent.
+    """
 
     onboarding_question: Optional[str] = Field(default=None)
     """
@@ -177,10 +185,6 @@ class _SharedAssistantState(BaseState):
     root_tool_calls_count: Optional[int] = Field(default=None)
     """
     Tracks the number of tool calls made by the root node to terminate the loop.
-    """
-    query_planner_previous_response_id: Optional[str] = Field(default=None)
-    """
-    The ID of the previous OpenAI Responses API response made by the query planner.
     """
     rag_context: Optional[str] = Field(default=None)
     """
