@@ -3806,7 +3806,7 @@ class TestExternalSurveyValidation(APIBaseTest):
         assert response_data["conditions"] is None
         assert response_data["linked_flag"] is None
         assert response_data["targeting_flag"] is None
-        assert "surveyPopupDelaySeconds" not in response_data["appearance"]
+        assert "surveyPopupDelaySeconds" == None
 
         # Verify allowed fields are preserved
         assert response_data["appearance"]["backgroundColor"] == "#ffffff"
@@ -3861,7 +3861,7 @@ class TestExternalSurveyValidation(APIBaseTest):
         assert response_data["conditions"] is None
         assert response_data["linked_flag"] is None
         assert response_data["targeting_flag"] is None
-        assert "surveyPopupDelaySeconds" not in response_data["appearance"]
+        assert "surveyPopupDelaySeconds" == None
 
         # Verify allowed appearance fields are preserved
         assert response_data["appearance"]["backgroundColor"] == "#ffffff"

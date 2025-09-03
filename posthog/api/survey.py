@@ -58,6 +58,12 @@ from ee.surveys.summaries.summarize_surveys import summarize_survey_responses
 
 ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
 EMAIL_REGEX = r"^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS = [
+    "linked_flag_id",
+    "targeting_flag_filters",
+    "conditions",
+]
+
 
 if "replica" in settings.DATABASES:
     READ_DB_FOR_SURVEYS = "replica"
@@ -448,12 +454,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
     def _clear_external_survey_fields(self, data):
         """Clear fields not applicable to external surveys"""
-        fields_to_clear = [
-            "linked_flag_id",
-            "targeting_flag_filters",
-            "conditions",
-        ]
-        for field in fields_to_clear:
+        for field in FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS:
             data[field] = None
         data["remove_targeting_flag"] = True
         if "appearance" in data and "surveyPopupDelaySeconds" in data["appearance"]:
@@ -463,7 +464,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
     def create(self, validated_data):
         if validated_data.get("type") == Survey.SurveyType.EXTERNAL_SURVEY:
-            validated_data = self._clear_external_survey_fields(validated_data)
+            self._clear_external_survey_fields(validated_data)
 
         if "remove_targeting_flag" in validated_data:
             validated_data.pop("remove_targeting_flag")
@@ -505,7 +506,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         changes = []
 
         if validated_data.get("type") == Survey.SurveyType.EXTERNAL_SURVEY:
-            validated_data = self._clear_external_survey_fields(validated_data)
+            self._clear_external_survey_fields(validated_data)
 
         if validated_data.get("remove_targeting_flag"):
             if instance.targeting_flag:
