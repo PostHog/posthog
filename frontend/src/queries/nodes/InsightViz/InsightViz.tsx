@@ -1,13 +1,12 @@
 import './InsightViz.scss'
 
 import clsx from 'clsx'
-import { BindLogic, BuiltLogic, LogicWrapper, useValues } from 'kea'
+import { BindLogic, BuiltLogic, LogicWrapper } from 'kea'
 import { useState } from 'react'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
@@ -15,7 +14,7 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { DashboardFilter, HogQLVariable, InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { isFunnelsQuery, isRetentionQuery } from '~/queries/utils'
-import { InsightLogicProps, ItemMode } from '~/types'
+import { InsightLogicProps } from '~/types'
 
 import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { EditorFilters } from './EditorFilters'
@@ -37,6 +36,7 @@ type InsightVizProps = {
     setQuery: (node: InsightVizNode) => void
     context?: QueryContext<InsightVizNode>
     readOnly?: boolean
+    editMode?: boolean
     embedded?: boolean
     inSharedMode?: boolean
     filtersOverride?: DashboardFilter | null
@@ -58,6 +58,7 @@ export function InsightViz({
     filtersOverride,
     variablesOverride,
     attachTo,
+    editMode,
 }: InsightVizProps): JSX.Element {
     const [key] = useState(() => `InsightViz.${uniqueKey || uniqueNode++}`)
     const insightProps =
@@ -88,8 +89,6 @@ export function InsightViz({
         variablesOverride,
     }
 
-    const { insightMode } = useValues(insightSceneLogic)
-
     const isFunnels = isFunnelsQuery(query.source)
     const isHorizontalAlways = useFeatureFlag('INSIGHT_HORIZONTAL_CONTROLS')
     const isRetention = isRetentionQuery(query.source)
@@ -100,13 +99,13 @@ export function InsightViz({
     const disableCorrelationTable = embedded || !(query.showCorrelationTable ?? showIfFull)
     const disableLastComputation = embedded || !(query.showLastComputation ?? showIfFull)
     const disableLastComputationRefresh = embedded || !(query.showLastComputationRefresh ?? showIfFull)
-    const showingFilters = query.showFilters ?? insightMode === ItemMode.Edit
+    const showingFilters = query.showFilters ?? editMode ?? false
     const showingResults = query.showResults ?? true
     const isEmbedded = embedded || (query.embedded ?? false)
 
     const display = (
         <InsightVizDisplay
-            insightMode={insightMode}
+            editMode={editMode}
             context={context}
             disableHeader={disableHeader}
             disableTable={disableTable}

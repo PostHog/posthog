@@ -18,6 +18,9 @@ class EventsSourceBaseTest(RevenueAnalyticsViewSourceBaseTest):
     including sample event configurations and helper methods.
     """
 
+    PURCHASE_EVENT_NAME = "purchase"
+    SUBSCRIPTION_CHARGE_EVENT_NAME = "subscription_charge"
+
     def setup_revenue_analytics_events(self):
         """
         Configure default revenue analytics events for testing.
@@ -31,13 +34,13 @@ class EventsSourceBaseTest(RevenueAnalyticsViewSourceBaseTest):
         self.configure_events(
             [
                 {
-                    "eventName": "purchase",
+                    "eventName": self.PURCHASE_EVENT_NAME,
                     "revenueProperty": "amount",
                     "currencyAwareDecimal": True,
                     "revenueCurrencyProperty": {"static": "USD"},
                 },
                 {
-                    "eventName": "subscription_charge",
+                    "eventName": self.SUBSCRIPTION_CHARGE_EVENT_NAME,
                     "revenueProperty": "price",
                     "currencyAwareDecimal": False,
                     "revenueCurrencyProperty": {"property": "currency"},
