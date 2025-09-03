@@ -151,7 +151,7 @@ export function ProjectTree({
                 <div className="border border-primary text-xs mb-2 font-normal rounded-xs p-1 -mx-1">
                     Shortcuts are added by pressing{' '}
                     <IconEllipsis className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />,
-                    side-clicking a panel item, then "Add to shortcuts panel", or inside a app's resources file menu
+                    side-clicking a panel item, then "Add to shortcuts panel", or inside an app's resources file menu
                     click <IconShortcut className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />
                 </div>
             ),
