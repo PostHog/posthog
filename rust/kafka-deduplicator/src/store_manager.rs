@@ -107,7 +107,7 @@ impl StoreManager {
                     let mut error_chain = vec![format!("{:?}", e)];
                     let mut source = e.source();
                     while let Some(err) = source {
-                        error_chain.push(format!("Caused by: {}", err));
+                        error_chain.push(format!("Caused by: {err:?}"));
                         source = err.source();
                     }
                     
@@ -256,6 +256,7 @@ mod tests {
             event: "test_event".to_string(),
             distinct_id: Some(serde_json::Value::String("test_user".to_string())),
             token: Some("test_token".to_string()),
+            timestamp: Some("2021-01-01T00:00:00Z".to_string()),
             ..Default::default()
         };
 
@@ -300,6 +301,7 @@ mod tests {
             event: "concurrent_test_event".to_string(),
             distinct_id: Some(serde_json::Value::String("concurrent_user".to_string())),
             token: Some("concurrent_token".to_string()),
+            timestamp: Some("2021-01-01T00:00:00Z".to_string()),
             ..Default::default()
         };
 

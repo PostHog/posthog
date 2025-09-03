@@ -5,7 +5,7 @@ use std::time::Instant;
 use anyhow::{Context, Result};
 use common_types::RawEvent;
 use rocksdb::{ColumnFamilyDescriptor, Options};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::metrics::MetricsHelper;
 use crate::rocksdb::dedup_metadata::{MetadataV1, MetadataVersion, VersionedMetadata};
@@ -121,12 +121,42 @@ impl TryFrom<Vec<u8>> for DeduplicationKey {
     }
 }
 
+/// Parse a timestamp string into milliseconds since epoch
+/// Supports multiple formats:
+/// - u64 (assumed to be milliseconds or seconds based on magnitude)
+/// - ISO 8601 / RFC3339 datetime strings
+fn parse_timestamp(timestamp_str: &str) -> Option<u64> {
+    // First try parsing as u64 (for backward compatibility with numeric timestamps)
+    if let Ok(ts) = timestamp_str.parse::<u64>() {
+        // If it's a 10-digit number, assume it's seconds and convert to millis
+        // If it's 13+ digits, assume it's already milliseconds
+        if ts < 10_000_000_000 {
+            return Some(ts * 1000);
+        } else {
+            return Some(ts);
+        }
+    }
+
+    // Try parsing as ISO 8601 / RFC3339 datetime
+    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(timestamp_str) {
+        // Convert to milliseconds for consistent precision
+        return Some(dt.timestamp_millis() as u64);
+    }
+
+    // Log parse failure for debugging
+    warn!(
+        "Failed to parse timestamp '{}' - will use current time",
+        timestamp_str
+    );
+    None
+}
+
 impl From<&RawEvent> for DeduplicationKey {
     fn from(raw_event: &RawEvent) -> Self {
         let timestamp = raw_event
             .timestamp
             .as_ref()
-            .and_then(|t| t.parse::<u64>().ok())
+            .and_then(|t| parse_timestamp(t))
             .unwrap_or_else(|| chrono::Utc::now().timestamp_millis() as u64);
 
         let distinct_id = raw_event
@@ -479,7 +509,6 @@ impl DeduplicationStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::SystemTime;
     use tempfile::TempDir;
     use tracing::info;
 
@@ -494,22 +523,25 @@ mod tests {
         (store, temp_dir)
     }
 
-    fn create_test_raw_event(distinct_id: &str, token: &str, event_name: &str) -> RawEvent {
+    fn create_test_raw_event_with_timestamp(
+        distinct_id: &str,
+        token: &str,
+        event_name: &str,
+        timestamp: Option<String>,
+    ) -> RawEvent {
         RawEvent {
             uuid: None,
             event: event_name.to_string(),
             distinct_id: Some(serde_json::Value::String(distinct_id.to_string())),
             token: Some(token.to_string()),
             properties: std::collections::HashMap::new(),
-            timestamp: Some(
-                SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs()
-                    .to_string(),
-            ),
+            timestamp: timestamp.or_else(|| Some(chrono::Utc::now().to_rfc3339())),
             ..Default::default()
         }
+    }
+
+    fn create_test_raw_event(distinct_id: &str, token: &str, event_name: &str) -> RawEvent {
+        create_test_raw_event_with_timestamp(distinct_id, token, event_name, None)
     }
 
     #[test]
@@ -576,9 +608,10 @@ mod tests {
     fn test_handle_events_new_events() {
         let (store, _temp_dir) = create_test_store(None);
 
+        let timestamp = Some("2021-01-01T00:00:00Z".to_string());
         let events = vec![
-            create_test_raw_event("user1", "token1", "event1"),
-            create_test_raw_event("user2", "token1", "event2"),
+            create_test_raw_event_with_timestamp("user1", "token1", "event1", timestamp.clone()),
+            create_test_raw_event_with_timestamp("user2", "token1", "event2", timestamp.clone()),
         ];
 
         // Process events individually
@@ -590,8 +623,8 @@ mod tests {
 
         // Verify events were stored by checking they're now duplicates
         let events_again = [
-            create_test_raw_event("user1", "token1", "event1"),
-            create_test_raw_event("user2", "token1", "event2"),
+            create_test_raw_event_with_timestamp("user1", "token1", "event1", timestamp.clone()),
+            create_test_raw_event_with_timestamp("user2", "token1", "event2", timestamp.clone()),
         ];
 
         let dedup_keys: Vec<DeduplicationKey> =
@@ -608,11 +641,12 @@ mod tests {
     #[test]
     fn test_handle_events_mixed_duplicates() {
         let (store, _temp_dir) = create_test_store(None);
+        let timestamp = Some("2021-01-01T00:00:00Z".to_string());
 
         // First batch
         let first_batch = vec![
-            create_test_raw_event("user1", "token1", "event1"),
-            create_test_raw_event("user2", "token1", "event2"),
+            create_test_raw_event_with_timestamp("user1", "token1", "event1", timestamp.clone()),
+            create_test_raw_event_with_timestamp("user2", "token1", "event2", timestamp.clone()),
         ];
         for event in &first_batch {
             let result = store.handle_event_with_raw(event);
@@ -622,8 +656,8 @@ mod tests {
 
         // Second batch with one duplicate and one new
         let second_batch = vec![
-            create_test_raw_event("user1", "token1", "event1"), // duplicate
-            create_test_raw_event("user3", "token1", "event3"), // new
+            create_test_raw_event_with_timestamp("user1", "token1", "event1", timestamp.clone()), // duplicate
+            create_test_raw_event_with_timestamp("user3", "token1", "event3", timestamp.clone()), // new
         ];
         let results: Vec<bool> = second_batch
             .iter()
@@ -632,7 +666,8 @@ mod tests {
         assert_eq!(results, vec![false, true]); // first duplicate, second new
 
         // Verify only the new event was stored
-        let test_event = create_test_raw_event("user3", "token1", "event3");
+        let test_event =
+            create_test_raw_event_with_timestamp("user3", "token1", "event3", timestamp.clone());
         let dedup_key = DeduplicationKey::from(&test_event);
         let key_bytes = vec![dedup_key.as_ref()];
         let non_duplicated = store.get_non_duplicated_keys(key_bytes).unwrap();
@@ -648,32 +683,36 @@ mod tests {
         let event = create_test_raw_event("user123", "token456", "page_view");
         let key = DeduplicationKey::from(&event);
 
-        let expected = format!(
-            "{}:user123:token456:page_view",
-            event.timestamp.as_ref().unwrap()
-        );
+        // Parse the ISO timestamp to get the milliseconds value
+        let timestamp_str = event.timestamp.as_ref().unwrap();
+        let timestamp_millis = parse_timestamp(timestamp_str).unwrap();
+
+        let expected = format!("{}:user123:token456:page_view", timestamp_millis);
         assert_eq!(String::from_utf8_lossy(key.as_ref()), expected);
     }
 
     #[test]
     fn test_metadata_storage_functionality() {
         let (store, _temp_dir) = create_test_store(None);
+        let timestamp = Some("2021-01-01T00:00:00Z".to_string());
 
-        let event = create_test_raw_event("user1", "token1", "event1");
+        let event =
+            create_test_raw_event_with_timestamp("user1", "token1", "event1", timestamp.clone());
 
         // Test that single event processing works
         let is_new = store.handle_event_with_raw(&event).unwrap();
         assert!(is_new); // First time should be new
 
         // Verify we can handle duplicates using the trait-based approach
-        let duplicate_event = create_test_raw_event("user1", "token1", "event1");
+        let duplicate_event =
+            create_test_raw_event_with_timestamp("user1", "token1", "event1", timestamp.clone());
         let is_duplicate = store.handle_event_with_raw(&duplicate_event).unwrap();
         assert!(!is_duplicate); // Should be a duplicate (returns false for new)
 
         // Test individual event processing works without errors - using different events to avoid serialization
         let batch_events = vec![
-            create_test_raw_event("user2", "token1", "event2"),
-            create_test_raw_event("user3", "token1", "event3"),
+            create_test_raw_event_with_timestamp("user2", "token1", "event2", timestamp.clone()),
+            create_test_raw_event_with_timestamp("user3", "token1", "event3", timestamp.clone()),
         ];
         for event in &batch_events {
             let result = store.handle_event_with_raw(event);
@@ -682,7 +721,8 @@ mod tests {
         }
 
         // Test that the new events work with individual processing
-        let new_event = create_test_raw_event("user4", "token1", "event4");
+        let new_event =
+            create_test_raw_event_with_timestamp("user4", "token1", "event4", timestamp.clone());
         let is_new_again = store.handle_event_with_raw(&new_event).unwrap();
         assert!(is_new_again); // Should be new
     }
@@ -701,6 +741,30 @@ mod tests {
         assert_eq!(key.token, parsed_key.token);
         assert_eq!(key.event_name, parsed_key.event_name);
         assert_eq!(key.formatted_key, parsed_key.formatted_key);
+    }
+
+    #[test]
+    fn test_timestamp_parsing() {
+        // Test seconds timestamp (10 digits)
+        assert_eq!(parse_timestamp("1640995200"), Some(1640995200000));
+
+        // Test milliseconds timestamp (13 digits)
+        assert_eq!(parse_timestamp("1640995200123"), Some(1640995200123));
+
+        // Test ISO 8601 / RFC3339 format
+        assert_eq!(parse_timestamp("2022-01-01T00:00:00Z"), Some(1640995200000));
+        assert_eq!(
+            parse_timestamp("2022-01-01T00:00:00.123Z"),
+            Some(1640995200123)
+        );
+        assert_eq!(
+            parse_timestamp("2022-01-01T00:00:00+00:00"),
+            Some(1640995200000)
+        );
+
+        // Test invalid formats return None
+        assert_eq!(parse_timestamp("invalid"), None);
+        assert_eq!(parse_timestamp(""), None);
     }
 
     #[test]
@@ -740,39 +804,22 @@ mod tests {
         assert_eq!(bytes_freed, 0);
     }
 
-    fn create_test_raw_event_with_timestamp(
-        timestamp: u64,
-        distinct_id: &str,
-        token: &str,
-        event_name: &str,
-    ) -> RawEvent {
-        RawEvent {
-            uuid: None,
-            event: event_name.to_string(),
-            distinct_id: Some(serde_json::Value::String(distinct_id.to_string())),
-            token: Some(token.to_string()),
-            properties: std::collections::HashMap::new(),
-            timestamp: Some(timestamp.to_string()),
-            ..Default::default()
-        }
-    }
-
     #[test]
     fn test_cleanup_old_entries_over_capacity() {
         let (store, _temp_dir) = create_test_store(Some(1000)); // Very small capacity to trigger cleanup
 
         // Add events with different timestamps to test timestamp-based cleanup
-        let base_timestamp = 1609459200; // 2021-01-01
+        let timestamp = Some("2021-01-01T00:00:00Z".to_string());
 
         // Create much larger data to exceed capacity reliably
         let large_value = "x".repeat(100); // 100 bytes per event
         let events: Vec<RawEvent> = (0..100)
             .map(|i| {
                 create_test_raw_event_with_timestamp(
-                    base_timestamp + i,
                     &format!("user{i}{large_value}"),
                     &format!("token{i}{large_value}"),
                     &format!("event{i}{large_value}"),
+                    timestamp.clone(),
                 )
             })
             .collect();
@@ -840,14 +887,20 @@ mod tests {
     fn test_cleanup_preserves_newer_entries() {
         let (store, _temp_dir) = create_test_store(Some(1000)); // Very small capacity
 
-        let base_timestamp = 1609459200; // 2021-01-01
-        let old_event =
-            create_test_raw_event_with_timestamp(base_timestamp, "old_user", "token1", "old_event");
+        let base_timestamp = Some("2021-01-01T00:00:00Z".to_string()); // 2021-01-01
+        let old_event = create_test_raw_event_with_timestamp(
+            "old_user",
+            "token1",
+            "old_event",
+            base_timestamp.clone(),
+        );
+        let new_timestamp = Some("2021-01-02T00:00:00Z".to_string());
         let new_event = create_test_raw_event_with_timestamp(
-            base_timestamp + 86400,
             "new_user",
             "token1",
             "new_event",
+            // Add 1 day to the timestamp
+            new_timestamp.clone(),
         );
 
         // Add old event first
@@ -858,10 +911,10 @@ mod tests {
         // Add many more events to exceed capacity
         for i in 0..10 {
             let event = create_test_raw_event_with_timestamp(
-                base_timestamp + i,
                 &format!("user{i}"),
                 "token1",
                 &format!("event{i}"),
+                base_timestamp.clone(),
             );
             let result = store.handle_event_with_raw(&event);
             assert!(result.is_ok());
