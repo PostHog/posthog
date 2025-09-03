@@ -36,6 +36,7 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -457,9 +458,8 @@ export function InsightLoadingState({
     renderEmptyStateAsSkeleton?: boolean
 }): JSX.Element {
     const { suggestedSamplingPercentage, samplingPercentage } = useValues(samplingFilterLogic(insightProps))
-    const { insightPollResponse, insightLoadingTimeSeconds, queryChanged, activeSceneId } = useValues(
-        insightDataLogic(insightProps)
-    )
+    const { insightPollResponse, insightLoadingTimeSeconds, queryChanged } = useValues(insightDataLogic(insightProps))
+    const { activeSceneId } = useValues(sceneLogic)
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
