@@ -5750,8 +5750,8 @@ export interface DatasetItem {
     output: Record<string, any> | null
     metadata: Record<string, any> | null
     ref_trace_id: string | null
-    ref_trace_timestamp: string | null
-    ref_span_id: string | null
+    ref_timestamp: string | null
+    ref_source_id: string | null
     created_by: UserBasicType
     updated_at: string
     created_at: string

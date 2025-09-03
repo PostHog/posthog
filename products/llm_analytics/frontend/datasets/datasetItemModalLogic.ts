@@ -11,7 +11,7 @@ import { DatasetItem } from '~/types'
 import type { datasetItemModalLogicType } from './datasetItemModalLogicType'
 import { EMPTY_JSON, coerceJsonToObject, isStringJsonObject, prettifyJson } from './utils'
 
-export type TraceMetadata = Required<Pick<DatasetItem, 'ref_trace_id' | 'ref_span_id' | 'ref_trace_timestamp'>>
+export type TraceMetadata = Required<Pick<DatasetItem, 'ref_trace_id' | 'ref_source_id' | 'ref_timestamp'>>
 
 export interface DatasetItemModalLogicProps {
     datasetId: string
@@ -92,8 +92,11 @@ export const datasetItemModalLogic = kea<datasetItemModalLogicType>([
                         })
                         lemonToast.success('Dataset item created successfully')
                         if (values.shouldCloseModal) {
+                            // In case of "save and add another", we want to reset the form values.
                             props.closeModal(true)
+                            actions.setDatasetItemFormValues(FORM_DEFAULT_VALUE)
                         } else {
+                            // Otherwise, we just refetch the dataset items because we don't want annoying flashes.
                             actions.setRefetchDatasetItems(true)
                         }
                         actions.setShouldCloseModal(true)

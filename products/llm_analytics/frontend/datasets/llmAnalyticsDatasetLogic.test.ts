@@ -42,8 +42,8 @@ describe('llmAnalyticsDatasetLogic', () => {
         output: { response: 'test response 1' },
         metadata: { key: 'value' },
         ref_trace_id: null,
-        ref_trace_timestamp: null,
-        ref_span_id: null,
+        ref_timestamp: null,
+        ref_source_id: null,
         created_by: {
             id: 1,
             uuid: 'test-uuid',
@@ -64,8 +64,8 @@ describe('llmAnalyticsDatasetLogic', () => {
         output: { response: 'test response 2' },
         metadata: { key: 'value2' },
         ref_trace_id: null,
-        ref_trace_timestamp: null,
-        ref_span_id: null,
+        ref_timestamp: null,
+        ref_source_id: null,
         created_by: {
             id: 1,
             uuid: 'test-uuid',

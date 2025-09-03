@@ -253,7 +253,7 @@ function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
             title: 'ID',
             dataIndex: 'id',
             key: 'id',
-            width: '15%',
+            width: '10%',
             render: function renderID(_, item) {
                 return (
                     <Link to={urls.llmAnalyticsDataset(dataset.id, { ...searchParams, item: item.id })}>
@@ -266,17 +266,17 @@ function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
             title: 'Trace',
             dataIndex: 'ref_trace_id',
             key: 'ref_trace_id',
-            width: '15%',
+            width: '10%',
             render: function renderRefTraceId(_, item) {
-                if (!item.ref_trace_id || !item.ref_span_id || !item.ref_trace_timestamp) {
+                if (!item.ref_trace_id || !item.ref_source_id || !item.ref_timestamp) {
                     return <span>—</span>
                 }
 
                 return (
                     <Link
                         to={urls.llmAnalyticsTrace(item.ref_trace_id, {
-                            event: item.ref_span_id,
-                            timestamp: item.ref_trace_timestamp,
+                            event: item.ref_source_id,
+                            timestamp: item.ref_timestamp,
                         })}
                     >
                         {truncateValue(item.ref_trace_id)}

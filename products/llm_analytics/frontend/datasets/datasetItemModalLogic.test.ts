@@ -18,8 +18,8 @@ describe('datasetItemModalLogic', () => {
         output: { response: 'Hi there' },
         metadata: { source: 'test' },
         ref_trace_id: null,
-        ref_trace_timestamp: null,
-        ref_span_id: null,
+        ref_timestamp: null,
+        ref_source_id: null,
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z',
         created_by: {
