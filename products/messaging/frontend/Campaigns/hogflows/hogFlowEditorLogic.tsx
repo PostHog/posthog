@@ -11,12 +11,14 @@ import {
     getOutgoers,
 } from '@xyflow/react'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import type { DragEvent } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { AppMetricsTotalsRequest, loadAppMetricsTotals } from 'lib/components/AppMetrics/appMetricsLogic'
 import { uuid } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
@@ -34,6 +36,12 @@ const getEdgeId = (edge: HogFlow['edges'][number]): string => `${edge.from}->${e
 
 export const HOG_FLOW_EDITOR_MODES = ['build', 'test', 'metrics', 'logs'] as const
 export type HogFlowEditorMode = (typeof HOG_FLOW_EDITOR_MODES)[number]
+export type HogFlowEditorActionMetrics = {
+    actionId: string
+    succeeded: number
+    failed: number
+    filtered: number
+}
 
 export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     props({} as CampaignLogicProps),
@@ -72,6 +80,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         setNewDraggingNode: (newDraggingNode: HogFlowAction['type'] | null) => ({ newDraggingNode }),
         setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => ({ highlightedDropzoneNodeId }),
         setMode: (mode: HogFlowEditorMode) => ({ mode }),
+        loadActionMetricsById: (params: AppMetricsTotalsRequest, timezone: string) => ({ params, timezone }),
     }),
     reducers(() => ({
         mode: [
@@ -161,6 +170,37 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             },
         ],
     }),
+    loaders(() => ({
+        actionMetricsById: [
+            null as Record<string, HogFlowEditorActionMetrics> | null,
+            {
+                loadActionMetricsById: async ({ params, timezone }, breakpoint) => {
+                    await breakpoint(10)
+                    const response = await loadAppMetricsTotals(params, timezone)
+                    await breakpoint(10)
+
+                    const res: Record<string, HogFlowEditorActionMetrics> = {}
+                    Object.values(response).forEach((value) => {
+                        const [instanceId, metricName] = value.breakdowns
+                        if (!instanceId || !metricName) {
+                            return
+                        }
+                        res[instanceId] = res[instanceId] || {
+                            actionId: instanceId,
+                            succeeded: 0,
+                            failed: 0,
+                            filtered: 0,
+                        }
+                        if (metricName in res[instanceId]) {
+                            ;(res[instanceId] as any)[metricName] = value.total
+                        }
+                    })
+
+                    return res
+                },
+            },
+        ],
+    })),
     listeners(({ values, actions }) => ({
         onEdgesChange: ({ edges }) => {
             actions.setEdges(applyEdgeChanges(edges, values.edges))

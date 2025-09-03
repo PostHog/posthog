@@ -15,9 +15,10 @@ import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 
 export function HogFlowEditorPanelMetrics(): JSX.Element | null {
     const { selectedNode, campaign } = useValues(hogFlowEditorLogic)
+    const { loadActionMetricsById } = useActions(hogFlowEditorLogic)
     const id = selectedNode?.data.id
 
-    const logicKey = `hog-flow-metrics-${id || 'all'}`
+    const logicKey = `hog-flow-metrics-${campaign.id}`
 
     const logic = appMetricsLogic({
         logicKey,
@@ -26,17 +27,35 @@ export function HogFlowEditorPanelMetrics(): JSX.Element | null {
             appSource: 'hog_flow',
             appSourceId: campaign.id,
             instanceId: id,
-            // metricName: ['succeeded', 'failed', 'filtered', 'disabled_permanently'],
             breakdownBy: 'metric_name',
         },
     })
 
-    const { appMetricsTrendsLoading, appMetricsTrends } = useValues(logic)
-    const { loadAppMetricsTrends } = useActions(logic)
+    const { appMetricsTrendsLoading, appMetricsTrends, params, currentTeam, getDateRangeAbsolute } = useValues(logic)
 
     useEffect(() => {
-        loadAppMetricsTrends()
-    }, [loadAppMetricsTrends])
+        // Bit hacky - we load the values here from the logic as connecting the logics together was weirdly tricky
+        loadActionMetricsById(
+            {
+                appSource: params.appSource,
+                appSourceId: params.appSourceId,
+                instanceId: undefined,
+                breakdownBy: ['instance_id', 'metric_name'],
+                metricName: ['succeeded', 'failed', 'filtered'],
+                dateFrom: getDateRangeAbsolute().dateFrom.toISOString(),
+                dateTo: getDateRangeAbsolute().dateTo.toISOString(),
+            },
+            currentTeam?.timezone ?? 'UTC'
+        )
+    }, [
+        params.appSource,
+        params.appSourceId,
+        params.dateFrom,
+        params.dateTo,
+        currentTeam?.timezone,
+        loadActionMetricsById,
+        getDateRangeAbsolute,
+    ])
 
     return (
         <>

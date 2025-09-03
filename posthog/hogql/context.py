@@ -63,12 +63,6 @@ class HogQLContext:
 
     property_swapper: Optional["PropertySwapper"] = None
 
-    # Whether to keep placeholders in place
-    keep_placeholders: bool = False
-
-    # Whether or not to output a human-readable version of the query
-    readable_print: bool = False
-
     def __post_init__(self):
         if self.team:
             self.team_id = self.team.id

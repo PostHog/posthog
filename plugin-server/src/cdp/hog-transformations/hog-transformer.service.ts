@@ -90,7 +90,7 @@ export class HogTransformerService {
         await Promise.allSettled([
             this.hogFunctionMonitoringService
                 .queueInvocationResults(results)
-                .then(() => this.hogFunctionMonitoringService.produceQueuedMessages()),
+                .then(() => this.hogFunctionMonitoringService.flush()),
 
             shouldRunHogWatcher
                 ? this.hogWatcher.observeResults(results).catch((error) => {
@@ -107,6 +107,9 @@ export class HogTransformerService {
                 return typeof val === 'string' ? geoipLookup.city(val) : null
             },
             cleanNullValues,
+            postHogCapture: () => {
+                throw new Error('posthogCapture is not supported in transformations')
+            },
         }
     }
 
@@ -336,7 +339,10 @@ export class HogTransformerService {
 
         const result = isLegacyPluginHogFunction(hogFunction)
             ? await this.pluginExecutor.execute(invocation)
-            : await this.hogExecutor.execute(invocation, { functions: transformationFunctions })
+            : await this.hogExecutor.execute(invocation, {
+                  functions: transformationFunctions,
+                  asyncFunctionsNames: [],
+              })
         return result
     }
 
