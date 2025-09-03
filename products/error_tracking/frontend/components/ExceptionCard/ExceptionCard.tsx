@@ -35,16 +35,13 @@ export function ExceptionCard({ issue, issueLoading, event, eventLoading, label 
         setLoading(eventLoading)
     }, [setLoading, eventLoading])
 
+    const logicProps: ErrorPropertiesLogicProps = {
+        properties: event?.properties,
+        id: event?.uuid ?? issue?.id ?? 'error',
+    }
+
     return (
-        <BindLogic
-            logic={errorPropertiesLogic}
-            props={
-                {
-                    properties: event?.properties,
-                    id: event?.uuid ?? issue?.id ?? 'error',
-                } as ErrorPropertiesLogicProps
-            }
-        >
+        <BindLogic logic={errorPropertiesLogic} props={logicProps}>
             <ExceptionCardContent
                 issue={issue}
                 timestamp={event?.timestamp}
@@ -58,6 +55,7 @@ export function ExceptionCard({ issue, issueLoading, event, eventLoading, label 
 function ExceptionCardContent({ issue, issueLoading, timestamp, label }: ExceptionCardContentProps): JSX.Element {
     const { currentTab } = useValues(exceptionCardLogic)
     const { setCurrentTab } = useActions(exceptionCardLogic)
+
     return (
         <LemonCard hoverEffect={false} className="p-0 relative overflow-hidden">
             <TabsPrimitive value={currentTab} onValueChange={setCurrentTab}>

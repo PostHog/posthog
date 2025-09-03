@@ -6,6 +6,8 @@ import {
     ErrorTrackingRuntime,
     ExceptionAttributes,
     FingerprintRecordPart,
+    ParsedEventExceptionRelease,
+    RawEventExceptionRelease,
 } from './types'
 
 export function hasStacktrace(exceptionList: ErrorTrackingException[]): boolean {
@@ -87,6 +89,7 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
         $sentry_url: sentryUrl,
         $level: level,
         $cymbal_errors: ingestionErrors,
+        $exception_releases: releases,
     } = properties
 
     let type = properties.$exception_type
@@ -113,6 +116,10 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
     const handled = exceptionList?.[0]?.mechanism?.handled ?? false
     const runtime: ErrorTrackingRuntime = getRuntimeFromLib(lib)
 
+    const exceptionReleases: ParsedEventExceptionRelease[] = (
+        Object.values(releases) as RawEventExceptionRelease[]
+    ).map((release) => parseExceptionRelease(release))
+
     return {
         type,
         value,
@@ -129,6 +136,7 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
         handled,
         level,
         ingestionErrors,
+        exceptionReleases,
     }
 }
 
@@ -167,4 +175,23 @@ export function getSessionId(properties: ErrorEventProperties): string | undefin
 
 export function getRecordingStatus(properties: ErrorEventProperties): string | undefined {
     return properties['$recording_status'] as string | undefined
+}
+
+export function parseExceptionRelease(release: RawEventExceptionRelease): ParsedEventExceptionRelease {
+    const gitMetadata = release.metadata?.git
+        ? {
+              commitId: release.metadata?.git?.commit_id,
+              remoteUrl: release.metadata?.git?.remote_url,
+              repoName: release.metadata?.git?.repo_name,
+              branch: release.metadata?.git?.branch,
+          }
+        : undefined
+
+    return {
+        metadata: {
+            git: gitMetadata,
+        },
+        version: release.version,
+        timestamp: release.timestamp,
+    }
 }
