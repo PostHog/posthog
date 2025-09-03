@@ -53,6 +53,7 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import { concatWithPunctuation } from 'scenes/insights/utils'
+import { useMaxTool } from 'scenes/max/useMaxTool'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -99,6 +100,71 @@ import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 import { FeatureFlagLogicProps, featureFlagLogic, getRecordingFilterForFlagVariant } from './featureFlagLogic'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 
+// Utility function to create MaxTool configuration for feature flag survey creation
+export function createMaxToolSurveyConfig(
+    featureFlag: FeatureFlagType,
+    user: any,
+    multivariateEnabled: boolean,
+    variants: any[]
+): {
+    identifier: 'create_survey'
+    active: boolean
+    initialMaxPrompt: string
+    suggestions: string[]
+    context: Record<string, any>
+    callback: (toolOutput: { survey_id?: string; survey_name?: string; error?: string }) => void
+} {
+    return {
+        identifier: 'create_survey' as const,
+        active: Boolean(user?.uuid),
+        initialMaxPrompt: `Create a survey to collect feedback about the "${featureFlag.key}" feature flag${featureFlag.name ? ` (${featureFlag.name})` : ''}${multivariateEnabled && variants?.length > 0 ? ` which has variants: ${variants.map((v) => `"${v.key}"`).join(', ')}` : ''}`,
+        suggestions:
+            multivariateEnabled && variants?.length > 0
+                ? [
+                      `Create a feedback survey comparing variants of the "${featureFlag.key}" feature flag`,
+                      `Create a survey for users who saw the "${variants[0]?.key}" variant of the "${featureFlag.key}" feature flag`,
+                      `Create an A/B test survey asking users to compare the "${featureFlag.key}" feature flag variants`,
+                      `Create a survey to understand which variant of the "${featureFlag.key}" feature flag performs better`,
+                      `Create a survey targeting all variants of the "${featureFlag.key}" feature flag to gather overall feedback`,
+                  ]
+                : [
+                      `Create a feedback survey for users who see the "${featureFlag.key}" feature flag`,
+                      `Create an NPS survey for users exposed to the "${featureFlag.key}" feature flag`,
+                      `Create a satisfaction survey asking about the "${featureFlag.key}" feature flag experience`,
+                      `Create a survey to understand user reactions to the "${featureFlag.key}" feature flag`,
+                  ],
+        context: {
+            user_id: user?.uuid,
+            feature_flag_key: featureFlag.key,
+            feature_flag_id: featureFlag.id,
+            feature_flag_name: featureFlag.name,
+            target_feature_flag: featureFlag.key,
+            survey_purpose: 'collect_feedback_for_feature_flag',
+            is_multivariate: multivariateEnabled,
+            variants:
+                multivariateEnabled && variants?.length > 0
+                    ? variants.map((v) => ({
+                          key: v.key,
+                          name: v.name || '',
+                          rollout_percentage: v.rollout_percentage,
+                      }))
+                    : [],
+            variant_count: variants?.length || 0,
+        },
+        callback: (toolOutput: { survey_id?: string; survey_name?: string; error?: string }) => {
+            if (toolOutput?.error || !toolOutput?.survey_id) {
+                posthog.captureException(toolOutput?.error, {
+                    source: 'survey-creation-failed',
+                    feature: 'surveys',
+                })
+                return
+            }
+            // Redirect to the new survey
+            router.actions.push(urls.survey(toolOutput.survey_id))
+        },
+    }
+}
+
 export const scene: SceneExport<FeatureFlagLogicProps> = {
     component: FeatureFlag,
     logic: featureFlagLogic,
@@ -125,6 +191,8 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         newCohortLoading,
         activeTab,
         accessDeniedToFeatureFlag,
+        multivariateEnabled,
+        variants,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const {
@@ -134,7 +202,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         loadFeatureFlag,
         saveFeatureFlag,
         createStaticCohort,
-        createSurvey,
         setFeatureFlagFilters,
         setActiveTab,
     } = useActions(featureFlagLogic)
@@ -142,10 +209,13 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     const { earlyAccessFeaturesList } = useValues(featureFlagLogic)
 
     const { tags } = useValues(tagsModel)
-    const { hasAvailableFeature } = useValues(userLogic)
+    const { hasAvailableFeature, user } = useValues(userLogic)
 
     // whether the key for an existing flag is being changed
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
+
+    // Initialize MaxTool hook for survey creation
+    const { openMax } = useMaxTool(createMaxToolSurveyConfig(featureFlag, user, multivariateEnabled, variants))
 
     const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
 
@@ -583,15 +653,15 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                         <span>Duplicate feature flag</span>
                                                     </LemonButton>
 
-                                                    <LemonButton
-                                                        onClick={() => {
-                                                            createSurvey()
-                                                        }}
-                                                        data-attr="create-survey"
-                                                        fullWidth
-                                                    >
-                                                        Create survey
-                                                    </LemonButton>
+                                                    {openMax && (
+                                                        <LemonButton
+                                                            data-attr="create-survey"
+                                                            fullWidth
+                                                            onClick={openMax}
+                                                        >
+                                                            Create survey
+                                                        </LemonButton>
+                                                    )}
                                                     <LemonDivider />
                                                     <AccessControlledLemonButton
                                                         userAccessLevel={featureFlag.user_access_level}

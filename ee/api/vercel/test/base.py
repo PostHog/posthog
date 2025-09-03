@@ -14,9 +14,13 @@ from ee.api.authentication import VercelAuthentication
 
 
 class VercelTestBase(APIBaseTest):
+    # Test installation ID constants
+    TEST_INSTALLATION_ID = "icfg_9bceb8ccT32d3U417ezb5c8p"
+    OTHER_INSTALLATION_ID = "icfg_987654321abcdef123456789"
+
     def setUp(self):
         super().setUp()
-        self.installation_id = "inst_123456789"
+        self.installation_id = self.TEST_INSTALLATION_ID
         self.account_id = "acc987654321"
         self.user_id = "111222333abc"
 

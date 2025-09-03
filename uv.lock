@@ -693,17 +693,17 @@ wheels = [
 
 [[package]]
 name = "chdb"
-version = "3.2.0"
+version = "3.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pandas" },
     { name = "pyarrow" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3b/5a/262f29b2463571f8e5d475b2a0fdecd0b7cf881c66524b228000ef3e1cfa/chdb-3.2.0-cp311-cp311-macosx_10_15_x86_64.whl", hash = "sha256:3ce03e8da61bfd3168849f4ef8292e681694b0e483afa4de00d4c6ab1cc77fee", size = 102643876, upload-time = "2025-04-24T02:38:57.737Z" },
-    { url = "https://files.pythonhosted.org/packages/11/16/9ee9ce1cf9f60ada5e9f4faf2c2fb27842c815294b8acaa0ee31e6b9ce8b/chdb-3.2.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:7698ec5645546b4ac19ea6c590be9ee42cfca8189b09868fc909e437740c8d1a", size = 78157522, upload-time = "2025-04-24T02:51:00.348Z" },
-    { url = "https://files.pythonhosted.org/packages/53/83/c968d33f4a889562ad243feeba5bdc216eab54f5820ab6e3465e5edde0eb/chdb-3.2.0-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:26e07867822d91dba58d38371baa32f64709592a7856e8e057527cf954a447d0", size = 113902355, upload-time = "2025-04-24T02:16:01.489Z" },
-    { url = "https://files.pythonhosted.org/packages/3d/c2/3cd3da42e68b58b31a6ef0b7da5db284a0fe48e9dcd69958d14e09d50c30/chdb-3.2.0-cp311-cp311-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:4f86fbcfca16ab9f6a4c9bbf824aa28b64ad57f572fe6d9ef342f864643e83f1", size = 140218548, upload-time = "2025-04-24T02:18:05.36Z" },
+    { url = "https://files.pythonhosted.org/packages/34/2d/ac956ecac132af6d64ab126612e361a3d928076ecaa032b24935dba196e5/chdb-3.3.0-cp311-cp311-macosx_10_15_x86_64.whl", hash = "sha256:78629588f694fe6b4307d86652e1afc16423048e0456c87e157d10d070749a8b", size = 102673574, upload-time = "2025-06-05T13:21:37.775Z" },
+    { url = "https://files.pythonhosted.org/packages/52/99/0ac1643a0a642a29ce2e645c02b75adb574193a4a9dc19a470284010cd50/chdb-3.3.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:e2b32ceafe56fb2034db79061193232434e2e77f47d7dfa603a3ce75ec543f36", size = 78187143, upload-time = "2025-06-06T02:00:22.296Z" },
+    { url = "https://files.pythonhosted.org/packages/1c/a1/21abde04c7b0bc83660a96c1032a4186d41c4d0c8060a425f200b22a96c1/chdb-3.3.0-cp311-cp311-manylinux1_x86_64.manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_5_x86_64.whl", hash = "sha256:cb986a0165496aa5e7f24339aaa869b2138e8bf6589b516aabc8d1da1825f175", size = 140277461, upload-time = "2025-06-05T13:04:59.492Z" },
+    { url = "https://files.pythonhosted.org/packages/db/b4/5c207fa19ad5881405ab214d75f12ff4301ab3f6786dd9ec94ae3f3eb33c/chdb-3.3.0-cp311-cp311-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:99a7bf6c1d1ddc6164d0c09f74a1e68550035229ddca130b1e2112743ecfe3d8", size = 113915772, upload-time = "2025-06-05T13:04:03.305Z" },
 ]
 
 [[package]]
@@ -4267,7 +4267,7 @@ requires-dist = [
     { name = "brotli", specifier = "==1.1.0" },
     { name = "celery", specifier = "==5.3.4" },
     { name = "celery-redbeat", specifier = "==2.1.1" },
-    { name = "chdb", specifier = ">=3.1.2" },
+    { name = "chdb", specifier = "==3.3.0" },
     { name = "claude-code-sdk", specifier = ">=0.0.14" },
     { name = "clickhouse-connect", specifier = "==0.8.17" },
     { name = "clickhouse-driver", specifier = "==0.2.9" },
