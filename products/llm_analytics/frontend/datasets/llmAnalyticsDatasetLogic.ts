@@ -326,6 +326,16 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
             }
         },
 
+        loadDatasetItemsSuccess: ({ datasetItems }) => {
+            if (router.values.searchParams.item) {
+                const item = datasetItems.results.find((item) => item.id === router.values.searchParams.item)
+                if (item && values.selectedDatasetItem !== item) {
+                    actions.setSelectedDatasetItem(item)
+                    actions.triggerDatasetItemModal(true)
+                }
+            }
+        },
+
         setFilters: async ({ debounce }, _, __, previousState) => {
             const oldFilters = selectors.filters(previousState)
             const { filters } = values

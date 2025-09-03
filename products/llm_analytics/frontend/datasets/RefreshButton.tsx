@@ -18,9 +18,7 @@ export function RefreshButton({ onClick, isRefreshing }: RefreshButtonProps): JS
                 size="small"
                 disabledReason={isRefreshing ? 'Refreshing...' : undefined}
             >
-                <span className="dashboard-items-action-refresh-text">
-                    {isRefreshing ? 'Refreshing...' : 'Refresh'}
-                </span>
+                <span>{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
             </LemonButton>
         </div>
     )

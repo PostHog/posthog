@@ -18,7 +18,7 @@ export interface DatasetItemModalLogicProps {
     datasetItem?: DatasetItem | null
     traceMetadata?: TraceMetadata
     /**
-     * @param action - Whether the item was created, updated, or no action was taken.
+     * @param refetchDatasetItems - Whether the action was taken.
      */
     closeModal: (refetchDatasetItems?: boolean) => void
     isModalOpen: boolean
