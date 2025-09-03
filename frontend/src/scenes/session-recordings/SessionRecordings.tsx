@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { IconEllipsis, IconGear, IconOpenSidebar } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
+import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import {
     AuthorizedUrlListType,
     authorizedUrlListLogic,
@@ -20,6 +21,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -28,7 +30,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { ProductKey, ReplayTab, ReplayTabs } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ProductKey, ReplayTab, ReplayTabs } from '~/types'
 
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { createPlaylist } from './playlist/playlistUtils'
@@ -79,14 +81,21 @@ function Header(): JSX.Element {
                         )}
 
                         {tab === ReplayTabs.Playlists && (
-                            <LemonButton
+                            <AccessControlledLemonButton
                                 type="primary"
                                 onClick={(e) => newPlaylistHandler.onEvent?.(e)}
                                 data-attr="save-recordings-playlist-button"
                                 loading={newPlaylistHandler.loading}
+                                minAccessLevel={AccessControlLevel.Editor}
+                                resourceType={AccessControlResourceType.SessionRecording}
+                                userAccessLevel={
+                                    getAppContext()?.resource_access_control?.[
+                                        AccessControlResourceType.SessionRecording
+                                    ]
+                                }
                             >
                                 New collection
-                            </LemonButton>
+                            </AccessControlledLemonButton>
                         )}
                     </>
                 }

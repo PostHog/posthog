@@ -3,6 +3,7 @@ import { useMemo } from 'react'
 
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
+import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -17,6 +18,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { SceneExport } from 'scenes/sceneTypes'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 
@@ -30,6 +32,7 @@ import {
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { isUniversalFilters } from '../utils'
 import { SessionRecordingsPlaylist } from './SessionRecordingsPlaylist'
@@ -105,14 +108,21 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                                 <More
                                     overlay={
                                         <>
-                                            <LemonButton
+                                            <AccessControlledLemonButton
                                                 onClick={() => duplicatePlaylist()}
                                                 fullWidth
                                                 data-attr="duplicate-playlist"
+                                                minAccessLevel={AccessControlLevel.Editor}
+                                                resourceType={AccessControlResourceType.SessionRecording}
+                                                userAccessLevel={
+                                                    getAppContext()?.resource_access_control?.[
+                                                        AccessControlResourceType.SessionRecording
+                                                    ]
+                                                }
                                             >
                                                 Duplicate
-                                            </LemonButton>
-                                            <LemonButton
+                                            </AccessControlledLemonButton>
+                                            <AccessControlledLemonButton
                                                 onClick={() =>
                                                     updatePlaylist({
                                                         short_id: playlist.short_id,
@@ -120,14 +130,32 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                                                     })
                                                 }
                                                 fullWidth
+                                                minAccessLevel={AccessControlLevel.Editor}
+                                                resourceType={AccessControlResourceType.SessionRecording}
+                                                userAccessLevel={
+                                                    getAppContext()?.resource_access_control?.[
+                                                        AccessControlResourceType.SessionRecording
+                                                    ]
+                                                }
                                             >
                                                 {playlist.pinned ? 'Unpin collection' : 'Pin collection'}
-                                            </LemonButton>
+                                            </AccessControlledLemonButton>
                                             <LemonDivider />
 
-                                            <LemonButton status="danger" onClick={() => deletePlaylist()} fullWidth>
+                                            <AccessControlledLemonButton
+                                                status="danger"
+                                                onClick={() => deletePlaylist()}
+                                                fullWidth
+                                                minAccessLevel={AccessControlLevel.Editor}
+                                                resourceType={AccessControlResourceType.SessionRecording}
+                                                userAccessLevel={
+                                                    getAppContext()?.resource_access_control?.[
+                                                        AccessControlResourceType.SessionRecording
+                                                    ]
+                                                }
+                                            >
                                                 Delete collection
-                                            </LemonButton>
+                                            </AccessControlledLemonButton>
                                         </>
                                     }
                                 />
