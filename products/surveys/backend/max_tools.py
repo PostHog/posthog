@@ -329,69 +329,6 @@ class SurveyAnalysisTool(MaxTool):
 
     args_schema: type[BaseModel] = SurveyAnalysisArgs
 
-    def _extract_open_ended_responses(self, max_responses_per_question: int = 50) -> list[SurveyAnalysisQuestionGroup]:
-        """
-        Extract ONLY open-ended text responses from the context data provided by frontend.
-
-        NOTE: Frontend pre-filters and sends only open-ended questions (SurveyQuestionType.Open).
-        Non-open-ended questions (single choice, rating, etc.) are not included in the analysis.
-        This method limits responses per question to prevent token overflow in LLM calls.
-
-        The frontend provides responses grouped by question in this format:
-        [
-          {
-            questionName: "What do you think?",
-            questionId: "123",
-            responses: [
-              {responseText: "Great!", timestamp: "2024-01-01T00:00:00Z", isOpenEnded: true},
-              {responseText: "Good", timestamp: "2024-01-01T00:00:00Z", isOpenEnded: true}
-            ]
-          }
-        ]
-
-        Args:
-            max_responses_per_question: Maximum number of responses to include per question to manage token usage
-        """
-        try:
-            context = self.context or {}
-            raw_responses = context.get("formatted_responses", [])
-
-            if not raw_responses:
-                return []
-
-            # Convert to proper typed format
-
-            # Use model_validate for cleaner conversion
-            typed_responses: list[SurveyAnalysisQuestionGroup] = []
-            for group in raw_responses:
-                if isinstance(group, dict):
-                    # Limit responses per question to manage token usage
-                    raw_group_responses = group.get("responses", [])
-                    limited_responses = raw_group_responses[:max_responses_per_question]
-
-                    # Frontend provides properly structured data
-                    group_data = {**group, "responses": limited_responses}
-                    typed_responses.append(SurveyAnalysisQuestionGroup.model_validate(group_data))
-                else:
-                    # Already typed - still need to limit responses
-                    limited_responses = (
-                        group.responses[:max_responses_per_question] if hasattr(group, "responses") else []
-                    )
-                    typed_responses.append(
-                        SurveyAnalysisQuestionGroup.model_validate(
-                            {
-                                "questionName": group.questionName,
-                                "questionId": group.questionId,
-                                "responses": limited_responses,
-                            }
-                        )
-                    )
-
-            return typed_responses
-        except Exception as e:
-            capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
-            return []
-
     async def _analyze_responses(self, question_groups: list[SurveyAnalysisQuestionGroup]) -> SurveyAnalysisOutput:
         """
         Analyze the extracted responses using LLM to generate themes, sentiment, and insights.
@@ -542,8 +479,21 @@ class SurveyAnalysisTool(MaxTool):
             # Get survey info from context
             survey_id = self.context.get("survey_id")
             survey_name = self.context.get("survey_name", "Unknown Survey")
-            # Extract only open-ended questions from context - frontend filters and sends only these
-            responses = self._extract_open_ended_responses()
+            # Get pre-formatted responses from frontend (already in correct format)
+            raw_responses = self.context.get("formatted_responses", [])
+            if not raw_responses:
+                responses = []
+            else:
+                # Apply response limit and validate with Pydantic
+                responses = [
+                    SurveyAnalysisQuestionGroup.model_validate(
+                        {
+                            **group,
+                            "responses": group.get("responses", [])[:50],  # Limit to 50 responses per question
+                        }
+                    )
+                    for group in raw_responses
+                ]
 
             if not survey_id or not responses:
                 return "❌ No survey data provided", {
