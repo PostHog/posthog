@@ -19,6 +19,7 @@ from posthog.temporal.common.logger import get_logger
 
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
+    OverBillingLimitError,
     StartBatchExportRunInputs,
     execute_batch_export_insert_activity,
     get_data_interval,
@@ -329,17 +330,20 @@ class HttpBatchExportWorkflow(PostHogWorkflow):
             include_events=inputs.include_events,
             backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
         )
-        run_id = await workflow.execute_activity(
-            start_batch_export_run,
-            start_batch_export_run_inputs,
-            start_to_close_timeout=dt.timedelta(minutes=5),
-            retry_policy=RetryPolicy(
-                initial_interval=dt.timedelta(seconds=10),
-                maximum_interval=dt.timedelta(seconds=60),
-                maximum_attempts=0,
-                non_retryable_error_types=["NotNullViolation", "IntegrityError"],
-            ),
-        )
+        try:
+            run_id = await workflow.execute_activity(
+                start_batch_export_run,
+                start_batch_export_run_inputs,
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(seconds=60),
+                    maximum_attempts=0,
+                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
+                ),
+            )
+        except OverBillingLimitError:
+            return
 
         finish_inputs = FinishBatchExportRunInputs(
             id=run_id,

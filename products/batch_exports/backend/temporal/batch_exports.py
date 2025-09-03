@@ -31,6 +31,7 @@ from posthog.batch_exports.service import (
     update_batch_export_run,
 )
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2
+from posthog.models.team.team import Team
 from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import ClickHouseClient
@@ -47,6 +48,8 @@ from products.batch_exports.backend.temporal.sql import (
     SELECT_FROM_EVENTS_VIEW_RECENT,
     SELECT_FROM_EVENTS_VIEW_UNBOUNDED,
 )
+
+from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_produce_only_logger("EXTERNAL")
@@ -350,6 +353,16 @@ class StartBatchExportRunInputs:
 BatchExportRunId = str
 
 
+class OverBillingLimitError(Exception):
+    """Exception raised when team is over billing limit.
+
+    Batch export should not run when this is raised.
+    """
+
+    def __init__(self, team_id: int):
+        super().__init__(f"Team {team_id} is over billing limit for batch exports")
+
+
 @activity.defn
 async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> BatchExportRunId:
     """Activity that creates an BatchExportRun and returns the run id.
@@ -372,15 +385,47 @@ async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> BatchExpo
         inputs.data_interval_end,
     )
 
-    run = await database_sync_to_async(create_batch_export_run)(
-        batch_export_id=uuid.UUID(inputs.batch_export_id),
-        data_interval_start=inputs.data_interval_start,
-        data_interval_end=inputs.data_interval_end,
-        status=BatchExportRun.Status.STARTING,
-        backfill_id=uuid.UUID(inputs.backfill_id) if inputs.backfill_id else None,
+    if settings.BATCH_EXPORTS_ENABLE_BILLING_CHECK is True:
+        is_over_limit = await check_is_over_limit(inputs.team_id)
+    else:
+        is_over_limit = False
+
+    if is_over_limit:
+        _ = await database_sync_to_async(create_batch_export_run)(
+            batch_export_id=uuid.UUID(inputs.batch_export_id),
+            data_interval_start=inputs.data_interval_start,
+            data_interval_end=inputs.data_interval_end,
+            status=BatchExportRun.Status.FAILED_BILLING,
+            backfill_id=uuid.UUID(inputs.backfill_id) if inputs.backfill_id else None,
+        )
+        raise OverBillingLimitError(inputs.team_id)
+    else:
+        run = await database_sync_to_async(create_batch_export_run)(
+            batch_export_id=uuid.UUID(inputs.batch_export_id),
+            data_interval_start=inputs.data_interval_start,
+            data_interval_end=inputs.data_interval_end,
+            status=BatchExportRun.Status.STARTING,
+            backfill_id=uuid.UUID(inputs.backfill_id) if inputs.backfill_id else None,
+        )
+        return str(run.id)
+
+
+async def check_is_over_limit(team_id: int) -> bool:
+    """Check if team has exceeded billing limits.
+
+    If so, the batch export should not run.
+    """
+    team: Team = await Team.objects.aget(id=team_id)
+
+    limited_team_tokens_rows_synced = await asyncio.to_thread(
+        list_limited_team_attributes, QuotaResource.ROWS_EXPORTED, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
     )
 
-    return str(run.id)
+    if team.api_token in limited_team_tokens_rows_synced:
+        LOGGER.warning("Over billing limit")
+        return True
+
+    return False
 
 
 @dataclasses.dataclass
