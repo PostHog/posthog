@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPause, IconPlay, IconRewindPlay, IconVideoCamera } from '@posthog/icons'
+import { IconCamera, IconPause, IconPlay, IconRewindPlay, IconVideoCamera } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonTag } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { IconCamera, IconFullScreen, IconRecordingClip } from 'lib/lemon-ui/icons'
+import { IconFullScreen, IconRecordingClip } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PlayerUpNext } from 'scenes/session-recordings/player/PlayerUpNext'
 import { CommentOnRecordingButton } from 'scenes/session-recordings/player/commenting/CommentOnRecordingButton'
