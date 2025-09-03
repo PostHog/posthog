@@ -5,7 +5,7 @@ export const EMPTY_JSON = '{\n  \n}'
  * @param maybeJson - The string to coerce
  * @returns The coerced JSON object or null
  */
-export function coerceJsonToObject(maybeJson: string | null): Record<string, any> | null {
+export function coerceJsonToObject(maybeJson: string | null): Record<string, unknown> | null {
     if (!maybeJson) {
         return null
     }
@@ -13,7 +13,7 @@ export function coerceJsonToObject(maybeJson: string | null): Record<string, any
         const parsedObject = JSON.parse(maybeJson)
         // Regular object or null
         if (typeof parsedObject === 'object' && Object.keys(parsedObject).length > 0) {
-            return parsedObject as Record<string, any>
+            return parsedObject as Record<string, unknown>
         }
         return null
     } catch {
@@ -46,7 +46,7 @@ export function isStringJsonObject(maybeJson: string | null): boolean {
  * @param json - The JSON object to convert
  * @returns The stringified JSON object or null
  */
-export function prettifyJson(json?: Record<string, any> | null): string | null {
+export function prettifyJson(json?: Record<string, unknown> | null): string | null {
     let stringified = json ? JSON.stringify(json, null, 2) : null
     if (stringified === '{}') {
         stringified = EMPTY_JSON

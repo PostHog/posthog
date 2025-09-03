@@ -147,7 +147,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
                                 return <></>
                             }
 
-                            const visualValue = truncateValue(value as string)
+                            const visualValue = truncateValue(value)
 
                             if (!traceId) {
                                 return <strong>{visualValue}</strong>
@@ -216,7 +216,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
                                 return <></>
                             }
 
-                            const visualValue = truncateValue(value as string)
+                            const visualValue = truncateValue(value)
 
                             return (
                                 <Tooltip title={value as string}>
@@ -299,7 +299,7 @@ export function LLMAnalyticsScene(): JSX.Element {
         })
     }
 
-    if (featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_DATASETS]) {
+    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]) {
         tabs.push({
             key: 'datasets',
             label: (
