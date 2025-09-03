@@ -27,6 +27,7 @@ describe('llmAnalyticsDatasetsLogic', () => {
             first_name: 'Test',
             email: 'test1@example.com',
         },
+        deleted: false,
     }
 
     const mockDataset2: Dataset = {
@@ -44,6 +45,7 @@ describe('llmAnalyticsDatasetsLogic', () => {
             first_name: 'Test2',
             email: 'test2@example.com',
         },
+        deleted: false,
     }
 
     const mockDatasetsResponse = {

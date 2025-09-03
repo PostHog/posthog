@@ -5733,4 +5733,5 @@ export interface Dataset {
     created_at: string
     updated_at: string
     created_by: UserBasicType
+    deleted: boolean
 }

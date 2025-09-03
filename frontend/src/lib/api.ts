@@ -4004,11 +4004,11 @@ const api = {
             return new ApiRequest().dataset(datasetId).get()
         },
 
-        async create(data: Partial<Dataset>): Promise<Dataset> {
+        async create(data: Omit<Partial<Dataset>, 'created_by' | 'team'>): Promise<Dataset> {
             return await new ApiRequest().datasets().create({ data })
         },
 
-        async update(datasetId: string, data: Record<string, any>): Promise<Dataset> {
+        async update(datasetId: string, data: Omit<Partial<Dataset>, 'created_by' | 'team'>): Promise<Dataset> {
             return await new ApiRequest().dataset(datasetId).update({ data })
         },
     },

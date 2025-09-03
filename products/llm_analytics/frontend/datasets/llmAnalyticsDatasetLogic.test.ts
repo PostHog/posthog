@@ -6,6 +6,7 @@ import { urls } from 'scenes/urls'
 
 import api from '~/lib/api'
 import { initKeaTests } from '~/test/init'
+import { Dataset } from '~/types'
 
 import { DatasetFormValues, DatasetLogicProps, llmAnalyticsDatasetLogic } from './llmAnalyticsDatasetLogic'
 import { llmAnalyticsDatasetsLogic } from './llmAnalyticsDatasetsLogic'
@@ -15,7 +16,7 @@ jest.mock('~/lib/api')
 jest.mock('lib/lemon-ui/LemonToast/LemonToast')
 
 describe('llmAnalyticsDatasetLogic', () => {
-    const mockDataset = {
+    const mockDataset: Dataset = {
         id: 'test-dataset-id',
         name: 'Test Dataset',
         description: 'Test description',
@@ -30,6 +31,7 @@ describe('llmAnalyticsDatasetLogic', () => {
             first_name: 'Test',
             email: 'test@example.com',
         },
+        deleted: false,
     }
 
     const mockApi = api as jest.Mocked<typeof api>
@@ -291,7 +293,7 @@ describe('llmAnalyticsDatasetLogic', () => {
         })
 
         it('sets form defaults when dataset is loaded', async () => {
-            const datasetWithComplexMetadata = {
+            const datasetWithComplexMetadata: Dataset = {
                 ...mockDataset,
                 metadata: { complex: { nested: 'data' }, array: [1, 2, 3] },
             }
