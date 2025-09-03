@@ -187,15 +187,13 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
         model = BatchExportDestination
         fields = ["type", "config"]
 
-    def create(self, validated_data: dict) -> BatchExportDestination:
+    def create(self, validated_data: collections.abc.Mapping[str, typing.Any]) -> BatchExportDestination:
         """Create a BatchExportDestination."""
-        validated_data = self.create_validate(validated_data)
+        self.create_validate(validated_data)
         export_destination = BatchExportDestination.objects.create(**validated_data)
         return export_destination
 
-    def create_validate(
-        self, data: collections.abc.Mapping[str, typing.Any]
-    ) -> collections.abc.Mapping[str, typing.Any]:
+    def validate(self, data: collections.abc.Mapping[str, typing.Any]) -> collections.abc.Mapping[str, typing.Any]:
         """Validate the destination configuration based on workflow inputs.
 
         Ensure that the submitted destination configuration passes the following checks:
@@ -644,14 +642,18 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
     def run_test_step(self, request: request.Request, *args, **kwargs) -> response.Response:
         test_step = request.data.pop("step", 0)
 
-        serializer = self.get_serializer(data=request.data)
+        batch_export = self.get_object()
+
+        data = request.data
+        data["destination"]["config"] = {**batch_export.destination.config, **data["destination"]["config"]}
+
+        serializer = self.get_serializer(data=data)
         _ = serializer.is_valid(raise_exception=True)
 
         destination_test = get_destination_test(
             destination=serializer.validated_data["destination"]["type"],
         )
-        batch_export = self.get_object()
-        test_configuration = {**batch_export.destination.config, **serializer.validated_data["destination"]["config"]}
+        test_configuration = serializer.validated_data["destination"]["config"]
         destination_test.configure(**test_configuration)
 
         result = destination_test.run_step(test_step)
