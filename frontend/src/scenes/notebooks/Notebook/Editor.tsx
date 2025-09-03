@@ -1,3 +1,4 @@
+import { Details, DetailsContent, DetailsSummary } from '@tiptap/extension-details'
 import ExtensionDocument from '@tiptap/extension-document'
 import { FloatingMenu } from '@tiptap/extension-floating-menu'
 import { TaskItem, TaskList } from '@tiptap/extension-list'
@@ -43,7 +44,6 @@ import { FloatingSuggestions } from '../Suggestions/FloatingSuggestions'
 import { insertionSuggestionsLogic } from '../Suggestions/insertionSuggestionsLogic'
 import { NotebookEditor } from '../types'
 import { textContent } from '../utils'
-import { CollapsibleHeading } from './CollapsibleHeading'
 import { DropAndPasteHandlerExtension } from './DropAndPasteHandlerExtension'
 import { InlineMenu } from './InlineMenu'
 import { SlashCommandsExtension } from './SlashCommands'
@@ -77,9 +77,15 @@ export function Editor(): JSX.Element {
                     document: false,
                     gapcursor: false,
                     link: false,
-                    heading: false, // replaced by CollapsibleHeading
                 }),
-                CollapsibleHeading.configure(),
+                Details.configure({
+                    persist: true,
+                    HTMLAttributes: {
+                        class: 'details',
+                    },
+                }),
+                DetailsSummary,
+                DetailsContent,
                 TableOfContents.configure({
                     getIndex: getHierarchicalIndexes,
                     onUpdate(content) {

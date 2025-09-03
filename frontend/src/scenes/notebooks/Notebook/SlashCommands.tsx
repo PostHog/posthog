@@ -10,6 +10,7 @@ import {
     IconFunnels,
     IconHogQL,
     IconLifecycle,
+    IconList,
     IconPeople,
     IconRetention,
     IconRewindPlay,
@@ -345,6 +346,34 @@ order by count() desc
             chain.insertContentAt(pos, {
                 type: NotebookNodeType.Latex,
                 attrs: { content: '' }, // Default empty content
+            }),
+    },
+    {
+        title: 'Section',
+        search: 'details section',
+        icon: <IconList color="currentColor" />,
+        command: (chain, pos) =>
+            chain.insertContentAt(pos, {
+                type: 'details',
+                content: [
+                    {
+                        type: 'detailsSummary',
+                    },
+                    {
+                        type: 'detailsContent',
+                        content: [
+                            {
+                                type: 'paragraph',
+                                content: [
+                                    {
+                                        type: 'text',
+                                        text: 'first item',
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                ],
             }),
     },
 ]
