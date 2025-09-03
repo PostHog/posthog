@@ -24,4 +24,4 @@ class PydanticField(serializers.JSONField):
             validated_instance = self.pydantic_model.model_validate(data or {})
             return validated_instance.model_dump()
         except Exception as e:
-            raise serializers.ValidationError(f"Invalid data for {self.pydantic_model.__name__}: {str(e)}")
+            raise serializers.ValidationError(f"Invalid data for {self.pydantic_model.__name__}") from e
