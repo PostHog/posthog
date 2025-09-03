@@ -121,7 +121,7 @@ async def test_start_batch_export_run_raises_on_mocked_over_limit(activity_envir
         data_interval_start=start.isoformat(),
         data_interval_end=end.isoformat(),
     )
-    fut = asyncio.Future()
+    fut: asyncio.Future[bool] = asyncio.Future()
     fut.set_result(False)
 
     with (
