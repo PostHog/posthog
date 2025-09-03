@@ -23,6 +23,8 @@ class RevenueAnalyticsTaxonomyViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     @action(methods=["GET"], detail=False)
     def values(self, request: Request, **kwargs):
         key = request.GET.get("key")
+        if key is None:
+            return Response([])
 
         # Get the scope from before the first dot
         # and if there's no dot then it's the base case which is RevenueAnalyticsRevenueItemView
