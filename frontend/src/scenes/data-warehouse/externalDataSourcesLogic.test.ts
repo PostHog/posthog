@@ -34,6 +34,9 @@ describe('externalDataSourcesLogic', () => {
                     prefix: 'test',
                     latest_error: null,
                     revenue_analytics_enabled: false,
+                    revenue_analytics_settings: {
+                        include_invoiceless_charges: true,
+                    },
                     sync_frequency: '24hour' as DataWarehouseSyncInterval,
                     job_inputs: {},
                 },

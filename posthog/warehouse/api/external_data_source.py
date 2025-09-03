@@ -13,9 +13,12 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.schema import ExternalDataSourceRevenueAnalyticsSettings
+
 from posthog.hogql.database.database import create_hogql_database
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.serializers.pydantic_serializer import PydanticField
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
@@ -93,6 +96,9 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
     status = serializers.SerializerMethodField(read_only=True)
     schemas = serializers.SerializerMethodField(read_only=True)
     revenue_analytics_enabled = serializers.BooleanField(default=False)
+    revenue_analytics_settings = PydanticField(
+        pydantic_model=ExternalDataSourceRevenueAnalyticsSettings, required=False
+    )
 
     class Meta:
         model = ExternalDataSource
@@ -107,6 +113,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "latest_error",
             "prefix",
             "revenue_analytics_enabled",
+            "revenue_analytics_settings",
             "last_run_at",
             "schemas",
             "job_inputs",

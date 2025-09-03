@@ -7,6 +7,9 @@
     "latest_error": null,
     "prefix": "prod_",
     "revenue_analytics_enabled": true,
+    "revenue_analytics_settings": {
+        "include_invoiceless_charges": true
+    },
     "last_run_at": "2025-05-21T01:28:53.348767Z",
     "schemas": [
         {

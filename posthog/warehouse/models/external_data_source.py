@@ -5,6 +5,9 @@ from django.db import models
 
 import structlog
 import temporalio
+from pydantic import ValidationError
+
+from posthog.schema import ExternalDataSourceRevenueAnalyticsSettings
 
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
@@ -48,8 +51,21 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     are_tables_created = models.BooleanField(default=False)
     prefix = models.CharField(max_length=100, null=True, blank=True)
     revenue_analytics_enabled = models.BooleanField(default=False, blank=True, null=True)
+    _revenue_analytics_settings = models.JSONField(db_column="revenue_analytics_settings", default=dict, null=False)
 
     __repr__ = sane_repr("id", "source_id", "connection_id", "destination_id", "team_id")
+
+    @property
+    def revenue_analytics_settings(self) -> ExternalDataSourceRevenueAnalyticsSettings:
+        return ExternalDataSourceRevenueAnalyticsSettings.model_validate(self._revenue_analytics_settings or {})
+
+    @revenue_analytics_settings.setter
+    def revenue_analytics_settings(self, value: dict) -> None:
+        try:
+            validated = ExternalDataSourceRevenueAnalyticsSettings.model_validate(value or {})
+            self._revenue_analytics_settings = validated.model_dump()
+        except Exception as e:
+            raise ValidationError(f"Invalid revenue analytics settings: {str(e)}")
 
     def soft_delete(self):
         self.deleted = True

@@ -396,6 +396,55 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
             },
         )
 
+    def test_disabling_invoiceless_charges(self):
+        self.source.revenue_analytics_settings = {"include_invoiceless_charges": False}
+        self.source.save()
+        self.source.refresh_from_db()
+        self.assertFalse(self.source.revenue_analytics_settings.include_invoiceless_charges)
+
+        # Use huge date range to collect all data
+        results = self._run_revenue_analytics_gross_revenue_query(
+            date_range=DateRange(date_from="2024-11-01", date_to="2026-05-01")
+        ).results
+
+        self.assertEqual(len(results), 1)
+
+        self.assertEqual(
+            results[0],
+            {
+                "label": "stripe.posthog_test",
+                "days": ALL_MONTHS_DAYS,
+                "labels": ALL_MONTHS_LABELS,
+                "data": [
+                    0,
+                    0,
+                    Decimal("650.2098683332"),
+                    Decimal("2510.1847083332"),
+                    Decimal("2113.2388583332"),
+                    # This value is different from the one in the tests above because it doesn't include invoiceless charges
+                    Decimal("2418.3065483332"),
+                    Decimal("1727.0246133332"),
+                    Decimal("34.2125533332"),
+                    Decimal("34.2125533332"),
+                    Decimal("34.2125533332"),
+                    Decimal("34.2125533332"),
+                    Decimal("34.2125533332"),
+                    Decimal("34.2125533332"),
+                    Decimal("34.2125533332"),
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                ],
+                "action": {
+                    "days": ALL_MONTHS_FAKEDATETIMES,
+                    "id": "stripe.posthog_test",
+                    "name": "stripe.posthog_test",
+                },
+            },
+        )
+
     def test_with_empty_date_range(self):
         results = self._run_revenue_analytics_gross_revenue_query(
             date_range=DateRange(date_from="2024-12-01", date_to="2024-12-31")

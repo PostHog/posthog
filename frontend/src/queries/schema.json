@@ -12036,6 +12036,18 @@
             "required": ["key", "count", "exposure", "absolute_exposure"],
             "type": "object"
         },
+        "ExternalDataSourceRevenueAnalyticsSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "include_invoiceless_charges": {
+                    "default": true,
+                    "description": "By default, Revenue analytics considers both your invoices and any invoiceless charges when calculating your revenue - and exposing it through the `revenue_item` views. Mark this as false if we should only consider your invoices and omit invoiceless charges from the calculations.",
+                    "type": "boolean"
+                }
+            },
+            "required": ["include_invoiceless_charges"],
+            "type": "object"
+        },
         "ExternalDataSourceType": {
             "enum": [
                 "Stripe",

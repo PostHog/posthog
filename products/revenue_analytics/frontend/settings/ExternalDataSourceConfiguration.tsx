@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconInfo, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonSwitch, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSwitch, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
@@ -219,6 +219,41 @@ export function ExternalDataSourceConfiguration({
                                     checked={item.revenue_analytics_enabled}
                                     onChange={(checked) =>
                                         updateSource({ ...item, revenue_analytics_enabled: checked })
+                                    }
+                                />
+                            )
+                        },
+                    },
+                    {
+                        key: 'separator',
+                        title: <LemonDivider vertical className="py-1 h-[16px]" />,
+                    },
+                    {
+                        key: 'include_invoiceless_charges',
+                        title: (
+                            <span>
+                                Include invoiceless charges
+                                <Tooltip title="By default, Revenue analytics considers both your invoices and any invoiceless charges when calculating your revenue - and exposing it through the `revenue_item` views. Disable this if we should only consider your invoices and omit charges from the calculations.">
+                                    <IconInfo className="ml-1" />
+                                </Tooltip>
+                            </span>
+                        ),
+                        render: (_, item: ExternalDataSource) => {
+                            return (
+                                <LemonSwitch
+                                    checked={
+                                        item.revenue_analytics_enabled &&
+                                        item.revenue_analytics_settings.include_invoiceless_charges
+                                    }
+                                    disabled={!item.revenue_analytics_enabled}
+                                    onChange={(checked) =>
+                                        updateSource({
+                                            ...item,
+                                            revenue_analytics_settings: {
+                                                ...item.revenue_analytics_settings,
+                                                include_invoiceless_charges: checked,
+                                            },
+                                        })
                                     }
                                 />
                             )
