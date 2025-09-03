@@ -298,7 +298,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         exportRecording: (
             format: ExporterFormat,
             timestamp: number = 0,
-            mode: SessionRecordingPlayerMode,
+            mode: SessionRecordingPlayerMode = SessionRecordingPlayerMode.Screenshot,
             duration: number = 5
         ) => ({ format, timestamp, mode, duration }),
         closeExplorer: true,
@@ -1428,7 +1428,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 height: parseFloat(iframe.height),
             })
         },
-        exportRecording: ({ format, timestamp = 0, mode, duration = 5 }) => {
+        exportRecording: ({ format, timestamp = 0, mode = SessionRecordingPlayerMode.Screenshot, duration = 5 }) => {
             actions.setPause()
             const iframe = values.rootFrame?.querySelector('iframe')
             if (!iframe) {
