@@ -257,6 +257,22 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         upgraded_query = upgrade(request.data)
         return Response({"query": upgraded_query["query"]}, status=200)
 
+    @extend_schema(
+        description="Get query log details from query_log_archive table for a specific query_id",
+        responses={200: "Query log details"},
+    )
+    @action(methods=["GET"], detail=True, url_path="log")
+    def get_query_log(self, request: Request, pk: str, *args, **kwargs) -> Response:
+        from posthog.hogql_queries.query_log_query_runner import QueryLogQueryRunner
+
+        try:
+            runner = QueryLogQueryRunner(query_id=pk, team=self.team)
+            result = runner.calculate()
+            return Response(result.model_dump(), status=200)
+        except Exception as e:
+            capture_exception(e)
+            return Response({"error": str(e)}, status=400)
+
     def handle_column_ch_error(self, error):
         if getattr(error, "message", None):
             match = re.search(r"There's no column.*in table", error.message)
