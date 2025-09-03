@@ -1208,20 +1208,6 @@ class ExperimentVariantTrendsBaseStats(BaseModel):
     key: str
 
 
-class ExternalDataSourceRevenueAnalyticsSettings(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    include_invoiceless_charges: Optional[bool] = Field(
-        default=True,
-        description=(
-            "By default, Revenue analytics considers both your invoices and any invoiceless charges when calculating"
-            " your revenue - and exposing it through the `revenue_item` views. Mark this as false if we should only"
-            " consider your invoices and omit invoiceless charges from the calculations."
-        ),
-    )
-
-
 class ExternalDataSourceType(StrEnum):
     STRIPE = "Stripe"
     HUBSPOT = "Hubspot"
