@@ -697,16 +697,12 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             "snapshots_load_time": durations.get("snapshots"),
             "metadata_load_time": durations.get("metadata"),
             "events_load_time": durations.get("events"),
-            "first_paint_load_time": durations.get("firstPaint"),
             "duration": player_metadata.get("duration"),
             "recording_id": player_metadata.get("sessionRecordingId"),
             "start_time": player_metadata.get("start"),
             "end_time": player_metadata.get("end"),
             "page_change_events_length": player_metadata.get("pageChangeEventsLength"),
             "recording_width": player_metadata.get("recordingWidth"),
-            "load_time": durations.get(
-                "firstPaint", 0
-            ),  # TODO: DEPRECATED field. Keep around so dashboards don't break
             # older recordings did not store this and so "null" is equivalent to web
             # but for reporting we want to distinguish between not loaded and no value to load
             "snapshot_source": player_metadata.get("snapshotSource", "unknown"),

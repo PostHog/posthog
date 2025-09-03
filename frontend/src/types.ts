@@ -337,6 +337,7 @@ export interface UserType extends UserBaseType {
     anonymize_data: boolean
     toolbar_mode: 'disabled' | 'toolbar'
     has_password: boolean
+    id: number
     is_staff: boolean
     is_impersonated: boolean
     is_impersonated_until?: string
@@ -4183,6 +4184,11 @@ export enum ExperimentMetricMathType {
     UniqueUsers = 'dau',
     UniqueGroup = 'unique_group',
     HogQL = 'hogql',
+}
+
+export enum ExperimentMetricGoal {
+    Increase = 'increase',
+    Decrease = 'decrease',
 }
 
 export enum ActorGroupType {

@@ -96,6 +96,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element | null {
                     query={isInsightVizNode(query) ? { ...query, full: true } : query}
                     setQuery={setQuery}
                     readOnly={insightMode !== ItemMode.Edit}
+                    editMode={insightMode === ItemMode.Edit}
                     context={{
                         showOpenEditorButton: false,
                         showQueryEditor: actuallyShowQueryEditor,
