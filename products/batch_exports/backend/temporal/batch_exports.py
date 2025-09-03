@@ -2,6 +2,7 @@ import ssl
 import json
 import uuid
 import typing
+import asyncio
 import datetime as dt
 import operator
 import dataclasses
@@ -537,12 +538,12 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
             inputs.records_completed if inputs.records_completed is not None else "no",
         )
 
-    await try_produce_run_status_app_metrics(
+    await try_produce_app_metrics(
         batch_export_run.status, inputs.team_id, inputs.batch_export_id, inputs.id, inputs.records_completed or 0
     )
 
 
-async def try_produce_run_status_app_metrics(
+async def try_produce_app_metrics(
     status: BatchExportRun.Status | str,
     team_id: int,
     batch_export_id: str,
@@ -597,10 +598,10 @@ async def try_produce_run_status_app_metrics(
     ).encode("utf-8")
 
     async with producer:
-        for metric in (run_metric, rows_metric):
-            fut = await producer.send(KAFKA_APP_METRICS2, metric)
 
+        async def send(message: bytes):
             try:
+                fut = await producer.send(KAFKA_APP_METRICS2, message)
                 await fut
                 await producer.flush()
             except Exception:
@@ -610,6 +611,10 @@ async def try_produce_run_status_app_metrics(
                     batch_export_id=batch_export_id,
                     metric_kind=metric_kind,
                 )
+
+        async with asyncio.TaskGroup() as tg:
+            for metric in (run_metric, rows_metric):
+                _ = tg.create_task(send(metric))
 
 
 def configure_default_ssl_context():
