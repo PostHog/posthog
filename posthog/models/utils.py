@@ -1,5 +1,5 @@
-import json
 import re
+import json
 import uuid
 import string
 import secrets
@@ -7,7 +7,6 @@ import datetime
 from collections import defaultdict, namedtuple
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
-from datetime import datetime, time, timedelta
 from decimal import Decimal
 from time import time, time_ns
 from typing import TYPE_CHECKING, Any, Optional, TypeVar, Union
@@ -564,18 +563,18 @@ class ActivityDetailEncoder(json.JSONEncoder):
     def default(self, obj):
         # Avoid circular imports: import types only if needed
         try:
-            from posthog.models.activity_logging.activity_log import Detail, Change, Trigger, ActivityContextBase
+            from posthog.models.activity_logging.activity_log import ActivityContextBase, Change, Detail, Trigger
             from posthog.models.utils import UUIDT
         except ImportError:
             Detail = Change = Trigger = ActivityContextBase = UUIDT = None
 
-        if Detail and isinstance(obj, (Detail, Change, Trigger, ActivityContextBase)):
+        if Detail and isinstance(obj, Detail | Change | Trigger | ActivityContextBase):
             return obj.__dict__
-        if isinstance(obj, datetime):
+        if isinstance(obj, datetime.datetime):
             return obj.isoformat()
-        if isinstance(obj, time):
+        if isinstance(obj, datetime.time):
             return obj.isoformat()
-        if isinstance(obj, timedelta):
+        if isinstance(obj, datetime.timedelta):
             return str(obj)
         if "UUIDT" in globals() and isinstance(obj, UUIDT):
             return str(obj)

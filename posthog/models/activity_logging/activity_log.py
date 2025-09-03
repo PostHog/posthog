@@ -1,6 +1,5 @@
 import json
 import dataclasses
-from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 from uuid import UUID
 
@@ -15,7 +14,7 @@ from django.utils import timezone
 import structlog
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.utils import UUIDT, UUIDTModel, ActivityDetailEncoder
+from posthog.models.utils import ActivityDetailEncoder, UUIDTModel
 
 if TYPE_CHECKING:
     from posthog.models.user import User

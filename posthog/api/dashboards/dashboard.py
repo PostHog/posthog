@@ -5,7 +5,6 @@ from typing import Any, Optional, cast
 
 from django.conf import settings
 from django.db.models import Prefetch
-from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 from django.http import StreamingHttpResponse
 from django.utils.timezone import now
@@ -37,7 +36,6 @@ from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template
 from posthog.models import Dashboard, DashboardTile, Insight, Text
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
-from posthog.models.activity_logging.utils import activity_storage
 from posthog.models.alert import AlertConfiguration
 from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.group_type_mapping import GroupTypeMapping
