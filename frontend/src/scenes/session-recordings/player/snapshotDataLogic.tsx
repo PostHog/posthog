@@ -266,8 +266,6 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     actions.pollRealtimeSnapshots()
                 }
             }
-
-            // actions.reportUsageIfFullyLoaded()
         },
         pollRealtimeSnapshots: () => {
             // always make sure we've cleared up the last timeout
@@ -308,14 +306,6 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         ],
 
         snapshotsLoaded: [(s) => [s.snapshotSources], (snapshotSources): boolean => !!snapshotSources],
-
-        // rawSnapshotsFullyLoaded: [
-        //     (s) => [s.rawSnapshots, s.sessionPlayerMetaDataLoading, s.snapshotsLoading],
-        //     (rawSnapshots, sessionPlayerMetaDataLoading, snapshotsLoading): boolean => {
-        //         // TODO: Do a proper check for all sources having been loaded
-        //         return !!rawSnapshots?.length && !sessionPlayerMetaDataLoading && !snapshotsLoading
-        //     },
-        // ],
 
         snapshotsBySources: [
             (s) => [s.snapshotsBySourceSuccessCount],

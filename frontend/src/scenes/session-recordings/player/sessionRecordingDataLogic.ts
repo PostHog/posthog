@@ -54,7 +54,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     path((key) => ['scenes', 'session-recordings', 'sessionRecordingDataLogic', key]),
     props({} as SessionRecordingDataLogicProps),
     key(({ sessionRecordingId }) => sessionRecordingId || 'no-session-recording-id'),
-    connect(({ sessionRecordingId }) => ({
+    connect(({ sessionRecordingId }: SessionRecordingDataLogicProps) => ({
         actions: [
             sessionRecordingEventUsageLogic,
             ['reportRecording'],
@@ -648,6 +648,7 @@ AND properties.$lib != 'web'`
                 // oxlint-disable-next-line @typescript-eslint/no-unused-vars
                 snapshotsBySources
             ): RecordingSnapshot[] => {
+                // TODO: Do not reprocess snapshots
                 const copiedSnapshotsBySources = { ...snapshotsBySources }
                 const processedSnapshots = processAllSnapshots(
                     sources,
