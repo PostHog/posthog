@@ -5,7 +5,7 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import posthog from 'posthog-js'
 import React from 'react'
 
-import { IconCursorClick, IconKeyboard, IconWarning } from '@posthog/icons'
+import { IconCursorClick, IconHourglass, IconKeyboard, IconWarning } from '@posthog/icons'
 
 import api from 'lib/api'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
@@ -32,6 +32,7 @@ import { PersonType, PropertyFilterType, SessionRecordingType } from '~/types'
 
 import { SimpleTimeLabel } from '../../components/SimpleTimeLabel'
 import { sessionRecordingsListPropertiesLogic } from '../../playlist/sessionRecordingsListPropertiesLogic'
+import { calculateTTL } from '../utils/ttlUtils'
 import type { playerMetaLogicType } from './playerMetaLogicType'
 import { SessionSummaryContent } from './types'
 
@@ -221,6 +222,25 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                     items.push({
                         label: 'Duration',
                         value: humanFriendlyDuration(sessionPlayerMetaData.recording_duration),
+                        type: 'text',
+                    })
+                }
+                if (sessionPlayerMetaData?.retention_period_days && sessionPlayerMetaData?.start_time) {
+                    items.push({
+                        label: 'Retention Period',
+                        value: `${sessionPlayerMetaData.retention_period_days}d`,
+                        type: 'text',
+                    })
+
+                    const sessionTTLDays = calculateTTL(
+                        sessionPlayerMetaData.start_time,
+                        sessionPlayerMetaData.retention_period_days
+                    )
+
+                    items.push({
+                        icon: <IconHourglass />,
+                        label: 'TTL',
+                        value: `${sessionTTLDays}d`,
                         type: 'text',
                     })
                 }
