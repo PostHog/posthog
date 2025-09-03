@@ -63,9 +63,9 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
     props({ filtersOverride: null, variablesOverride: null } as InsightLogicProps),
     key((props) => {
         const key = keyForInsightLogicProps('new')(props)
-        if (key === 'new') {
-            throw new Error('Cannot initialize insightLogic with a key of "new". Please provide a unique key.')
-        }
+        // if (key === 'new') {
+        //     throw new Error('Cannot initialize insightLogic with a key of "new". Please provide a unique key.')
+        // }
         return key
     }),
     path((key) => ['scenes', 'insights', 'insightLogic', key]),
