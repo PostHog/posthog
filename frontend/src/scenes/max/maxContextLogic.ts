@@ -329,7 +329,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                     let filtersOverride: DashboardFilter | undefined = undefined
                     let variablesOverride: Record<string, HogQLVariable> | undefined = undefined
 
-                    // This is an "on this page" insight or dashboard selection. Look for possible applied filters.
+                    // This is an "on this page" insight selection. Look for and add possible applied filters.
                     if (groupType === TaxonomicFilterGroupType.MaxAIContext) {
                         const logic = insightSceneLogic.findAllMounted().find((l) => l.values.insightId === itemInfo.id)
                         if (logic) {
