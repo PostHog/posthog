@@ -13,7 +13,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date
 
-from products.revenue_analytics.backend.views import RevenueAnalyticsRevenueItemView
+from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView, RevenueAnalyticsRevenueItemView
 
 from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
 
@@ -22,16 +22,21 @@ class RevenueAnalyticsGrossRevenueQueryRunner(RevenueAnalyticsQueryRunner[Revenu
     query: RevenueAnalyticsGrossRevenueQuery
     cached_response: CachedRevenueAnalyticsGrossRevenueQueryResponse
 
-    def to_query(self) -> ast.SelectQuery:
-        revenue_item_subquery = self.revenue_subqueries.revenue_item
-        if revenue_item_subquery is None:
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        subqueries = self.revenue_subqueries(RevenueAnalyticsRevenueItemView)
+        if not subqueries:
             return ast.SelectQuery.empty(columns=["breakdown_by", "period_start", "amount"])
 
+        queries = [self._to_query_from(subquery) for subquery in subqueries]
+        return ast.SelectSetQuery.create_from_queries(queries, set_operator="UNION ALL")
+
+    def _to_query_from(self, view: RevenueAnalyticsBaseView) -> ast.SelectQuery:
         query = ast.SelectQuery(
             select=[
-                ast.Alias(
-                    alias="breakdown_by",
-                    expr=ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "source_label"]),
+                self._build_breakdown_expr(
+                    "breakdown_by",
+                    ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "source_label"]),
+                    view,
                 ),
                 ast.Alias(
                     alias="period_start",
@@ -42,19 +47,19 @@ class RevenueAnalyticsGrossRevenueQueryRunner(RevenueAnalyticsQueryRunner[Revenu
                 ),
                 ast.Alias(alias="amount", expr=ast.Call(name="sum", args=[ast.Field(chain=["amount"])])),
             ],
-            select_from=self._append_joins(
+            select_from=self._with_where_property_and_breakdown_joins(
                 ast.JoinExpr(
                     alias=RevenueAnalyticsRevenueItemView.get_generic_view_alias(),
-                    table=revenue_item_subquery,
+                    table=ast.Field(chain=[view.name]),
                 ),
-                self.joins_for_properties(RevenueAnalyticsRevenueItemView),
+                view,
             ),
             where=ast.And(
                 exprs=[
                     self.timestamp_where_clause(
                         chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "timestamp"]
                     ),
-                    *self.where_property_exprs,
+                    *self.where_property_exprs(view),
                 ]
             ),
             group_by=[
@@ -70,12 +75,6 @@ class RevenueAnalyticsGrossRevenueQueryRunner(RevenueAnalyticsQueryRunner[Revenu
             # Need a huge limit because we need (# periods x # breakdowns)-many rows to be returned
             limit=ast.Constant(value=10000),
         )
-
-        # Limit to 2 group bys at most for performance reasons
-        # This is also implemented in the frontend, but let's guarantee it here as well
-        with self.timings.measure("append_group_by"):
-            for group_by in self.query.groupBy[:2]:
-                query = self._append_group_by(query, RevenueAnalyticsRevenueItemView, group_by)
 
         return query
 
