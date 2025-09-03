@@ -1,28 +1,19 @@
-import datetime as dt
 import uuid
+import datetime as dt
 from typing import Any
 
 from django.db.models import Count, Q
 from django.db.models.functions import TruncDay
+
 from rest_framework import mixins, request, response, viewsets
-from posthog.api.utils import action
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.utils import action
 from posthog.models import BatchExportRun
 from posthog.models.plugin import PluginConfig
-from posthog.queries.app_metrics.app_metrics import (
-    AppMetricsErrorDetailsQuery,
-    AppMetricsErrorsQuery,
-    AppMetricsQuery,
-)
-from posthog.queries.app_metrics.historical_exports import (
-    historical_export_metrics,
-    historical_exports_activity,
-)
-from posthog.queries.app_metrics.serializers import (
-    AppMetricsErrorsRequestSerializer,
-    AppMetricsRequestSerializer,
-)
+from posthog.queries.app_metrics.app_metrics import AppMetricsErrorDetailsQuery, AppMetricsErrorsQuery, AppMetricsQuery
+from posthog.queries.app_metrics.historical_exports import historical_export_metrics, historical_exports_activity
+from posthog.queries.app_metrics.serializers import AppMetricsErrorsRequestSerializer, AppMetricsRequestSerializer
 from posthog.utils import relative_date_parse
 
 

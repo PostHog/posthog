@@ -3,19 +3,12 @@
 from collections.abc import Callable, Coroutine
 from concurrent.futures import ThreadPoolExecutor
 from time import time
-from typing import (
-    Any,
-    Optional,
-    ParamSpec,
-    TypeVar,
-    Union,
-    overload,
-)
+from typing import Any, Optional, ParamSpec, TypeVar, Union, overload
+
+from django.db import close_old_connections
 
 from asgiref.sync import SyncToAsync
-from django.db import close_old_connections
 from prometheus_client import Histogram
-
 from structlog import get_logger
 
 logger = get_logger(__name__)

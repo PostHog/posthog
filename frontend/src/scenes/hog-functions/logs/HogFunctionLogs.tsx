@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { useMemo } from 'react'
 
 import { IconEllipsis } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDialog, LemonMenu, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDialog, LemonMenu, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -15,6 +15,30 @@ import { hogFunctionTestLogic } from '../configuration/hogFunctionTestLogic'
 import { LogsViewer } from './LogsViewer'
 import { hogFunctionLogsLogic } from './hogFunctionLogsLogic'
 import { GroupedLogEntry, LogsViewerLogicProps } from './logsViewerLogic'
+
+const EVENT_LINK_REGEX = /Event: '(.+)'/g
+
+export const renderHogFunctionMessage = (message: string): JSX.Element => {
+    const parts = message.split(EVENT_LINK_REGEX)
+    const elements: (string | JSX.Element)[] = []
+
+    for (let i = 0; i < parts.length; i++) {
+        if (i % 2 === 0) {
+            // Even indices are regular text parts
+            if (parts[i]) {
+                elements.push(parts[i])
+            }
+        } else {
+            elements.push(
+                <Link className="rounded p-1 -m-1 bg-border text-bg-primary" to={parts[i]} targetBlankIcon>
+                    View event
+                </Link>
+            )
+        }
+    }
+
+    return <>{elements}</>
+}
 
 export function HogFunctionLogs(props: { hogFunctionId: string }): JSX.Element {
     const logicProps: LogsViewerLogicProps = {
@@ -95,6 +119,7 @@ export function HogFunctionLogs(props: { hogFunctionId: string }): JSX.Element {
 
                     return newColumns
                 }}
+                renderMessage={(message) => renderHogFunctionMessage(message)}
             />
         </>
     )

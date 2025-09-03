@@ -1,11 +1,14 @@
-from inline_snapshot import snapshot
 import pytest
-from common.hogvm.python.utils import UncaughtHogVMException
+
+from inline_snapshot import snapshot
+
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.intercom.template_intercom import (
     template as template_intercom,
     template_send_event as template_intercom_event,
 )
+
+from common.hogvm.python.utils import UncaughtHogVMException
 
 
 class TestTemplateIntercom(BaseHogFunctionTemplateTest):

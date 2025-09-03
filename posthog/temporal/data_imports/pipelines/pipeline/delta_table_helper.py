@@ -2,21 +2,20 @@ import json
 from collections.abc import Sequence
 from typing import Any, Literal
 
-import deltalake as deltalake
-import deltalake.exceptions
-import pyarrow as pa
-import pyarrow.compute as pc
-from conditional_cache import lru_cache
 from django.conf import settings
+
+import pyarrow as pa
+import deltalake as deltalake
+import pyarrow.compute as pc
+import deltalake.exceptions
+from conditional_cache import lru_cache
 from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
-from posthog.temporal.data_imports.pipelines.pipeline.utils import (
-    normalize_column_name,
-)
+from posthog.temporal.data_imports.pipelines.pipeline.utils import normalize_column_name
 from posthog.warehouse.models import ExternalDataJob
 from posthog.warehouse.s3 import ensure_bucket_exists, get_s3_client
 

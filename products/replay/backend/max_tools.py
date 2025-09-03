@@ -1,20 +1,25 @@
-import logging
 import json
+import logging
+
+from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
+
+from posthog.schema import MaxRecordingUniversalFilters
+
+from posthog.models import Team, User
+
+from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
 from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
-from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
 from ee.hogai.graph.taxonomy.tools import base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
 from ee.hogai.tool import MaxTool
-from langchain_core.prompts import ChatPromptTemplate
-from posthog.models import Team, User
-from posthog.schema import MaxRecordingUniversalFilters
+
 from .prompts import (
+    DATE_FIELDS_PROMPT,
+    FILTER_FIELDS_TAXONOMY_PROMPT,
     PRODUCT_DESCRIPTION_PROMPT,
     SESSION_REPLAY_EXAMPLES_PROMPT,
-    FILTER_FIELDS_TAXONOMY_PROMPT,
-    DATE_FIELDS_PROMPT,
     USER_FILTER_OPTIONS_PROMPT,
 )
 
@@ -95,9 +100,17 @@ class SearchSessionRecordingsArgs(BaseModel):
 
 class SearchSessionRecordingsTool(MaxTool):
     name: str = "search_session_recordings"
-    description: str = (
-        "Update session recordings filters on this page, in order to search for session recordings by any criteria."
-    )
+    description: str = """
+    - Update session recordings filters on this page, in order to search for session recordings.
+    - When to use the tool:
+      * When the user asks to update session recordings filters
+        - "update" synonyms: "change", "modify", "adjust", and similar
+        - "session recordings" synonyms: "sessions", "recordings", "replays", "user sessions", and similar
+      * When the user asks to search for session recordings
+        - "search for" synonyms: "find", "look up", and similar
+    - When NOT to use the tool:
+      * When the user asks to summarize session recordings
+    """
     thinking_message: str = "Coming up with session recordings filters"
     root_system_prompt_template: str = "Current recordings filters are: {current_filters}"
     args_schema: type[BaseModel] = SearchSessionRecordingsArgs

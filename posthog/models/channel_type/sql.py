@@ -1,12 +1,9 @@
-import json
 import os
+import json
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.clickhouse.table_engines import (
-    MergeTreeEngine,
-    ReplicationScheme,
-)
+from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_PASSWORD
 
 CHANNEL_DEFINITION_TABLE_NAME = "channel_definition"

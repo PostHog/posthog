@@ -9,6 +9,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import MaxTool from 'scenes/max/MaxTool'
+import { captureMaxAISurveyCreationException } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -67,8 +68,8 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
         try {
             await createSurveyFromTemplate(survey)
         } catch (error) {
-            posthog.captureException('Failed to create survey from template', {
-                error,
+            posthog.captureException(error, {
+                action: 'survey-creation-from-template-failed',
             })
             toast.error('Error while creating survey from template. Please try again.')
         }
@@ -119,7 +120,11 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
                                     'Create a feedback survey asking about our new dashboard',
                                 ]}
                                 context={{ user_id: user.uuid }}
-                                callback={(toolOutput: { survey_id?: string; error?: string }) => {
+                                callback={(toolOutput: {
+                                    survey_id?: string
+                                    error?: string
+                                    error_message?: string
+                                }) => {
                                     addProductIntent({
                                         product_type: ProductKey.SURVEYS,
                                         intent_context: ProductIntentContext.SURVEY_CREATED,
@@ -131,11 +136,7 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
                                     })
 
                                     if (toolOutput?.error || !toolOutput?.survey_id) {
-                                        posthog.captureException('survey-creation-via-max-ai-failed', {
-                                            error: toolOutput.error,
-                                            sessionRecordingUrl: posthog.get_session_replay_url(),
-                                        })
-                                        return
+                                        return captureMaxAISurveyCreationException(toolOutput.error)
                                     }
 
                                     router.actions.push(urls.survey(toolOutput.survey_id))

@@ -1,8 +1,9 @@
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models import MessageRecipientPreference, MessageCategory
+from posthog.models import MessageCategory, MessageRecipientPreference
 from posthog.models.message_preferences import ALL_MESSAGE_PREFERENCE_CATEGORY_ID, PreferenceStatus
 
 

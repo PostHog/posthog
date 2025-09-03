@@ -1,25 +1,24 @@
-from typing import cast
 from collections.abc import Iterable
+from typing import cast
 
 from posthog.hogql import ast
+from posthog.hogql.database.schema.exchange_rate import EXCHANGE_RATE_DECIMAL_PRECISION, convert_currency_call
+
 from posthog.temporal.data_imports.sources.stripe.constants import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
 )
 from posthog.warehouse.models.table import DataWarehouseTable
-from posthog.hogql.database.schema.exchange_rate import (
-    EXCHANGE_RATE_DECIMAL_PRECISION,
-    convert_currency_call,
-)
-from products.revenue_analytics.backend.views.sources.helpers import (
-    is_zero_decimal_in_stripe,
-    currency_aware_divider,
-    currency_aware_amount,
-    extract_json_string,
-    extract_json_uint,
-)
 
 from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHandle, view_prefix_for_source
+from products.revenue_analytics.backend.views.schemas.revenue_item import SCHEMA
+from products.revenue_analytics.backend.views.sources.helpers import (
+    currency_aware_amount,
+    currency_aware_divider,
+    extract_json_string,
+    extract_json_uint,
+    is_zero_decimal_in_stripe,
+)
 
 AVERAGE_DAYS_PER_MONTH = 30.44
 AVERAGE_DAYS_PER_MONTH_AST_CONSTANT = ast.Constant(value=AVERAGE_DAYS_PER_MONTH)
@@ -104,6 +103,8 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
     if source is None:
         return
 
+    prefix = view_prefix_for_source(source)
+
     # Get all schemas for the source, avoid calling `filter` and do the filtering on Python-land
     # to avoid n+1 queries
     schemas = source.schemas.all()
@@ -111,6 +112,9 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
     charge_schema = next((schema for schema in schemas if schema.name == STRIPE_CHARGE_RESOURCE_NAME), None)
 
     if invoice_schema is None and charge_schema is None:
+        yield BuiltQuery(
+            key=f"{prefix}.no_source", prefix=prefix, query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys()))
+        )
         return
 
     invoice_table: DataWarehouseTable | None = None
@@ -127,9 +131,10 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
     elif charge_table is not None:
         team = charge_table.team
     else:
+        yield BuiltQuery(
+            key=f"{prefix}.no_table", prefix=prefix, query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys()))
+        )
         return
-
-    prefix = view_prefix_for_source(source)
 
     # Build the query for invoice items with revenue recognition splitting
     invoice_item_query: ast.SelectQuery | None = None
@@ -189,6 +194,11 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
                 ),
                 ast.Alias(alias="product_id", expr=ast.Field(chain=["product_id"])),
                 ast.Alias(alias="customer_id", expr=ast.Field(chain=["customer_id"])),
+                ast.Alias(alias="group_0_key", expr=ast.Constant(value=None)),
+                ast.Alias(alias="group_1_key", expr=ast.Constant(value=None)),
+                ast.Alias(alias="group_2_key", expr=ast.Constant(value=None)),
+                ast.Alias(alias="group_3_key", expr=ast.Constant(value=None)),
+                ast.Alias(alias="group_4_key", expr=ast.Constant(value=None)),
                 ast.Alias(alias="invoice_id", expr=ast.Field(chain=["invoice", "id"])),
                 ast.Alias(alias="subscription_id", expr=ast.Field(chain=["subscription_id"])),
                 ast.Alias(alias="session_id", expr=ast.Constant(value=None)),
@@ -360,6 +370,11 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
                 ast.Alias(alias="is_recurring", expr=ast.Constant(value=False)),
                 ast.Alias(alias="product_id", expr=ast.Constant(value=None)),
                 ast.Alias(alias="customer_id", expr=ast.Field(chain=["customer_id"])),
+                ast.Alias(alias="group_0_key", expr=ast.Constant(value=None)),
+                ast.Alias(alias="group_1_key", expr=ast.Constant(value=None)),
+                ast.Alias(alias="group_2_key", expr=ast.Constant(value=None)),
+                ast.Alias(alias="group_3_key", expr=ast.Constant(value=None)),
+                ast.Alias(alias="group_4_key", expr=ast.Constant(value=None)),
                 ast.Alias(alias="invoice_id", expr=ast.Field(chain=["invoice_id"])),  # Will be empty
                 ast.Alias(alias="subscription_id", expr=ast.Constant(value=None)),
                 ast.Alias(alias="session_id", expr=ast.Constant(value=None)),
@@ -445,13 +460,10 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
         query for query in [invoice_item_query, no_invoice_charges_query] if query is not None
     ]
     if len(queries) == 0:
+        yield BuiltQuery(
+            key=f"{prefix}.no_query", prefix=prefix, query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys()))
+        )
         return
-
-    query: ast.SelectQuery | ast.SelectSetQuery
-    if len(queries) == 1:
-        query = queries[0]
-    else:
-        query = ast.SelectSetQuery.create_from_queries(queries, set_operator="UNION ALL")
 
     # Very cumbersome, but mypy won't be happy otherwise
     if invoice_table is not None:
@@ -461,4 +473,5 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
     else:
         id = None
 
+    query = ast.SelectSetQuery.create_from_queries(queries, set_operator="UNION ALL")
     yield BuiltQuery(key=str(id), prefix=prefix, query=query)

@@ -789,10 +789,10 @@ impl FeatureFlagMatcher {
         property_overrides: Option<HashMap<String, Value>>,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<FeatureFlagMatch, FlagError> {
-        if self
-            .hashed_identifier(flag, hash_key_overrides.clone())?
-            .is_empty()
-        {
+        // Check if this is a group-based flag with missing group
+        let hashed_id = self.hashed_identifier(flag, hash_key_overrides.clone())?;
+        if flag.get_group_type_index().is_some() && hashed_id.is_empty() {
+            // This is a group-based flag but we don't have the group key
             return Ok(FeatureFlagMatch {
                 matches: false,
                 variant: None,
@@ -801,6 +801,7 @@ impl FeatureFlagMatcher {
                 payload: None,
             });
         }
+        // For person-based flags, empty distinct_id is valid and should continue evaluation
 
         let mut highest_match = FeatureFlagMatchReason::NoConditionMatch;
         let mut highest_index = None;
@@ -1454,7 +1455,7 @@ impl FeatureFlagMatcher {
         }
     }
 
-    /// If experience continuity is enabled, we need to process the hash key override if it's provided.
+    /// If experience continuity is enabled, we need to process the hash key override.
     /// See [`FeatureFlagMatcher::process_hash_key_override`] for more details.
     async fn process_hash_key_override_if_needed(
         &self,
@@ -1462,7 +1463,6 @@ impl FeatureFlagMatcher {
         hash_key_override: Option<String>,
     ) -> (Option<HashMap<String, String>>, bool) {
         let hash_key_timer = common_metrics::timing_guard(FLAG_HASH_KEY_PROCESSING_TIME, &[]);
-        // If experience continuity is enabled, we need to process the hash key override if it's provided.
         let (hash_key_overrides, flag_hash_key_override_error) =
             if flags_have_experience_continuity_enabled {
                 match hash_key_override {
@@ -1471,9 +1471,29 @@ impl FeatureFlagMatcher {
                         self.process_hash_key_override(hash_key, target_distinct_ids)
                             .await
                     }
-                    // if a flag has experience continuity enabled but no hash key override is provided,
-                    // we don't need to write an override, we can just use the distinct_id
-                    None => (None, false),
+                    // If no hash key override is provided, we need to look up existing overrides.
+                    // Most of the time this is fine because our client side sdks usually include $anon_distinct_id in their requests,
+                    // but if a customer is using hash key overrides across a client sdk and a server sdk then the experience
+                    // will be inconsistent because server sdks won't include $anon_distinct_id in their requests.
+                    // In addition, this behavior is consistent with /decide.
+                    None => {
+                        match get_feature_flag_hash_key_overrides(
+                            self.reader.clone(),
+                            self.team_id,
+                            vec![self.distinct_id.clone()],
+                        )
+                        .await
+                        {
+                            Ok(overrides) => (Some(overrides), false),
+                            Err(e) => {
+                                error!(
+                                    "Failed to get feature flag hash key overrides for team {} project {} distinct_id {}: {:?}",
+                                    self.team_id, self.project_id, self.distinct_id, e
+                                );
+                                (None, true)
+                            }
+                        }
+                    }
                 }
             } else {
                 // if experience continuity is not enabled, we don't need to worry about hash key overrides

@@ -2,15 +2,17 @@ import os
 
 import dagster
 from clickhouse_driver import Client
+
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.models.team.team import Team
 from posthog.models.web_preaggregated.team_selection import (
-    WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME,
-    WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL,
     DEFAULT_ENABLED_TEAM_IDS,
+    WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL,
+    WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME,
 )
-from dags.common import JobOwners, settings_with_log_comment
 from posthog.models.web_preaggregated.team_selection_strategies import strategy_registry
+
+from dags.common import JobOwners, settings_with_log_comment
 
 
 def validate_team_ids(context: dagster.OpExecutionContext, team_ids: set[int]) -> set[int]:

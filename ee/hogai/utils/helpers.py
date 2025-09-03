@@ -1,27 +1,31 @@
+import xml.etree.ElementTree as ET
 from collections.abc import Sequence
 from typing import Optional, TypeVar, Union
 
 from jsonref import replace_refs
 from langchain_core.messages import (
+    BaseMessage,
     HumanMessage as LangchainHumanMessage,
     merge_message_runs,
-    AIMessage as LangchainAIMessage,
 )
 
-from ee.hogai.utils.types import AssistantMessageUnion
 from posthog.schema import (
     AssistantMessage,
     AssistantToolCallMessage,
+    CachedTeamTaxonomyQueryResponse,
     HumanMessage,
+    MaxEventContext,
     MaxUIContext,
+    TeamTaxonomyQuery,
     VisualizationMessage,
 )
-from posthog.schema import MaxEventContext, TeamTaxonomyQuery, CachedTeamTaxonomyQueryResponse
-from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
-from posthog.models import Team
-from posthog.hogql_queries.query_runner import ExecutionMode
+
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
-import xml.etree.ElementTree as ET
+from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models import Team
+from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+
+from ee.hogai.utils.types import AssistantMessageUnion
 
 
 def remove_line_breaks(line: str) -> str:
@@ -198,9 +202,9 @@ def format_events_yaml(events_in_context: list[MaxEventContext], team: Team) -> 
     return "\n".join(formatted_events)
 
 
-def extract_content_from_ai_message(response: LangchainAIMessage) -> str:
+def extract_content_from_ai_message(response: BaseMessage) -> str:
     """
-    Extracts the content from a LangchainAIMessage, supporting both reasoning and non-reasoning responses.
+    Extracts the content from a BaseMessage, supporting both reasoning and non-reasoning responses.
     """
     if isinstance(response.content, list):
         text_parts = []

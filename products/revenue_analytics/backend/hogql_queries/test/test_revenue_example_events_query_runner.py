@@ -1,16 +1,6 @@
 from decimal import Decimal
-from unittest.mock import patch
 
 from freezegun import freeze_time
-
-from posthog.models.utils import uuid7
-from posthog.schema import (
-    CurrencyCode,
-    RevenueCurrencyPropertyConfig,
-    RevenueExampleEventsQuery,
-    RevenueExampleEventsQueryResponse,
-    RevenueAnalyticsEventItem,
-)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -18,6 +8,18 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import patch
+
+from posthog.schema import (
+    CurrencyCode,
+    RevenueAnalyticsEventItem,
+    RevenueCurrencyPropertyConfig,
+    RevenueExampleEventsQuery,
+    RevenueExampleEventsQueryResponse,
+)
+
+from posthog.models.utils import uuid7
+
 from products.revenue_analytics.backend.hogql_queries.revenue_example_events_query_runner import (
     RevenueExampleEventsQueryRunner,
 )

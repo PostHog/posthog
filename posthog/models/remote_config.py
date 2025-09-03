@@ -1,31 +1,29 @@
-import json
 import os
+import json
 from typing import Any, Optional
+
 from django.conf import settings
-from django.db import models
-from django.http import HttpRequest
-from django.utils import timezone
-from prometheus_client import Counter
-import requests
-from posthog.exceptions_capture import capture_exception
-import structlog
-
-from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
-from posthog.models.feature_flag.feature_flag import FeatureFlag
-from posthog.models.error_tracking.error_tracking import ErrorTrackingSuppressionRule
-from posthog.models.surveys.survey import Survey
-from posthog.models.hog_functions.hog_function import HogFunction
-from posthog.models.plugin import PluginConfig
-from posthog.models.team.team import Team
-from posthog.models.utils import UUIDTModel, execute_with_timeout
-
 from django.core.cache import cache
-from django.db import transaction
+from django.db import models, transaction
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
+from django.http import HttpRequest
+from django.utils import timezone
 
+import requests
+import structlog
+from prometheus_client import Counter
+
+from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
+from posthog.exceptions_capture import capture_exception
+from posthog.models.error_tracking.error_tracking import ErrorTrackingSuppressionRule
+from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.hog_functions.hog_function import HogFunction
+from posthog.models.plugin import PluginConfig
+from posthog.models.surveys.survey import Survey
+from posthog.models.team.team import Team
+from posthog.models.utils import UUIDTModel, execute_with_timeout
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
-
 
 CACHE_TIMEOUT = 60 * 60 * 24  # 1 day - it will be invalidated by the daily sync
 
@@ -123,11 +121,11 @@ class RemoteConfig(UUIDTModel):
         )
 
     def build_config(self):
+        from posthog.api.error_tracking import get_suppression_rules
+        from posthog.api.survey import get_surveys_opt_in, get_surveys_response
         from posthog.models.feature_flag import FeatureFlag
         from posthog.models.team import Team
         from posthog.plugins.site import get_decide_site_apps
-        from posthog.api.survey import get_surveys_response, get_surveys_opt_in
-        from posthog.api.error_tracking import get_suppression_rules
 
         # NOTE: It is important this is changed carefully. This is what the SDK will load in place of "decide" so the format
         # should be kept consistent. The JS code should be minified and the JSON should be as small as possible.
@@ -234,11 +232,7 @@ class RemoteConfig(UUIDTModel):
 
         # MARK: Quota limiting
         if settings.EE_AVAILABLE:
-            from ee.billing.quota_limiting import (
-                QuotaLimitingCaches,
-                QuotaResource,
-                list_limited_team_attributes,
-            )
+            from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
 
             limited_tokens_recordings = list_limited_team_attributes(
                 QuotaResource.RECORDINGS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
@@ -286,9 +280,9 @@ class RemoteConfig(UUIDTModel):
     def _build_site_apps_js(self):
         # NOTE: This is the web focused config for the frontend that includes site apps
 
-        from posthog.plugins.site import get_site_apps_for_team, get_site_config_from_schema
         from posthog.cdp.site_functions import get_transpiled_function
         from posthog.models import HogFunction
+        from posthog.plugins.site import get_site_apps_for_team, get_site_config_from_schema
 
         # Add in the site apps as an array of objects
         site_apps_js = []

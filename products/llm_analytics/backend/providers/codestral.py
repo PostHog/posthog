@@ -2,13 +2,15 @@
 ViewSet for IDE Proxy
 """
 
-import logging
 import json
+import uuid
+import logging
 from collections.abc import Generator
+
 from django.conf import settings
+
 import mistralai
 import posthoganalytics
-import uuid
 
 logger = logging.getLogger(__name__)
 

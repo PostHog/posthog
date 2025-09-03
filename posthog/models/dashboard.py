@@ -1,14 +1,13 @@
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
-
-from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
-from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from django.db.models import QuerySet
 
-from posthog.utils import absolute_uri
+from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
+from posthog.utils import absolute_uri
 
 if TYPE_CHECKING:
     from posthog.models.team import Team

@@ -1,19 +1,20 @@
 import enum
 from urllib.parse import urlparse
+
 from django.conf import settings
+from django.contrib.postgres.fields import ArrayField
+from django.core.exceptions import ValidationError
+from django.db import models
+
 from oauth2_provider.models import (
     AbstractAccessToken,
+    AbstractApplication,
+    AbstractGrant,
     AbstractIDToken,
     AbstractRefreshToken,
-    AbstractGrant,
-    AbstractApplication,
 )
 
 from posthog.models.utils import UUIDT
-
-from django.db import models
-from django.contrib.postgres.fields import ArrayField
-from django.core.exceptions import ValidationError
 
 
 class OAuthApplicationAccessLevel(enum.Enum):

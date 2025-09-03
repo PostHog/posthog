@@ -1,15 +1,16 @@
 """ETL pipeline for syncing posthog_organization and posthog_team tables from Postgres to ClickHouse."""
 
-import psycopg2
-import psycopg2.extras
-from datetime import datetime, timedelta
-from typing import Any, Optional, Union
-from dataclasses import dataclass
 import json
 import uuid
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from typing import Any, Optional, Union
+
+from django.conf import settings
 
 import dagster
-from django.conf import settings
+import psycopg2
+import psycopg2.extras
 from dagster import (
     AssetExecutionContext,
     Config,
@@ -26,6 +27,7 @@ from dagster._core.definitions.backfill_policy import BackfillPolicy
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.cluster import Query, get_cluster
+
 from dags.common import JobOwners
 
 

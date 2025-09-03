@@ -1,10 +1,8 @@
 import dagster
 
-from . import resources
+from dags import exchange_rate
 
-from dags import (
-    exchange_rate,
-)
+from . import resources
 
 defs = dagster.Definitions(
     assets=[

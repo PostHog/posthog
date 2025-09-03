@@ -1,18 +1,22 @@
-from rest_framework import status
-from unittest.mock import patch, ANY
 from typing import cast
-from posthog.models import Organization, OrganizationMembership, Team, FeatureFlag
+
+from posthog.test.base import APIBaseTest
+from unittest.mock import ANY, patch
+
+from rest_framework import status
+from rest_framework.test import APIRequestFactory
+
+from posthog.api.organization import OrganizationSerializer
+from posthog.models import FeatureFlag, Organization, OrganizationMembership, Team
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
-from posthog.test.base import APIBaseTest
-from posthog.api.organization import OrganizationSerializer
-from rest_framework.test import APIRequestFactory
 from posthog.user_permissions import UserPermissions
-from ee.models.rbac.role import Role, RoleMembership
-from ee.models.rbac.access_control import AccessControl
-from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
+
 from ee.models.explicit_team_membership import ExplicitTeamMembership
+from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
+from ee.models.rbac.access_control import AccessControl
 from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
+from ee.models.rbac.role import Role, RoleMembership
 
 
 class TestOrganizationAPI(APIBaseTest):

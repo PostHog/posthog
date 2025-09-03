@@ -1,9 +1,12 @@
 import asyncio
 import datetime as dt
-from unittest.mock import patch
 
 import pytest
+from posthog.test.base import _create_event
+from unittest.mock import patch
+
 from django.test.client import Client as HttpClient
+
 from rest_framework import status
 
 from posthog.api.test.batch_exports.conftest import start_test_worker
@@ -19,7 +22,6 @@ from posthog.api.test.batch_exports.operations import (
 )
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.test.base import _create_event
 
 pytestmark = [
     pytest.mark.django_db,

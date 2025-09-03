@@ -97,7 +97,7 @@ export function ExternalDataSourceConfiguration({
                         },
                     },
                     {
-                        key: 'joins',
+                        key: 'persons_join',
                         title: (
                             <span>
                                 Persons Join
@@ -143,6 +143,63 @@ export function ExternalDataSourceConfiguration({
                                                     joining_table_name: 'persons',
                                                     joining_table_key: 'pdi.distinct_id',
                                                     field_name: 'persons',
+                                                })
+                                            }
+                                        >
+                                            Add join
+                                        </LemonButton>
+                                    )}
+                                </span>
+                            )
+                        },
+                    },
+                    {
+                        key: 'groups_join',
+                        title: (
+                            <span>
+                                Groups Join
+                                <Tooltip title="How do you want to join groups to this source in Revenue Analytics?">
+                                    <IconInfo className="ml-1" />
+                                </Tooltip>
+                            </span>
+                        ),
+                        render: (_, item: ExternalDataSource) => {
+                            const itemPrefix = item.prefix
+                                ? `${item.source_type.toLowerCase()}.${item.prefix.replace(/_+$/, '')}`
+                                : item.source_type.toLowerCase()
+                            const joinName = `${itemPrefix}.customer_revenue_view`
+                            const join = joins.find(
+                                (join) => join.source_table_name === joinName && join.joining_table_name === 'groups'
+                            )
+
+                            return (
+                                <span className="flex flex-row items-center gap-2 my-2">
+                                    <span>
+                                        Joined to <code>groups</code> via:
+                                    </span>
+
+                                    {join ? (
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            onClick={() => toggleEditJoinModal(join)}
+                                        >
+                                            {join.source_table_name}.{join.source_table_key}
+                                        </LemonButton>
+                                    ) : (
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            icon={<IconPlus />}
+                                            onClick={() =>
+                                                // This is all very hardcoded, but it's the exact kind of join we want to add
+                                                // and that we're expecting in the backend.
+                                                toggleNewJoinModal({
+                                                    source_table_name: joinName,
+                                                    source_table_key: 'id',
+                                                    joining_table_name: 'groups',
+                                                    joining_table_key: 'group_key',
+                                                    field_name: 'groups',
                                                 })
                                             }
                                         >

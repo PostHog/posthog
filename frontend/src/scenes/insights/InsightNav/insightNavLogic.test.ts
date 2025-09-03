@@ -174,6 +174,7 @@ describe('insightNavLogic', () => {
                     queryPropertyCache: {
                         ...nodeKindToDefaultQuery[NodeKind.TrendsQuery],
                         commonFilter: {},
+                        commonFilterTrendsStickiness: {},
                         filterTestAccounts: true,
                         version: 2,
                     },

@@ -1,18 +1,19 @@
-from datetime import datetime
-from typing import NamedTuple, Optional
 from collections.abc import Generator
 from contextlib import contextmanager
+from datetime import datetime
+from typing import NamedTuple, Optional
 
 from django.conf import settings
 from django.core.cache import cache
-from prometheus_client import Counter, Histogram, CollectorRegistry
+
+from prometheus_client import CollectorRegistry, Counter, Histogram
 
 from posthog.cache_utils import OrjsonJsonSerializer
-from posthog.utils import get_safe_cache
-from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
-from posthog.metrics import LABEL_TEAM_ID, pushed_metrics_registry
 from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
+from posthog.metrics import LABEL_TEAM_ID, pushed_metrics_registry
+from posthog.utils import get_safe_cache
 
 
 class CacheMetrics(NamedTuple):

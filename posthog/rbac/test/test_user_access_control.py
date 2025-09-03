@@ -1,14 +1,15 @@
 import pytest
+from posthog.test.base import BaseTest
+
+from rest_framework import serializers
+
 from posthog.constants import AvailableFeature
 from posthog.models.dashboard import Dashboard
-from posthog.models.organization import OrganizationMembership
+from posthog.models.file_system.file_system import FileSystem
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.models.file_system.file_system import FileSystem
-from posthog.models.organization import Organization
-from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlSerializerMixin, AccessSource
-from posthog.test.base import BaseTest
-from rest_framework import serializers
+from posthog.rbac.user_access_control import AccessSource, UserAccessControl, UserAccessControlSerializerMixin
 
 try:
     from ee.models.rbac.access_control import AccessControl
@@ -936,9 +937,9 @@ class TestUserAccessControlSpecificAccessLevelForObject(BaseUserAccessControlTes
         access_level = self.user_access_control.specific_access_level_for_object(self.other_dashboard)
         assert access_level == "editor"
 
-    def test_ignores_global_access_controls(self):
-        """Test that global access controls (no member/role) are ignored"""
-        # Create a global access control
+    def test_ignores_resource_level_access_controls(self):
+        """Test that resource level access controls (no member/role) are ignored"""
+        # Create a resource level access control
         self._create_access_control(
             resource="dashboard",
             resource_id=str(self.other_dashboard.id),
@@ -1218,6 +1219,7 @@ class TestSpecificObjectAccessControl(BaseUserAccessControlTest):
     def test_user_access_control_serializer_mixin_with_specific_access(self):
         """Test UserAccessControlSerializerMixin returns correct access levels"""
         from rest_framework import serializers
+
         from posthog.models.notebook.notebook import Notebook
 
         # Set resource-level access to "none"

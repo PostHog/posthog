@@ -25,6 +25,18 @@ jest.mock('./providers', () => {
                 model: 'gemini-2.5-pro-preview:large',
                 cost: { prompt_token: 0.8, completion_token: 0.8 },
             },
+            'gemini-2.5-flash': {
+                model: 'gemini-2.5-flash',
+                cost: { prompt_token: 0.15, completion_token: 0.6 },
+            },
+            'gemini-2.0-flash': {
+                model: 'gemini-2.0-flash',
+                cost: { prompt_token: 0.00000015, completion_token: 0.000000075 },
+            },
+            'o1-mini': {
+                model: 'o1-mini',
+                cost: { prompt_token: 0.0000011, completion_token: 0.0000044 },
+            },
             'gpt-4.1': { model: 'gpt-4.1', cost: { prompt_token: 0.9, completion_token: 0.9 } },
         },
     }
@@ -386,6 +398,80 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_input_cost_usd).toBeUndefined()
             expect(result.properties!.$ai_output_cost_usd).toBeUndefined()
             expect(result.properties!.$ai_total_cost_usd).toBeUndefined()
+        })
+    })
+
+    describe('reasoning token handling', () => {
+        it('includes reasoning tokens for gemini-2.5-*', () => {
+            event.properties!.$ai_provider = 'google'
+            event.properties!.$ai_model = 'gemini-2.5-flash'
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            event.properties!.$ai_reasoning_tokens = 200
+
+            const result = processAiEvent(event)
+
+            // For gemini-2.5-flash: prompt_token = 0.15, completion_token = 0.6
+            // Input cost: 100 * 0.15 = 15
+            // Output cost: (50 + 200) * 0.6 = 250 * 0.6 = 150
+            // Total cost: 15 + 150 = 165
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(15, 2)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(150, 2)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(165, 2)
+        })
+
+        it('handles undefined reasoning tokens for gemini-2.5-*', () => {
+            event.properties!.$ai_provider = 'google'
+            event.properties!.$ai_model = 'gemini-2.5-flash'
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            // $ai_reasoning_tokens is intentionally undefined
+
+            const result = processAiEvent(event)
+
+            // For gemini-2.5-flash: prompt_token = 0.15, completion_token = 0.6
+            // Input cost: 100 * 0.15 = 15
+            // Output cost: (50 + 0) * 0.6 = 50 * 0.6 = 30 (undefined reasoning tokens treated as 0)
+            // Total cost: 15 + 30 = 45
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(15, 2)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(30, 2)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(45, 2)
+        })
+
+        it('does not include reasoning tokens for gemini-2.0-*', () => {
+            event.properties!.$ai_provider = 'google'
+            event.properties!.$ai_model = 'gemini-2.0-flash'
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            event.properties!.$ai_reasoning_tokens = 200
+
+            const result = processAiEvent(event)
+
+            // For gemini-2.0-flash: prompt_token = 0.00000015, completion_token = 0.000000075
+            // Input cost: 100 * 0.00000015 = 0.000015
+            // Output cost: 50 * 0.000000075 = 0.00000375 (reasoning tokens ignored)
+            // Total cost: 0.000015 + 0.00000375 = 0.00001875
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.000015, 8)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.00000375, 8)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.00001875, 8)
+        })
+
+        it('does not include reasoning tokens for non gemini models', () => {
+            event.properties!.$ai_provider = 'openai'
+            event.properties!.$ai_model = 'o1-mini'
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            event.properties!.$ai_reasoning_tokens = 200
+
+            const result = processAiEvent(event)
+
+            // For o1-mini: prompt_token = 0.0000011, completion_token = 0.0000044
+            // Input cost: 100 * 0.0000011 = 0.00011
+            // Output cost: 50 * 0.0000044 = 0.00022 (reasoning tokens ignored)
+            // Total cost: 0.00011 + 0.00022 = 0.00033
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.00011, 5)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.00022, 5)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.00033, 5)
         })
     })
 })

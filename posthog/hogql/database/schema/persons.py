@@ -1,38 +1,39 @@
-from typing import cast, Optional, Self
-from posthog.hogql.parser import parse_select
+from typing import Optional, Self, cast
+
 import posthoganalytics
 
-from posthog.hogql.ast import SelectQuery, And, CompareOperation, CompareOperationOp, Field, JoinExpr
+from posthog.schema import PersonsArgMaxVersion
+
+from posthog.hogql import ast
+from posthog.hogql.ast import And, CompareOperation, CompareOperationOp, Field, JoinExpr, SelectQuery
 from posthog.hogql.base import Expr
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
-from posthog.hogql import ast
 from posthog.hogql.database.argmax import argmax_select
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DateTimeDatabaseField,
-    IntegerDatabaseField,
-    LazyTable,
-    LazyJoin,
     FieldOrTable,
-    LazyTableToAdd,
+    IntegerDatabaseField,
+    LazyJoin,
     LazyJoinToAdd,
+    LazyTable,
+    LazyTableToAdd,
     StringDatabaseField,
     StringJSONDatabaseField,
     Table,
 )
-from posthog.hogql.database.schema.util.where_clause_extractor import WhereClauseExtractor
 from posthog.hogql.database.schema.persons_pdi import PersonsPDITable, persons_pdi_join
-from posthog.hogql.errors import ResolutionError
-from posthog.hogql.visitor import clone_expr
-from posthog.models.organization import Organization
-from posthog.schema import PersonsArgMaxVersion
 from posthog.hogql.database.schema.persons_revenue_analytics import (
     PersonsRevenueAnalyticsTable,
     join_with_persons_revenue_analytics_table,
 )
+from posthog.hogql.database.schema.util.where_clause_extractor import WhereClauseExtractor
+from posthog.hogql.errors import ResolutionError
+from posthog.hogql.parser import parse_select
+from posthog.hogql.visitor import CloningVisitor, clone_expr
 
-from posthog.hogql.visitor import CloningVisitor
+from posthog.models.organization import Organization
 
 PERSONS_FIELDS: dict[str, FieldOrTable] = {
     "id": StringDatabaseField(name="id", nullable=False),

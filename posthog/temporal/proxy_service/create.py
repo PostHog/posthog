@@ -1,15 +1,15 @@
-import datetime as dt
-import ipaddress
 import json
 import math
+import uuid
 import random
 import typing as t
-import uuid
+import datetime as dt
+import ipaddress
 from dataclasses import asdict, dataclass
 
-import dns.resolver
 import grpc.aio
 import requests
+import dns.resolver
 import temporalio.common
 from structlog import get_logger
 from temporalio import activity, workflow
@@ -37,11 +37,7 @@ from posthog.temporal.proxy_service.common import (
     update_record,
 )
 from posthog.temporal.proxy_service.monitor import MonitorManagedProxyInputs
-from posthog.temporal.proxy_service.proto import (
-    CertificateState_READY,
-    CreateRequest,
-    StatusRequest,
-)
+from posthog.temporal.proxy_service.proto import CertificateState_READY, CreateRequest, StatusRequest
 
 LOGGER = get_logger(__name__)
 

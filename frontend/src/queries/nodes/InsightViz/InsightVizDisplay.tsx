@@ -3,10 +3,8 @@ import { useActions, useValues } from 'kea'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
@@ -32,13 +30,12 @@ import { Paths } from 'scenes/paths/Paths'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { TrendInsight } from 'scenes/trends/Trends'
-import { InsightCalendarHeatMapContainer } from 'scenes/web-analytics/CalendarHeatMap/InsightCalendarHeatMapContainer'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { shouldQueryBeAsync } from '~/queries/utils'
-import { ExporterFormat, FunnelVizType, InsightType, ItemMode } from '~/types'
+import { ExporterFormat, FunnelVizType, InsightType } from '~/types'
 
 import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { InsightResultMetadata } from './InsightResultMetadata'
@@ -51,10 +48,10 @@ export function InsightVizDisplay({
     disableLastComputation,
     disableLastComputationRefresh,
     showingResults,
-    insightMode,
     context,
     embedded,
     inSharedMode,
+    editMode,
 }: {
     disableHeader?: boolean
     disableTable?: boolean
@@ -62,14 +59,13 @@ export function InsightVizDisplay({
     disableLastComputation?: boolean
     disableLastComputationRefresh?: boolean
     showingResults?: boolean
-    insightMode?: ItemMode
     context?: QueryContext<InsightVizNode>
     embedded: boolean
     inSharedMode?: boolean
+    editMode?: boolean
 }): JSX.Element | null {
     const { insightProps, canEditInsight, isUsingPathsV1, isUsingPathsV2 } = useValues(insightLogic)
 
-    const { featureFlags } = useValues(featureFlagLogic)
     const { activeView } = useValues(insightNavLogic(insightProps))
 
     const { hasFunnelResults } = useValues(funnelDataLogic(insightProps))
@@ -113,7 +109,7 @@ export function InsightVizDisplay({
         // Insight specific empty states - note order is important here
         if (activeView === InsightType.FUNNELS) {
             if (!isFunnelWithEnoughSteps) {
-                return <FunnelSingleStepState actionable={!embedded && insightMode === ItemMode.Edit} />
+                return <FunnelSingleStepState actionable={!embedded && editMode} />
             }
             if (!hasFunnelResults && !erroredQueryId && !insightDataLoading) {
                 return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
@@ -145,6 +141,7 @@ export function InsightVizDisplay({
                 return (
                     <TrendInsight
                         view={InsightType.TRENDS}
+                        editMode={editMode}
                         context={context}
                         embedded={embedded}
                         inSharedMode={inSharedMode}
@@ -154,6 +151,7 @@ export function InsightVizDisplay({
                 return (
                     <TrendInsight
                         view={InsightType.STICKINESS}
+                        editMode={editMode}
                         context={context}
                         embedded={embedded}
                         inSharedMode={inSharedMode}
@@ -163,16 +161,12 @@ export function InsightVizDisplay({
                 return (
                     <TrendInsight
                         view={InsightType.LIFECYCLE}
+                        editMode={editMode}
                         context={context}
                         embedded={embedded}
                         inSharedMode={inSharedMode}
                     />
                 )
-            case InsightType.CALENDAR_HEATMAP:
-                if (featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT]) {
-                    return <InsightCalendarHeatMapContainer context={context} />
-                }
-                return null
             case InsightType.FUNNELS:
                 return <Funnel inCardView={embedded} inSharedMode={inSharedMode} showPersonsModal={!inSharedMode} />
             case InsightType.RETENTION:
@@ -239,13 +233,10 @@ export function InsightVizDisplay({
 
                     <InsightsTable
                         isLegend
+                        editMode={editMode}
                         filterKey={keyForInsightLogicProps('new')(insightProps)}
-                        canEditSeriesNameInline={!hasFormula && insightMode === ItemMode.Edit}
-                        seriesNameTooltip={
-                            hasFormula && insightMode === ItemMode.Edit
-                                ? 'Formula series names are not editable'
-                                : undefined
-                        }
+                        canEditSeriesNameInline={!hasFormula && editMode}
+                        seriesNameTooltip={hasFormula && editMode ? 'Formula series names are not editable' : undefined}
                         canCheckUncheckSeries={canEditInsight}
                     />
                 </>

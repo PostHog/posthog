@@ -1,26 +1,28 @@
 import datetime
 from typing import cast
-from unittest.mock import patch
 from uuid import uuid4
+
+from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import patch
+
+from posthog.schema import (
+    AssistantToolCallMessage,
+    BillingSpendResponseBreakdownType,
+    BillingUsageResponseBreakdownType,
+    MaxAddonInfo,
+    MaxBillingContext,
+    MaxBillingContextBillingPeriod,
+    MaxBillingContextBillingPeriodInterval,
+    MaxBillingContextSettings,
+    MaxBillingContextSubscriptionLevel,
+    MaxBillingContextTrial,
+    MaxProductInfo,
+    SpendHistoryItem,
+    UsageHistoryItem,
+)
 
 from ee.hogai.graph.billing.nodes import BillingNode
 from ee.hogai.utils.types import AssistantState
-from posthog.schema import (
-    AssistantToolCallMessage,
-    MaxBillingContextBillingPeriod,
-    BillingSpendResponseBreakdownType,
-    BillingUsageResponseBreakdownType,
-    MaxBillingContextBillingPeriodInterval,
-    MaxAddonInfo,
-    MaxBillingContext,
-    MaxProductInfo,
-    MaxBillingContextSettings,
-    SpendHistoryItem,
-    MaxBillingContextSubscriptionLevel,
-    MaxBillingContextTrial,
-    UsageHistoryItem,
-)
-from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 
 class TestBillingNode(ClickhouseTestMixin, BaseTest):
@@ -652,6 +654,7 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
         events_item = next((item for item in aggregated if "Events" in item.label), None)
         self.assertIsNotNone(events_item)
 
+        events_item = cast(UsageHistoryItem, events_item)
         # Should have all 3 unique dates
         self.assertEqual(len(events_item.dates), 3)
         self.assertEqual(events_item.dates, ["2025-02-01", "2025-02-02", "2025-02-03"])

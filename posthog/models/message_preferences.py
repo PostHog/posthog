@@ -1,8 +1,10 @@
-from django.db import models
-from django.core.signing import TimestampSigner, SignatureExpired, BadSignature
-from typing import Optional
-from posthog.models.utils import UUIDTModel
 import uuid
+from typing import Optional
+
+from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
+from django.db import models
+
+from posthog.models.utils import UUIDTModel
 
 ALL_MESSAGE_PREFERENCE_CATEGORY_ID = "$all"
 

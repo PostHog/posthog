@@ -1,14 +1,14 @@
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 
 import pytest
 
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
 from ee.hogai.session_summaries.utils import (
+    estimate_tokens_from_strings,
     get_column_index,
     prepare_datetime,
     serialize_to_sse_event,
     shorten_url,
-    estimate_tokens_from_strings,
 )
 
 

@@ -1,23 +1,23 @@
 from collections.abc import Hashable
-from typing import Literal, Optional, cast, Generic
+from typing import Generic, Literal, Optional, cast
 
 from langchain_core.runnables.base import RunnableLike
 from langgraph.graph.state import StateGraph
 
-from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.graph.query_planner.nodes import QueryPlannerNode, QueryPlannerToolsNode
-from ee.hogai.graph.billing.nodes import BillingNode
-from ee.hogai.graph.session_summaries.nodes import SessionSummarizationNode
-from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
-from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from .funnels.nodes import (
-    FunnelGeneratorNode,
-    FunnelGeneratorToolsNode,
-)
+from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
+from ee.hogai.graph.billing.nodes import BillingNode
+from ee.hogai.graph.query_planner.nodes import QueryPlannerNode, QueryPlannerToolsNode
+from ee.hogai.graph.session_summaries.nodes import SessionSummarizationNode
+from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
+from ee.hogai.utils.types import AssistantNodeName, AssistantState, StateType
+from ee.hogai.utils.types.composed import MaxNodeName
+
+from .funnels.nodes import FunnelGeneratorNode, FunnelGeneratorToolsNode
 from .inkeep_docs.nodes import InkeepDocsNode
+from .insights.nodes import InsightSearchNode
 from .memory.nodes import (
     MemoryCollectorNode,
     MemoryCollectorToolsNode,
@@ -30,15 +30,10 @@ from .memory.nodes import (
 )
 from .query_executor.nodes import QueryExecutorNode
 from .rag.nodes import InsightRagContextNode
-from .retention.nodes import (
-    RetentionGeneratorNode,
-    RetentionGeneratorToolsNode,
-)
+from .retention.nodes import RetentionGeneratorNode, RetentionGeneratorToolsNode
 from .root.nodes import RootNode, RootNodeTools
 from .sql.nodes import SQLGeneratorNode, SQLGeneratorToolsNode
 from .trends.nodes import TrendsGeneratorNode, TrendsGeneratorToolsNode
-from .base import StateType
-from .insights.nodes import InsightSearchNode
 
 global_checkpointer = DjangoCheckpointer()
 
@@ -54,20 +49,31 @@ class BaseAssistantGraph(Generic[StateType]):
         self._graph = StateGraph(state_type)
         self._has_start_node = False
 
-    def add_edge(self, from_node: AssistantNodeName, to_node: AssistantNodeName):
+    def add_edge(self, from_node: MaxNodeName, to_node: MaxNodeName):
         if from_node == AssistantNodeName.START:
             self._has_start_node = True
         self._graph.add_edge(from_node, to_node)
         return self
 
-    def add_node(self, node: AssistantNodeName, action: RunnableLike):
+    def add_node(self, node: MaxNodeName, action: RunnableLike):
         self._graph.add_node(node, action)
         return self
 
-    def compile(self, checkpointer: DjangoCheckpointer | None = None):
+    def compile(self, checkpointer: DjangoCheckpointer | None | Literal[False] = None):
         if not self._has_start_node:
             raise ValueError("Start node not added to the graph")
-        return self._graph.compile(checkpointer=checkpointer or global_checkpointer)
+        # TRICKY: We check `is not None` because False has a special meaning of "no checkpointer", which we want to pass on
+        return self._graph.compile(checkpointer=checkpointer if checkpointer is not None else global_checkpointer)
+
+    def add_title_generator(self, end_node: MaxNodeName = AssistantNodeName.END):
+        builder = self._graph
+        self._has_start_node = True
+
+        title_generator = TitleGeneratorNode(self._team, self._user)
+        builder.add_node(AssistantNodeName.TITLE_GENERATOR, title_generator)
+        builder.add_edge(AssistantNodeName.START, AssistantNodeName.TITLE_GENERATOR)
+        builder.add_edge(AssistantNodeName.TITLE_GENERATOR, end_node)
+        return self
 
 
 class InsightsAssistantGraph(BaseAssistantGraph[AssistantState]):
@@ -258,7 +264,6 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
     def add_memory_onboarding(
         self,
         next_node: AssistantNodeName = AssistantNodeName.ROOT,
-        insights_next_node: AssistantNodeName = AssistantNodeName.INSIGHTS_SUBGRAPH,
     ):
         builder = self._graph
         self._has_start_node = True
@@ -285,15 +290,7 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
                 "continue": next_node,
             },
         )
-
-        builder.add_conditional_edges(
-            AssistantNodeName.MEMORY_ONBOARDING,
-            memory_onboarding.router,
-            path_map={
-                "initialize_memory": AssistantNodeName.MEMORY_INITIALIZER,
-                "onboarding_enquiry": AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY,
-            },
-        )
+        builder.add_edge(AssistantNodeName.MEMORY_ONBOARDING, AssistantNodeName.MEMORY_INITIALIZER)
         builder.add_conditional_edges(
             AssistantNodeName.MEMORY_INITIALIZER,
             memory_initializer.router,
@@ -314,11 +311,7 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         builder.add_edge(
             AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY_INTERRUPT, AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY
         )
-        builder.add_conditional_edges(
-            AssistantNodeName.MEMORY_ONBOARDING_FINALIZE,
-            memory_onboarding_finalize.router,
-            path_map={"continue": next_node, "insights": insights_next_node},
-        )
+        builder.add_edge(AssistantNodeName.MEMORY_ONBOARDING_FINALIZE, next_node)
         return self
 
     def add_memory_collector(
@@ -360,16 +353,6 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
             inkeep_docs_node.router,
             path_map=cast(dict[Hashable, str], path_map),
         )
-        return self
-
-    def add_title_generator(self, end_node: AssistantNodeName = AssistantNodeName.END):
-        builder = self._graph
-        self._has_start_node = True
-
-        title_generator = TitleGeneratorNode(self._team, self._user)
-        builder.add_node(AssistantNodeName.TITLE_GENERATOR, title_generator)
-        builder.add_edge(AssistantNodeName.START, AssistantNodeName.TITLE_GENERATOR)
-        builder.add_edge(AssistantNodeName.TITLE_GENERATOR, end_node)
         return self
 
     def add_billing(self):

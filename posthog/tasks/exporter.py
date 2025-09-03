@@ -1,10 +1,10 @@
 from typing import Optional
 
+from django.db import transaction
+
 import structlog
 from celery import shared_task
 from prometheus_client import Counter, Histogram
-
-from django.db import transaction
 
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.models import ExportedAsset

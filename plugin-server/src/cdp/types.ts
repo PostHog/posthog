@@ -48,6 +48,7 @@ export interface HogFunctionFilters {
     source?: 'events' | 'person-updates' // Special case to identify what kind of thing this filters on
     events?: HogFunctionFilterEvent[]
     actions?: HogFunctionFilterAction[]
+    properties?: Record<string, any>[] // Global property filters that apply to all events
     filter_test_accounts?: boolean
     bytecode?: HogBytecode
 }

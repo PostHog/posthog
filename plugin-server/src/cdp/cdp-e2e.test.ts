@@ -81,7 +81,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
             const hog = `
             let res := fetch(inputs.url, {
                 'headers': {
-                  'Authorization': f'Bearer {inputs.slack.access_token}',
+                  'Authorization': f'Bearer {inputs.oauth.access_token}',
                 },
                 'body': inputs.body,
                 'method': inputs.method
@@ -96,11 +96,11 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                 bytecode: await compileHog(hog),
                 inputs_schema: [
                     ...(HOG_INPUTS_EXAMPLES.simple_fetch.inputs_schema ?? []),
-                    { key: 'slack', type: 'integration', label: 'Slack', secret: false, required: true },
+                    { key: 'oauth', type: 'integration', label: 'Slack', secret: false, required: true },
                 ],
                 inputs: {
                     ...HOG_INPUTS_EXAMPLES.simple_fetch.inputs,
-                    slack: {
+                    oauth: {
                         value: 1,
                     },
                 },

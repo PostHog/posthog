@@ -1,29 +1,8 @@
 from typing import Optional, cast
 
-from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext, get_breakdown_limit_for_context
-from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.property import action_to_expr, property_to_expr
-from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.insights.data_warehouse_mixin import (
-    DataWarehouseInsightQueryMixin,
-)
-from posthog.hogql_queries.insights.trends.aggregation_operations import (
-    AggregationOperations,
-)
-from posthog.hogql_queries.insights.trends.breakdown import (
-    BREAKDOWN_NULL_STRING_LABEL,
-    BREAKDOWN_OTHER_STRING_LABEL,
-    Breakdown,
-)
-from posthog.hogql_queries.insights.trends.display import TrendsDisplay
-from posthog.hogql_queries.insights.trends.utils import series_event_name, is_groups_math
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.action.action import Action
-from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.team.team import Team
 from posthog.schema import (
     ActionsNode,
+    Breakdown as BreakdownSchema,
     ChartDisplayType,
     DataWarehouseNode,
     DataWarehousePropertyFilter,
@@ -31,7 +10,26 @@ from posthog.schema import (
     HogQLQueryModifiers,
     TrendsQuery,
 )
-from posthog.schema import Breakdown as BreakdownSchema
+
+from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext, get_breakdown_limit_for_context
+from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.property import action_to_expr, property_to_expr
+from posthog.hogql.timings import HogQLTimings
+
+from posthog.hogql_queries.insights.data_warehouse_mixin import DataWarehouseInsightQueryMixin
+from posthog.hogql_queries.insights.trends.aggregation_operations import AggregationOperations
+from posthog.hogql_queries.insights.trends.breakdown import (
+    BREAKDOWN_NULL_STRING_LABEL,
+    BREAKDOWN_OTHER_STRING_LABEL,
+    Breakdown,
+)
+from posthog.hogql_queries.insights.trends.display import TrendsDisplay
+from posthog.hogql_queries.insights.trends.utils import is_groups_math, series_event_name
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.action.action import Action
+from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.team.team import Team
 
 
 class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):

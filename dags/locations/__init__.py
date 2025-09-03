@@ -1,8 +1,9 @@
+from django.conf import settings
+
 import dagster
 import dagster_slack
 from dagster_aws.s3.io_manager import s3_pickle_io_manager
 from dagster_aws.s3.resources import S3Resource
-from django.conf import settings
 
 from dags.common import ClickhouseClusterResource
 

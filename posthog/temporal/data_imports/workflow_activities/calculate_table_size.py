@@ -2,6 +2,7 @@ import dataclasses
 
 from django.conf import settings
 from django.db import close_old_connections
+
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 

@@ -1,26 +1,28 @@
 from datetime import datetime
 from typing import cast
+
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
-    SourceFieldInputConfig,
     SourceFieldFileUploadConfig,
-    SourceFieldSwitchGroupConfig,
-    SourceFieldInputConfigType,
     SourceFieldFileUploadJsonFormatConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldSwitchGroupConfig,
+)
+
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
+from posthog.temporal.data_imports.sources.bigquery.bigquery import (
+    bigquery_source,
+    delete_all_temp_destination_tables,
+    delete_table,
+    filter_incremental_fields as filter_bigquery_incremental_fields,
+    get_schemas as get_bigquery_schemas,
+    validate_credentials as validate_bigquery_credentials,
 )
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.bigquery.bigquery import (
-    delete_all_temp_destination_tables,
-    delete_table,
-    validate_credentials as validate_bigquery_credentials,
-    get_schemas as get_bigquery_schemas,
-    filter_incremental_fields as filter_bigquery_incremental_fields,
-    bigquery_source,
-)
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.generated_configs import BigQuerySourceConfig
 from posthog.warehouse.types import ExternalDataSourceType
 

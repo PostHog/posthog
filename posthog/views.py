@@ -1,9 +1,8 @@
-from datetime import timedelta
 import os
+from datetime import timedelta
 from functools import partial, wraps
 from typing import Union
 
-from posthog.exceptions_capture import capture_exception
 from django.apps import apps
 from django.conf import settings
 from django.contrib.admin.sites import site as admin_site
@@ -11,20 +10,29 @@ from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required as base_login_required
 from django.db import DEFAULT_DB_ALIAS, connections
-from django.db.models import Q
 from django.db.migrations.executor import MigrationExecutor
+from django.db.models import Q
 from django.http import HttpRequest, HttpResponse, HttpResponseNotAllowed, JsonResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import csrf_protect
 from django.views.decorators.http import require_http_methods
 
+import structlog
 
 from posthog.cloud_utils import is_cloud
 from posthog.email import is_email_available
+from posthog.exceptions_capture import capture_exception
 from posthog.health import is_clickhouse_connected, is_kafka_connected
 from posthog.models import Organization, User
 from posthog.models.integration import SlackIntegration
+from posthog.models.message_category import MessageCategory
+from posthog.models.message_preferences import (
+    ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
+    MessageRecipientPreference,
+    PreferenceStatus,
+)
+from posthog.models.personal_api_key import find_personal_api_key
 from posthog.redis import get_client
 from posthog.utils import (
     get_available_timezones_with_offsets,
@@ -39,17 +47,6 @@ from posthog.utils import (
     is_postgres_alive,
     is_redis_alive,
 )
-from posthog.models.message_preferences import (
-    ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
-    MessageRecipientPreference,
-    PreferenceStatus,
-)
-from posthog.models.message_category import MessageCategory
-from posthog.models.personal_api_key import find_personal_api_key
-
-
-import structlog
-
 
 logger = structlog.get_logger(__name__)
 

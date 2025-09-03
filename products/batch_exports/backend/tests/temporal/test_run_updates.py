@@ -1,17 +1,13 @@
 import datetime as dt
 
 import pytest
+
 from asgiref.sync import sync_to_async
 from flaky import flaky
 
 from posthog.batch_exports.service import disable_and_delete_export, sync_batch_export
-from posthog.models import (
-    BatchExport,
-    BatchExportDestination,
-    BatchExportRun,
-    Organization,
-    Team,
-)
+from posthog.models import BatchExport, BatchExportDestination, BatchExportRun, Organization, Team
+
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
     StartBatchExportRunInputs,
