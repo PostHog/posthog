@@ -101,13 +101,14 @@ export function HogFunctionList({
                 render: (_, hogFunction) => {
                     if (hogFunction.id.startsWith('batch-export-')) {
                         // TODO: Make this less hacky, maybe with some extended type for managing these values
+                        const batchExportId = hogFunction.id.replace('batch-export-', '')
                         return (
                             <Link to={urlForHogFunction(hogFunction) + '?tab=metrics'}>
                                 <AppMetricsSparkline
-                                    logicKey={hogFunction.id.replace('batch-export-', '')}
+                                    logicKey={batchExportId}
                                     forceParams={{
                                         appSource: 'batch_export',
-                                        appSourceId: hogFunction.id,
+                                        appSourceId: batchExportId,
                                         metricKind: ['success', 'failure'],
                                         breakdownBy: 'metric_kind',
                                         interval: 'day',

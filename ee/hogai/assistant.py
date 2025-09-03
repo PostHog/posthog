@@ -38,7 +38,6 @@ from ee.hogai.graph import (
     AssistantGraph,
     FunnelGeneratorNode,
     InsightsAssistantGraph,
-    MemoryInitializerNode,
     QueryExecutorNode,
     RetentionGeneratorNode,
     SchemaGeneratorNode,
@@ -113,6 +112,7 @@ VERBOSE_NODES: set[MaxNodeName] = STREAMING_NODES | {
 
 THINKING_NODES: set[MaxNodeName] = {
     AssistantNodeName.QUERY_PLANNER,
+    AssistantNodeName.MEMORY_INITIALIZER,
     TaxonomyNodeName.LOOP_NODE,
     AssistantNodeName.SESSION_SUMMARIZATION,
 }
@@ -516,9 +516,6 @@ class Assistant:
             # Merge message chunks
             self._merge_message_chunk(langchain_message)
 
-            if node_name == AssistantNodeName.MEMORY_INITIALIZER:
-                return self._process_memory_initializer_chunk(langchain_message)
-
             # Extract and process content
             message_content = extract_content_from_ai_message(self._chunks)
             if not message_content:
@@ -547,12 +544,6 @@ class Assistant:
         else:
             # Compatible types - merge normally
             self._chunks += langchain_message  # type: ignore
-
-    def _process_memory_initializer_chunk(self, langchain_message: AIMessageChunk) -> Optional[AssistantMessage]:
-        """Process memory initializer specific chunk logic."""
-        if not MemoryInitializerNode.should_process_message_chunk(langchain_message):
-            return None
-        return AssistantMessage(content=MemoryInitializerNode.format_message(cast(str, self._chunks.content)))
 
     def _create_notebook_update_message(self, content: str) -> Optional[NotebookUpdateMessage]:
         """Create a notebook update message from markdown content."""

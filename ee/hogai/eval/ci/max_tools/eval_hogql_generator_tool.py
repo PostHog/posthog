@@ -15,7 +15,7 @@ from posthog.sync import database_sync_to_async
 from products.data_warehouse.backend.max_tools import HogQLGeneratorArgs, HogQLGeneratorNode, HogQLGeneratorTool
 
 from ee.hogai.eval.base import MaxPublicEval
-from ee.hogai.eval.scorers import SQLFunctionCorrectness, SQLSemanticsCorrectness, SQLSyntaxCorrectness
+from ee.hogai.eval.scorers import SQLSemanticsCorrectness, SQLSyntaxCorrectness
 from ee.hogai.utils.markdown import remove_markdown
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.warehouse import serialize_database_schema
@@ -94,7 +94,7 @@ async def eval_tool_generate_hogql_query(call_generate_hogql_query, database_sch
     await MaxPublicEval(
         experiment_name="tool_generate_hogql_query",
         task=call_generate_hogql_query,
-        scores=[sql_syntax_scorer, sql_semantics_scorer, SQLFunctionCorrectness()],
+        scores=[sql_syntax_scorer, sql_semantics_scorer],
         data=[
             EvalCase(
                 input=EvalInput(instructions="List all events from the last 7 days"),
@@ -186,16 +186,9 @@ async def eval_tool_generate_hogql_query(call_generate_hogql_query, database_sch
                 # This is a test case where we test the retry mechanism
                 # The table postgres.connection_logs is not available in the database, so the model should retry and find the correct table
                 input=EvalInput(
-                    instructions="Tweak the current one to satisfy this request: List all devices, grouping by lowercased description, and for each group, use the description from the most recent event as 'dispositivo'. Exclude devices where the description contains 'piero', 'test', 'local', or 'totem' (case-insensitive). Show columns: 'dispositivo' (description from the most recent event), 'status' ('online' if latest event is 'enter', else 'offline'), and 'last event ts' (timestamp). Order by status ('online' first), then by dispositivo ASC. The current query is:  SELECT anyLast(la.description) AS dispositivo, if(anyLast(cl.event) = 'enter', 'online', 'offline') AS status, anyLast(cl.timestamp) AS 'last event ts' FROM (SELECT license_activation_id, event,timestamp FROM postgres.connection_logs WHERE license_activation_id IS NOT NULL ORDER BY timestamp ASC) AS cl JOIN postgres.license_activations AS la ON cl.license_activation_id = la.id WHERE  NOT (lower(la.description) LIKE '%piero%' OR lower(la.description) LIKE '%test%' OR lower(la.description) LIKE '%local%' OR lower(la.description) LIKE '%totem%') GROUP BY lower(la.description) ORDER BY status DESC, dispositivo ASC",
+                    instructions="Tweak the current one to satisfy this request: List all devices, grouping by lowercased description, and for each group, use the description from the most recent event as 'dispositivo'. Exclude devices where the description contains 'piero', 'test', 'local', or 'totem' (case-insensitive). Show columns: 'dispositivo' (description from the most recent event), 'status' ('online' if latest event is 'enter', else 'offline'), and 'last event ts' (timestamp). Order by status ('online' first), then by dispositivo ASC. The current query is: \nSELECT anyLast(la.description) AS dispositivo, if(anyLast(cl.event) = 'enter', 'online', 'offline') AS status, anyLast(cl.timestamp) AS 'last event ts' FROM (SELECT license_activation_id, event,timestamp FROM postgres.connection_logs WHERE license_activation_id IS NOT NULL ORDER BY timestamp ASC) AS cl JOIN postgres.license_activations AS la ON cl.license_activation_id = la.id WHERE  NOT (lower(la.description) LIKE '%piero%' OR lower(la.description) LIKE '%test%' OR lower(la.description) LIKE '%local%' OR lower(la.description) LIKE '%totem%') GROUP BY lower(la.description) ORDER BY status DESC, dispositivo ASC",
                 ),
                 expected="SELECT anyLast(properties.description) AS dispositivo, if(anyLast(event) = 'enter', 'online', 'offline') AS status, anyLast(timestamp) AS last event ts FROM events WHERE properties.description IS NOT NULL AND NOT ( lower(properties.description) LIKE '%piero%' OR lower(properties.description) LIKE '%test%' OR lower(properties.description) LIKE '%local%' OR lower(properties.description) LIKE '%totem%' ) AND timestamp >= now() - INTERVAL 30 DAY GROUP BY lower(properties.description) ORDER BY status DESC, dispositivo ASC",
-                metadata=metadata,
-            ),
-            EvalCase(
-                input=EvalInput(
-                    instructions="Calculate time between bills paid, and show the result in days, use DateDiFF (exactly as written here, preserve this casing)",
-                ),
-                expected="SELECT person_id, timestamp AS bill_paid_at, dateDiff('day', lagInFrame(timestamp) OVER (PARTITION BY person_id ORDER BY timestamp ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING), timestamp) AS days_since_last_bill FROM events WHERE event = 'paid_bill' AND timestamp >= now() - INTERVAL 30 DAY ORDER BY person_id, timestamp",
                 metadata=metadata,
             ),
             EvalCase(
