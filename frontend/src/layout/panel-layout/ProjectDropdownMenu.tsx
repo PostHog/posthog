@@ -52,7 +52,7 @@ export function ProjectDropdownMenu({
     const { featureFlags } = useValues(featureFlagLogic)
 
     if (featureFlags[FEATURE_FLAGS.ENVIRONMENTS]) {
-        return <EnvironmentSwitcherOverlay buttonProps={buttonProps} />
+        return <EnvironmentSwitcherOverlay buttonProps={buttonProps} iconOnly={iconOnly} />
     }
 
     return isAuthenticatedTeam(currentTeam) ? (
