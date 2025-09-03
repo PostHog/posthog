@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import django.utils.timezone
 
+import orjson
 from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 
@@ -18,6 +19,9 @@ from posthog.schema import SurveyCreationSchema, SurveyQuestionSchema, SurveyQue
 from posthog.models import FeatureFlag, Survey
 
 from .max_tools import CreateSurveyTool, SurveyAnalysisTool, SurveyLoopNode, SurveyToolkit
+
+# Constants
+OPENAI_PATCH_PATH = "products.surveys.backend.max_tools.MaxChatOpenAI"
 
 
 class TestSurveyCreatorTool(BaseTest):
@@ -519,15 +523,11 @@ class TestSurveyAnalysisTool(BaseTest):
                     "responses": [
                         {
                             "responseText": "Great product",
-                            "userDistinctId": "user1",
-                            "email": "user1@test.com",
                             "timestamp": "2023-01-01T00:00:00Z",
                             "isOpenEnded": True,
                         },
                         {
                             "responseText": "Could be better",
-                            "userDistinctId": "user2",
-                            "email": None,
                             "timestamp": "2023-01-01T00:00:00Z",
                             "isOpenEnded": True,
                         },
@@ -539,8 +539,6 @@ class TestSurveyAnalysisTool(BaseTest):
                     "responses": [
                         {
                             "responseText": "Add dark mode",
-                            "userDistinctId": "user3",
-                            "email": "user3@test.com",
                             "timestamp": "2023-01-01T00:00:00Z",
                             "isOpenEnded": True,
                         },
@@ -561,11 +559,10 @@ class TestSurveyAnalysisTool(BaseTest):
         # Test individual response properties
         first_response = responses[0].responses[0]
         assert first_response.responseText == "Great product"
-        assert first_response.userDistinctId == "user1"
-        assert first_response.email == "user1@test.com"
+        assert first_response.timestamp == "2023-01-01T00:00:00Z"
         assert first_response.isOpenEnded
 
-    @patch("products.surveys.backend.max_tools.MaxChatOpenAI")
+    @patch(OPENAI_PATCH_PATH)
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_analyze_responses_success(self, mock_chat_openai):
@@ -597,22 +594,16 @@ class TestSurveyAnalysisTool(BaseTest):
                 responses=[
                     SurveyAnalysisResponseItem(
                         responseText="Great UI design",
-                        userDistinctId="user1",
-                        email="user1@test.com",
                         timestamp="2023-01-01T00:00:00Z",
                         isOpenEnded=True,
                     ),
                     SurveyAnalysisResponseItem(
                         responseText="Slow loading",
-                        userDistinctId="user2",
-                        email=None,
                         timestamp="2023-01-01T00:00:00Z",
                         isOpenEnded=True,
                     ),
                     SurveyAnalysisResponseItem(
                         responseText="Add dark mode",
-                        userDistinctId="user3",
-                        email="user3@test.com",
                         timestamp="2023-01-01T00:00:00Z",
                         isOpenEnded=True,
                     ),
@@ -669,9 +660,9 @@ class TestSurveyAnalysisTool(BaseTest):
                 # Parse the LLM response - this should trigger JSONDecodeError
                 try:
                     content = response.content if isinstance(response.content, str) else str(response.content)
-                    __import__("orjson").loads(content.strip())
+                    orjson.loads(content.strip())
                     # Won't reach here
-                except __import__("orjson").JSONDecodeError:
+                except orjson.JSONDecodeError:
                     # Fallback if LLM doesn't return valid JSON
                     from products.surveys.backend.max_tools import SurveyAnalysisOutput
 
@@ -707,8 +698,6 @@ class TestSurveyAnalysisTool(BaseTest):
                 responses=[
                     SurveyAnalysisResponseItem(
                         responseText="Good",
-                        userDistinctId="user1",
-                        email=None,
                         timestamp="2023-01-01T00:00:00Z",
                         isOpenEnded=True,
                     )
@@ -723,7 +712,7 @@ class TestSurveyAnalysisTool(BaseTest):
         assert result.sentiment == "neutral"
         assert "LLM Analysis" in result.insights[0]
 
-    @patch("products.surveys.backend.max_tools.MaxChatOpenAI")
+    @patch(OPENAI_PATCH_PATH)
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_analyze_responses_llm_error(self, mock_chat_openai):
@@ -745,8 +734,6 @@ class TestSurveyAnalysisTool(BaseTest):
                 responses=[
                     SurveyAnalysisResponseItem(
                         responseText="Good",
-                        userDistinctId="user1",
-                        email=None,
                         timestamp="2023-01-01T00:00:00Z",
                         isOpenEnded=True,
                     )
@@ -826,7 +813,7 @@ class TestSurveyAnalysisTool(BaseTest):
         assert "❌ Analysis failed" in formatted
         assert "LLM analysis failed due to API timeout" in formatted
 
-    @patch("products.surveys.backend.max_tools.MaxChatOpenAI")
+    @patch(OPENAI_PATCH_PATH)
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_arun_impl_no_responses(self, mock_chat_openai):
@@ -855,7 +842,7 @@ class TestSurveyAnalysisTool(BaseTest):
         # LLM should not be called
         mock_chat_openai.return_value.ainvoke.assert_not_called()
 
-    @patch("products.surveys.backend.max_tools.MaxChatOpenAI")
+    @patch(OPENAI_PATCH_PATH)
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_arun_impl_success_flow(self, mock_chat_openai):
@@ -934,7 +921,7 @@ class TestSurveyAnalysisTool(BaseTest):
         # Verify LLM was called
         mock_chat_openai.return_value.ainvoke.assert_called_once()
 
-    @patch("products.surveys.backend.max_tools.MaxChatOpenAI")
+    @patch(OPENAI_PATCH_PATH)
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_arun_impl_handles_llm_failure(self, mock_chat_openai):

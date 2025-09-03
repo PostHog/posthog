@@ -23960,22 +23960,22 @@
             "required": ["questions"],
             "type": "object"
         },
-        "SurveyAnalysisData": {
-            "items": {
-                "$ref": "#/definitions/SurveyAnalysisQuestionGroup"
-            },
-            "type": "array"
-        },
         "SurveyAnalysisQuestionGroup": {
             "additionalProperties": false,
             "properties": {
                 "questionId": {
+                    "default": "unknown",
+                    "description": "Question identifier",
                     "type": "string"
                 },
                 "questionName": {
+                    "default": "Unknown question",
+                    "description": "Question text",
                     "type": "string"
                 },
                 "responses": {
+                    "default": [],
+                    "description": "List of responses for this question",
                     "items": {
                         "$ref": "#/definitions/SurveyAnalysisResponseItem"
                     },
@@ -23989,18 +23989,28 @@
             "additionalProperties": false,
             "properties": {
                 "email": {
+                    "default": null,
+                    "description": "User email if available",
                     "type": ["string", "null"]
                 },
                 "isOpenEnded": {
+                    "default": true,
+                    "description": "Whether this is an open-ended response",
                     "type": "boolean"
                 },
                 "responseText": {
+                    "default": "",
+                    "description": "The response text content",
                     "type": "string"
                 },
                 "timestamp": {
+                    "default": "",
+                    "description": "Response timestamp",
                     "type": "string"
                 },
                 "userDistinctId": {
+                    "default": "anonymous",
+                    "description": "User identifier",
                     "type": "string"
                 }
             },

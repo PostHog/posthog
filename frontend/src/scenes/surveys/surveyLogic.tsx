@@ -29,19 +29,21 @@ import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepa
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
 import { CompareFilter, DataTableNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { SurveyAnalysisData, SurveyAnalysisResponseItem } from '~/queries/schema/schema-surveys'
+import { SurveyAnalysisQuestionGroup, SurveyAnalysisResponseItem } from '~/queries/schema/schema-surveys'
 import { HogQLQueryString } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     BaseMathType,
     Breadcrumb,
     ChoiceQuestionProcessedResponses,
+    ChoiceQuestionResponseData,
     ConsolidatedSurveyResults,
     EventPropertyFilter,
     FeatureFlagFilters,
     IntervalType,
     MultipleSurveyQuestion,
     OpenQuestionProcessedResponses,
+    OpenQuestionResponseData,
     ProductKey,
     ProjectTreeRef,
     PropertyFilterType,
@@ -1737,21 +1739,22 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
         formattedOpenEndedResponses: [
             (s) => [s.consolidatedSurveyResults, s.survey],
-            (consolidatedResults: ConsolidatedSurveyResults, survey: Survey | NewSurvey): SurveyAnalysisData => {
+            (
+                consolidatedResults: ConsolidatedSurveyResults,
+                survey: Survey | NewSurvey
+            ): SurveyAnalysisQuestionGroup[] => {
                 if (!consolidatedResults?.responsesByQuestion || !survey.questions) {
                     return []
                 }
 
-                // Helper function to extract user information consistently
-                const extractUserInfo = (
-                    response: any
-                ): { email: string | null; userDistinctId: string; timestamp: string } => ({
-                    email: response.personProperties?.email || null,
-                    userDistinctId: response.distinctId,
-                    timestamp: response.timestamp,
+                // Helper function to extract response info
+                const extractResponseInfo = (
+                    response: OpenQuestionResponseData | ChoiceQuestionResponseData
+                ): { timestamp: string } => ({
+                    timestamp: response.timestamp ?? '',
                 })
 
-                const responsesByQuestion: SurveyAnalysisData = []
+                const responsesByQuestion: SurveyAnalysisQuestionGroup[] = []
 
                 Object.entries(consolidatedResults.responsesByQuestion).forEach(([questionId, processedData]) => {
                     const question = survey.questions.find((q) => q.id === questionId)
@@ -1767,10 +1770,10 @@ export const surveyLogic = kea<surveyLogicType>([
 
                         openData.data.forEach((response) => {
                             if (response.response?.trim()) {
-                                const userInfo = extractUserInfo(response)
+                                const responseInfo = extractResponseInfo(response)
                                 questionResponses.push({
                                     responseText: response.response.trim(),
-                                    ...userInfo,
+                                    ...responseInfo,
                                     isOpenEnded: true,
                                 })
                             }
@@ -1784,10 +1787,10 @@ export const surveyLogic = kea<surveyLogicType>([
 
                         choiceData.data.forEach((item) => {
                             if (!item.isPredefined && item.label?.trim()) {
-                                const userInfo = extractUserInfo(item)
+                                const responseInfo = extractResponseInfo(item)
                                 questionResponses.push({
                                     responseText: item.label.trim(),
-                                    ...userInfo,
+                                    ...responseInfo,
                                     isOpenEnded: true,
                                 })
                             }

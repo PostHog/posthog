@@ -56,6 +56,7 @@ import {
 import { SurveysDisabledBanner } from './SurveySettings'
 
 const RESOURCE_TYPE = 'survey'
+const NUM_OF_RESPONSES_FOR_MAX_ANALYSIS_TOOL = 10
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading } = useValues(surveyLogic)
@@ -431,40 +432,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
 }
 
 function SurveyResponsesByQuestionV2(): JSX.Element {
-    const { survey } = useValues(surveyLogic)
-
-    return (
-        <div className="flex flex-col gap-2">
-            {survey.questions.map((question, i) => {
-                if (!question.id || question.type === SurveyQuestionType.Link) {
-                    return null
-                }
-                return (
-                    <div key={question.id} className="flex flex-col gap-2">
-                        <SurveyQuestionVisualization question={question} questionIndex={i} />
-                        <LemonDivider />
-                    </div>
-                )
-            })}
-        </div>
-    )
-}
-
-const NUM_OF_RESPONSES_FOR_MAX_ANALYSIS_TOOL = 10
-
-export function SurveyResult({ disableEventsTable }: { disableEventsTable?: boolean }): JSX.Element {
-    const {
-        dataTableQuery,
-        surveyLoading,
-        surveyAsInsightURL,
-        isAnyResultsLoading,
-        processedSurveyStats,
-        survey,
-        formattedOpenEndedResponses,
-        isSurveyAnalysisMaxToolEnabled,
-    } = useValues(surveyLogic)
-
-    const atLeastOneResponse = !!processedSurveyStats?.[SurveyEventName.SENT].total_count
+    const { survey, isSurveyAnalysisMaxToolEnabled, formattedOpenEndedResponses } = useValues(surveyLogic)
 
     const maxToolContext = useMemo(
         () => ({
@@ -475,23 +443,45 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         [survey.id, survey.name, formattedOpenEndedResponses]
     )
 
+    const shouldShowMaxAnalysisTool = useMemo(() => {
+        if (!isSurveyAnalysisMaxToolEnabled) {
+            return false
+        }
+        const totalResponses = formattedOpenEndedResponses.reduce((acc, curr) => acc + curr.responses.length, 0)
+        return totalResponses >= NUM_OF_RESPONSES_FOR_MAX_ANALYSIS_TOOL
+    }, [isSurveyAnalysisMaxToolEnabled, formattedOpenEndedResponses])
+
+    return (
+        <MaxTool identifier="analyze_survey_responses" context={maxToolContext} active={shouldShowMaxAnalysisTool}>
+            <div className="flex flex-col gap-2">
+                {survey.questions.map((question, i) => {
+                    if (!question.id || question.type === SurveyQuestionType.Link) {
+                        return null
+                    }
+                    return (
+                        <div key={question.id} className="flex flex-col gap-2">
+                            <SurveyQuestionVisualization question={question} questionIndex={i} />
+                            <LemonDivider />
+                        </div>
+                    )
+                })}
+            </div>
+        </MaxTool>
+    )
+}
+
+export function SurveyResult({ disableEventsTable }: { disableEventsTable?: boolean }): JSX.Element {
+    const { dataTableQuery, surveyLoading, surveyAsInsightURL, isAnyResultsLoading, processedSurveyStats } =
+        useValues(surveyLogic)
+
+    const atLeastOneResponse = !!processedSurveyStats?.[SurveyEventName.SENT].total_count
     return (
         <div className="deprecated-space-y-4">
             <SurveyResponseFilters />
             <SurveyStatsSummary />
             {isAnyResultsLoading || atLeastOneResponse ? (
                 <>
-                    <MaxTool
-                        identifier="analyze_survey_responses"
-                        context={maxToolContext}
-                        active={
-                            isSurveyAnalysisMaxToolEnabled &&
-                            formattedOpenEndedResponses.reduce((acc, curr) => acc + curr.responses.length, 0) >=
-                                NUM_OF_RESPONSES_FOR_MAX_ANALYSIS_TOOL
-                        }
-                    >
-                        <SurveyResponsesByQuestionV2 />
-                    </MaxTool>
+                    <SurveyResponsesByQuestionV2 />
                     <LemonButton
                         type="primary"
                         data-attr="survey-results-explore"

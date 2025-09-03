@@ -2,16 +2,15 @@
 MaxTool for AI-powered survey creation.
 """
 
-from typing import Any
+from typing import Any, Literal
 
 import django.utils.timezone
 
-import orjson
 from asgiref.sync import async_to_sync
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
-from posthog.schema import SurveyAnalysisQuestionGroup, SurveyAnalysisResponseItem, SurveyCreationSchema
+from posthog.schema import SurveyAnalysisQuestionGroup, SurveyCreationSchema
 
 from posthog.constants import DEFAULT_SURVEY_APPEARANCE
 from posthog.exceptions_capture import capture_exception
@@ -293,14 +292,26 @@ class SurveyAnalysisArgs(BaseModel):
     """
 
 
+class QuestionBreakdown(BaseModel):
+    """Analysis breakdown for a specific question"""
+
+    theme: str = Field(description="Main theme for this question")
+    sentiment: Literal["positive", "negative", "mixed", "neutral"] = Field(
+        description="Sentiment for this question", default="neutral"
+    )
+    key_insights: list[str] = Field(description="Key insights for this question")
+
+
 class SurveyAnalysisOutput(BaseModel):
     themes: list[str] = Field(description="Key themes identified from responses")
-    sentiment: str = Field(description="Overall sentiment analysis (positive/negative/neutral)")
+    sentiment: Literal["positive", "negative", "mixed", "neutral"] = Field(
+        description="Overall sentiment analysis", default="neutral"
+    )
     insights: list[str] = Field(description="Actionable insights derived from the data")
     recommendations: list[str] = Field(description="Specific recommendations based on analysis")
-    response_count: int = Field(description="Total number of open-ended responses analyzed")
-    question_breakdown: dict[str, dict[str, Any]] = Field(
-        description="Analysis breakdown by question ID", default_factory=dict
+    response_count: int = Field(description="Total number of open-ended responses analyzed", default=0)
+    question_breakdown: dict[str, QuestionBreakdown] | None = Field(
+        description="Analysis breakdown by question ID", default=None
     )
 
 
@@ -318,9 +329,13 @@ class SurveyAnalysisTool(MaxTool):
 
     args_schema: type[BaseModel] = SurveyAnalysisArgs
 
-    def _extract_open_ended_responses(self) -> list[SurveyAnalysisQuestionGroup]:
+    def _extract_open_ended_responses(self, max_responses_per_question: int = 50) -> list[SurveyAnalysisQuestionGroup]:
         """
-        Extract all open-ended text responses from the context data provided by frontend.
+        Extract ONLY open-ended text responses from the context data provided by frontend.
+
+        NOTE: Frontend pre-filters and sends only open-ended questions (SurveyQuestionType.Open).
+        Non-open-ended questions (single choice, rating, etc.) are not included in the analysis.
+        This method limits responses per question to prevent token overflow in LLM calls.
 
         The frontend provides responses grouped by question in this format:
         [
@@ -328,11 +343,14 @@ class SurveyAnalysisTool(MaxTool):
             questionName: "What do you think?",
             questionId: "123",
             responses: [
-              {responseText: "Great!", userDistinctId: "user1", email: "user@example.com", isOpenEnded: true},
-              {responseText: "Good", userDistinctId: "user2", email: null, isOpenEnded: true}
+              {responseText: "Great!", timestamp: "2024-01-01T00:00:00Z", isOpenEnded: true},
+              {responseText: "Good", timestamp: "2024-01-01T00:00:00Z", isOpenEnded: true}
             ]
           }
         ]
+
+        Args:
+            max_responses_per_question: Maximum number of responses to include per question to manage token usage
         """
         try:
             context = self.context or {}
@@ -343,44 +361,38 @@ class SurveyAnalysisTool(MaxTool):
 
             # Convert to proper typed format
 
+            # Use model_validate for cleaner conversion
             typed_responses: list[SurveyAnalysisQuestionGroup] = []
             for group in raw_responses:
                 if isinstance(group, dict):
-                    # Convert dict to proper typed object
-                    responses_data = []
-                    for response in group.get("responses", []):
-                        if isinstance(response, dict):
-                            responses_data.append(
-                                SurveyAnalysisResponseItem(
-                                    responseText=response.get("responseText", ""),
-                                    userDistinctId=response.get("userDistinctId", "anonymous"),
-                                    email=response.get("email"),
-                                    timestamp=response.get("timestamp", ""),
-                                    isOpenEnded=response.get("isOpenEnded", True),
-                                )
-                            )
-                        else:
-                            responses_data.append(response)
+                    # Limit responses per question to manage token usage
+                    raw_group_responses = group.get("responses", [])
+                    limited_responses = raw_group_responses[:max_responses_per_question]
 
+                    # Frontend provides properly structured data
+                    group_data = {**group, "responses": limited_responses}
+                    typed_responses.append(SurveyAnalysisQuestionGroup.model_validate(group_data))
+                else:
+                    # Already typed - still need to limit responses
+                    limited_responses = (
+                        group.responses[:max_responses_per_question] if hasattr(group, "responses") else []
+                    )
                     typed_responses.append(
-                        SurveyAnalysisQuestionGroup(
-                            questionName=group.get("questionName", "Unknown question"),
-                            questionId=group.get("questionId", "unknown"),
-                            responses=responses_data,
+                        SurveyAnalysisQuestionGroup.model_validate(
+                            {
+                                "questionName": group.questionName,
+                                "questionId": group.questionId,
+                                "responses": limited_responses,
+                            }
                         )
                     )
-                else:
-                    # Already typed
-                    typed_responses.append(group)
 
             return typed_responses
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
             return []
 
-    async def _analyze_responses(
-        self, question_groups: list[SurveyAnalysisQuestionGroup], analysis_focus: str
-    ) -> SurveyAnalysisOutput:
+    async def _analyze_responses(self, question_groups: list[SurveyAnalysisQuestionGroup]) -> SurveyAnalysisOutput:
         """
         Analyze the extracted responses using LLM to generate themes, sentiment, and insights.
 
@@ -403,7 +415,7 @@ class SurveyAnalysisTool(MaxTool):
                 insights=["No open-ended responses found to analyze."],
                 recommendations=["Consider adding open-ended questions to gather more detailed feedback."],
                 response_count=0,
-                question_breakdown={},
+                question_breakdown=None,
             )
 
         # Count total responses across all questions
@@ -413,43 +425,24 @@ class SurveyAnalysisTool(MaxTool):
             # Format the data for LLM analysis
             formatted_data = self._format_responses_for_llm(question_groups)
 
-            # Initialize LLM with PostHog context
+            # Initialize LLM with PostHog context and structured output
             llm = MaxChatOpenAI(
                 user=self._user,
                 team=self._team,
                 model="gpt-4.1",
                 temperature=0.1,  # Lower temperature for consistent analysis
-            )
+            ).with_structured_output(SurveyAnalysisOutput)
 
             # Create the analysis prompt by directly substituting the data
             formatted_prompt = SURVEY_ANALYSIS_SYSTEM_PROMPT.replace("{{{survey_responses}}}", formatted_data)
 
-            # Generate analysis
-            response = await llm.ainvoke([{"role": "system", "content": formatted_prompt}])
+            # Generate analysis with structured output
+            analysis_result = await llm.ainvoke([{"role": "system", "content": formatted_prompt}])
 
-            # Parse the LLM response
-            try:
-                content = response.content if isinstance(response.content, str) else str(response.content)
-                analysis_result = orjson.loads(content.strip())
+            # Ensure response_count is accurate (don't rely on LLM calculation)
+            analysis_result.response_count = total_response_count
 
-                return SurveyAnalysisOutput(
-                    themes=analysis_result.get("themes", []),
-                    sentiment=analysis_result.get("sentiment", "neutral"),
-                    insights=analysis_result.get("insights", []),
-                    recommendations=analysis_result.get("recommendations", []),
-                    response_count=analysis_result.get("response_count", total_response_count),
-                    question_breakdown=analysis_result.get("question_breakdown", {}),
-                )
-            except orjson.JSONDecodeError:
-                # Fallback if LLM doesn't return valid JSON
-                return SurveyAnalysisOutput(
-                    themes=["Analysis completed"],
-                    sentiment="neutral",
-                    insights=[f"LLM Analysis: {response.content[:200]}..."],
-                    recommendations=["Review the full analysis for detailed insights"],
-                    response_count=total_response_count,
-                    question_breakdown={},
-                )
+            return analysis_result
 
         except Exception as e:
             # Don't mask the error - let the user know something went wrong
@@ -463,31 +456,30 @@ class SurveyAnalysisTool(MaxTool):
                 insights=[error_message],
                 recommendations=["Try the analysis again, or contact support if the issue persists"],
                 response_count=total_response_count,
-                question_breakdown={},
+                question_breakdown=None,
             )
 
     def _format_responses_for_llm(self, question_groups: list[SurveyAnalysisQuestionGroup]) -> str:
-        """Format the grouped responses into a clean string for LLM analysis."""
+        """
+        Format the grouped responses into a token-efficient string for LLM analysis.
+        Optimized to reduce token usage by avoiding repetition and using compact formatting.
+        """
         formatted_sections = []
 
         for group in question_groups:
-            # Access typed properties directly
             question_name = group.questionName
             responses = group.responses
 
-            formatted_sections.append(f'Question: "{question_name}"')
-            formatted_sections.append("Responses:")
+            formatted_sections.append(f'Q: "{question_name}"')
 
+            # Group responses without repeating question for each response
+            response_texts = []
             for response in responses:
-                # Access typed properties directly
                 response_text = response.responseText
-                user_id = response.userDistinctId
-                email = response.email
+                # Include only response text for analysis
+                response_texts.append(f'"{response_text}"')
 
-                # Format user identifier
-                user_identifier = email if email else f"user:{user_id}"
-                formatted_sections.append(f'- "{response_text}" ({user_identifier})')
-
+            formatted_sections.append("Responses:\n" + "\n".join(f"- {text}" for text in response_texts))
             formatted_sections.append("")  # Empty line between questions
 
         return "\n".join(formatted_sections)
@@ -534,9 +526,7 @@ class SurveyAnalysisTool(MaxTool):
         if analysis.question_breakdown:
             lines.append("**Question Breakdown:**")
             for question, breakdown in list(analysis.question_breakdown.items())[:3]:  # Top 3 questions
-                lines.append(
-                    f"• **{question}**: {breakdown.get('theme', 'No theme')} ({breakdown.get('sentiment', 'neutral')})"
-                )
+                lines.append(f"• **{question}**: {breakdown.theme} ({breakdown.sentiment})")
             lines.append("")
 
         lines.append("💡 *Need more detail? Ask me to dive deeper into any specific aspect.*")
@@ -548,13 +538,11 @@ class SurveyAnalysisTool(MaxTool):
         Analyze survey responses to extract actionable insights from open-ended questions.
         All survey data and responses come from the context provided by the frontend.
         """
-        analysis_focus = "comprehensive"  # Default analysis type
-
         try:
             # Get survey info from context
             survey_id = self.context.get("survey_id")
             survey_name = self.context.get("survey_name", "Unknown Survey")
-            # responses has to be JSON-parsed from the context
+            # Extract only open-ended questions from context - frontend filters and sends only these
             responses = self._extract_open_ended_responses()
 
             if not survey_id or not responses:
@@ -564,7 +552,7 @@ class SurveyAnalysisTool(MaxTool):
                 }
 
             # Analyze the responses
-            analysis_result = await self._analyze_responses(responses, analysis_focus)
+            analysis_result = await self._analyze_responses(responses)
 
             if analysis_result.response_count == 0:
                 success_message = f"ℹ️ No open-ended responses found in survey '{survey_name}' to analyze"

@@ -2486,11 +2486,11 @@ class SurveyAnalysisResponseItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    email: Optional[str] = None
-    isOpenEnded: bool
-    responseText: str
-    timestamp: str
-    userDistinctId: str
+    email: Optional[str] = Field(default=None, description="User email if available")
+    isOpenEnded: Optional[bool] = Field(default=True, description="Whether this is an open-ended response")
+    responseText: Optional[str] = Field(default="", description="The response text content")
+    timestamp: Optional[str] = Field(default="", description="Response timestamp")
+    userDistinctId: Optional[str] = Field(default="anonymous", description="User identifier")
 
 
 class Value(BaseModel):
@@ -4741,9 +4741,11 @@ class SurveyAnalysisQuestionGroup(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    questionId: str
-    questionName: str
-    responses: list[SurveyAnalysisResponseItem]
+    questionId: Optional[str] = Field(default="unknown", description="Question identifier")
+    questionName: Optional[str] = Field(default="Unknown question", description="Question text")
+    responses: Optional[list[SurveyAnalysisResponseItem]] = Field(
+        default=[], description="List of responses for this question"
+    )
 
 
 class SurveyAppearanceSchema(BaseModel):
@@ -10681,10 +10683,6 @@ class SessionsTimelineQuery(BaseModel):
     response: Optional[SessionsTimelineQueryResponse] = None
     tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class SurveyAnalysisData(RootModel[list[SurveyAnalysisQuestionGroup]]):
-    root: list[SurveyAnalysisQuestionGroup]
 
 
 class SurveyCreationSchema(BaseModel):
