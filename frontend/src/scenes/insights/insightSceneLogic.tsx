@@ -193,11 +193,42 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
     selectors({
         tabId: [() => [(_, props: InsightSceneLogicProps) => props.tabId], (tabId) => tabId],
         insightSelector: [(s) => [s.insightLogicRef], (insightLogicRef) => insightLogicRef?.logic.selectors.insight],
-        insight: [(s) => [(state, props) => s.insightSelector?.(state, props)?.(state, props)], (insight) => insight],
+        insight: [
+            (s) => [
+                (state, props) => {
+                    try {
+                        return s.insightSelector?.(state, props)?.(state, props)
+                    } catch {
+                        // Sometimes the insight logic hasn't mounted yet
+                        return null
+                    }
+                },
+            ],
+            (insight) => insight,
+        ],
         querySelector: [(s) => [s.insightLogicRef], (insightLogicRef) => insightLogicRef?.logic.selectors.query],
-        query: [(s) => [(state, props) => s.querySelector?.(state, props)?.(state, props)], (query) => query],
+        query: [
+            (s) => [
+                (state, props) => {
+                    try {
+                        s.querySelector?.(state, props)?.(state, props)
+                    } catch {
+                        // Sometimes the insight logic hasn't mounted yet
+                        return null
+                    }
+                },
+            ],
+            (query) => query,
+        ],
         breadcrumbs: [
-            (s) => [s.insightLogicRef, s.insight, s.dashboardId, s.dashboardName, s.featureFlags, s.tabId],
+            (s) => [
+                s.insightLogicRef,
+                s.insight,
+                s.dashboardId,
+                s.dashboardName,
+                s.featureFlags,
+                (_, props: InsightSceneLogicProps) => props.tabId,
+            ],
             (insightLogicRef, insight, dashboardId, dashboardName, featureFlags, tabId): Breadcrumb[] => {
                 const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
                 return [

@@ -16,10 +16,11 @@ export interface InsightSceneProps {
     tabId?: string
 }
 
-export function InsightScene({ tabId }: InsightSceneProps = { tabId: 'insight-scene-empty' }): JSX.Element {
-    const { insightId, insight, insightLogicRef, insightMode } = useValues(
-        insightSceneLogic({ tabId: tabId || 'insight-scene-empty' })
-    )
+export function InsightScene({ tabId }: InsightSceneProps = {}): JSX.Element {
+    if (!tabId) {
+        throw new Error('<InsightScene /> must receive a tabId prop')
+    }
+    const { insightId, insight, insightLogicRef, insightMode } = useValues(insightSceneLogic({ tabId }))
     useEffect(() => {
         // Redirect data viz nodes to the sql editor
         if (insightId && insight?.query?.kind === NodeKind.DataVisualizationNode && insightMode === ItemMode.Edit) {
