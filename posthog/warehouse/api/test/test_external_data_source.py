@@ -544,6 +544,7 @@ class TestExternalDataSource(APIBaseTest):
                 "latest_error",
                 "prefix",
                 "revenue_analytics_enabled",
+                "revenue_analytics_settings",
                 "last_run_at",
                 "schemas",
                 "job_inputs",
