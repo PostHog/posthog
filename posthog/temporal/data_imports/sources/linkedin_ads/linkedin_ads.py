@@ -2,51 +2,30 @@ import json
 import typing
 import datetime as dt
 import collections.abc
+from dataclasses import dataclass
 
-import pyarrow as pa
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 from posthog.models.integration import Integration
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.sources.common.sql import Column, Table
+from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse
 from posthog.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
 from posthog.warehouse.types import IncrementalFieldType
 
-from .client import LINKEDIN_SPONSORED_URN_PREFIX, LinkedinAdsClient, LinkedinAdsResource
-from .schemas import (
-    DATE_FIELDS,
-    FLOAT_FIELDS,
-    INTEGER_FIELDS,
-    RESOURCE_SCHEMAS,
-    RESOURCE_VIRTUAL_COLUMNS,
-    VIRTUAL_COLUMN_URN_MAPPING,
-    VIRTUAL_COLUMNS,
-)
+from .client import LinkedinAdsClient, LinkedinAdsResource
+from .schemas import FLOAT_FIELDS, INTEGER_FIELDS, RESOURCE_SCHEMAS, URN_COLUMNS, VIRTUAL_COLUMN_URN_MAPPING
 
 
-class LinkedinAdsColumn(Column):
-    """Represents a column of a LinkedIn Ads resource."""
-
-    def __init__(self, qualified_name: str, data_type: str = "string"):
-        self.name = qualified_name.replace(".", "_")
-        self.qualified_name = qualified_name
-        self.data_type = data_type
-
-    def to_arrow_field(self):
-        """Return the Arrow type associated with this column."""
-        arrow_type: pa.DataType
-
-        if self.qualified_name in INTEGER_FIELDS:
-            arrow_type = pa.int64()
-        elif self.qualified_name in FLOAT_FIELDS:
-            arrow_type = pa.float64()
-        elif self.qualified_name in DATE_FIELDS:
-            arrow_type = pa.date32()
-        else:
-            arrow_type = pa.string()
-
-        return pa.field(self.name, arrow_type)
+@dataclass
+class LinkedinAdsSchema:
+    name: str
+    primary_keys: list[str]
+    field_names: list[str]
+    partition_keys: list[str]
+    partition_mode: PartitionMode | None
+    partition_format: PartitionFormat | None
+    is_stats: bool
+    filter_field_names: list[tuple[str, IncrementalFieldType]] | None = None
 
 
 def get_incremental_fields() -> dict[str, list[tuple[str, IncrementalFieldType]]]:
@@ -59,81 +38,47 @@ def get_incremental_fields() -> dict[str, list[tuple[str, IncrementalFieldType]]
     return d
 
 
-class LinkedinAdsTable(Table[LinkedinAdsColumn]):
-    def __init__(self, *args, requires_filter: bool, primary_key: list[str], **kwargs):
-        self.requires_filter = requires_filter
-        self.primary_key = [pkey.replace(".", "_") for pkey in primary_key]
-        super().__init__(*args, **kwargs)
-
-
-TableSchemas = dict[str, LinkedinAdsTable]
-
-
-def _extract_id_from_urn(urn: str, urn_type: str) -> int | None:
+def _extract_id_and_type_from_urn(urn: str) -> tuple[str, int] | None:
     """Extract ID from LinkedIn URN.
 
     Args:
-        urn: LinkedIn URN like "urn:li:sponsoredCampaign:185129613"
-        urn_type: Type to match like "Campaign" or "CampaignGroup"
+        urn: LinkedIn URN like "urn:li:sponsoredCampaign:12345678"
 
     Returns:
-        Integer ID or None if not found
+        Tuple of type and integer ID or None if not found
     """
-    if not urn or not isinstance(urn, str):
-        return None
-
-    expected_prefix = f"{LINKEDIN_SPONSORED_URN_PREFIX}{urn_type}:"
-    if urn.startswith(expected_prefix):
-        try:
-            id_str = urn[len(expected_prefix) :]
-            return int(id_str)
-        except ValueError:
-            return None
-    return None
+    _, _, urn_type, id_str = urn.split(":")
+    return urn_type, int(id_str)
 
 
-def get_schemas() -> TableSchemas:
-    """Get LinkedIn Ads schemas.
+def get_schemas() -> dict[str, LinkedinAdsSchema]:
+    """Get LinkedIn Ads schemas."""
+    schemas: dict[str, LinkedinAdsSchema] = {}
 
-    Unlike Google Ads, LinkedIn doesn't have dynamic schema discovery,
-    so we use our predefined schemas.
-    """
-
-    table_schemas = {}
-
-    for table_alias, resource_contents in RESOURCE_SCHEMAS.items():
+    for _, resource_contents in RESOURCE_SCHEMAS.items():
         resource_name = resource_contents["resource_name"]
-        field_names = resource_contents["field_names"]
-        requires_filter = resource_contents.get("filter_field_names", None) is not None
-        primary_key = resource_contents.get("primary_key", [])
+        field_names = resource_contents["field_names"].copy()
+        primary_keys = resource_contents.get("primary_key", [])
+        filter_field_names = resource_contents.get("filter_field_names", None)
+        partition_keys = resource_contents.get("partition_keys", [])
+        partition_mode = resource_contents.get("partition_mode", None)
+        partition_format = resource_contents.get("partition_format", None)
+        is_stats = resource_contents.get("is_stats", False)
 
-        columns = []
-        for field_name in field_names:
-            columns.append(LinkedinAdsColumn(qualified_name=field_name))
-
-        # Add virtual columns for partition keys if this table requires filtering
-        if requires_filter and resource_contents.get("filter_field_names"):
-            for filter_field_name, _ in resource_contents["filter_field_names"]:
-                # Add the filter field as a virtual column for partitioning
-                columns.append(LinkedinAdsColumn(qualified_name=filter_field_name))
-
-        # Add virtual ID columns for analytics tables that have pivot values
-        if "pivotValues" in field_names:
-            virtual_column = RESOURCE_VIRTUAL_COLUMNS.get(resource_name)
-            if virtual_column:
-                columns.append(LinkedinAdsColumn(qualified_name=virtual_column))
-
-        table = LinkedinAdsTable(
+        schema = LinkedinAdsSchema(
             name=resource_name,
-            alias=table_alias,
-            requires_filter=requires_filter,
-            primary_key=primary_key,
-            columns=columns,
-            parents=None,
+            primary_keys=primary_keys,
+            field_names=field_names,
+            partition_keys=partition_keys,
+            partition_mode=partition_mode,
+            partition_format=partition_format,
+            is_stats=is_stats,
+            filter_field_names=filter_field_names,
         )
-        table_schemas[table_alias.value] = table
 
-    return table_schemas
+        schemas[resource_name] = schema
+
+    return schemas
 
 
 def linkedin_ads_client(config: LinkedinAdsSourceConfig, team_id: int) -> LinkedinAdsClient:
@@ -156,25 +101,21 @@ def linkedin_ads_source(
     """A data warehouse LinkedIn Ads source.
 
     Uses the LinkedIn Marketing API to query for the configured resource and
-    yield batches of rows as `pyarrow.Table`.
+    yields batches of records as list[dict].
     """
     name = NamingConvention().normalize_identifier(resource_name)
-    table = get_schemas()[resource_name]
+    schema = get_schemas()[resource_name]
 
-    if table.requires_filter and not should_use_incremental_field:
-        should_use_incremental_field = True
-        incremental_field = "dateRange.start"
-        incremental_field_type = IncrementalFieldType.Date
-
-    def get_rows() -> collections.abc.Iterator[pa.Table]:
+    def get_rows() -> collections.abc.Iterator[list[dict]]:
         client = linkedin_ads_client(config, team_id)
         resource = LinkedinAdsResource(resource_name)
 
         # Determine date range for analytics resources
+        now = dt.datetime.now()
         date_start = None
-        date_end = None
+        date_end = now.strftime("%Y-%m-%d")
 
-        if should_use_incremental_field and table.requires_filter:
+        if should_use_incremental_field and schema.filter_field_names:
             if incremental_field is None or incremental_field_type is None:
                 raise ValueError("incremental_field and incremental_field_type can't be None")
 
@@ -192,15 +133,10 @@ def linkedin_ads_source(
             elif isinstance(last_value, str):
                 date_start = last_value
 
-            # Set end date to today
-            date_end = dt.datetime.now().strftime("%Y-%m-%d")
-
-        elif table.requires_filter:
-            # Default to last 30 days for analytics resources
-            end_date = dt.datetime.now()
-            start_date = end_date - dt.timedelta(days=30)
+        else:
+            # Default to last 5 years for analytics resources
+            start_date = now - dt.timedelta(days=365 * 5)
             date_start = start_date.strftime("%Y-%m-%d")
-            date_end = end_date.strftime("%Y-%m-%d")
 
         data_pages = client.get_data_by_resource(
             resource=resource,
@@ -209,109 +145,130 @@ def linkedin_ads_source(
             date_end=date_end,
         )
 
-        # Process each page of data
+        # Process each page
         for page in data_pages:
-            yield from _data_as_arrow_table(page, table)
+            flattened_records = []
+            for record in page:
+                flattened_record = _flatten_linkedin_record(record, schema)
+                flattened_records.append(flattened_record)
+
+            yield flattened_records
 
     return SourceResponse(
         name=name,
         items=get_rows(),
-        primary_keys=table.primary_key,
-        partition_count=1 if table.requires_filter else None,
-        partition_size=1 if table.requires_filter else None,
-        partition_mode="datetime" if table.requires_filter else None,
-        partition_format="day" if table.requires_filter else None,
-        partition_keys=["dateRange_start"] if table.requires_filter else None,
+        primary_keys=schema.primary_keys,
+        partition_count=1,  # this enables partitioning
+        partition_size=1,  # this enables partitioning
+        partition_mode=schema.partition_mode,
+        partition_format=schema.partition_format,
+        partition_keys=schema.partition_keys,
     )
 
 
-def _data_as_arrow_table(
-    data: list[dict],
-    table: Table[LinkedinAdsColumn],
-    table_size: int | None = None,
-) -> collections.abc.Generator[pa.Table, None, None]:
-    """Convert LinkedIn API response data to `pyarrow.Table`."""
-    rows = []
-
-    for record in data:
-        # Flatten the record to match our table schema
-        flattened_record = _flatten_linkedin_record(record, table)
-        rows.append(flattened_record)
-
-        if table_size is not None and len(rows) >= table_size:
-            yield pa.Table.from_pylist(rows, schema=table.to_arrow_schema())
-            rows = []
-
-    if len(rows) > 0:
-        yield pa.Table.from_pylist(rows, schema=table.to_arrow_schema())
+def _convert_date_object_to_date(date_obj: dict[str, int] | None) -> dt.date | None:
+    """Convert LinkedIn date object to Python date."""
+    if isinstance(date_obj, dict) and all(k in date_obj for k in ["year", "month", "day"]):
+        return dt.date(date_obj["year"], date_obj["month"], date_obj["day"])
+    return None
 
 
-def _extract_virtual_column_value(record: dict[str, typing.Any], column_name: str) -> int | None:
-    """Extract virtual column values from pivot data."""
-    urn_type = VIRTUAL_COLUMN_URN_MAPPING.get(column_name)
-    if not urn_type:
-        return None
-
-    pivot_values = record.get("pivotValues")
-    if not pivot_values:
-        return None
-
-    # Handle case where pivotValues is a JSON string
-    if isinstance(pivot_values, str):
-        try:
-            pivot_values = json.loads(pivot_values)
-        except json.JSONDecodeError:
-            pivot_values = [pivot_values]
-
-    # Extract ID from pivot values by URN type
-    if not isinstance(pivot_values, list):
-        return None
-
-    return next(
-        (extracted_id for urn in pivot_values if (extracted_id := _extract_id_from_urn(urn, urn_type)) is not None),
-        None,
-    )
+def _convert_timestamp_to_date(last_modified: dict[str, int] | None) -> dt.date | None:
+    """Convert LinkedIn timestamp (milliseconds) to date."""
+    transformed_date = None
+    if isinstance(last_modified, dict):
+        timestamp = last_modified.get("time")
+        if timestamp and isinstance(timestamp, int):
+            transformed_date = dt.datetime.fromtimestamp(timestamp / 1000).date()
+        else:
+            transformed_date = None
+    return transformed_date
 
 
 def _flatten_linkedin_record(
     record: dict[str, typing.Any],
-    table: Table[LinkedinAdsColumn],
+    schema: LinkedinAdsSchema,
 ) -> dict[str, typing.Any]:
-    """Flatten a LinkedIn API record to match table schema."""
-    flattened = {}
+    """Flatten a LinkedIn API record to match schema."""
+    flattened: dict[str, typing.Any] = {}
 
-    for column in table.columns:
-        value: typing.Any
-        # Handle virtual columns that derive from pivot values
-        if column.qualified_name in VIRTUAL_COLUMNS:
-            value = _extract_virtual_column_value(record, column.qualified_name)
-        elif column.qualified_name == "dateRange.start":
+    for field_name in schema.field_names:
+        # Handle special virtual columns
+        if field_name == "dateRange":
             date_range = record.get("dateRange", {})
-            start_date = date_range.get("start") if isinstance(date_range, dict) else None
-            if isinstance(start_date, dict) and all(k in start_date for k in ["year", "month", "day"]):
-                value = dt.date(start_date["year"], start_date["month"], start_date["day"])
+            start_date_obj = date_range.get("start") if isinstance(date_range, dict) else None
+            end_date_obj = date_range.get("end") if isinstance(date_range, dict) else None
+
+            # add date_start and date_end virtual columns from dateRange
+            flattened["date_start"] = _convert_date_object_to_date(start_date_obj)
+            flattened["date_end"] = _convert_date_object_to_date(end_date_obj)
+            continue
+
+        elif field_name == "changeAuditStamps":
+            change_audit_stamps = record.get("changeAuditStamps", {})
+            created_time = None
+            last_modified_time = None
+
+            if isinstance(change_audit_stamps, dict):
+                created = change_audit_stamps.get("created", {})
+                created_time = _convert_timestamp_to_date(created)
+
+                last_modified = change_audit_stamps.get("lastModified", {})
+                last_modified_time = _convert_timestamp_to_date(last_modified)
+
+            # add created_time and last_modified_time virtual columns from changeAuditStamps
+            flattened["created_time"] = created_time
+            flattened["last_modified_time"] = last_modified_time
+            continue
+
+        elif field_name in URN_COLUMNS:
+            urn_value = record.get(field_name)
+            extracted_id: int | None = None
+            virtual_column_name = None
+            if urn_value:
+                urn_result = _extract_id_and_type_from_urn(urn_value)
+                if urn_result:
+                    urn_type, extracted_id = urn_result
+                    virtual_column_name = VIRTUAL_COLUMN_URN_MAPPING.get(urn_type)
+
+            # add id virtual column
+            if virtual_column_name:
+                flattened[virtual_column_name] = extracted_id
+            continue
+
+        # Handle virtual columns that derive from pivot values
+        if field_name == "pivotValues":
+            for pivot_value in record.get("pivotValues", []):
+                if isinstance(pivot_value, str):
+                    pivot_result = _extract_id_and_type_from_urn(pivot_value)
+                    if pivot_result:
+                        pivot_type, pivot_extracted_id = pivot_result
+                        pivot_name = VIRTUAL_COLUMN_URN_MAPPING.get(pivot_type)
+
+                        # add each pivot_name virtual column from pivotValues
+                        if pivot_name:
+                            flattened[pivot_name] = pivot_extracted_id
+            continue
+
+        # Handle single-value fields
+        value: typing.Any = None
+
+        value = record.get(field_name)
+
+        # Convert based on field type
+        if value is not None:
+            if field_name in INTEGER_FIELDS:
+                value = int(value)
+            elif field_name in FLOAT_FIELDS:
+                value = float(value)
+
+            elif isinstance(value, dict | list):
+                value = json.dumps(value)
             else:
-                value = None
-        else:
-            value = record.get(column.qualified_name)
+                value = str(value)
 
-            # Convert based on field type
-            if value is not None:
-                if column.qualified_name in DATE_FIELDS and isinstance(value, dict):
-                    # Convert LinkedIn date object to Python date
-                    if all(k in value for k in ["year", "month", "day"]):
-                        value = dt.date(value["year"], value["month"], value["day"])
-                    else:
-                        value = None
-                elif column.qualified_name in INTEGER_FIELDS:
-                    value = int(value)
-                elif column.qualified_name in FLOAT_FIELDS:
-                    value = float(value)
-                elif isinstance(value, dict | list):
-                    value = json.dumps(value)
-                else:
-                    value = str(value)
-
-        flattened[column.name] = value
+        # Convert field name to column name (replace dots with underscores)
+        column_name = field_name.replace(".", "_")
+        flattened[column_name] = value
 
     return flattened

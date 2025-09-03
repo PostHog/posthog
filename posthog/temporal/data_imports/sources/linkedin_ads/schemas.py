@@ -1,5 +1,5 @@
 from enum import StrEnum
-from typing import NotRequired, TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 from posthog.warehouse.types import IncrementalFieldType
 
@@ -19,15 +19,18 @@ INTEGER_FIELDS = {
     "follows",
 }
 FLOAT_FIELDS = {"costInUsd"}
-DATE_FIELDS = {"dateRange.start"}
 
-# Virtual column mappings for analytics resources
-VIRTUAL_COLUMNS = {"campaign_id", "campaign_group_id"}
+# There are in the results from the API. The value is in the URN format.
+URN_COLUMNS = ["campaignGroup", "account", "campaign", "creative"]
 
-# This maps the virtual column name to the URN type. LinkedIn Ads API uses URNs to identify resources.
-# URNs are like "urn:li:sponsoredCampaign:185129613"
-VIRTUAL_COLUMN_URN_MAPPING = {"campaign_id": "Campaign", "campaign_group_id": "CampaignGroup"}
-RESOURCE_VIRTUAL_COLUMNS = {"campaign_stats": "campaign_id", "campaign_group_stats": "campaign_group_id"}
+# This maps the the URN type to the virtual column name. LinkedIn Ads API uses URNs to identify resources.
+# URNs are like "urn:li:sponsoredCampaign:12345678"
+VIRTUAL_COLUMN_URN_MAPPING = {
+    "sponsoredCampaign": "campaign_id",
+    "sponsoredCampaignGroup": "campaign_group_id",
+    "sponsoredAccount": "account_id",
+    "sponsoredCreative": "creative_id",
+}
 
 
 class LinkedinAdsResource(StrEnum):
@@ -66,6 +69,10 @@ class ResourceSchema(TypedDict):
     field_names: list[str]
     primary_key: list[str]
     filter_field_names: NotRequired[list[tuple[str, IncrementalFieldType]]]
+    partition_keys: list[str]
+    partition_mode: Literal["md5", "numerical", "datetime"] | None
+    partition_format: Literal["month", "day"] | None
+    is_stats: bool
 
 
 # LinkedIn Ads resource schemas
@@ -74,6 +81,10 @@ RESOURCE_SCHEMAS: dict[LinkedinAdsResource, ResourceSchema] = {
         "resource_name": "accounts",
         "field_names": ["id", "name", "status", "type", "currency", "version"],
         "primary_key": ["id"],
+        "partition_keys": ["id"],
+        "partition_mode": "numerical",
+        "partition_format": None,
+        "is_stats": False,
     },
     LinkedinAdsResource.Campaigns: {
         "resource_name": "campaigns",
@@ -94,6 +105,10 @@ RESOURCE_SCHEMAS: dict[LinkedinAdsResource, ResourceSchema] = {
             "version",
         ],
         "primary_key": ["id"],
+        "partition_keys": ["created_time"],
+        "partition_mode": "datetime",
+        "partition_format": "month",
+        "is_stats": False,
     },
     LinkedinAdsResource.CampaignGroups: {
         "resource_name": "campaign_groups",
@@ -107,6 +122,10 @@ RESOURCE_SCHEMAS: dict[LinkedinAdsResource, ResourceSchema] = {
             "changeAuditStamps",
         ],
         "primary_key": ["id"],
+        "partition_keys": ["created_time"],
+        "partition_mode": "datetime",
+        "partition_format": "month",
+        "is_stats": False,
     },
     LinkedinAdsResource.CampaignStats: {
         "resource_name": "campaign_stats",
@@ -124,10 +143,14 @@ RESOURCE_SCHEMAS: dict[LinkedinAdsResource, ResourceSchema] = {
             "oneClickLeads",
             "follows",
         ],
-        "primary_key": ["dateRange", "pivotValues"],
+        "primary_key": ["date_start", "date_end", "campaign_id"],
         "filter_field_names": [
-            ("dateRange.start", IncrementalFieldType.Date),
+            ("date_start", IncrementalFieldType.Date),
         ],
+        "partition_keys": ["date_start"],
+        "partition_mode": "datetime",
+        "partition_format": "month",
+        "is_stats": True,
     },
     LinkedinAdsResource.CampaignGroupStats: {
         "resource_name": "campaign_group_stats",
@@ -145,9 +168,13 @@ RESOURCE_SCHEMAS: dict[LinkedinAdsResource, ResourceSchema] = {
             "oneClickLeads",
             "follows",
         ],
-        "primary_key": ["dateRange", "pivotValues"],
+        "primary_key": ["date_start", "date_end", "campaign_group_id"],
         "filter_field_names": [
-            ("dateRange.start", IncrementalFieldType.Date),
+            ("date_start", IncrementalFieldType.Date),
         ],
+        "partition_keys": ["date_start"],
+        "partition_mode": "datetime",
+        "partition_format": "month",
+        "is_stats": True,
     },
 }

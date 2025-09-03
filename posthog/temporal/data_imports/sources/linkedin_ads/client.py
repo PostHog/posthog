@@ -14,7 +14,6 @@ from .schemas import (
 
 LINKEDIN_SPONSORED_URN_PREFIX = "urn:li:sponsored"
 MAX_PAGE_SIZE = 1000
-MAX_PAGES = 1000  # Safety limit, this will be equivalent to 1 million rows
 API_VERSION = "202508"
 
 
@@ -129,7 +128,7 @@ class LinkedinAdsClient:
         """Make paginated requests yielding each page separately."""
         page_token = None
 
-        for _ in range(MAX_PAGES):
+        while True:
             fields = self._get_fields_for_resource(endpoint)
             params = {"fields": ",".join(fields), "pageSize": MAX_PAGE_SIZE}
             if page_token:
