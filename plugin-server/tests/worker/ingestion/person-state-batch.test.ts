@@ -3409,8 +3409,6 @@ describe('PersonState.processEvent()', () => {
                     otherPerson: second,
                     otherPersonDistinctId: secondUserDistinctId,
                 })
-
-                console.log('result', result)
                 expect(result.success).toBe(true)
                 if (!result.success) {
                     throw new Error('Merge should have succeeded')

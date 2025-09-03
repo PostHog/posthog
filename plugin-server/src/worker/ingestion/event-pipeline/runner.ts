@@ -446,14 +446,14 @@ export class EventPipelineRunner {
             })
         } catch (redirectError) {
             logger.error('Failed to redirect event to topic', {
-                team_id: event.team_id,
-                distinct_id: event.distinct_id,
+                team_id: this.originalEvent.team_id,
+                distinct_id: this.originalEvent.distinct_id,
                 topic: topic,
                 error: redirectError,
             })
             captureException(redirectError, {
-                tags: { team_id: event.team_id, pipeline_step: 'redirectToTopic' },
-                extra: { event, topic, error: redirectError },
+                tags: { team_id: this.originalEvent.team_id, pipeline_step: 'redirectToTopic' },
+                extra: { originalEvent: this.originalEvent, topic, error: redirectError },
             })
             throw redirectError // Re-throw to ensure the pipeline handles the failure appropriately
         }

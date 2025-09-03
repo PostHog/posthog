@@ -165,7 +165,7 @@ export class PersonEventProcessor {
         return this.context
     }
 
-    private handleMergeError(error: any, event: PluginEvent): PipelineStepResult<Person> | null {
+    private handleMergeError(error: unknown, event: PluginEvent): PipelineStepResult<Person> | null {
         const mergeMode = this.context.mergeMode
 
         if (error instanceof PersonMergeLimitExceededError) {
@@ -211,7 +211,7 @@ export class PersonEventProcessor {
             // Unknown errors should be thrown - they indicate bugs or unexpected conditions
             logger.error('Unknown merge error - throwing to surface the issue', {
                 mergeMode: mergeMode.type,
-                error: error.message,
+                error: error instanceof Error ? error.message : String(error),
                 team_id: this.context.team.id,
                 distinct_id: this.context.distinctId,
             })
