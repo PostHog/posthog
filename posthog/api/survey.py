@@ -446,7 +446,25 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         return data
 
+    def _clear_external_survey_fields(self, data):
+        """Clear fields not applicable to external surveys"""
+        fields_to_clear = [
+            "linked_flag_id",
+            "conditions",
+            "targeting_flag_filters",
+        ]
+        for field in fields_to_clear:
+            data[field] = None
+        data["remove_targeting_flag"] = True
+        if "appearance" in data:
+            data["appearance"]["surveyPopupDelaySeconds"] = None
+
+        return data
+
     def create(self, validated_data):
+        if validated_data.get("type") == Survey.SurveyType.EXTERNAL_SURVEY:
+            validated_data = self._clear_external_survey_fields(validated_data)
+
         if "remove_targeting_flag" in validated_data:
             validated_data.pop("remove_targeting_flag")
 
@@ -485,6 +503,10 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         before_update = Survey.objects.get(pk=instance.pk)
         user = self.context["request"].user
         changes = []
+
+        if validated_data.get("type") == Survey.SurveyType.EXTERNAL_SURVEY:
+            validated_data = self._clear_external_survey_fields(validated_data)
+
         if validated_data.get("remove_targeting_flag"):
             if instance.targeting_flag:
                 # Manually delete the flag and log the change

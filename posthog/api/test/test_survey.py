@@ -3728,6 +3728,220 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("Available variants: option_1, option_2", error_data["detail"])
 
 
+class TestExternalSurveyValidation(APIBaseTest):
+    """Test external survey specific validation logic"""
+
+    def setUp(self):
+        super().setUp()
+        # Create a feature flag for testing
+        self.test_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+        )
+
+    def test_update_survey_to_external_comprehensive(self):
+        """Test comprehensive update scenarios for converting surveys to external type"""
+        # Create a targeting flag
+        targeting_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="survey-targeting-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 30}]},
+        )
+
+        # Create a regular survey with all possible fields that should be cleared
+        survey = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Comprehensive Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "Test question"}],
+            linked_flag=self.test_flag,
+            targeting_flag=targeting_flag,
+            conditions={"url": "https://example.com", "selector": ".test"},
+        )
+
+        # Store flag IDs to verify they still exist after conversion
+        linked_flag_id = self.test_flag.id
+        targeting_flag_id = targeting_flag.id
+
+        # Verify initial state
+        survey.refresh_from_db()
+        self.assertIsNotNone(survey.linked_flag_id)
+        self.assertIsNotNone(survey.targeting_flag_id)
+        self.assertEqual(survey.conditions, {"url": "https://example.com", "selector": ".test"})
+
+        # Update to external survey type while trying to set prohibited fields
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "type": "external_survey",
+                "linked_flag_id": self.test_flag.id,  # Should be cleared even if provided
+                "targeting_flag_filters": {  # Should be cleared even if provided
+                    "groups": [
+                        {
+                            "properties": [
+                                {"key": "email", "value": "@test.com", "operator": "icontains", "type": "person"}
+                            ],
+                            "rollout_percentage": 50,
+                        }
+                    ]
+                },
+                "conditions": {"url": "https://different.com"},  # Should be cleared even if provided
+                "appearance": {
+                    "backgroundColor": "#ffffff",
+                    "surveyPopupDelaySeconds": 5,  # Should be removed
+                    "submitButtonColor": "#000000",  # Should be preserved
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+
+        # Verify all prohibited fields are cleared despite being in the request
+        self.assertEqual(response_data["conditions"], {})
+        self.assertIsNone(response_data["linked_flag"])
+        self.assertIsNone(response_data["targeting_flag"])
+        self.assertNotIn("surveyPopupDelaySeconds", response_data["appearance"])
+
+        # Verify allowed fields are preserved
+        self.assertEqual(response_data["appearance"]["backgroundColor"], "#ffffff")
+        self.assertEqual(response_data["appearance"]["submitButtonColor"], "#000000")
+
+        # Verify fields are cleared in database
+        survey.refresh_from_db()
+        self.assertIsNone(survey.linked_flag_id)
+        self.assertIsNone(survey.targeting_flag_id)
+        self.assertEqual(survey.conditions, {})
+
+        # Verify original flags still exist (just relationships were cleared)
+        self.assertTrue(FeatureFlag.objects.filter(id=linked_flag_id).exists())
+        self.assertTrue(FeatureFlag.objects.filter(id=targeting_flag_id).exists())
+
+    def test_update_survey_with_targeting_flag_to_external_deletes_flag(self):
+        """Test that converting survey with targeting flag to external deletes the targeting flag"""
+        # First create a survey with targeting_flag_filters to generate a targeting flag
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey with Targeting",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "Test question"}],
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "properties": [
+                                {"key": "email", "value": "@test.com", "operator": "icontains", "type": "person"}
+                            ],
+                            "rollout_percentage": 50,
+                        }
+                    ]
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        survey_data = response.json()
+
+        # Verify targeting flag was created
+        self.assertIsNotNone(survey_data["targeting_flag"])
+        targeting_flag_id = survey_data["targeting_flag"]["id"]
+
+        # Verify the flag exists in database
+        self.assertTrue(FeatureFlag.objects.filter(id=targeting_flag_id).exists())
+
+        # Now update to external survey type
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_data['id']}/",
+            data={"type": "external_survey"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        updated_survey_data = response.json()
+
+        # Verify targeting flag relationship is cleared from survey
+        self.assertIsNone(updated_survey_data["targeting_flag"])
+
+        # Verify the targeting flag was actually deleted from database
+        self.assertFalse(FeatureFlag.objects.filter(id=targeting_flag_id).exists())
+
+    def test_external_survey_with_all_prohibited_fields(self):
+        """Test creating external survey with all prohibited fields at once"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Comprehensive External Survey Test",
+                "type": "external_survey",
+                "questions": [{"type": "open", "question": "What do you think?"}],
+                "linked_flag_id": self.test_flag.id,
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "properties": [
+                                {"key": "email", "value": "@test.com", "operator": "icontains", "type": "person"}
+                            ],
+                            "rollout_percentage": 50,
+                        }
+                    ]
+                },
+                "conditions": {"url": "https://example.com", "selector": ".test-button", "actions": {"values": []}},
+                "appearance": {
+                    "backgroundColor": "#ffffff",
+                    "surveyPopupDelaySeconds": 3,
+                    "submitButtonColor": "#ff0000",
+                    "borderRadius": "8px",
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        response_data = response.json()
+
+        # Verify all prohibited fields are cleared/removed
+        self.assertEqual(response_data["conditions"], {})
+        self.assertIsNone(response_data["linked_flag"])
+        self.assertIsNone(response_data["targeting_flag"])
+        self.assertNotIn("surveyPopupDelaySeconds", response_data["appearance"])
+
+        # Verify allowed appearance fields are preserved
+        self.assertEqual(response_data["appearance"]["backgroundColor"], "#ffffff")
+        self.assertEqual(response_data["appearance"]["submitButtonColor"], "#ff0000")
+        self.assertEqual(response_data["appearance"]["borderRadius"], "8px")
+
+    def test_non_external_survey_preserves_fields(self):
+        """Test that non-external surveys preserve all fields normally"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Regular Survey Test",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "What do you think?"}],
+                "linked_flag_id": self.test_flag.id,
+                "conditions": {"url": "https://example.com"},
+                "appearance": {
+                    "backgroundColor": "#ffffff",
+                    "surveyPopupDelaySeconds": 5,
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        response_data = response.json()
+
+        # Verify fields are preserved for non-external surveys
+        self.assertEqual(response_data["conditions"]["url"], "https://example.com")
+        self.assertEqual(response_data["linked_flag"]["id"], self.test_flag.id)
+        self.assertEqual(response_data["appearance"]["surveyPopupDelaySeconds"], 5)
+
+
 @pytest.mark.parametrize(
     "test_input,expected",
     [
