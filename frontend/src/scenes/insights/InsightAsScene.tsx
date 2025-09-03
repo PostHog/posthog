@@ -1,5 +1,4 @@
 import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useMountedLogic, useValues } from 'kea'
-import { useState } from 'react'
 
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
@@ -24,21 +23,18 @@ import { insightLogic } from './insightLogic'
 
 export interface InsightAsSceneProps {
     insightId: InsightShortId | 'new'
-    tabId?: string
+    tabId: string
     attachTo?: BuiltLogic<Logic> | LogicWrapper<Logic>
 }
-
-let uniqueCount = 0
 
 export function InsightAsScene({ insightId, attachTo, tabId }: InsightAsSceneProps): JSX.Element | null {
     // insightSceneLogic
     const { insightMode, insight, filtersOverride, variablesOverride, hasOverrides, freshQuery } =
         useValues(insightSceneLogic)
-    const [uniqueId] = useState(() => `${uniqueCount++}`)
 
     // insightLogic
     const logic = insightLogic({
-        dashboardItemId: insightId || `new-${tabId || uniqueId}`,
+        dashboardItemId: insightId || `new-${tabId}`,
         tabId,
         // don't use cached insight if we have overrides
         cachedInsight: hasOverrides && insight?.short_id === insightId ? insight : null,
