@@ -7,8 +7,10 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { objectsEqual } from 'lib/utils'
 import { DashboardLoadAction, RefreshStatus, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 
+import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
 import { ActionType, DashboardType, EventDefinition, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import type { maxContextLogicType } from './maxContextLogicType'
@@ -59,7 +61,11 @@ export const maxContextLogic = kea<maxContextLogicType>([
         actions: [router, ['locationChanged']],
     })),
     actions({
-        addOrUpdateContextInsight: (data: InsightWithQuery) => ({ data }),
+        addOrUpdateContextInsight: (
+            data: InsightWithQuery,
+            filtersOverride?: DashboardFilter,
+            variablesOverride?: Record<string, HogQLVariable>
+        ) => ({ data, filtersOverride, variablesOverride }),
         addOrUpdateContextDashboard: (data: DashboardType<QueryBasedInsightModel>) => ({ data }),
         addOrUpdateContextEvent: (data: EventDefinition) => ({ data }),
         addOrUpdateContextAction: (data: ActionType) => ({ data }),
@@ -68,7 +74,11 @@ export const maxContextLogic = kea<maxContextLogicType>([
         removeContextEvent: (id: string | number) => ({ id }),
         removeContextAction: (id: string | number) => ({ id }),
         loadAndProcessDashboard: (data: DashboardItemInfo) => ({ data }),
-        loadAndProcessInsight: (data: InsightItemInfo) => ({ data }),
+        loadAndProcessInsight: (
+            data: InsightItemInfo,
+            filtersOverride?: DashboardFilter,
+            variablesOverride?: Record<string, HogQLVariable>
+        ) => ({ data, filtersOverride, variablesOverride }),
         setSelectedContextOption: (value: string) => ({ value }),
         handleTaxonomicFilterChange: (
             value: string | number,
@@ -94,8 +104,8 @@ export const maxContextLogic = kea<maxContextLogicType>([
         contextInsights: [
             [] as MaxInsightContext[],
             {
-                addOrUpdateContextInsight: (state: MaxInsightContext[], { data }: { data: InsightWithQuery }) =>
-                    addOrUpdateEntity(state, insightToMaxContext(data)),
+                addOrUpdateContextInsight: (state: MaxInsightContext[], { data, filtersOverride, variablesOverride }) =>
+                    addOrUpdateEntity(state, insightToMaxContext(data, filtersOverride, variablesOverride)),
                 removeContextInsight: (state: MaxInsightContext[], { id }: { id: string | number }) =>
                     removeEntity(state, id),
                 resetContext: () => [],
@@ -198,13 +208,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 dashboardLogicInstance.mount()
 
                 try {
-                    dashboardLogicInstance.actions.loadDashboard({ action: DashboardLoadAction.InitialLoad })
-
-                    await breakpoint(50)
-                    while (!dashboardLogicInstance.values.dashboard) {
-                        await breakpoint(50)
-                    }
-
+                    await dashboardLogicInstance.asyncActions.loadDashboard({ action: DashboardLoadAction.InitialLoad })
                     dashboard = dashboardLogicInstance.values.dashboard
 
                     // Wait for dashboard items to refresh for cached insights
@@ -224,21 +228,19 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 actions.addOrUpdateContextDashboard(dashboard)
             }
         },
-        loadAndProcessInsight: async ({ data }: { data: InsightItemInfo }, breakpoint) => {
+        loadAndProcessInsight: async ({ data, filtersOverride, variablesOverride }) => {
             let insight = data.preloaded
 
             if (!insight || !insight.query) {
-                const insightLogicInstance = insightLogic.build({ dashboardItemId: undefined })
+                const insightLogicInstance = insightLogic.build({
+                    dashboardItemId: undefined,
+                    filtersOverride,
+                    variablesOverride,
+                })
                 insightLogicInstance.mount()
 
                 try {
-                    insightLogicInstance.actions.loadInsight(data.id)
-
-                    await breakpoint(50)
-                    while (!insightLogicInstance.values.insight.query) {
-                        await breakpoint(50)
-                    }
-
+                    await insightLogicInstance.asyncActions.loadInsight(data.id)
                     insight = insightLogicInstance.values.insight as QueryBasedInsightModel
                 } finally {
                     insightLogicInstance.unmount()
@@ -246,7 +248,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
             }
 
             if (insight) {
-                actions.addOrUpdateContextInsight(insight)
+                actions.addOrUpdateContextInsight(insight, filtersOverride, variablesOverride)
             }
         },
         handleTaxonomicFilterChange: async ({
@@ -324,10 +326,26 @@ export const maxContextLogic = kea<maxContextLogicType>([
 
                 // Handle insight selection
                 if (itemInfo.type === MaxContextType.INSIGHT) {
-                    actions.loadAndProcessInsight({
-                        id: itemInfo.id as InsightShortId,
-                        preloaded: itemInfo.preloaded as QueryBasedInsightModel | null,
-                    })
+                    let filtersOverride: DashboardFilter | undefined = undefined
+                    let variablesOverride: Record<string, HogQLVariable> | undefined = undefined
+
+                    // This is an "on this page" insight or dashboard selection. Look for possible applied filters.
+                    if (groupType === TaxonomicFilterGroupType.MaxAIContext) {
+                        const logic = insightSceneLogic.findAllMounted().find((l) => l.values.insightId === itemInfo.id)
+                        if (logic) {
+                            filtersOverride = logic.values.filtersOverride ?? undefined
+                            variablesOverride = logic.values.variablesOverride ?? undefined
+                        }
+                    }
+
+                    actions.loadAndProcessInsight(
+                        {
+                            id: itemInfo.id as InsightShortId,
+                            preloaded: itemInfo.preloaded as QueryBasedInsightModel | null,
+                        },
+                        filtersOverride,
+                        variablesOverride
+                    )
                 }
             } catch (error) {
                 console.error('Error handling taxonomic filter change:', error)
