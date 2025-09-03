@@ -240,6 +240,14 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         issue.merge(issue_ids=ids)
         return Response({"success": True})
 
+    @action(methods=["POST"], detail=True)
+    def split(self, request, **kwargs):
+        issue: ErrorTrackingIssue = self.get_object()
+        fingerprints: list[str] = request.data.get("fingerprints", [])
+        exclusive: bool = request.data.get("exclusive", True)
+        issue.split(fingerprints=fingerprints, exclusive=exclusive)
+        return Response({"success": True})
+
     @action(methods=["PATCH"], detail=True)
     def assign(self, request, **kwargs):
         assignee = request.data.get("assignee", None)
