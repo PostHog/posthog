@@ -50,6 +50,7 @@ from posthog.temporal.ai.session_summary.types.group import (
     SessionSummaryStep,
     SessionSummaryStreamUpdate,
 )
+from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 from posthog.temporal.tests.ai.conftest import AsyncRedisTestContext
 
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
@@ -1201,6 +1202,146 @@ async def test_combine_patterns_from_chunks_activity(
         assert spy_setex.call_count == 1
         # Verify LLM was called
         mock_combine.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_run_patterns_extraction_with_chunking_and_redis_keys(
+    mock_session_id: str,
+    redis_test_setup: AsyncRedisTestContext,
+    auser: User,
+    ateam: Team,
+    mock_session_group_summary_of_summaries_inputs: Callable,
+):
+    """Verify correct Redis key generation and chunks combination when chunking."""
+    # Create test data for 4 sessions that will be split into 2 chunks
+    session_ids = [f"{mock_session_id}-{i}" for i in range(1, 5)]
+    chunk1_sessions = session_ids[:2]
+    chunk2_sessions = session_ids[2:]
+    redis_key_base = "test-patterns-extraction"
+    # Create single session summary inputs for each session
+    single_session_inputs = [
+        SingleSessionSummaryInputs(
+            session_id=session_id,
+            user_id=auser.id,
+            team_id=ateam.id,
+            redis_key_base=redis_key_base,
+            model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
+        )
+        for session_id in session_ids
+    ]
+    # Create activity inputs
+    inputs = mock_session_group_summary_of_summaries_inputs(
+        single_session_summaries_inputs=single_session_inputs,
+        team_id=ateam.id,
+        user_id=auser.id,
+        redis_key_base=redis_key_base,
+    )
+    # Apply mocks and run the activity
+    with (
+        patch(
+            "posthog.temporal.ai.session_summary.summarize_session_group.split_session_summaries_into_chunks_for_patterns_extraction_activity",
+            new_callable=AsyncMock,
+        ) as mock_split,
+        patch(
+            "posthog.temporal.ai.session_summary.summarize_session_group.extract_session_group_patterns_activity",
+            new_callable=AsyncMock,
+        ) as mock_extract,
+        patch(
+            "posthog.temporal.ai.session_summary.activities.patterns.get_llm_session_group_patterns_combination",
+            new_callable=AsyncMock,
+        ) as mock_llm_combine,
+        patch("temporalio.workflow.execute_activity") as mock_execute_activity,
+        patch("temporalio.activity.info") as mock_activity_info,
+    ):
+        mock_activity_info.return_value.workflow_id = "test_workflow_id"
+        # Mock split_session_summaries_into_chunks to return 2 chunks
+        mock_split.return_value = [chunk1_sessions, chunk2_sessions]
+        # Generate the Redis keys using hashed state_ids
+        chunk1_state_id = generate_state_id_from_session_ids(chunk1_sessions)
+        chunk2_state_id = generate_state_id_from_session_ids(chunk2_sessions)
+        chunk1_redis_key = generate_state_key(
+            key_base=redis_key_base,
+            label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+            state_id=chunk1_state_id,
+        )
+        chunk2_redis_key = generate_state_key(
+            key_base=redis_key_base,
+            label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+            state_id=chunk2_state_id,
+        )
+        # Store patterns in Redis for each chunk (simulating what extract_session_group_patterns_activity would do)
+        chunk1_patterns = RawSessionGroupSummaryPatternsList(
+            patterns=[
+                {
+                    "pattern_id": 1,
+                    "pattern_name": "Pattern from chunk 1",
+                    "pattern_description": "Test pattern 1",
+                    "severity": "low",
+                    "indicators": ["indicator1"],
+                }
+            ]
+        )
+        chunk2_patterns = RawSessionGroupSummaryPatternsList(
+            patterns=[
+                {
+                    "pattern_id": 2,
+                    "pattern_name": "Pattern from chunk 2",
+                    "pattern_description": "Test pattern 2",
+                    "severity": "high",
+                    "indicators": ["indicator2"],
+                }
+            ]
+        )
+        await store_data_in_redis(
+            redis_client=redis_test_setup.redis_client,
+            redis_key=chunk1_redis_key,
+            data=chunk1_patterns.model_dump_json(),
+            label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+        )
+        await store_data_in_redis(
+            redis_client=redis_test_setup.redis_client,
+            redis_key=chunk2_redis_key,
+            data=chunk2_patterns.model_dump_json(),
+            label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+        )
+
+        async def execute_activity_router(activity, inputs, *args, **kwargs):
+            # Route based on the inputs type and activity properties
+            if isinstance(inputs, SessionGroupSummaryOfSummariesInputs):
+                # Check if this is for chunking or extraction
+                if "split" in str(activity):
+                    return await mock_split(inputs, *args, **kwargs)
+                elif "extract" in str(activity):
+                    return await mock_extract(inputs, *args, **kwargs)
+            elif isinstance(inputs, SessionGroupSummaryPatternsExtractionChunksInputs):
+                # This is the combine activity - run the real one (without workflow-specific kwargs)
+                return await combine_patterns_from_chunks_activity(inputs)
+
+        # Setup mock_execute_activity to route to the correct mock or real activity
+        mock_execute_activity.side_effect = execute_activity_router
+        # Mock extract_session_group_patterns_activity to return the correct Redis keys
+        mock_extract.side_effect = [chunk1_redis_key, chunk2_redis_key]
+        # Mock LLM combination to return combined patterns
+        mock_llm_combine.return_value = RawSessionGroupSummaryPatternsList(
+            patterns=chunk1_patterns.patterns + chunk2_patterns.patterns
+        )
+        # Create workflow instance and run patterns extraction
+        workflow = SummarizeSessionGroupWorkflow()
+        result = await workflow._run_patterns_extraction(inputs)
+        # Verify the result
+        assert result == session_ids  # All sessions should have patterns extracted
+        mock_split.assert_called_once()  # The chunking was done
+        assert mock_extract.call_count == 2  # Extract was called once per chunk
+        mock_llm_combine.assert_called_once()  # LLM combination was called
+        # Combined patterns were stored in Redis properly
+        combined_key = generate_state_key(
+            key_base=redis_key_base,
+            label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+            state_id=generate_state_id_from_session_ids(session_ids),
+        )
+        stored_data = await redis_test_setup.redis_client.get(combined_key)
+        assert stored_data is not None
+        redis_test_setup.keys_to_cleanup.append(combined_key)
 
 
 @pytest.mark.asyncio
