@@ -114,6 +114,20 @@ export interface ExceptionAttributes {
     level?: string
     url?: string
     handled?: boolean
+    gitReleasesMeta?: ExceptionReleaseGitMeta[]
+}
+
+export interface ExceptionReleaseGitMeta {
+    commitSha: string
+    repositoryUrl?: string
+    repositoryName?: string
+    branch?: string
+}
+
+export interface ExceptionRelease {
+    metadata?: {
+        git?: ExceptionReleaseGitMeta
+    }
 }
 
 export type SymbolSetStatus = 'valid' | 'invalid'

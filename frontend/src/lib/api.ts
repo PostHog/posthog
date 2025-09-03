@@ -983,6 +983,10 @@ export class ApiRequest {
         return this.errorTracking().addPathComponent('stack_frames/batch_get')
     }
 
+    public errorTrackingStackFramesReleaseMetadata(): ApiRequest {
+        return this.errorTracking().addPathComponent('stack_frames/raw_id_release_metadata')
+    }
+
     public errorTrackingRules(ruleType: ErrorTrackingRuleType, teamId?: TeamType['id']): ApiRequest {
         return this.errorTracking(teamId).addPathComponent(ruleType)
     }
@@ -2793,6 +2797,12 @@ const api = {
             raw_ids: ErrorTrackingStackFrame['raw_id'][]
         ): Promise<{ results: ErrorTrackingStackFrameRecord[] }> {
             return await new ApiRequest().errorTrackingStackFrames().create({ data: { raw_ids: raw_ids } })
+        },
+
+        async stackFrameReleaseMetadata(
+            raw_ids: ErrorTrackingStackFrame['raw_id'][]
+        ): Promise<{ results: Record<string, any> }> {
+            return await new ApiRequest().errorTrackingStackFramesReleaseMetadata().create({ data: { raw_ids } })
         },
 
         async rules(ruleType: ErrorTrackingRuleType): Promise<{ results: ErrorTrackingRule[] }> {
