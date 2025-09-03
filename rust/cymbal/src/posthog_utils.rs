@@ -41,9 +41,9 @@ pub fn capture_symbol_set_deleted(team_id: i32, set_ref: &str, storage_ptr: Opti
 }
 
 pub fn spawning_capture(event: Event) {
-    tokio::spawn(async move {
-        if let Err(e) = posthog_rs::capture(event).await {
-            error!("Error capturing issue created event: {:?}", e);
-        }
-    });
+    // tokio::spawn(async move {
+    //     if let Err(e) = posthog_rs::capture(event).await {
+    //         error!("Error capturing issue created event: {:?}", e);
+    //     }
+    // });
 }

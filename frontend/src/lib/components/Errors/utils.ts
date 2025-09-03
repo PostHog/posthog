@@ -5,6 +5,7 @@ import {
     ErrorTrackingException,
     ErrorTrackingRuntime,
     ExceptionAttributes,
+    ExceptionRelease,
     FingerprintRecordPart,
 } from './types'
 
@@ -87,6 +88,7 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
         $sentry_url: sentryUrl,
         $level: level,
         $cymbal_errors: ingestionErrors,
+        $exception_releases: exceptionReleases,
     } = properties
 
     let type = properties.$exception_type
@@ -113,6 +115,17 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
     const handled = exceptionList?.[0]?.mechanism?.handled ?? false
     const runtime: ErrorTrackingRuntime = getRuntimeFromLib(lib)
 
+    // Build releases array from $exception_releases map if present
+    // Shape from backend: { [hash_id]: { version, timestamp, metadata? } }
+    const releases: ExceptionRelease[] | undefined = exceptionReleases
+        ? Object.keys(exceptionReleases).map((hashId) => {
+              // info contains version/timestamp/metadata if needed in future
+              // const info = exceptionReleases[hashId]
+              // We don't have a canonical URL from backend yet; keep undefined
+              return { commitSha: hashId, url: undefined }
+          })
+        : undefined
+
     return {
         type,
         value,
@@ -129,6 +142,7 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
         handled,
         level,
         ingestionErrors,
+        releases,
     }
 }
 

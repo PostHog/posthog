@@ -43,6 +43,7 @@ export function StacktraceTab({
     const { exceptionAttributes, exceptionList } = useValues(errorPropertiesLogic)
     const showFixButton = hasResolvedStackFrames(exceptionList)
     const [showFixModal, setShowFixModal] = useState(false)
+
     return (
         <TabsPrimitiveContent {...props}>
             <SubHeader className="justify-between">
