@@ -1,4 +1,5 @@
 import posthog from 'posthog-js'
+import { DashboardFilter, HogQLVariable } from 'src/queries/schema/schema-general'
 
 import { Link } from '@posthog/lemon-ui'
 
@@ -23,7 +24,6 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { DashboardFilter, HogQLVariable } from '~/queries/schema'
 import { DashboardType } from '~/types'
 
 function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
