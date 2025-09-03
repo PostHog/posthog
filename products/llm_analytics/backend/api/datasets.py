@@ -28,6 +28,7 @@ class DatasetSerializer(serializers.ModelSerializer):
             "updated_at",
             "deleted",
             "created_by",
+            "team",
         ]
         read_only_fields = [
             "id",
@@ -95,8 +96,8 @@ class DatasetItemSerializer(serializers.ModelSerializer):
             "output",
             "metadata",
             "ref_trace_id",
-            "ref_trace_timestamp",
-            "ref_span_id",
+            "ref_timestamp",
+            "ref_source_id",
             "deleted",
             "created_at",
             "updated_at",

@@ -899,6 +899,14 @@ export class ApiRequest {
         return this.userInterviews(teamId).addPathComponent(id)
     }
 
+    // # Users
+    public users(email?: string): ApiRequest {
+        if (email) {
+            return this.addPathComponent('users').withQueryString({ email })
+        }
+        return this.addPathComponent('users')
+    }
+
     // # Tasks
     public tasks(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('tasks')
@@ -943,6 +951,10 @@ export class ApiRequest {
 
     public errorTrackingIssueMerge(into: ErrorTrackingIssue['id']): ApiRequest {
         return this.errorTrackingIssue(into).addPathComponent('merge')
+    }
+
+    public errorTrackingIssueSplit(into: ErrorTrackingIssue['id']): ApiRequest {
+        return this.errorTrackingIssue(into).addPathComponent('split')
     }
 
     public errorTrackingIssueBulk(teamId?: TeamType['id']): ApiRequest {
@@ -2729,6 +2741,16 @@ const api = {
                 .create({ data: { ids: mergingIssueIds } })
         },
 
+        async split(
+            issueId: ErrorTrackingIssue['id'],
+            fingerprints: string[],
+            exclusive: boolean
+        ): Promise<{ content: string }> {
+            return await new ApiRequest()
+                .errorTrackingIssueSplit(issueId)
+                .create({ data: { fingerprints: fingerprints, exclusive } })
+        },
+
         symbolSets: {
             async list({
                 status,
@@ -3187,6 +3209,12 @@ const api = {
             data: Pick<UserInterviewType, 'summary'>
         ): Promise<UserInterviewType> {
             return await new ApiRequest().userInterview(id).update({ data })
+        },
+    },
+
+    users: {
+        async list(email?: string): Promise<PaginatedResponse<UserType>> {
+            return await new ApiRequest().users(email).get()
         },
     },
 
@@ -3991,11 +4019,11 @@ const api = {
             return new ApiRequest().dataset(datasetId).get()
         },
 
-        async create(data: Partial<Dataset>): Promise<Dataset> {
+        async create(data: Omit<Partial<Dataset>, 'created_by' | 'team'>): Promise<Dataset> {
             return await new ApiRequest().datasets().create({ data })
         },
 
-        async update(datasetId: string, data: Record<string, any>): Promise<Dataset> {
+        async update(datasetId: string, data: Omit<Partial<Dataset>, 'created_by' | 'team'>): Promise<Dataset> {
             return await new ApiRequest().dataset(datasetId).update({ data })
         },
     },
@@ -4013,7 +4041,7 @@ const api = {
             return await new ApiRequest().datasetItems().create({ data })
         },
 
-        async update(datasetItemId: string, data: Record<string, any>): Promise<DatasetItem> {
+        async update(datasetItemId: string, data: Partial<DatasetItem>): Promise<DatasetItem> {
             return await new ApiRequest().datasetItem(datasetItemId).update({ data })
         },
     },

@@ -29,6 +29,7 @@ describe('datasetItemModalLogic', () => {
             first_name: 'Test',
             email: 'test1@example.com',
         },
+        deleted: false,
     }
 
     const mockApi = api as jest.Mocked<typeof api>

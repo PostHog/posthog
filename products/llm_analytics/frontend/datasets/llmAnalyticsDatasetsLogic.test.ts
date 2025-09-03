@@ -27,6 +27,7 @@ describe('llmAnalyticsDatasetsLogic', () => {
             first_name: 'Test',
             email: 'test1@example.com',
         },
+        deleted: false,
     }
 
     const mockDataset2: Dataset = {
@@ -44,6 +45,7 @@ describe('llmAnalyticsDatasetsLogic', () => {
             first_name: 'Test2',
             email: 'test2@example.com',
         },
+        deleted: false,
     }
 
     const mockDatasetsResponse = {
@@ -160,7 +162,7 @@ describe('llmAnalyticsDatasetsLogic', () => {
             })
         })
 
-        it('creates correct API parameters for search filter', () => {
+        it('creates correct query parameters for search filter', () => {
             const logic = llmAnalyticsDatasetsLogic()
             logic.mount()
 
@@ -170,29 +172,41 @@ describe('llmAnalyticsDatasetsLogic', () => {
             // Check that the selector computes correct parameters
             expect(logic.values.filters.search).toBe('new search')
             expect(logic.values.filters.page).toBe(1) // Reset to page 1
+            expect(mockApi.datasets.list).toHaveBeenCalledWith({
+                search: 'new search',
+                order_by: '-created_at',
+                offset: 0,
+                limit: DATASETS_PER_PAGE,
+            })
         })
 
-        it('creates correct API parameters for page changes', () => {
+        it('creates correct query parameters for page changes', () => {
             const logic = llmAnalyticsDatasetsLogic()
             logic.mount()
 
             logic.actions.setFilters({ page: 3 }, false)
 
             expect(logic.values.filters.page).toBe(3)
-
-            // Calculate expected offset: (page - 1) * DATASETS_PER_PAGE = (3 - 1) * 30 = 60
-            const expectedOffset = (3 - 1) * DATASETS_PER_PAGE
-            expect(expectedOffset).toBe(60)
+            expect(mockApi.datasets.list).toHaveBeenCalledWith({
+                search: '',
+                order_by: '-created_at',
+                offset: DATASETS_PER_PAGE * 2,
+                limit: DATASETS_PER_PAGE,
+            })
         })
 
-        it('creates correct API parameters for order_by changes', () => {
+        it('creates correct query parameters for order_by changes', () => {
             const logic = llmAnalyticsDatasetsLogic()
             logic.mount()
 
             logic.actions.setFilters({ order_by: 'name' }, false)
 
-            expect(logic.values.filters.order_by).toBe('name')
-            expect(logic.values.filters.page).toBe(1) // Page resets when order changes
+            expect(mockApi.datasets.list).toHaveBeenCalledWith({
+                search: '',
+                order_by: 'name',
+                offset: 0,
+                limit: DATASETS_PER_PAGE,
+            })
         })
     })
 
@@ -301,20 +315,18 @@ describe('llmAnalyticsDatasetsLogic', () => {
         })
     })
 
-    describe('filter behavior validation', () => {
-        it('validates that filter changes would trigger different API calls', () => {
-            const logic = llmAnalyticsDatasetsLogic()
-            logic.mount()
+    it('validates filter changes', () => {
+        const logic = llmAnalyticsDatasetsLogic()
+        logic.mount()
 
-            // Test that changing filters updates the state correctly
-            logic.actions.setFilters({ search: 'test search' }, false)
-            expect(logic.values.filters.search).toBe('test search')
+        // Test that changing filters updates the state correctly
+        logic.actions.setFilters({ search: 'test search' }, false)
+        expect(logic.values.filters.search).toBe('test search')
 
-            logic.actions.setFilters({ page: 2 }, false)
-            expect(logic.values.filters.page).toBe(2)
+        logic.actions.setFilters({ page: 2 }, false)
+        expect(logic.values.filters.page).toBe(2)
 
-            logic.actions.setFilters({ order_by: 'name' }, false)
-            expect(logic.values.filters.order_by).toBe('name')
-        })
+        logic.actions.setFilters({ order_by: 'name' }, false)
+        expect(logic.values.filters.order_by).toBe('name')
     })
 })

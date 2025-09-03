@@ -155,7 +155,7 @@ export const llmAnalyticsDatasetsLogic = kea<llmAnalyticsDatasetsLogicType>([
             try {
                 const datasetName = values.datasets.results.find((dataset) => dataset.id === datasetId)?.name
                 await api.datasets.update(datasetId, { deleted: true })
-                lemonToast.info(`${datasetName} has been deleted.`)
+                lemonToast.info(`${datasetName || 'Dataset'} has been deleted.`)
                 await asyncActions.loadDatasets(false)
             } catch {
                 lemonToast.error('Failed to delete dataset')

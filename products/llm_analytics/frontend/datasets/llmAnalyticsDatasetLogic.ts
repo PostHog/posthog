@@ -68,6 +68,7 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
         triggerDatasetItemModal: (open: boolean) => ({ open }),
         setSelectedDatasetItem: (datasetItem: DatasetItem) => ({ datasetItem }),
         closeModalAndRefetchDatasetItems: (refetchDatasetItems?: boolean) => ({ refetchDatasetItems }),
+        setDeletingDataset: (deleting: boolean) => ({ deleting }),
     }),
 
     reducers({
@@ -121,6 +122,14 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
                 // Reset the selected dataset item when the modal is closed
                 triggerDatasetItemModal: (state, { open }) => (open ? state : null),
                 closeModalAndRefetchDatasetItems: () => null,
+            },
+        ],
+
+        isDeletingDataset: [
+            false as boolean,
+            {
+                setDeletingDataset: (_, { deleting }) => deleting,
+                deleteDataset: () => true,
             },
         ],
     }),
@@ -270,6 +279,7 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
                 } catch {
                     lemonToast.error('Failed to delete dataset')
                 }
+                actions.setDeletingDataset(false)
             }
         },
 

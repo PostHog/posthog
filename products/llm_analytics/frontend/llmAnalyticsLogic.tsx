@@ -276,7 +276,11 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                             decimalPlaces: 4,
                             display: ChartDisplayType.BoldNumber,
                         },
-                        dateRange: { date_from: dashboardDateFilter.dateFrom, date_to: dashboardDateFilter.dateTo },
+                        dateRange: {
+                            date_from: dashboardDateFilter.dateFrom,
+                            date_to: dashboardDateFilter.dateTo,
+                            explicitDate: true,
+                        },
                         properties: propertyFilters,
                         filterTestAccounts: shouldFilterTestAccounts,
                     },
@@ -367,7 +371,11 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                             display: ChartDisplayType.ActionsBarValue,
                             showValuesOnSeries: true,
                         },
-                        dateRange: { date_from: dashboardDateFilter.dateFrom, date_to: dashboardDateFilter.dateTo },
+                        dateRange: {
+                            date_from: dashboardDateFilter.dateFrom,
+                            date_to: dashboardDateFilter.dateTo,
+                            explicitDate: true,
+                        },
                         properties: propertyFilters,
                         filterTestAccounts: shouldFilterTestAccounts,
                     },
@@ -497,7 +505,11 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                         trendsFilter: {
                             display: ChartDisplayType.ActionsBarValue,
                         },
-                        dateRange: { date_from: dashboardDateFilter.dateFrom, date_to: dashboardDateFilter.dateTo },
+                        dateRange: {
+                            date_from: dashboardDateFilter.dateFrom,
+                            date_to: dashboardDateFilter.dateTo,
+                            explicitDate: true,
+                        },
                         properties: propertyFilters,
                         filterTestAccounts: shouldFilterTestAccounts,
                     },

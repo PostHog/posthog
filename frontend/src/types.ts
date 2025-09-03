@@ -337,6 +337,7 @@ export interface UserType extends UserBaseType {
     anonymize_data: boolean
     toolbar_mode: 'disabled' | 'toolbar'
     has_password: boolean
+    id: number
     is_staff: boolean
     is_impersonated: boolean
     is_impersonated_until?: string
@@ -2432,6 +2433,7 @@ export type BreakdownType =
     | 'hogql'
     | 'data_warehouse'
     | 'data_warehouse_person_property'
+    | 'revenue_analytics'
 export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
 export type SimpleIntervalType = 'day' | 'month'
 export type SmoothingType = number
@@ -4185,6 +4187,11 @@ export enum ExperimentMetricMathType {
     HogQL = 'hogql',
 }
 
+export enum ExperimentMetricGoal {
+    Increase = 'increase',
+    Decrease = 'decrease',
+}
+
 export enum ActorGroupType {
     Person = 'person',
     GroupPrefix = 'group',
@@ -5732,6 +5739,7 @@ export interface Dataset {
     created_at: string
     updated_at: string
     created_by: UserBasicType
+    deleted: boolean
 }
 
 export interface DatasetItem {
@@ -5747,4 +5755,5 @@ export interface DatasetItem {
     created_by: UserBasicType
     updated_at: string
     created_at: string
+    deleted: boolean
 }

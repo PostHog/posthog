@@ -50,6 +50,7 @@ from posthog.temporal.ai.session_summary.types.group import (
     SessionSummaryStep,
     SessionSummaryStreamUpdate,
 )
+from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 from posthog.temporal.tests.ai.conftest import AsyncRedisTestContext
 
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
@@ -509,6 +510,325 @@ async def test_assign_events_to_patterns_threshold_check(
         result = await assign_events_to_patterns_activity(activity_input)
         assert isinstance(result, EnrichedSessionGroupSummaryPatternsList)
         assert len(result.patterns) == 3  # Should have 3 patterns with events
+
+
+@pytest.mark.asyncio
+async def test_assign_events_to_patterns_filters_non_blocking_exceptions(
+    mocker: MockerFixture,
+    mock_session_id: str,
+    mock_enriched_llm_json_response: dict[str, Any],
+    mock_single_session_summary_inputs: Callable,
+    mock_session_group_summary_of_summaries_inputs: Callable,
+    redis_test_setup: AsyncRedisTestContext,
+    auser: User,
+    ateam: Team,
+):
+    """Test that non-blocking exceptions are filtered out from pattern assignments"""
+    modified_summary_data = dict(mock_enriched_llm_json_response)
+    # Add a non-blocking exception event to the key actions (to skip)
+    modified_summary_data["key_actions"][1]["events"].append(
+        {
+            "description": "Non-blocking error occurred",
+            "abandonment": False,
+            "confusion": False,
+            "exception": "non-blocking",  # This should be filtered out
+            "event_id": "xyz98765",
+            "timestamp": "2025-03-31T18:41:20.000000+00:00",
+            "milliseconds_since_start": 48000,
+            "window_id": "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
+            "current_url": "http://localhost:8010/error",
+            "event": "$exception",
+            "event_type": "error",
+            "event_index": 7,
+            "session_id": mock_session_id,
+            "event_uuid": "00000000-0000-0000-0001-000000000008",
+        }
+    )
+    # Create serializer from modified data
+    modified_serializer = SessionSummarySerializer(data=modified_summary_data)
+    assert modified_serializer.is_valid(), f"Invalid session summary data: {modified_serializer.errors}"
+    # Setup input and store modified session summary in DB
+    session_ids = [mock_session_id]
+    single_session_inputs = [
+        mock_single_session_summary_inputs(session_id, ateam.id, auser.id) for session_id in session_ids
+    ]
+    activity_input = mock_session_group_summary_of_summaries_inputs(single_session_inputs, auser.id, ateam.id)
+    await database_sync_to_async(SingleSessionSummary.objects.add_summary, thread_sensitive=False)(
+        team_id=ateam.id,
+        session_id=mock_session_id,
+        summary=modified_serializer,
+        exception_event_ids=[],
+        extra_summary_context=activity_input.extra_summary_context,
+        created_by=auser,
+    )
+    # Setup Redis with patterns
+    patterns_data = RawSessionGroupSummaryPatternsList(
+        patterns=[
+            {
+                "pattern_id": 1,
+                "pattern_name": "Error Pattern",
+                "pattern_description": "Pattern for error events",
+                "severity": "high",
+                "indicators": ["error", "exception"],
+            },
+            {
+                "pattern_id": 2,
+                "pattern_name": "Confusion Pattern",
+                "pattern_description": "Pattern for user confusion",
+                "severity": "medium",
+                "indicators": ["confusion", "retry"],
+            },
+        ]
+    )
+    _, redis_input_key, _ = get_redis_state_client(
+        key_base=activity_input.redis_key_base,
+        input_label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+        state_id=generate_state_id_from_session_ids(session_ids),
+    )
+    assert redis_input_key is not None
+    await redis_test_setup.setup_input_data(
+        _compress_redis_data(patterns_data.model_dump_json()),
+        redis_input_key,
+    )
+    # Create a mock LLM response for pattern assignment
+    patterns_assignment_yaml = """patterns:
+  - pattern_id: 1
+    event_ids: ["mnop3456", "xyz98765"]  # mnop3456 is blocking, xyz98765 is non-blocking
+  - pattern_id: 2
+    event_ids: ["stuv9012"]  # stuv9012 has abandonment"""
+    mock_llm_response = ChatCompletion(
+        id="test_id",
+        model="test_model",
+        object="chat.completion",
+        created=int(datetime.now().timestamp()),
+        choices=[
+            Choice(
+                finish_reason="stop",
+                index=0,
+                message=ChatCompletionMessage(
+                    content=patterns_assignment_yaml,
+                    role="assistant",
+                ),
+            )
+        ],
+    )
+    # Mock LLM calls and Temporal context
+    with (
+        patch("ee.hogai.session_summaries.llm.consume.call_llm") as mock_call_llm,
+        patch("temporalio.activity.info") as mock_activity_info,
+        patch("posthog.temporal.ai.session_summary.activities.patterns.async_connect") as mock_async_connect,
+    ):
+        # Setup mocks
+        mock_activity_info.return_value.workflow_id = "test_workflow_id"
+        mock_activity_info.return_value.workflow_run_id = "test_run_id"
+        # Mock workflow handle for progress updates
+        mock_workflow_handle = AsyncMock()
+        mock_workflow_handle.signal = AsyncMock()
+        mock_temporal_client = AsyncMock()
+        mock_temporal_client.get_workflow_handle = MagicMock(return_value=mock_workflow_handle)
+        mock_async_connect.return_value = mock_temporal_client
+        # Mock LLM call for pattern assignment
+        mock_call_llm.return_value = mock_llm_response
+        # Execute activity
+        result = await assign_events_to_patterns_activity(activity_input)
+    # Assertions
+    assert isinstance(result, EnrichedSessionGroupSummaryPatternsList)
+    # Pattern 1 should only have mnop3456 (blocking, should be included), not xyz98765 (non-blocking, should be skipped)
+    pattern_1 = next((p for p in result.patterns if p.pattern_id == 1), None)
+    assert pattern_1 is not None, "Pattern 1 should exist"
+    assert len(pattern_1.events) == 1, "Pattern 1 should have only 1 event after filtering"
+    assert pattern_1.events[0].target_event.event_id == "mnop3456"
+    assert pattern_1.events[0].target_event.exception == "blocking"
+    # Pattern 2 should have stuv9012 (abandonment, should be included)
+    pattern_2 = next((p for p in result.patterns if p.pattern_id == 2), None)
+    assert pattern_2 is not None, "Pattern 2 should exist"
+    assert len(pattern_2.events) == 1, "Pattern 2 should have 1 event"
+    assert pattern_2.events[0].target_event.event_id == "stuv9012"
+    assert pattern_2.events[0].target_event.abandonment is True
+    # Verify stats reflect only remaining events
+    assert pattern_1.stats.occurences == 1  # Only blocking exception counted
+    assert pattern_2.stats.occurences == 1
+
+
+@pytest.mark.asyncio
+async def test_non_blocking_exceptions_dont_fail_enrichment_ratio(
+    mocker: MockerFixture,
+    mock_session_id: str,
+    mock_enriched_llm_json_response: dict[str, Any],
+    mock_single_session_summary_inputs: Callable,
+    mock_session_group_summary_of_summaries_inputs: Callable,
+    redis_test_setup: AsyncRedisTestContext,
+    auser: User,
+    ateam: Team,
+):
+    """Test that patterns with only non-blocking exceptions don't count as enrichment failures"""
+    # Create a modified session summary with only non-blocking exceptions for some patterns
+    modified_summary_data = dict(mock_enriched_llm_json_response)
+    # Clear existing events and add specific test events
+    modified_summary_data["key_actions"][1]["events"] = [
+        {
+            "description": "Non-blocking error 1",
+            "abandonment": False,
+            "confusion": False,
+            "exception": "non-blocking",
+            "event_id": "nonb0001",
+            "timestamp": "2025-03-31T18:41:20.000000+00:00",
+            "milliseconds_since_start": 48000,
+            "window_id": "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
+            "current_url": "http://localhost:8010/error",
+            "event": "$exception",
+            "event_type": "error",
+            "event_index": 7,
+            "session_id": mock_session_id,
+            "event_uuid": "00000000-0000-0000-0001-000000000008",
+        },
+        {
+            "description": "Non-blocking error 2",
+            "abandonment": False,
+            "confusion": False,
+            "exception": "non-blocking",
+            "event_id": "nonb0002",
+            "timestamp": "2025-03-31T18:41:21.000000+00:00",
+            "milliseconds_since_start": 49000,
+            "window_id": "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
+            "current_url": "http://localhost:8010/error",
+            "event": "$exception",
+            "event_type": "error",
+            "event_index": 8,
+            "session_id": mock_session_id,
+            "event_uuid": "00000000-0000-0000-0001-000000000009",
+        },
+        {
+            "description": "Blocking error",
+            "abandonment": False,
+            "confusion": True,
+            "exception": "blocking",
+            "event_id": "block001",
+            "timestamp": "2025-03-31T18:41:22.000000+00:00",
+            "milliseconds_since_start": 50000,
+            "window_id": "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
+            "current_url": "http://localhost:8010/error",
+            "event": "$exception",
+            "event_type": "error",
+            "event_index": 9,
+            "session_id": mock_session_id,
+            "event_uuid": "00000000-0000-0000-0001-000000000010",
+        },
+    ]
+    # Create serializer from modified data
+    modified_serializer = SessionSummarySerializer(data=modified_summary_data)
+    assert modified_serializer.is_valid(), f"Invalid session summary data: {modified_serializer.errors}"
+    # Setup input
+    session_ids = [mock_session_id]
+    single_session_inputs = [
+        mock_single_session_summary_inputs(session_id, ateam.id, auser.id) for session_id in session_ids
+    ]
+    activity_input = mock_session_group_summary_of_summaries_inputs(single_session_inputs, auser.id, ateam.id)
+    # Store modified session summary in DB
+    await database_sync_to_async(SingleSessionSummary.objects.add_summary, thread_sensitive=False)(
+        team_id=ateam.id,
+        session_id=mock_session_id,
+        summary=modified_serializer,
+        exception_event_ids=[],
+        extra_summary_context=activity_input.extra_summary_context,
+        created_by=auser,
+    )
+    # Setup Redis with 3 patterns
+    patterns_data = RawSessionGroupSummaryPatternsList(
+        patterns=[
+            {
+                "pattern_id": 1,
+                "pattern_name": "Non-blocking Pattern",
+                "pattern_description": "Pattern with only non-blocking exceptions",
+                "severity": "low",
+                "indicators": ["non-blocking"],
+            },
+            {
+                "pattern_id": 2,
+                "pattern_name": "Blocking Pattern",
+                "pattern_description": "Pattern with blocking exceptions",
+                "severity": "high",
+                "indicators": ["blocking"],
+            },
+            {
+                "pattern_id": 3,
+                "pattern_name": "Mixed Pattern",
+                "pattern_description": "Pattern with both types",
+                "severity": "medium",
+                "indicators": ["error"],
+            },
+        ]
+    )
+    _, redis_input_key, _ = get_redis_state_client(
+        key_base=activity_input.redis_key_base,
+        input_label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+        state_id=generate_state_id_from_session_ids(session_ids),
+    )
+    assert redis_input_key is not None
+    await redis_test_setup.setup_input_data(
+        _compress_redis_data(patterns_data.model_dump_json()),
+        redis_input_key,
+    )
+    # Mock LLM response that assigns events to patterns
+    patterns_assignment_yaml = """patterns:
+  - pattern_id: 1
+    event_ids: ["nonb0001", "nonb0002"]  # Only non-blocking
+  - pattern_id: 2
+    event_ids: ["block001"]  # Only blocking
+  - pattern_id: 3
+    event_ids: ["nonb0001", "block001"]  # Mixed"""
+    mock_llm_response = ChatCompletion(
+        id="test_id",
+        model="test_model",
+        object="chat.completion",
+        created=int(datetime.now().timestamp()),
+        choices=[
+            Choice(
+                finish_reason="stop",
+                index=0,
+                message=ChatCompletionMessage(
+                    content=patterns_assignment_yaml,
+                    role="assistant",
+                ),
+            )
+        ],
+    )
+    with (
+        patch("ee.hogai.session_summaries.llm.consume.call_llm") as mock_call_llm,
+        patch("temporalio.activity.info") as mock_activity_info,
+        patch("posthog.temporal.ai.session_summary.activities.patterns.async_connect") as mock_async_connect,
+    ):
+        # Setup mocks
+        mock_activity_info.return_value.workflow_id = "test_workflow_id"
+        mock_activity_info.return_value.workflow_run_id = "test_run_id"
+        # Mock workflow handle for progress updates
+        mock_workflow_handle = AsyncMock()
+        mock_workflow_handle.signal = AsyncMock()
+        mock_temporal_client = AsyncMock()
+        mock_temporal_client.get_workflow_handle = MagicMock(return_value=mock_workflow_handle)
+        mock_async_connect.return_value = mock_temporal_client
+        # Mock LLM call
+        mock_call_llm.return_value = mock_llm_response
+        # We provide 3 patters, it should fail if less than 75% of the patterns were successful
+        # It would return just 2, but one pattern is empty through non-blocking exception removal - so, it should not fail
+        result = await assign_events_to_patterns_activity(activity_input)
+    # Assertions
+    assert isinstance(result, EnrichedSessionGroupSummaryPatternsList)
+    # Pattern 1 should be removed (only non-blocking)
+    pattern_1 = next((p for p in result.patterns if p.pattern_id == 1), None)
+    assert pattern_1 is None, "Pattern 1 with only non-blocking exceptions should be removed"
+    # Pattern 2 should exist with blocking exception
+    pattern_2 = next((p for p in result.patterns if p.pattern_id == 2), None)
+    assert pattern_2 is not None, "Pattern 2 should exist"
+    assert len(pattern_2.events) == 1
+    assert pattern_2.events[0].target_event.event_id == "block001"
+    # Pattern 3 should have only the blocking exception
+    pattern_3 = next((p for p in result.patterns if p.pattern_id == 3), None)
+    assert pattern_3 is not None, "Pattern 3 should exist"
+    assert len(pattern_3.events) == 1, "Pattern 3 should have only blocking event"
+    assert pattern_3.events[0].target_event.event_id == "block001"
+    # Result should have 2 patterns (patterns 2 and 3)
+    assert len(result.patterns) == 2, "Should have 2 patterns with valid events"
 
 
 class TestSummarizeSessionGroupWorkflow:
@@ -1201,6 +1521,146 @@ async def test_combine_patterns_from_chunks_activity(
         assert spy_setex.call_count == 1
         # Verify LLM was called
         mock_combine.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_run_patterns_extraction_with_chunking_and_redis_keys(
+    mock_session_id: str,
+    redis_test_setup: AsyncRedisTestContext,
+    auser: User,
+    ateam: Team,
+    mock_session_group_summary_of_summaries_inputs: Callable,
+):
+    """Verify correct Redis key generation and chunks combination when chunking."""
+    # Create test data for 4 sessions that will be split into 2 chunks
+    session_ids = [f"{mock_session_id}-{i}" for i in range(1, 5)]
+    chunk1_sessions = session_ids[:2]
+    chunk2_sessions = session_ids[2:]
+    redis_key_base = "test-patterns-extraction"
+    # Create single session summary inputs for each session
+    single_session_inputs = [
+        SingleSessionSummaryInputs(
+            session_id=session_id,
+            user_id=auser.id,
+            team_id=ateam.id,
+            redis_key_base=redis_key_base,
+            model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
+        )
+        for session_id in session_ids
+    ]
+    # Create activity inputs
+    inputs = mock_session_group_summary_of_summaries_inputs(
+        single_session_summaries_inputs=single_session_inputs,
+        team_id=ateam.id,
+        user_id=auser.id,
+        redis_key_base=redis_key_base,
+    )
+    # Apply mocks and run the activity
+    with (
+        patch(
+            "posthog.temporal.ai.session_summary.summarize_session_group.split_session_summaries_into_chunks_for_patterns_extraction_activity",
+            new_callable=AsyncMock,
+        ) as mock_split,
+        patch(
+            "posthog.temporal.ai.session_summary.summarize_session_group.extract_session_group_patterns_activity",
+            new_callable=AsyncMock,
+        ) as mock_extract,
+        patch(
+            "posthog.temporal.ai.session_summary.activities.patterns.get_llm_session_group_patterns_combination",
+            new_callable=AsyncMock,
+        ) as mock_llm_combine,
+        patch("temporalio.workflow.execute_activity") as mock_execute_activity,
+        patch("temporalio.activity.info") as mock_activity_info,
+    ):
+        mock_activity_info.return_value.workflow_id = "test_workflow_id"
+        # Mock split_session_summaries_into_chunks to return 2 chunks
+        mock_split.return_value = [chunk1_sessions, chunk2_sessions]
+        # Generate the Redis keys using hashed state_ids
+        chunk1_state_id = generate_state_id_from_session_ids(chunk1_sessions)
+        chunk2_state_id = generate_state_id_from_session_ids(chunk2_sessions)
+        chunk1_redis_key = generate_state_key(
+            key_base=redis_key_base,
+            label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+            state_id=chunk1_state_id,
+        )
+        chunk2_redis_key = generate_state_key(
+            key_base=redis_key_base,
+            label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+            state_id=chunk2_state_id,
+        )
+        # Store patterns in Redis for each chunk (simulating what extract_session_group_patterns_activity would do)
+        chunk1_patterns = RawSessionGroupSummaryPatternsList(
+            patterns=[
+                {
+                    "pattern_id": 1,
+                    "pattern_name": "Pattern from chunk 1",
+                    "pattern_description": "Test pattern 1",
+                    "severity": "low",
+                    "indicators": ["indicator1"],
+                }
+            ]
+        )
+        chunk2_patterns = RawSessionGroupSummaryPatternsList(
+            patterns=[
+                {
+                    "pattern_id": 2,
+                    "pattern_name": "Pattern from chunk 2",
+                    "pattern_description": "Test pattern 2",
+                    "severity": "high",
+                    "indicators": ["indicator2"],
+                }
+            ]
+        )
+        await store_data_in_redis(
+            redis_client=redis_test_setup.redis_client,
+            redis_key=chunk1_redis_key,
+            data=chunk1_patterns.model_dump_json(),
+            label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+        )
+        await store_data_in_redis(
+            redis_client=redis_test_setup.redis_client,
+            redis_key=chunk2_redis_key,
+            data=chunk2_patterns.model_dump_json(),
+            label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+        )
+
+        async def execute_activity_router(activity, inputs, *args, **kwargs):
+            # Route based on the inputs type and activity properties
+            if isinstance(inputs, SessionGroupSummaryOfSummariesInputs):
+                # Check if this is for chunking or extraction
+                if "split" in str(activity):
+                    return await mock_split(inputs, *args, **kwargs)
+                elif "extract" in str(activity):
+                    return await mock_extract(inputs, *args, **kwargs)
+            elif isinstance(inputs, SessionGroupSummaryPatternsExtractionChunksInputs):
+                # This is the combine activity - run the real one (without workflow-specific kwargs)
+                return await combine_patterns_from_chunks_activity(inputs)
+
+        # Setup mock_execute_activity to route to the correct mock or real activity
+        mock_execute_activity.side_effect = execute_activity_router
+        # Mock extract_session_group_patterns_activity to return the correct Redis keys
+        mock_extract.side_effect = [chunk1_redis_key, chunk2_redis_key]
+        # Mock LLM combination to return combined patterns
+        mock_llm_combine.return_value = RawSessionGroupSummaryPatternsList(
+            patterns=chunk1_patterns.patterns + chunk2_patterns.patterns
+        )
+        # Create workflow instance and run patterns extraction
+        workflow = SummarizeSessionGroupWorkflow()
+        result = await workflow._run_patterns_extraction(inputs)
+        # Verify the result
+        assert result == session_ids  # All sessions should have patterns extracted
+        mock_split.assert_called_once()  # The chunking was done
+        assert mock_extract.call_count == 2  # Extract was called once per chunk
+        mock_llm_combine.assert_called_once()  # LLM combination was called
+        # Combined patterns were stored in Redis properly
+        combined_key = generate_state_key(
+            key_base=redis_key_base,
+            label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+            state_id=generate_state_id_from_session_ids(session_ids),
+        )
+        stored_data = await redis_test_setup.redis_client.get(combined_key)
+        assert stored_data is not None
+        redis_test_setup.keys_to_cleanup.append(combined_key)
 
 
 @pytest.mark.asyncio

@@ -45,7 +45,7 @@ export const manifest: ProductManifest = {
             name: 'LLM analytics datasets',
             activityScope: 'LLMAnalytics',
             layout: 'app-container',
-            defaultDocsPath: '/docs/ai-engineering/observability',
+            defaultDocsPath: '/docs/llm-analytics/installation',
         },
         LLMAnalyticsDataset: {
             import: () => import('./frontend/datasets/LLMAnalyticsDatasetScene'),
@@ -53,7 +53,7 @@ export const manifest: ProductManifest = {
             name: 'LLM analytics dataset',
             activityScope: 'LLMAnalytics',
             layout: 'app-container',
-            defaultDocsPath: '/docs/ai-engineering/observability',
+            defaultDocsPath: '/docs/llm-analytics/installation',
         },
     },
     routes: {
@@ -82,10 +82,6 @@ export const manifest: ProductManifest = {
             combineUrl(`/llm-analytics/users`, searchParams, hashParams).url,
         '/llm-observability/playground': (_params, searchParams, hashParams) =>
             combineUrl(`/llm-analytics/playground`, searchParams, hashParams).url,
-        '/llm-observability/datasets': (_params, searchParams, hashParams) =>
-            combineUrl(`/llm-analytics/datasets`, searchParams, hashParams).url,
-        '/llm-observability/datasets/:id': (params, searchParams, hashParams) =>
-            combineUrl(`/llm-analytics/datasets/${params.id}`, searchParams, hashParams).url,
     },
     urls: {
         llmAnalyticsDashboard: (): string => '/llm-analytics',

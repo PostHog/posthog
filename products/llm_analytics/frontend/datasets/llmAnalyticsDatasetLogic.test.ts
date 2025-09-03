@@ -31,6 +31,7 @@ describe('llmAnalyticsDatasetLogic', () => {
             first_name: 'Test',
             email: 'test@example.com',
         },
+        deleted: false,
     }
 
     const mockDatasetItem1: DatasetItem = {
@@ -52,6 +53,7 @@ describe('llmAnalyticsDatasetLogic', () => {
         },
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z',
+        deleted: false,
     }
 
     const mockDatasetItem2: DatasetItem = {
@@ -73,6 +75,7 @@ describe('llmAnalyticsDatasetLogic', () => {
         },
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z',
+        deleted: false,
     }
 
     const mockApi = api as jest.Mocked<typeof api>
@@ -334,7 +337,7 @@ describe('llmAnalyticsDatasetLogic', () => {
         })
 
         it('sets form defaults when dataset is loaded', async () => {
-            const datasetWithComplexMetadata = {
+            const datasetWithComplexMetadata: Dataset = {
                 ...mockDataset,
                 metadata: { complex: { nested: 'data' }, array: [1, 2, 3] },
             }

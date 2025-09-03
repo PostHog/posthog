@@ -10,6 +10,11 @@ import { InsightsTable } from './InsightsTable'
 export function DashboardInsightsTable(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     return (
-        <InsightsTable filterKey={`dashboard_${insightProps.dashboardItemId}`} embedded canCheckUncheckSeries={false} />
+        <InsightsTable
+            filterKey={`dashboard_${insightProps.dashboardItemId}`}
+            embedded
+            canCheckUncheckSeries={false}
+            editMode={false}
+        />
     )
 }
