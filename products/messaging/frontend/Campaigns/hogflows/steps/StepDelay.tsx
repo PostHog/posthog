@@ -6,8 +6,7 @@ import { IconClock } from '@posthog/icons'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowAction } from '../types'
 import { HogFlowDuration } from './components/HogFlowDuration'
-import { StepView } from './components/StepView'
-import { HogFlowStep, HogFlowStepNodeProps } from './types'
+import { HogFlowStep } from './types'
 
 export const StepDelay: HogFlowStep<'delay'> = {
     type: 'delay',
@@ -15,7 +14,6 @@ export const StepDelay: HogFlowStep<'delay'> = {
     description: 'Wait for a specified duration.',
     icon: <IconClock className="text-[#a20031]" />,
     color: '#a20031',
-    renderNode: (props) => <StepDelayNode {...props} />,
     renderConfiguration: (node) => <StepDelayConfiguration node={node} />,
     create: () => {
         return {
@@ -30,10 +28,6 @@ export const StepDelay: HogFlowStep<'delay'> = {
             },
         }
     },
-}
-
-function StepDelayNode({ data }: HogFlowStepNodeProps): JSX.Element {
-    return <StepView action={data} />
 }
 
 function StepDelayConfiguration({ node }: { node: Node<Extract<HogFlowAction, { type: 'delay' }>> }): JSX.Element {

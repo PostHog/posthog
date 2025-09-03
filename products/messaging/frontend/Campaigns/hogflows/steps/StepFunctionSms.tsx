@@ -4,8 +4,7 @@ import { IconTwilio } from 'lib/lemon-ui/icons'
 
 import { HogFlowAction } from '../types'
 import { StepFunctionConfiguration } from './StepFunction'
-import { StepView } from './components/StepView'
-import { HogFlowStep, HogFlowStepNodeProps } from './types'
+import { HogFlowStep } from './types'
 
 export const StepFunctionSms: HogFlowStep<'function_sms'> = {
     type: 'function_sms',
@@ -13,7 +12,6 @@ export const StepFunctionSms: HogFlowStep<'function_sms'> = {
     description: 'Send an SMS to the user.',
     icon: <IconTwilio className="text-[#f22f46]" />,
     color: '#f22f46',
-    renderNode: (props) => <StepFunctionSmsNode {...props} />,
     renderConfiguration: (node) => <StepFunctionSmsConfiguration node={node} />,
     create: () => {
         return {
@@ -28,10 +26,6 @@ export const StepFunctionSms: HogFlowStep<'function_sms'> = {
             },
         }
     },
-}
-
-function StepFunctionSmsNode({ data }: HogFlowStepNodeProps): JSX.Element {
-    return <StepView action={data} />
 }
 
 function StepFunctionSmsConfiguration(props: {

@@ -3,8 +3,7 @@ import { Node } from '@xyflow/react'
 import { IconLeave } from '@posthog/icons'
 
 import { HogFlowAction } from '../types'
-import { StepView } from './components/StepView'
-import { HogFlowStep, HogFlowStepNodeProps } from './types'
+import { HogFlowStep } from './types'
 
 export const StepExit: HogFlowStep<'exit'> = {
     type: 'exit',
@@ -12,7 +11,6 @@ export const StepExit: HogFlowStep<'exit'> = {
     description: 'Exit the campaign.',
     icon: <IconLeave />,
     color: '#4b4b4b',
-    renderNode: (props) => <StepExitNode {...props} />,
     renderConfiguration: (node) => <StepExitConfiguration node={node} />,
     create: () => {
         return {
@@ -26,10 +24,6 @@ export const StepExit: HogFlowStep<'exit'> = {
             },
         }
     },
-}
-
-function StepExitNode({ data }: HogFlowStepNodeProps): JSX.Element {
-    return <StepView action={data} />
 }
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars

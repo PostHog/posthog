@@ -19,7 +19,7 @@ export type HogFlowStep<T extends HogFlowAction['type']> = {
     icon: JSX.Element
     color?: string
     brandColor?: string
-    renderNode: (props: HogFlowStepNodeProps) => JSX.Element
+    renderNode?: (props: HogFlowStepNodeProps) => JSX.Element
     renderConfiguration: (node: Node<Extract<HogFlowAction, { type: T }>>) => JSX.Element
     create: () => {
         action: Omit<Pick<Extract<HogFlowAction, { type: T }>, 'config' | 'name' | 'description'>, 'config'> & {

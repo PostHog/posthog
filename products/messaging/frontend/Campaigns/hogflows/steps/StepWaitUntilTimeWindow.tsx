@@ -12,8 +12,7 @@ import { WeekdayType } from '~/types'
 
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowAction } from '../types'
-import { StepView } from './components/StepView'
-import { HogFlowStep, HogFlowStepNodeProps } from './types'
+import { HogFlowStep } from './types'
 
 type DayConfig = 'any' | 'weekday' | 'weekend' | WeekdayType[]
 type TimeConfig = 'any' | [string, string]
@@ -57,7 +56,6 @@ export const StepWaitUntilTimeWindow: HogFlowStep<'wait_until_time_window'> = {
     description: 'Wait until a specific time window is reached.',
     icon: <IconDay className="text-[#005841]" />,
     color: '#005841',
-    renderNode: (props) => <StepWaitUntilTimeWindowNode {...props} />,
     renderConfiguration: (node) => <StepWaitUntilTimeWindowConfiguration node={node} />,
     create: () => ({
         action: {
@@ -73,10 +71,6 @@ export const StepWaitUntilTimeWindow: HogFlowStep<'wait_until_time_window'> = {
         },
         branchEdges: 1,
     }),
-}
-
-function StepWaitUntilTimeWindowNode({ data }: HogFlowStepNodeProps): JSX.Element {
-    return <StepView action={data} />
 }
 
 // Configuration utility functions

@@ -6,8 +6,7 @@ import { IconBolt } from '@posthog/icons'
 import { HogFlowFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowAction } from '../types'
-import { StepView } from './components/StepView'
-import { HogFlowStep, HogFlowStepNodeProps } from './types'
+import { HogFlowStep } from './types'
 
 export const StepTrigger: HogFlowStep<'trigger'> = {
     type: 'trigger',
@@ -15,7 +14,6 @@ export const StepTrigger: HogFlowStep<'trigger'> = {
     description: 'Trigger the campaign.',
     icon: <IconBolt className="text-[#1E88E5]" />,
     color: '#1E88E5',
-    renderNode: (props) => <StepTriggerNode {...props} />,
     renderConfiguration: (node) => <StepTriggerConfiguration node={node} />,
     create: () => {
         return {
@@ -29,10 +27,6 @@ export const StepTrigger: HogFlowStep<'trigger'> = {
             },
         }
     },
-}
-
-function StepTriggerNode({ data }: HogFlowStepNodeProps): JSX.Element {
-    return <StepView action={data} />
 }
 
 function StepTriggerConfiguration({ node }: { node: Node<Extract<HogFlowAction, { type: 'trigger' }>> }): JSX.Element {

@@ -4,8 +4,7 @@ import { IconSlack } from 'lib/lemon-ui/icons/icons'
 
 import { HogFlowAction } from '../types'
 import { StepFunctionConfiguration } from './StepFunction'
-import { StepView } from './components/StepView'
-import { HogFlowStep, HogFlowStepNodeProps } from './types'
+import { HogFlowStep } from './types'
 
 export const StepFunctionSlack: HogFlowStep<'function_slack'> = {
     type: 'function_slack',
@@ -13,7 +12,6 @@ export const StepFunctionSlack: HogFlowStep<'function_slack'> = {
     description: 'Send a message to a Slack channel.',
     icon: <IconSlack />,
     brandColor: '#4A154B',
-    renderNode: (props) => <StepFunctionSlackNode {...props} />,
     renderConfiguration: (node) => <StepFunctionSlackConfiguration node={node} />,
     create: () => {
         return {
@@ -28,10 +26,6 @@ export const StepFunctionSlack: HogFlowStep<'function_slack'> = {
             },
         }
     },
-}
-
-function StepFunctionSlackNode({ data }: HogFlowStepNodeProps): JSX.Element {
-    return <StepView action={data} />
 }
 
 function StepFunctionSlackConfiguration(props: {

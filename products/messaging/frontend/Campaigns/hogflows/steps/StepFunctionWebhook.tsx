@@ -4,8 +4,7 @@ import { IconWebhooks } from '@posthog/icons'
 
 import { HogFlowAction } from '../types'
 import { StepFunctionConfiguration } from './StepFunction'
-import { StepView } from './components/StepView'
-import { HogFlowStep, HogFlowStepNodeProps } from './types'
+import { HogFlowStep } from './types'
 
 export const StepFunctionWebhook: HogFlowStep<'function_webhook'> = {
     type: 'function_webhook',
@@ -13,7 +12,7 @@ export const StepFunctionWebhook: HogFlowStep<'function_webhook'> = {
     description: 'Send a webhook to an external service.',
     icon: <IconWebhooks className="text-[#6500ae]" />,
     color: '#6500ae',
-    renderNode: (props) => <StepFunctionWebhookNode {...props} />,
+    // renderNode: (props) => <StepFunctionWebhookNode {...props} />,
     renderConfiguration: (node) => <StepFunctionWebhookConfiguration node={node} />,
     create: () => {
         return {
@@ -28,10 +27,6 @@ export const StepFunctionWebhook: HogFlowStep<'function_webhook'> = {
             },
         }
     },
-}
-
-function StepFunctionWebhookNode({ data }: HogFlowStepNodeProps): JSX.Element {
-    return <StepView action={data} />
 }
 
 function StepFunctionWebhookConfiguration(props: {
