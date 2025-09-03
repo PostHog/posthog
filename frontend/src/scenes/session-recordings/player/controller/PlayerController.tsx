@@ -106,12 +106,14 @@ function Clip(): JSX.Element {
             size="xsmall"
             onClick={() => takeScreenshot(ExporterFormat.GIF)}
             tooltip={
-                <>
-                    Get a GIF from now -2.5s to now +2.5s <KeyboardShortcut x />
+                <div className="flex items-center gap-2">
+                    <span>
+                        Get a GIF from now -2.5s to now +2.5s <KeyboardShortcut x />
+                    </span>
                     <LemonTag type="warning" size="small">
                         BETA
                     </LemonTag>
-                </>
+                </div>
             }
             icon={<IconRecordingClip className="text-xl" />}
             data-attr="replay-screenshot-gif"
