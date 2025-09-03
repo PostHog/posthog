@@ -53,6 +53,11 @@ export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }):
                 }}
                 showSource={false}
                 sampleGlobalsWithInputs={null} // TODO: Load this based on the trigger event
+                onInputChange={(key, value) => {
+                    setCampaignActionConfig(node.id, {
+                        inputs: { ...node.data.config.inputs, [key]: value },
+                    })
+                }}
             />
             <div className="text-danger flex items-center gap-1 text-sm">
                 {configurationValidationErrors?.inputs && (
