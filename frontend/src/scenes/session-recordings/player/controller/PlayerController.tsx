@@ -62,7 +62,7 @@ function FullScreen(): JSX.Element {
                     <span>{!isFullScreen ? 'Go' : 'Exit'}</span> full screen <KeyboardShortcut f />
                 </>
             }
-            icon={<IconFullScreen className="text-2xl" />}
+            icon={<IconFullScreen className="text-xl" />}
             data-attr={isFullScreen ? 'exit-full-screen' : 'full-screen'}
         />
     )
@@ -91,7 +91,7 @@ function CinemaMode(): JSX.Element {
                     </>
                 }
                 status={isCinemaMode ? 'danger' : 'default'}
-                icon={<IconVideoCamera className="text-2xl" />}
+                icon={<IconVideoCamera className="text-xl" />}
                 data-attr={isCinemaMode ? 'exit-cinema-mode' : 'cinema-mode'}
             />
         </>
@@ -113,7 +113,7 @@ function Clip(): JSX.Element {
                     </LemonTag>
                 </>
             }
-            icon={<IconRecordingClip className="text-2xl" />}
+            icon={<IconRecordingClip className="text-xl" />}
             data-attr="replay-screenshot-gif"
             tooltipPlacement="top"
         />
@@ -132,7 +132,7 @@ function Screenshot(): JSX.Element {
                     Take a screenshot of this point in the recording <KeyboardShortcut s />
                 </>
             }
-            icon={<IconCamera className="text-2xl" />}
+            icon={<IconCamera className="text-xl" />}
             data-attr="replay-screenshot-png"
             tooltipPlacement="top"
         />
