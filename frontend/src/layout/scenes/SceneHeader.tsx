@@ -1,12 +1,11 @@
 import { useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 
-import { IconChevronDown, IconEllipsis, IconGear, IconPencil, IconX } from '@posthog/icons'
+import { IconChevronDown, IconEllipsis, IconPencil, IconX } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { TopBarSettingsButton } from 'lib/components/TopBarSettingsButton/TopBarSettingsButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { IconMenu, IconSlash } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -83,8 +82,6 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
 
                     <div className="flex gap-1 items-center shrink-0 pr-px">
                         <div className="contents" ref={setActionsContainer} />
-
-                        <TopBarSettingsButton buttonProps={{ size: 'small', icon: <IconGear /> }} />
 
                         {scenePanelIsPresent && (
                             <LemonButton

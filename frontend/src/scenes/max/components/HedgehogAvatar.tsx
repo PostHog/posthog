@@ -88,7 +88,7 @@ export function HedgehogAvatar({
                     title={
                         <>
                             <IconSparkles className="mr-1.5" />
-                            Max AI - Create insights, talk to your data, and more
+                            Max is moving back into the sidebar
                         </>
                     }
                     placement="top-start"

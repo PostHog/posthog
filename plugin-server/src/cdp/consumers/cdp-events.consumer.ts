@@ -84,7 +84,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
             // This is all IO so we can set them off in the background and start processing the next batch
             backgroundTask: Promise.all([
                 this.cyclotronJobQueue.queueInvocations(invocationsToBeQueued),
-                this.hogFunctionMonitoringService.produceQueuedMessages().catch((err) => {
+                this.hogFunctionMonitoringService.flush().catch((err) => {
                     captureException(err)
                     logger.error('🔴', 'Error producing queued messages for monitoring', { err })
                 }),
