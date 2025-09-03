@@ -147,6 +147,14 @@ class _SharedAssistantState(BaseState):
     """
     The insight generation plan.
     """
+    query_planner_previous_response_id: Optional[str] = Field(default=None)
+    """
+    The ID of the previous OpenAI Responses API response made by the query planner.
+    """
+    query_planner_intermediate_messages: Optional[Sequence[LangchainBaseMessage]] = Field(default=None)
+    """
+    The intermediate messages from the query planner agent.
+    """
 
     onboarding_question: Optional[str] = Field(default=None)
     """
@@ -178,10 +186,6 @@ class _SharedAssistantState(BaseState):
     """
     Tracks the number of tool calls made by the root node to terminate the loop.
     """
-    query_planner_previous_response_id: Optional[str] = Field(default=None)
-    """
-    The ID of the previous OpenAI Responses API response made by the query planner.
-    """
     rag_context: Optional[str] = Field(default=None)
     """
     The context for taxonomy agent.
@@ -196,7 +200,11 @@ class _SharedAssistantState(BaseState):
     """
     session_summarization_query: Optional[str] = Field(default=None)
     """
-    The user's query for summarizing sessions.
+    The user's query for summarizing sessions. Always pass the user's complete, unmodified query.
+    """
+    should_use_current_filters: Optional[bool] = Field(default=None)
+    """
+    Whether to use current filters from user's UI to find relevant sessions.
     """
     notebook_id: Optional[str] = Field(default=None)
     """

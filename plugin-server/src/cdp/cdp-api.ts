@@ -396,7 +396,7 @@ export class CdpApi {
             console.error(e)
             res.status(500).json({ errors: [e.message] })
         } finally {
-            await this.hogFunctionMonitoringService.produceQueuedMessages()
+            await this.hogFunctionMonitoringService.flush()
         }
     }
 

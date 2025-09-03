@@ -100,8 +100,12 @@ export class HogInputsService {
                     value: {
                         ...integration.config,
                         ...integration.sensitive_config,
-                        access_token: ACCESS_TOKEN_PLACEHOLDER + integration.id,
-                        access_token_raw: integration.sensitive_config.access_token,
+                        ...(key === 'oauth'
+                            ? {
+                                  access_token: ACCESS_TOKEN_PLACEHOLDER + integration.id,
+                                  access_token_raw: integration.sensitive_config.access_token,
+                              }
+                            : {}),
                     },
                 }
             }

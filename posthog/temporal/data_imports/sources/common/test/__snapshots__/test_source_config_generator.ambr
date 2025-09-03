@@ -51,6 +51,7 @@
           ExternalDataSourceType.GOOGLESHEETS: GoogleSheetsSourceConfig,
           ExternalDataSourceType.HUBSPOT: HubspotSourceConfig,
           ExternalDataSourceType.KLAVIYO: KlaviyoSourceConfig,
+          ExternalDataSourceType.LINKEDINADS: LinkedinAdsSourceConfig,
           ExternalDataSourceType.MSSQL: MSSQLSourceConfig,
           ExternalDataSourceType.MAILCHIMP: MailchimpSourceConfig,
           ExternalDataSourceType.MAILJET: MailjetSourceConfig,

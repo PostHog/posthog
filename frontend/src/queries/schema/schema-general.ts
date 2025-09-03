@@ -18,6 +18,7 @@ import {
     EventPropertyFilter,
     EventType,
     ExperimentHoldoutType,
+    ExperimentMetricGoal,
     ExperimentMetricMathType,
     FilterLogicalOperator,
     FilterType,
@@ -2390,7 +2391,6 @@ export type FileSystemIconType =
     | 'insightLifecycle'
     | 'insightStickiness'
     | 'insightHogQL'
-    | 'code'
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
     iconType?: FileSystemIconType
@@ -2517,6 +2517,7 @@ export interface ExperimentMetricBaseProperties extends Node {
     name?: string
     conversion_window?: integer
     conversion_window_unit?: FunnelConversionWindowTimeUnit
+    goal?: ExperimentMetricGoal
 }
 
 export type ExperimentMetricOutlierHandling = {
@@ -3876,6 +3877,7 @@ export const externalDataSources = [
     'MongoDB',
     'TemporalIO',
     'DoIt',
+    'LinkedinAds',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

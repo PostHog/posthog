@@ -16,10 +16,18 @@ import {
     RootAssistantMessage,
     VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
-import { FunnelsQuery, HogQLQuery, RetentionQuery, TrendsQuery } from '~/queries/schema/schema-general'
+import {
+    DashboardFilter,
+    FunnelsQuery,
+    HogQLQuery,
+    HogQLVariable,
+    RetentionQuery,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isHogQLQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
 import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel, SidePanelTab } from '~/types'
 
+import { SuggestionGroup } from './maxLogic'
 import { MaxActionContext, MaxContextType, MaxDashboardContext, MaxEventContext, MaxInsightContext } from './maxTypes'
 
 export function isReasoningMessage(message: RootAssistantMessage | undefined | null): message is ReasoningMessage {
@@ -160,7 +168,11 @@ export function generateBurstPoints(spikeCount: number, spikiness: number): stri
 }
 
 // Utility functions for transforming data to max context
-export const insightToMaxContext = (insight: Partial<QueryBasedInsightModel>): MaxInsightContext => {
+export const insightToMaxContext = (
+    insight: Partial<QueryBasedInsightModel>,
+    filtersOverride?: DashboardFilter,
+    variablesOverride?: Record<string, HogQLVariable>
+): MaxInsightContext => {
     const source = (insight.query as any)?.source
     return {
         type: MaxContextType.INSIGHT,
@@ -168,6 +180,8 @@ export const insightToMaxContext = (insight: Partial<QueryBasedInsightModel>): M
         name: insight.name || insight.derived_name,
         description: insight.description,
         query: source,
+        filtersOverride,
+        variablesOverride,
     }
 }
 
@@ -197,5 +211,13 @@ export const actionToMaxContextPayload = (action: ActionType): MaxActionContext 
         id: action.id,
         name: action.name || `Action ${action.id}`,
         description: action.description || '',
+    }
+}
+
+export const createSuggestionGroup = (label: string, icon: JSX.Element, suggestions: string[]): SuggestionGroup => {
+    return {
+        label,
+        icon,
+        suggestions: suggestions.map((content) => ({ content })),
     }
 }

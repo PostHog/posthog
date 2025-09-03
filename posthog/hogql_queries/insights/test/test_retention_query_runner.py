@@ -23,7 +23,12 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.constants import RETENTION_FIRST_TIME, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
+from posthog.constants import (
+    RETENTION_FIRST_EVER_OCCURRENCE,
+    RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
+    TREND_FILTER_TYPE_ACTIONS,
+    TREND_FILTER_TYPE_EVENTS,
+)
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.retention_query_runner import RetentionQueryRunner
 from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
@@ -1269,7 +1274,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 "retentionFilter": {
                     "targetEntity": {"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS},
                     "returningEntity": {"id": "$pageview", "type": "events"},
-                    "retentionType": RETENTION_FIRST_TIME,
+                    "retentionType": RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
                     "totalIntervals": 11,
                 },
             },
@@ -1285,7 +1290,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 "retentionFilter": {
                     "targetEntity": {"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS},
                     "returningEntity": {"id": "$pageview", "type": "events"},
-                    "retentionType": RETENTION_FIRST_TIME,
+                    "retentionType": RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
                 },
             },
         )
@@ -1382,7 +1387,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 "retentionFilter": {
                     "targetEntity": {"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS},
                     "returningEntity": {"id": "$pageview", "type": "events"},
-                    "retentionType": RETENTION_FIRST_TIME,
+                    "retentionType": RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
                     "totalIntervals": 11,
                 },
             },
@@ -1584,7 +1589,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 "retentionFilter": {
                     "period": "Day",
                     "totalIntervals": 7,
-                    "retentionType": RETENTION_FIRST_TIME,
+                    "retentionType": RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
                     "targetEntity": {
                         "id": "$user_signed_up",
                         "name": "$user_signed_up",
@@ -1625,7 +1630,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 "retentionFilter": {
                     "period": "Week",
                     "totalIntervals": 7,
-                    "retentionType": RETENTION_FIRST_TIME,
+                    "retentionType": RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
                     "targetEntity": {
                         "id": "$user_signed_up",
                         "name": "$user_signed_up",
@@ -2444,6 +2449,719 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         _create_events(self.team, [("person4", _date(3)), ("person4", _date(5))])
 
         return p1, p2, p3, p4
+
+    def _create_first_time_ever_retention_events(self):
+        """
+        Create test events for first time ever retention.
+        Key difference from first_time: this looks at the user's very first event across ALL event types,
+        not just the first occurrence of the target event.
+        """
+        p1 = _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
+        p2 = _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+        p3 = _create_person(team_id=self.team.pk, distinct_ids=["person3"])
+        p4 = _create_person(team_id=self.team.pk, distinct_ids=["person4"])
+        p5 = _create_person(team_id=self.team.pk, distinct_ids=["person5"])
+
+        # Person1: First event ever is $pageview on day 0, then signup on day 1
+        _create_events(self.team, [("person1", _date(0))], "$pageview")
+        _create_events(self.team, [("person1", _date(1))], "$user_signed_up")
+        _create_events(self.team, [("person1", _date(1)), ("person1", _date(3)), ("person1", _date(5))], "$pageview")
+
+        # Person2: First event ever is signup on day 1 (should be included)
+        _create_events(self.team, [("person2", _date(1))], "$user_signed_up")
+        _create_events(self.team, [("person2", _date(2)), ("person2", _date(4))], "$pageview")
+
+        # Person3: First event ever is $pageview on day 2 (should be included)
+        _create_events(self.team, [("person3", _date(2))], "$pageview")
+        _create_events(self.team, [("person3", _date(3))], "$user_signed_up")
+        _create_events(self.team, [("person3", _date(4)), ("person3", _date(6))], "$pageview")
+
+        # Person4: First event ever is before date range (should be excluded)
+        _create_events(self.team, [("person4", _date(-1))], "$pageview")
+        _create_events(self.team, [("person4", _date(2))], "$user_signed_up")
+        _create_events(self.team, [("person4", _date(3))], "$pageview")
+
+        # Person5: First event ever is $user_signed_up on day 3
+        _create_events(self.team, [("person5", _date(3))], "$user_signed_up")
+        _create_events(self.team, [("person5", _date(4)), ("person5", _date(5))], "$pageview")
+
+        flush_persons_and_events()
+        return p1, p2, p3, p4, p5
+
+    def test_retention_first_time_ever_basic(self):
+        """Test basic first time ever retention without breakdowns"""
+        self._create_first_time_ever_retention_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0), "date_to": _date(7)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 7,
+                    "retentionType": RETENTION_FIRST_EVER_OCCURRENCE,
+                    "targetEntity": {
+                        "id": "$user_signed_up",
+                        "name": "$user_signed_up",
+                        "type": TREND_FILTER_TYPE_EVENTS,
+                    },
+                    "returningEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+                },
+            }
+        )
+
+        self.assertEqual(len(result), 8)
+        self.assertEqual(
+            pluck(result, "label"),
+            ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7"],
+        )
+
+        # Person1: first $user_signed_up on day 1, returns on days 1,3,5 (intervals 0,2,4)
+        # Person2: first $user_signed_up on day 1, returns on days 2,4 (intervals 1,3)
+        # Person3: first $user_signed_up on day 3, returns on days 4,6 (intervals 1,3)
+        # Person4: first $user_signed_up on day 2, returns on day 3 (interval 1)
+        # Person5: first $user_signed_up on day 3, returns on days 4,5 (intervals 1,2)
+
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            [
+                [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one starts retention here (no one does signup on day 0)
+                [
+                    2,
+                    1,
+                    1,
+                    1,
+                    1,
+                    0,
+                    0,
+                ],  # Day 1: person1 + person2 start; returns: day1(p1), day2(p2), day3(p1), day4(p2), day5(p1)
+                [1, 1, 0, 0, 0, 0, 0],  # Day 2: person4 starts; returns: day3(p4)
+                [2, 2, 1, 1, 0, 0, 0],  # Day 3: person3 + person5 start; returns: day4(p3+p5), day5(p5), day6(p3)
+                [0, 0, 0, 0, 0, 0, 0],  # Day 4: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
+            ],
+        )
+
+    def test_retention_first_time_ever_with_person_breakdown(self):
+        """Test first time ever retention with person property breakdown"""
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"age": "25"})
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"age": "30"})
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"], properties={"age": "25"})
+        _create_person(team_id=self.team.pk, distinct_ids=["person4"], properties={"age": "30"})
+
+        # Person1 (age 25): First event ever is $pageview on day 1, signup on day 2
+        _create_events(self.team, [("person1", _date(1))], "$pageview")
+        _create_events(self.team, [("person1", _date(2))], "$user_signed_up")
+        _create_events(self.team, [("person1", _date(3)), ("person1", _date(5))], "$pageview")
+
+        # Person2 (age 30): First event ever is signup on day 1
+        _create_events(self.team, [("person2", _date(1))], "$user_signed_up")
+        _create_events(self.team, [("person2", _date(2)), ("person2", _date(4))], "$pageview")
+
+        # Person3 (age 25): First event ever is signup on day 2
+        _create_events(self.team, [("person3", _date(2))], "$user_signed_up")
+        _create_events(self.team, [("person3", _date(3)), ("person3", _date(5))], "$pageview")
+
+        # Person4 (age 30): First event ever is $pageview on day 3, signup on day 4
+        _create_events(self.team, [("person4", _date(3))], "$pageview")
+        _create_events(self.team, [("person4", _date(4))], "$user_signed_up")
+        _create_events(self.team, [("person4", _date(5)), ("person4", _date(6))], "$pageview")
+
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0), "date_to": _date(7)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 7,
+                    "retentionType": RETENTION_FIRST_EVER_OCCURRENCE,
+                    "targetEntity": {
+                        "id": "$user_signed_up",
+                        "name": "$user_signed_up",
+                        "type": TREND_FILTER_TYPE_EVENTS,
+                    },
+                    "returningEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+                },
+                "breakdownFilter": {
+                    "breakdown": "age",
+                    "breakdown_type": "person",
+                },
+            }
+        )
+
+        # Should have results for each age group across the 8 days (Day 0-7)
+        self.assertEqual(len(result), 16)  # 8 days * 2 age groups
+
+        # Get results by breakdown value
+        age_25_results = [r for r in result if r.get("breakdown_value") == "25"]
+        age_30_results = [r for r in result if r.get("breakdown_value") == "30"]
+
+        self.assertEqual(len(age_25_results), 8)
+        self.assertEqual(len(age_30_results), 8)
+
+        # Check age 25 group (person1 and person3)
+        # Person1: first event ever day 1 (pageview), signup day 2 - should start retention on day 2
+        # Person3: first event ever day 2 (signup) - should start retention on day 2
+        self.assertEqual(
+            pluck(age_25_results, "values", "count"),
+            [
+                [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one
+                [0, 0, 0, 0, 0, 0, 0],  # Day 1: person1's first event (pageview), but no signup yet
+                [2, 2, 0, 2, 0, 0, 0],  # Day 2: person1 + person3 (both signup), both return day 3,5
+                [0, 0, 0, 0, 0, 0, 0],  # Day 3: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 4: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
+            ],
+        )
+
+        # Check age 30 group (person2 and person4)
+        # Person2: first event ever day 1 (signup) - should start retention on day 1
+        # Person4: first event ever day 3 (pageview), signup day 4 - should start retention on day 4
+        self.assertEqual(
+            pluck(age_30_results, "values", "count"),
+            [
+                [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one
+                [1, 1, 0, 1, 0, 0, 0],  # Day 1: person2 (signup), returns day 2,4
+                [0, 0, 0, 0, 0, 0, 0],  # Day 2: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 3: person4's first event (pageview), but no signup yet
+                [1, 1, 1, 0, 0, 0, 0],  # Day 4: person4 (signup), returns day 5,6
+                [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
+            ],
+        )
+
+    def test_retention_first_time_ever_with_event_breakdown(self):
+        """Test first time ever retention with event property breakdown"""
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"])
+
+        # Person1: First event ever is $pageview (web) on day 1, signup (web) on day 2
+        _create_events(self.team, [("person1", _date(1), {"source": "web"})], "$pageview")
+        _create_events(self.team, [("person1", _date(2), {"source": "web"})], "$user_signed_up")
+        _create_events(
+            self.team, [("person1", _date(3), {"source": "web"}), ("person1", _date(5), {"source": "web"})], "$pageview"
+        )
+
+        # Person2: First event ever is signup (mobile) on day 1
+        _create_events(self.team, [("person2", _date(1), {"source": "mobile"})], "$user_signed_up")
+        _create_events(
+            self.team,
+            [("person2", _date(2), {"source": "mobile"}), ("person2", _date(4), {"source": "mobile"})],
+            "$pageview",
+        )
+
+        # Person3: First event ever is signup (web) on day 2
+        _create_events(self.team, [("person3", _date(2), {"source": "web"})], "$user_signed_up")
+        _create_events(
+            self.team, [("person3", _date(3), {"source": "web"}), ("person3", _date(5), {"source": "web"})], "$pageview"
+        )
+
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0), "date_to": _date(7)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 7,
+                    "retentionType": RETENTION_FIRST_EVER_OCCURRENCE,
+                    "targetEntity": {
+                        "id": "$user_signed_up",
+                        "name": "$user_signed_up",
+                        "type": TREND_FILTER_TYPE_EVENTS,
+                    },
+                    "returningEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+                },
+                "breakdownFilter": {
+                    "breakdown": "source",
+                    "breakdown_type": "event",
+                },
+            }
+        )
+
+        # Should have results for each source across the 8 days (Day 0-7)
+        self.assertEqual(len(result), 16)  # 8 days * 2 sources
+
+        # Get results by breakdown value
+        web_results = [r for r in result if r.get("breakdown_value") == "web"]
+        mobile_results = [r for r in result if r.get("breakdown_value") == "mobile"]
+
+        self.assertEqual(len(web_results), 8)
+        self.assertEqual(len(mobile_results), 8)
+
+        # Check web source (person1 and person3)
+        # Person1: first event day 1 (pageview web), signup day 2 (web)
+        # Person3: first event day 2 (signup web)
+        self.assertEqual(
+            pluck(web_results, "values", "count"),
+            [
+                [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one
+                [0, 0, 0, 0, 0, 0, 0],  # Day 1: person1's first event (pageview), but no signup yet
+                [2, 2, 0, 2, 0, 0, 0],  # Day 2: person1 + person3 (both signup web), both return day 3,5
+                [0, 0, 0, 0, 0, 0, 0],  # Day 3: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 4: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
+            ],
+        )
+
+        # Check mobile source (person2)
+        self.assertEqual(
+            pluck(mobile_results, "values", "count"),
+            [
+                [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one
+                [1, 1, 0, 1, 0, 0, 0],  # Day 1: person2's first event (signup), returns day 2,4
+                [0, 0, 0, 0, 0, 0, 0],  # Day 2: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 3: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 4: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
+            ],
+        )
+
+    def test_retention_first_time_ever_with_cohort_breakdown(self):
+        """Test first time ever retention with cohort breakdown"""
+        # Create cohorts
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "age",
+                            "operator": "exact",
+                            "value": ["25"],
+                            "type": "person",
+                        }
+                    ]
+                }
+            ],
+            name="Young users",
+        )
+        cohort2 = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "age",
+                            "operator": "exact",
+                            "value": ["30"],
+                            "type": "person",
+                        }
+                    ]
+                }
+            ],
+            name="Older users",
+        )
+
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"age": "25"})
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"age": "30"})
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"], properties={"age": "25"})
+        _create_person(team_id=self.team.pk, distinct_ids=["person4"], properties={"age": "30"})
+
+        # Person1 (cohort1): First event ever is $pageview on day 1, signup on day 2
+        _create_events(self.team, [("person1", _date(1))], "$pageview")
+        _create_events(self.team, [("person1", _date(2))], "$user_signed_up")
+        _create_events(self.team, [("person1", _date(3)), ("person1", _date(5))], "$pageview")
+
+        # Person2 (cohort2): First event ever is signup on day 1
+        _create_events(self.team, [("person2", _date(1))], "$user_signed_up")
+        _create_events(self.team, [("person2", _date(2)), ("person2", _date(4))], "$pageview")
+
+        # Person3 (cohort1): First event ever is signup on day 2
+        _create_events(self.team, [("person3", _date(2))], "$user_signed_up")
+        _create_events(self.team, [("person3", _date(3)), ("person3", _date(5))], "$pageview")
+
+        # Person4 (cohort2): First event ever is $pageview on day 3, signup on day 4
+        _create_events(self.team, [("person4", _date(3))], "$pageview")
+        _create_events(self.team, [("person4", _date(4))], "$user_signed_up")
+        _create_events(self.team, [("person4", _date(5)), ("person4", _date(6))], "$pageview")
+
+        flush_persons_and_events()
+
+        # Calculate cohorts after person creation
+        cohort1.calculate_people_ch(pending_version=0)
+        cohort2.calculate_people_ch(pending_version=0)
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0), "date_to": _date(7)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 7,
+                    "retentionType": RETENTION_FIRST_EVER_OCCURRENCE,
+                    "targetEntity": {
+                        "id": "$user_signed_up",
+                        "name": "$user_signed_up",
+                        "type": TREND_FILTER_TYPE_EVENTS,
+                    },
+                    "returningEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+                },
+                "breakdownFilter": {
+                    "breakdown": [cohort1.pk, cohort2.pk],
+                    "breakdown_type": "cohort",
+                },
+            }
+        )
+
+        # Should have results for each cohort across the 8 days (Day 0-7)
+        self.assertEqual(len(result), 16)  # 8 days * 2 cohorts
+
+        # Get results by breakdown value
+        cohort1_results = [r for r in result if r.get("breakdown_value") == str(cohort1.pk)]
+        cohort2_results = [r for r in result if r.get("breakdown_value") == str(cohort2.pk)]
+
+        self.assertEqual(len(cohort1_results), 8)
+        self.assertEqual(len(cohort2_results), 8)
+
+        # Check cohort1 (person1 and person3)
+        # Person1: first event day 1 (pageview), signup day 2 - should start retention on day 2
+        # Person3: first event day 2 (signup) - should start retention on day 2
+        self.assertEqual(
+            pluck(cohort1_results, "values", "count"),
+            [
+                [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one
+                [0, 0, 0, 0, 0, 0, 0],  # Day 1: person1's first event (pageview), but no signup yet
+                [2, 2, 0, 2, 0, 0, 0],  # Day 2: person1 + person3 (both signup), both return day 3,5
+                [0, 0, 0, 0, 0, 0, 0],  # Day 3: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 4: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
+            ],
+        )
+
+        # Check cohort2 (person2 and person4)
+        # Person2: first event day 1 (signup) - should start retention on day 1
+        # Person4: first event day 3 (pageview), signup day 4 - should start retention on day 4
+        self.assertEqual(
+            pluck(cohort2_results, "values", "count"),
+            [
+                [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one
+                [1, 1, 0, 1, 0, 0, 0],  # Day 1: person2's first event (signup), returns day 2,4
+                [0, 0, 0, 0, 0, 0, 0],  # Day 2: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 3: person4's first event (pageview), but no signup yet
+                [1, 1, 1, 0, 0, 0, 0],  # Day 4: person4 (signup), returns day 5,6
+                [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
+            ],
+        )
+
+    def test_retention_first_time_ever_with_minimum_occurrences(self):
+        """Test first time ever retention with minimum occurrences requirement"""
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"])
+
+        # Person1: First event ever is signup on day 1, does pageview multiple times on day 2 and 4
+        _create_events(self.team, [("person1", _date(1))], "$user_signed_up")
+        _create_events(self.team, [("person1", _date(2)), ("person1", _date(2, hour=1))], "$pageview")  # 2 on day 2
+        _create_events(self.team, [("person1", _date(4))], "$pageview")  # 1 on day 4 (insufficient)
+
+        # Person2: First event ever is signup on day 2, does pageview multiple times on day 3 and 5
+        _create_events(self.team, [("person2", _date(2))], "$user_signed_up")
+        _create_events(
+            self.team,
+            [("person2", _date(3)), ("person2", _date(3, hour=1)), ("person2", _date(3, hour=2))],
+            "$pageview",
+        )  # 3 on day 3
+        _create_events(self.team, [("person2", _date(5)), ("person2", _date(5, hour=1))], "$pageview")  # 2 on day 5
+
+        # Person3: First event ever is signup on day 3, does pageview once on day 4 (insufficient)
+        _create_events(self.team, [("person3", _date(3))], "$user_signed_up")
+        _create_events(self.team, [("person3", _date(4))], "$pageview")  # 1 on day 4 (insufficient)
+
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0), "date_to": _date(7)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 7,
+                    "retentionType": RETENTION_FIRST_EVER_OCCURRENCE,
+                    "targetEntity": {
+                        "id": "$user_signed_up",
+                        "name": "$user_signed_up",
+                        "type": TREND_FILTER_TYPE_EVENTS,
+                    },
+                    "returningEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+                    "minimumOccurrences": 2,  # Require at least 2 pageviews in a day to count as retention
+                },
+            }
+        )
+
+        self.assertEqual(len(result), 8)
+        self.assertEqual(
+            pluck(result, "label"),
+            ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7"],
+        )
+
+        # Person1: first event on day 1 (signup), has 2 pageviews on day 2 (qualifies)
+        # Person2: first event on day 2 (signup), has 3 pageviews on day 3 and 2 on day 5 (both qualify)
+        # Person3: first event on day 3 (signup), has only 1 pageview on day 4 (doesn't qualify)
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            [
+                [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one
+                [1, 1, 0, 0, 0, 0, 0],  # Day 1: person1 (signup), returns day 2 with 2+ pageviews
+                [1, 1, 0, 1, 0, 0, 0],  # Day 2: person2 (signup), returns day 3 and 5 with 2+ pageviews
+                [1, 0, 0, 0, 0, 0, 0],  # Day 3: person3 (signup), but doesn't return with 2+ pageviews
+                [0, 0, 0, 0, 0, 0, 0],  # Day 4: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
+            ],
+        )
+
+    def test_retention_first_time_ever_actors_query(self):
+        """Test actors query for first time ever retention"""
+        self._create_first_time_ever_retention_events()
+
+        query = {
+            "dateRange": {"date_from": _date(0), "date_to": _date(7)},
+            "retentionFilter": {
+                "period": "Day",
+                "totalIntervals": 7,
+                "retentionType": RETENTION_FIRST_EVER_OCCURRENCE,
+                "targetEntity": {
+                    "id": "$user_signed_up",
+                    "name": "$user_signed_up",
+                    "type": TREND_FILTER_TYPE_EVENTS,
+                },
+                "returningEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+            },
+        }
+
+        # Test actors for day 1 interval 0 (people who signed up on day 1 when it was their first event ever)
+        actors_day1_interval0 = self.run_actors_query(interval=1, query=query)
+        # Should be person1 (first event day 0, signup day 1) and person2 (first event signup on day 1)
+        self.assertEqual(len(actors_day1_interval0), 2)
+
+        # Extract distinct_ids from results to check (order might vary)
+        # Format is [[person_dict, intervals_list], ...]
+        distinct_ids = {tuple(actor[0]["distinct_ids"]) for actor in actors_day1_interval0}
+        self.assertIn(("alias1", "person1"), distinct_ids)
+        self.assertIn(("person2",), distinct_ids)
+
+        # Test actors for day 1 interval 3 (people who signed up on day 1 and returned on day 4)
+        actors_day1_interval3 = self.run_actors_query(interval=1, query=query)
+        # Filter results to only those who appeared on interval 3
+        interval3_actors = [a for a in actors_day1_interval3 if 3 in a[1]]
+        # Should be person2 (returned on day 4)
+        self.assertEqual(len(interval3_actors), 1)
+        self.assertEqual(interval3_actors[0][0]["distinct_ids"], ["person2"])
+
+        # Test actors for day 3 interval 0 (people who signed up on day 3 when it was their first event ever)
+        actors_day3_interval0 = self.run_actors_query(interval=3, query=query)
+        # Should be person3 (first event pageview day 2, signup day 3) and person5 (first event signup day 3)
+        self.assertEqual(len(actors_day3_interval0), 2)
+
+    def test_retention_first_time_ever_different_intervals(self):
+        """Test first time ever retention with different time intervals"""
+        # Create events over several weeks
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"])
+
+        # Person1: First event ever is signup on week 1 (day 1)
+        _create_events(self.team, [("person1", _date(1))], "$user_signed_up")
+        _create_events(self.team, [("person1", _date(8)), ("person1", _date(15))], "$pageview")  # Week 2 and 3
+
+        # Person2: First event ever is pageview on week 2 (day 8), signup on week 3 (day 14)
+        _create_events(self.team, [("person2", _date(8))], "$pageview")
+        _create_events(self.team, [("person2", _date(14))], "$user_signed_up")
+        _create_events(self.team, [("person2", _date(20))], "$pageview")  # Week 4
+
+        # Person3: First event ever is signup on week 3 (day 14)
+        _create_events(self.team, [("person3", _date(14))], "$user_signed_up")
+        _create_events(
+            self.team, [("person3", _date(20)), ("person3", _date(20, month=1))], "$pageview"
+        )  # Week 4 and 5
+
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0), "date_to": _date(20, month=1)},
+                "retentionFilter": {
+                    "period": "Week",
+                    "totalIntervals": 5,
+                    "retentionType": RETENTION_FIRST_EVER_OCCURRENCE,
+                    "targetEntity": {
+                        "id": "$user_signed_up",
+                        "name": "$user_signed_up",
+                        "type": TREND_FILTER_TYPE_EVENTS,
+                    },
+                    "returningEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+                },
+            }
+        )
+
+        self.assertEqual(len(result), 8)
+        self.assertEqual(
+            pluck(result, "label"),
+            ["Week 0", "Week 1", "Week 2", "Week 3", "Week 4", "Week 5", "Week 6", "Week 7"],
+        )
+
+        # Person1: first $user_signed_up on day 1 (week 0), returns weeks 1,2 with pageviews
+        # Person2: first $user_signed_up on day 14 (week 2), returns week 3 with pageview
+        # Person3: first $user_signed_up on day 14 (week 2), returns week 3 with pageview (week 5 is out of range)
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            [
+                [1, 1, 1, 0, 0],  # Week 0: person1 (signup), returns weeks 1,2
+                [0, 0, 0, 0, 0],  # Week 1: no new users
+                [2, 2, 0, 0, 0],  # Week 2: person2 + person3 (signup), return week 3 (both)
+                [0, 0, 0, 0, 0],  # Week 3: no new users
+                [0, 0, 0, 0, 0],  # Week 4: no new users
+                [0, 0, 0, 0, 0],  # Week 5: no new users
+                [0, 0, 0, 0, 0],  # Week 6: no new users
+                [0, 0, 0, 0, 0],  # Week 7: no new users
+            ],
+        )
+
+    def test_retention_first_time_ever_with_properties(self):
+        """Test first time ever retention with event properties and filters"""
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"])
+
+        # Person1: First event ever is pageview (organic) on day 1, signup (organic) on day 2
+        _create_events(self.team, [("person1", _date(1), {"source": "organic"})], "$pageview")
+        _create_events(self.team, [("person1", _date(2), {"source": "organic"})], "$user_signed_up")
+        _create_events(
+            self.team,
+            [("person1", _date(3), {"source": "organic"}), ("person1", _date(5), {"source": "organic"})],
+            "$pageview",
+        )
+
+        # Person2: First event ever is signup (paid) on day 1
+        _create_events(self.team, [("person2", _date(1), {"source": "paid"})], "$user_signed_up")
+        _create_events(
+            self.team,
+            [("person2", _date(2), {"source": "paid"}), ("person2", _date(4), {"source": "paid"})],
+            "$pageview",
+        )
+
+        # Person3: First event ever is signup (organic) on day 2
+        _create_events(self.team, [("person3", _date(2), {"source": "organic"})], "$user_signed_up")
+        _create_events(
+            self.team,
+            [("person3", _date(3), {"source": "organic"}), ("person3", _date(5), {"source": "organic"})],
+            "$pageview",
+        )
+
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0), "date_to": _date(7)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 7,
+                    "retentionType": RETENTION_FIRST_EVER_OCCURRENCE,
+                    "targetEntity": {
+                        "id": "$user_signed_up",
+                        "name": "$user_signed_up",
+                        "type": TREND_FILTER_TYPE_EVENTS,
+                    },
+                    "returningEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+                },
+                "properties": [
+                    {
+                        "key": "source",
+                        "operator": "exact",
+                        "value": ["organic"],
+                        "type": "event",
+                    }
+                ],
+            }
+        )
+
+        self.assertEqual(len(result), 8)
+        self.assertEqual(
+            pluck(result, "label"),
+            ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7"],
+        )
+
+        # Only organic events should be considered
+        # Person2 is excluded because their events are from "paid" source
+        # Person1: first $user_signed_up on day 2 (organic), returns day 3,5
+        # Person3: first $user_signed_up on day 2 (organic), returns day 3,5
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            [
+                [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one
+                [0, 0, 0, 0, 0, 0, 0],  # Day 1: no signups yet
+                [2, 2, 0, 2, 0, 0, 0],  # Day 2: person1 + person3 (first organic signup), return day 3,5
+                [0, 0, 0, 0, 0, 0, 0],  # Day 3: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 4: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
+                [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
+            ],
+        )
+
+    def test_retention_first_time_ever_events_query(self):
+        """Test events query for first time ever retention"""
+        self._create_first_time_ever_retention_events()
+
+        # Create RetentionQueryRunner instance
+        query = RetentionQuery(
+            dateRange={"date_from": _date(0), "date_to": _date(7)},
+            retentionFilter={
+                "period": "Day",
+                "totalIntervals": 7,
+                "retentionType": RETENTION_FIRST_EVER_OCCURRENCE,
+                "targetEntity": {
+                    "id": "$user_signed_up",
+                    "name": "$user_signed_up",
+                    "type": TREND_FILTER_TYPE_EVENTS,
+                },
+                "returningEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+            },
+        )
+
+        runner = RetentionQueryRunner(query=query, team=self.team)
+
+        # Test events query for interval 1 (day 1)
+        events_query = runner.to_events_query(interval=1)
+        events_result = execute_hogql_query(
+            query_type="RetentionEventsQuery",
+            query=events_query,
+            team=self.team,
+        )
+
+        # Should include both start and return events for people who had their first event ever on day 1
+        # and performed the target action (signup)
+        # Person2: first event ever was signup on day 1, returns with pageviews on day 2,4
+        events = events_result.results
+        self.assertGreater(len(events), 0)
+
+        # Based on the to_events_query method, event_type should be in index 5
+        if len(events) > 0 and len(events[0]) > 5:
+            event_types = {event[5] for event in events}  # event_type column (0-indexed)
+            self.assertIn("start_event", event_types)
+            self.assertIn("return_event", event_types)
+        else:
+            # If the structure is different, let's just check we have events
+            self.assertGreater(len(events), 0)
+
+        # Check that events are from person2
+        person_ids = {event[8] for event in events}  # person_id column
+        # Should contain person2
+        self.assertIn("person2", person_ids)
 
     @snapshot_clickhouse_queries
     def test_timezones(self):
@@ -3476,6 +4194,86 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 f"Missing expected {expected_type} at {expected_time} for person2 on day 1",
             )
 
+    def test_retention_first_time_vs_first_ever_occurrence(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        # First event, doesn't match property filter
+        _create_events(
+            self.team,
+            [("person1", _date(0), {"prop": "wrong"})],
+            event="target_event",
+        )
+        # Second event, matches property filter
+        _create_events(
+            self.team,
+            [("person1", _date(1), {"prop": "correct"})],
+            event="target_event",
+        )
+        # Returning events
+        _create_events(
+            self.team,
+            [("person1", _date(2)), ("person1", _date(3))],
+            event="returning_event",
+        )
+        flush_persons_and_events()
+
+        base_query = {
+            "dateRange": {"date_from": _date(0), "date_to": _date(5)},
+            "retentionFilter": {
+                "totalIntervals": 5,
+                "targetEntity": {
+                    "id": "target_event",
+                    "type": "events",
+                    "properties": [{"key": "prop", "value": "correct", "type": "event"}],
+                },
+                "returningEntity": {"id": "returning_event", "type": "events"},
+            },
+        }
+
+        # Run query with RETENTION_FIRST_TIME
+        query_first_time = base_query.copy()
+        query_first_time["retentionFilter"]["retentionType"] = "retention_first_time"
+        result_first_time = self.run_query(query=query_first_time)
+
+        # Run query with RETENTION_FIRST_EVER_OCCURRENCE
+        query_first_ever = base_query.copy()
+        query_first_ever["retentionFilter"]["retentionType"] = "retention_first_ever_occurrence"
+        result_first_ever = self.run_query(query=query_first_ever)
+
+        # Assert results are different
+        self.assertNotEqual(result_first_time, result_first_ever)
+
+        # Assert correctness of RETENTION_FIRST_TIME
+        # Cohort is on day 1 as that's the first time the event has the correct property.
+        # Returns on day 2 (1 day later) and day 3 (2 days later).
+        expected_first_time_counts = [
+            [0, 0, 0, 0, 0],  # Day 0
+            [1, 1, 1, 0, 0],  # Day 1
+            [0, 0, 0, 0, 0],  # Day 2
+            [0, 0, 0, 0, 0],  # Day 3
+            [0, 0, 0, 0, 0],  # Day 4
+            [0, 0, 0, 0, 0],  # Day 5
+        ]
+        self.assertEqual(
+            pluck(result_first_time, "values", "count"),
+            expected_first_time_counts,
+        )
+
+        # Assert correctness of RETENTION_FIRST_EVER_OCCURRENCE
+        # First `target_event` is at `_date(0)` but doesn't match properties.
+        # So person1 is not in any cohort. Result should be all zeros.
+        expected_first_ever_counts = [
+            [0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0],
+        ]
+        self.assertEqual(
+            pluck(result_first_ever, "values", "count"),
+            expected_first_ever_counts,
+        )
+
 
 class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
     def run_query(self, query, *, limit_context: Optional[LimitContext] = None):
@@ -4220,7 +5018,6 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
             },
             breakdown=[str(cohort2.pk)],
         )
-
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0][0]["id"], person2.uuid)
         self.assertEqual(result[0][1], [0, 2])

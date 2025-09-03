@@ -2,7 +2,14 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { RefObject, useEffect, useRef, useState } from 'react'
 
-import { IconCheckbox, IconChevronRight, IconExternal, IconFolderPlus, IconPlusSmall } from '@posthog/icons'
+import {
+    IconCheckbox,
+    IconChevronRight,
+    IconEllipsis,
+    IconFolderPlus,
+    IconPlusSmall,
+    IconShortcut,
+} from '@posthog/icons'
 
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
@@ -64,10 +71,6 @@ export interface ProjectTreeProps {
 
 export const PROJECT_TREE_KEY = 'project-tree'
 let counter = 0
-
-export const isExternalLinkItem = (item: TreeDataItem): boolean => {
-    return item.record?.href && typeof item.record.href === 'string' && item.record.href.startsWith('https://')
-}
 
 export function ProjectTree({
     logicKey,
@@ -137,6 +140,25 @@ export function ProjectTree({
     const canOpenInPostHogTab = !!featureFlags[FEATURE_FLAGS.SCENE_TABS]
     const showFilterDropdown = root === 'project://'
     const showSortDropdown = root === 'project://'
+
+    const treeData: TreeDataItem[] = []
+    if (root === 'shortcuts://' && fullFileSystemFiltered.length === 0) {
+        treeData.push({
+            id: 'products/shortcuts-helper-category',
+            name: 'Example shortcuts',
+            type: 'category',
+            displayName: (
+                <div className="border border-primary text-xs mb-2 font-normal rounded-xs p-1 -mx-1">
+                    Shortcuts are added by pressing{' '}
+                    <IconEllipsis className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />,
+                    side-clicking a panel item, then "Add to shortcuts panel", or inside an app's resources file menu
+                    click <IconShortcut className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />
+                </div>
+            ),
+        })
+    } else {
+        treeData.push(...fullFileSystemFiltered)
+    }
 
     useEffect(() => {
         setPanelTreeRef(treeRef)
@@ -445,7 +467,7 @@ export function ProjectTree({
             ref={treeRef}
             contentRef={mainContentRef as RefObject<HTMLElement>}
             className="px-0 py-1"
-            data={fullFileSystemFiltered}
+            data={treeData}
             mode={onlyTree ? 'tree' : projectTreeMode}
             selectMode={selectMode}
             tableViewKeys={treeTableKeys}
@@ -461,14 +483,9 @@ export function ProjectTree({
                     return
                 }
                 if (item?.record?.href) {
-                    const href =
+                    router.actions.push(
                         typeof item.record.href === 'function' ? item.record.href(item.record.ref) : item.record.href
-                    // Check if it's an external link
-                    if (typeof href === 'string' && href.startsWith('https://')) {
-                        window.open(href, '_blank')
-                    } else {
-                        router.actions.push(href)
-                    }
+                    )
                 }
 
                 if (item?.record?.path) {
@@ -555,7 +572,7 @@ export function ProjectTree({
                 return false
             }}
             itemContextMenu={(item) => {
-                if (item.id.startsWith('project-folder-empty/') || isExternalLinkItem(item)) {
+                if (item.id.startsWith('project-folder-empty/')) {
                     return undefined
                 }
 
@@ -566,7 +583,7 @@ export function ProjectTree({
                 )
             }}
             itemSideAction={(item) => {
-                if (item.id.startsWith('project-folder-empty/') || isExternalLinkItem(item)) {
+                if (item.id.startsWith('project-folder-empty/')) {
                     return undefined
                 }
 
@@ -808,8 +825,6 @@ export function ProjectTree({
                                 ))}
                             </>
                         )}
-
-                        {isExternalLinkItem(item) && <IconExternal className="size-4 text-tertiary relative" />}
                     </span>
                 )
             }}

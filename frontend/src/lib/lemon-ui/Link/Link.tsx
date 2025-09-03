@@ -3,7 +3,7 @@ import './Link.scss'
 import { router } from 'kea-router'
 import React, { useContext } from 'react'
 
-import { IconExternal, IconOpenSidebar } from '@posthog/icons'
+import { IconExternal, IconOpenSidebar, IconSend } from '@posthog/icons'
 
 import { ButtonPrimitiveProps, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import { isExternalLink } from 'lib/utils'
@@ -218,6 +218,8 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 {targetBlankIcon &&
                     (shouldOpenInDocsPanel && sidePanelStateLogic.isMounted() ? (
                         <IconOpenSidebar />
+                    ) : href?.startsWith('mailto:') ? (
+                        <IconSend />
                     ) : target === '_blank' ? (
                         <IconExternal className={buttonProps ? 'size-3' : ''} />
                     ) : null)}
