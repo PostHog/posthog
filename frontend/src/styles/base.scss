@@ -1544,6 +1544,11 @@
             // Fix for stories of fixed modals - otherwise body would be zero-sized
             position: static !important;
         }
+
+        .hide-for-test-runner {
+            display: none;
+            opacity: 0;
+        }
     }
 
     .ligatures-none {
