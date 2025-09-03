@@ -398,6 +398,10 @@ async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> BatchExpo
             status=BatchExportRun.Status.FAILED_BILLING,
             backfill_id=uuid.UUID(inputs.backfill_id) if inputs.backfill_id else None,
         )
+
+        logger.info("Over billing limit")
+        EXTERNAL_LOGGER.warning("Batch export run failed due to exceeding billing limits. No data has been exported.")
+
         raise OverBillingLimitError(inputs.team_id)
     else:
         run = await database_sync_to_async(create_batch_export_run)(
@@ -422,7 +426,6 @@ async def check_is_over_limit(team_id: int) -> bool:
     )
 
     if team.api_token in limited_team_tokens_rows_synced:
-        LOGGER.warning("Over billing limit")
         return True
 
     return False
