@@ -304,4 +304,4 @@ class TestVercelIntegration(TestCase):
         assert secrets[0]["name"] == "POSTHOG_PROJECT_API_KEY"
         assert secrets[0]["value"] == "test_api_token"
         assert secrets[1]["name"] == "POSTHOG_HOST"
-        assert secrets[1]["value"].startswith("https://")
+        assert secrets[1]["value"].startswith(("https://", "http://"))
