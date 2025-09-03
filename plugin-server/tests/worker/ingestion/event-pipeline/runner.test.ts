@@ -183,11 +183,14 @@ describe('EventPipelineRunner', () => {
             groupStoreForBatch
         )
 
-        // @ts-expect-error this is just a mock
-        jest.mocked(processPersonsStep).mockResolvedValue([
-            pluginEvent,
-            { person, personUpdateProperties: {}, get: () => Promise.resolve(person) } as any,
-        ])
+        jest.mocked(processPersonsStep).mockResolvedValue({
+            type: 'ok',
+            value: [
+                pluginEvent,
+                { person, personUpdateProperties: {}, get: () => Promise.resolve(person) } as any,
+                Promise.resolve(),
+            ],
+        })
         jest.mocked(prepareEventStep).mockResolvedValue(preIngestionEvent)
 
         // @ts-expect-error TODO: Check why expect never
@@ -319,18 +322,24 @@ describe('EventPipelineRunner', () => {
             it('emits DLQ when merge limit is exceeded during processPersonsStep', async () => {
                 const pipelineStepDLQCounterSpy = jest.spyOn(metrics.pipelineStepDLQCounter, 'labels')
 
-                // Make processPersonsStep throw the merge-limit error
-                jest.mocked(processPersonsStep).mockRejectedValueOnce(
-                    new PersonMergeLimitExceededError('person_merge_move_limit_hit')
-                )
+                // Make processPersonsStep return a DLQ result instead of throwing
+                jest.mocked(processPersonsStep).mockResolvedValueOnce({
+                    type: 'dlq',
+                    reason: 'Merge limit exceeded',
+                    error: new PersonMergeLimitExceededError('person_merge_move_limit_hit'),
+                })
 
                 await runner.runEventPipeline(pluginEvent, team)
 
-                // Verify one DLQ message was produced
-                expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
-                const call = mockProducer.queueMessages.mock.calls[0][0] as TopicMessage
-                expect(call.topic).toEqual('events_dead_letter_queue_test')
-                const value = parseJSON(call.messages[0].value as string)
+                // Verify DLQ messages were produced (ingestion warning + main DLQ)
+                expect(mockProducer.queueMessages).toHaveBeenCalledTimes(2)
+
+                // Check the main DLQ message
+                const dlqCall = mockProducer.queueMessages.mock.calls.find(
+                    ([msg]) => (msg as TopicMessage).topic === 'events_dead_letter_queue_test'
+                )?.[0] as TopicMessage
+                expect(dlqCall).toBeDefined()
+                const value = parseJSON(dlqCall.messages[0].value as string)
                 expect(value).toMatchObject({
                     team_id: 2,
                     distinct_id: 'my_id',

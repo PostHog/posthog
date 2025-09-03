@@ -28,6 +28,7 @@ import {
     pipelineStepThrowCounter,
 } from './metrics'
 import { normalizeEventStep } from './normalizeEventStep'
+import { isPipelineDlq, isPipelineDrop, isPipelineOk } from './pipeline-step-result'
 import { prepareEventStep } from './prepareEventStep'
 import { processPersonsStep } from './processPersonsStep'
 import { transformEventStep } from './transformEventStep'
@@ -306,11 +307,32 @@ export class EventPipelineRunner {
             event.team_id
         )
 
-        const [postPersonEvent, person, personKafkaAck] = await this.runStep(
+        const personStepResult = await this.runStep(
             processPersonsStep,
             [this, normalizedEvent, team, timestamp, processPerson, this.personsStoreForBatch],
             event.team_id
         )
+
+        if (!isPipelineOk(personStepResult)) {
+            // Handle DLQ/drop cases - return early from pipeline
+            if (isPipelineDlq(personStepResult)) {
+                logger.warn('Event sent to DLQ during person processing', {
+                    team_id: event.team_id,
+                    distinct_id: event.distinct_id,
+                    reason: personStepResult.reason,
+                })
+                await this.sendToDLQ(event, personStepResult.error, 'processPersonsStep')
+            } else if (isPipelineDrop(personStepResult)) {
+                logger.info('Event dropped during person processing', {
+                    team_id: event.team_id,
+                    distinct_id: event.distinct_id,
+                    reason: personStepResult.reason,
+                })
+            }
+            return this.registerLastStep('processPersonsStep', [], kafkaAcks)
+        }
+
+        const [postPersonEvent, person, personKafkaAck] = personStepResult.value
         kafkaAcks.push(personKafkaAck)
 
         const preparedEvent = await this.runStep(
@@ -350,6 +372,48 @@ export class EventPipelineRunner {
             lastStep: stepName,
             args,
         }
+    }
+
+    private async sendToDLQ(event: PluginEvent, error: any, stepName: string): Promise<void> {
+        await captureIngestionWarning(
+            this.hub.db.kafkaProducer,
+            event.team_id,
+            'pipeline_step_dlq',
+            {
+                distinctId: event.distinct_id,
+                eventUuid: event.uuid,
+                error: error?.message || 'Unknown error',
+                event: event.event,
+                step: stepName,
+            },
+            { alwaysSend: true }
+        )
+
+        try {
+            const message = generateEventDeadLetterQueueMessage(
+                this.originalEvent,
+                error || new Error('Pipeline step returned DLQ result'),
+                event.team_id,
+                `plugin_server_ingest_event:${stepName}`
+            )
+            await this.hub.db.kafkaProducer.queueMessages(message)
+            pipelineStepDLQCounter.labels(stepName).inc()
+        } catch (dlqError) {
+            logger.error('Failed to send event to DLQ', {
+                step: stepName,
+                team_id: event.team_id,
+                distinct_id: event.distinct_id,
+                error: dlqError,
+            })
+        }
+
+        logger.warn('Event sent to DLQ', {
+            step: stepName,
+            team_id: event.team_id,
+            distinct_id: event.distinct_id,
+            event: event.event,
+            error: error?.message || 'Unknown error',
+        })
     }
 
     private reportStalled(stepName: string) {

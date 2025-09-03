@@ -9,6 +9,7 @@ import { PersonEventProcessor } from '../persons/person-event-processor'
 import { PersonMergeService } from '../persons/person-merge-service'
 import { PersonPropertyService } from '../persons/person-property-service'
 import { PersonsStoreForBatch } from '../persons/persons-store-for-batch'
+import { PipelineStepResult, createPipelineOk, isPipelineOk } from './pipeline-step-result'
 import { EventPipelineRunner } from './runner'
 
 export async function processPersonsStep(
@@ -18,7 +19,7 @@ export async function processPersonsStep(
     timestamp: DateTime,
     processPerson: boolean,
     personStoreBatch: PersonsStoreForBatch
-): Promise<[PluginEvent, Person, Promise<void>]> {
+): Promise<PipelineStepResult<[PluginEvent, Person, Promise<void>]>> {
     const context = new PersonContext(
         event,
         team,
@@ -36,7 +37,12 @@ export async function processPersonsStep(
         new PersonPropertyService(context),
         new PersonMergeService(context)
     )
-    const [person, kafkaAck] = await processor.processEvent()
+    const [result, kafkaAck] = await processor.processEvent()
 
-    return [event, person, kafkaAck]
+    if (isPipelineOk(result)) {
+        return createPipelineOk([event, result.value, kafkaAck])
+    } else {
+        // Forward DLQ/drop results
+        return result as PipelineStepResult<[PluginEvent, Person, Promise<void>]>
+    }
 }

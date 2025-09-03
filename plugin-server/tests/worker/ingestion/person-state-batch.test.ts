@@ -344,7 +344,7 @@ describe('PersonState.processEvent()', () => {
 
             const hubParam = undefined
             const processPerson = false
-            const [fakePerson, kafkaAcks] = await personProcessor(
+            const [result, kafkaAcks] = await personProcessor(
                 {
                     event: '$pageview',
                     distinct_id: newUserDistinctId,
@@ -359,22 +359,29 @@ describe('PersonState.processEvent()', () => {
             await hub.db.kafkaProducer.flush()
             await kafkaAcks
 
-            expect(fakePerson).toEqual(
-                expect.objectContaining({
-                    team_id: teamId,
-                    uuid: newUserUuid, // deterministic even though no user rows were created
-                    properties: {}, // empty even though there was a $set attempted
-                    created_at: DateTime.utc(1970, 1, 1, 0, 0, 5), // fake person created_at
-                })
-            )
-            expect(fakePerson.force_upgrade).toBeUndefined()
+            expect(result.type).toBe('ok')
+            if (result.type === 'ok') {
+                const fakePerson = result.value
+                expect(fakePerson).toEqual(
+                    expect.objectContaining({
+                        team_id: teamId,
+                        uuid: newUserUuid, // deterministic even though no user rows were created
+                        properties: {}, // empty even though there was a $set attempted
+                        created_at: DateTime.utc(1970, 1, 1, 0, 0, 5), // fake person created_at
+                    })
+                )
+                expect(fakePerson.force_upgrade).toBeUndefined()
+            }
 
             // verify there is no Postgres person
             const persons = await fetchPostgresPersonsH()
             expect(persons.length).toEqual(0)
 
             // verify there are no Postgres distinct_ids
-            const distinctIds = await fetchDistinctIdValues(hub.db.postgres, fakePerson as InternalPerson)
+            const distinctIds = await fetchDistinctIdValues(
+                hub.db.postgres,
+                result.type === 'ok' ? (result.value as InternalPerson) : ({} as InternalPerson)
+            )
             expect(distinctIds).toEqual(expect.arrayContaining([]))
         })
 
@@ -473,7 +480,7 @@ describe('PersonState.processEvent()', () => {
             processPerson = false
             const event_uuid = new UUIDT().toString()
             const timestampParam = timestamp.plus({ minutes: 5 }) // Event needs to happen after Person creation
-            const [fakePerson, kafkaAcks2] = await personProcessor(
+            const [result2, kafkaAcks2] = await personProcessor(
                 {
                     event: '$pageview',
                     distinct_id: newUserDistinctId,
@@ -489,15 +496,19 @@ describe('PersonState.processEvent()', () => {
             await hub.db.kafkaProducer.flush()
             await kafkaAcks2
 
-            expect(fakePerson).toEqual(
-                expect.objectContaining({
-                    team_id: teamId,
-                    uuid: oldUserUuid, // *old* user, because it existed before the merge
-                    properties: {}, // empty even though there was a $set attempted
-                    created_at: timestamp, // *not* the fake person created_at
-                    force_upgrade: true,
-                })
-            )
+            expect(result2.type).toBe('ok')
+            if (result2.type === 'ok') {
+                const fakePerson = result2.value
+                expect(fakePerson).toEqual(
+                    expect.objectContaining({
+                        team_id: teamId,
+                        uuid: oldUserUuid, // *old* user, because it existed before the merge
+                        properties: {}, // empty even though there was a $set attempted
+                        created_at: timestamp, // *not* the fake person created_at
+                        force_upgrade: true,
+                    })
+                )
+            }
         })
 
         it('force_upgrade is ignored if team.person_processing_opt_out is true', async () => {
@@ -529,7 +540,7 @@ describe('PersonState.processEvent()', () => {
             processPerson = false
             const event_uuid = new UUIDT().toString()
             const timestampParam = timestamp.plus({ minutes: 5 }) // Event needs to happen after Person creation
-            const [fakePerson, kafkaAcks2] = await personProcessor(
+            const [result2, kafkaAcks2] = await personProcessor(
                 {
                     event: '$pageview',
                     distinct_id: newUserDistinctId,
@@ -545,7 +556,11 @@ describe('PersonState.processEvent()', () => {
             await hub.db.kafkaProducer.flush()
             await kafkaAcks2
 
-            expect(fakePerson.force_upgrade).toBeUndefined()
+            expect(result2.type).toBe('ok')
+            if (result2.type === 'ok') {
+                const fakePerson = result2.value
+                expect(fakePerson.force_upgrade).toBeUndefined()
+            }
         })
 
         it('creates person if they are new', async () => {
@@ -586,7 +601,7 @@ describe('PersonState.processEvent()', () => {
 
         it('does not attach existing person properties to $process_person_profile=false events', async () => {
             const originalEventUuid = new UUIDT().toString()
-            const [person, kafkaAcks] = await personProcessor({
+            const [result, kafkaAcks] = await personProcessor({
                 event: '$pageview',
                 distinct_id: newUserDistinctId,
                 uuid: originalEventUuid,
@@ -595,35 +610,42 @@ describe('PersonState.processEvent()', () => {
             await hub.db.kafkaProducer.flush()
             await kafkaAcks
 
-            expect(person).toEqual(
-                expect.objectContaining({
-                    id: expect.any(String),
-                    uuid: newUserUuid,
-                    properties: { $creator_event_uuid: originalEventUuid, c: 420 },
-                    created_at: timestamp,
-                    version: 0,
-                    is_identified: false,
-                })
-            )
+            expect(result.type).toBe('ok')
+            if (result.type === 'ok') {
+                const person = result.value
+                expect(person).toEqual(
+                    expect.objectContaining({
+                        id: expect.any(String),
+                        uuid: newUserUuid,
+                        properties: { $creator_event_uuid: originalEventUuid, c: 420 },
+                        created_at: timestamp,
+                        version: 0,
+                        is_identified: false,
+                    })
+                )
 
-            // verify Postgres persons
-            const persons = sortPersons(await fetchPostgresPersonsH())
-            expect(persons.length).toEqual(1)
-            expect(persons[0]).toEqual(person)
+                // verify Postgres persons
+                const persons = sortPersons(await fetchPostgresPersonsH())
+                expect(persons.length).toEqual(1)
+                expect(persons[0]).toEqual(person)
 
-            // verify Postgres distinct_ids
-            const distinctIds = await fetchDistinctIdValues(hub.db.postgres, persons[0])
-            expect(distinctIds).toEqual(expect.arrayContaining([newUserDistinctId]))
+                // verify Postgres distinct_ids
+                const distinctIds = await fetchDistinctIdValues(hub.db.postgres, person as InternalPerson)
+                expect(distinctIds).toEqual(expect.arrayContaining([newUserDistinctId]))
+            }
 
             // OK, a person now exists with { c: 420 }, let's prove the properties come back out
             // of the DB.
-            const [personVerifyProps] = await personProcessor({
+            const [personVerifyResult] = await personProcessor({
                 event: '$pageview',
                 distinct_id: newUserDistinctId,
                 uuid: new UUIDT().toString(),
                 properties: {},
             }).processEvent()
-            expect(personVerifyProps.properties).toEqual({ $creator_event_uuid: originalEventUuid, c: 420 })
+            expect(personVerifyResult.type).toBe('ok')
+            if (personVerifyResult.type === 'ok') {
+                expect(personVerifyResult.value.properties).toEqual({ $creator_event_uuid: originalEventUuid, c: 420 })
+            }
 
             // But they don't when $process_person_profile=false
             const [processPersonFalseResult] = await personProcessor(
@@ -638,7 +660,10 @@ describe('PersonState.processEvent()', () => {
                 hub,
                 false
             ).processEvent()
-            expect(processPersonFalseResult.properties).toEqual({})
+            expect(processPersonFalseResult.type).toBe('ok')
+            if (processPersonFalseResult.type === 'ok') {
+                expect(processPersonFalseResult.value.properties).toEqual({})
+            }
         })
 
         it('handles person being created in a race condition', async () => {
@@ -1062,19 +1087,23 @@ describe('PersonState.processEvent()', () => {
             )
 
             const personS = personProcessor(event, undefined, mergeService)
-            const [person, kafkaAcks] = await personS.processEvent()
+            const [result, kafkaAcks] = await personS.processEvent()
             const context = personS.getContext()
             await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
 
-            expect(person).toEqual(
-                expect.objectContaining({
-                    id: expect.any(String),
-                    uuid: newUserUuid,
-                    properties: { b: 4, c: 4, e: 4 },
-                    created_at: timestamp,
-                    is_identified: false,
-                })
-            )
+            expect(result.type).toBe('ok')
+            if (result.type === 'ok') {
+                const person = result.value
+                expect(person).toEqual(
+                    expect.objectContaining({
+                        id: expect.any(String),
+                        uuid: newUserUuid,
+                        properties: { b: 4, c: 4, e: 4 },
+                        created_at: timestamp,
+                        is_identified: false,
+                    })
+                )
+            }
 
             expect(personRepository.fetchPerson).toHaveBeenCalledTimes(0)
 
@@ -1214,18 +1243,22 @@ describe('PersonState.processEvent()', () => {
             const personS = personProcessor(event, undefined, mergeService)
             const context = personS.getContext()
 
-            const [person, kafkaAcks] = await personS.processEvent()
+            const [result, kafkaAcks] = await personS.processEvent()
             await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
 
             // Return logic is still unaware that merge happened
-            expect(person).toMatchObject({
-                id: expect.any(String),
-                uuid: mergeDeletedPerson.uuid,
-                properties: { a: 7, b: 7, d: 9 },
-                created_at: timestamp,
-                version: 0,
-                is_identified: false,
-            })
+            expect(result.type).toBe('ok')
+            if (result.type === 'ok') {
+                const person = result.value
+                expect(person).toMatchObject({
+                    id: expect.any(String),
+                    uuid: mergeDeletedPerson.uuid,
+                    properties: { a: 7, b: 7, d: 9 },
+                    created_at: timestamp,
+                    version: 0,
+                    is_identified: false,
+                })
+            }
 
             expect(personRepository.fetchPerson).toHaveBeenCalledTimes(1)
             expect(personRepository.updatePerson).toHaveBeenCalledTimes(2)

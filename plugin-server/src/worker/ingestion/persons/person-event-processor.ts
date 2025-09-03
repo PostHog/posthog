@@ -6,8 +6,13 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { ONE_HOUR } from '../../../config/constants'
 import { InternalPerson, Person } from '../../../types'
 import { logger } from '../../../utils/logger'
+import {
+    PipelineStepResult,
+    createPipelineDlq,
+    createPipelineDrop,
+    createPipelineOk,
+} from '../event-pipeline/pipeline-step-result'
 import { uuidFromDistinctId } from '../person-uuid'
-import { captureIngestionWarning } from '../utils'
 import { PersonContext } from './person-context'
 import { PersonMergeService } from './person-merge-service'
 import { PersonMergeLimitExceededError, PersonMergeRaceConditionError } from './person-merge-types'
@@ -35,7 +40,7 @@ export class PersonEventProcessor {
         private mergeService: PersonMergeService
     ) {}
 
-    async processEvent(): Promise<[Person, Promise<void>]> {
+    async processEvent(): Promise<[PipelineStepResult<Person>, Promise<void>]> {
         if (!this.context.processPerson) {
             return await this.handlePersonlessMode()
         }
@@ -51,16 +56,10 @@ export class PersonEventProcessor {
             identifyOrAliasKafkaAck = mergeResult.kafkaAck
         } else {
             // Handle merge error with action-based approach
-            const handled = await this.handleMergeError(mergeResult.error, this.context.event)
-            if (handled) {
-                // Error was handled (redirected or sent to DLQ), return empty result
-                const fakePerson: Person = {
-                    team_id: this.context.team.id,
-                    properties: {},
-                    uuid: uuidFromDistinctId(this.context.team.id, this.context.distinctId),
-                    created_at: DateTime.utc(1970, 1, 1, 0, 0, 5),
-                }
-                return [fakePerson, Promise.resolve()]
+            const errorResult = await this.handleMergeError(mergeResult.error, this.context.event)
+            if (errorResult) {
+                // Error was handled (redirected, dropped, or sent to DLQ)
+                return [errorResult, Promise.resolve()]
             }
             // For other errors, log and continue with normal flow
             logger.warn('Merge operation failed, continuing with normal property updates', {
@@ -74,7 +73,10 @@ export class PersonEventProcessor {
             try {
                 const [updatedPerson, updateKafkaAck] =
                     await this.propertyService.updatePersonProperties(personFromMerge)
-                return [updatedPerson, Promise.all([identifyOrAliasKafkaAck, updateKafkaAck]).then(() => undefined)]
+                return [
+                    createPipelineOk(updatedPerson),
+                    Promise.all([identifyOrAliasKafkaAck, updateKafkaAck]).then(() => undefined),
+                ]
             } catch (error) {
                 // Shortcut didn't work, swallow the error and try normal retry loop below
                 logger.debug('🔁', `failed update after adding distinct IDs, retrying`, { error })
@@ -83,10 +85,13 @@ export class PersonEventProcessor {
 
         // Handle regular property updates
         const [updatedPerson, updateKafkaAck] = await this.propertyService.handleUpdate()
-        return [updatedPerson, Promise.all([identifyOrAliasKafkaAck, updateKafkaAck]).then(() => undefined)]
+        return [
+            createPipelineOk(updatedPerson),
+            Promise.all([identifyOrAliasKafkaAck, updateKafkaAck]).then(() => undefined),
+        ]
     }
 
-    private async handlePersonlessMode(): Promise<[Person, Promise<void>]> {
+    private async handlePersonlessMode(): Promise<[PipelineStepResult<Person>, Promise<void>]> {
         let existingPerson = await this.context.personStore.fetchForChecking(
             this.context.team.id,
             this.context.distinctId
@@ -141,7 +146,7 @@ export class PersonEventProcessor {
                 person.force_upgrade = true
             }
 
-            return [person, Promise.resolve()]
+            return [createPipelineOk(person), Promise.resolve()]
         }
 
         // We need a value from the `person_created_column` in ClickHouse. This should be
@@ -156,7 +161,7 @@ export class PersonEventProcessor {
             uuid: uuidFromDistinctId(this.context.team.id, this.context.distinctId),
             created_at: createdAt,
         }
-        return [fakePerson, Promise.resolve()]
+        return [createPipelineOk(fakePerson), Promise.resolve()]
     }
 
     getContext(): PersonContext {
@@ -165,9 +170,9 @@ export class PersonEventProcessor {
 
     /**
      * Handle merge errors with action-based approach
-     * Returns true if error was handled (redirected/DLQ), false to continue normal processing
+     * Returns pipeline result if error was handled (redirected/DLQ/drop), null to continue normal processing
      */
-    private async handleMergeError(error: any, event: PluginEvent): Promise<boolean> {
+    private async handleMergeError(error: any, event: PluginEvent): Promise<PipelineStepResult<Person> | null> {
         const mergeMode = this.context.mergeMode
 
         if (error instanceof PersonMergeLimitExceededError) {
@@ -186,15 +191,14 @@ export class PersonEventProcessor {
                         distinct_id: event.distinct_id,
                     })
                     await this.redirectToAsyncMerge(event, mergeMode.topic)
-                    return true
+                    return createPipelineDrop('Event redirected to async merge topic')
                 case 'LIMIT':
-                    logger.warn('Sending to DLQ due to limit exceeded', {
+                    logger.warn('Limit exceeded, will be sent to DLQ', {
                         limit: mergeMode.limit,
                         team_id: event.team_id,
                         distinct_id: event.distinct_id,
                     })
-                    await this.sendToDLQ(event, error)
-                    return true
+                    return createPipelineDlq('Merge limit exceeded', error)
                 case 'SYNC':
                     // SYNC mode should never hit limits - this indicates a bug
                     logger.error('Unexpected limit exceeded in SYNC mode - this should not happen', {
@@ -210,7 +214,7 @@ export class PersonEventProcessor {
                 team_id: this.context.team.id,
                 distinct_id: this.context.distinctId,
             })
-            return false // Continue with normal processing
+            return null // Continue with normal processing
         } else {
             // Unknown errors should be thrown - they indicate bugs or unexpected conditions
             logger.error('Unknown merge error - throwing to surface the issue', {
@@ -261,31 +265,6 @@ export class PersonEventProcessor {
             distinct_id: event.distinct_id,
             event: event.event,
             topic: asyncTopic,
-        })
-    }
-
-    /**
-     * Sends an event to the dead letter queue
-     */
-    private async sendToDLQ(event: PluginEvent, error: any): Promise<void> {
-        await captureIngestionWarning(
-            this.context.kafkaProducer,
-            this.context.team.id,
-            'person_merge_limit_exceeded_dlq',
-            {
-                distinctId: event.distinct_id,
-                eventUuid: event.uuid,
-                error: error.message,
-                event: event.event,
-            },
-            { alwaysSend: true }
-        )
-
-        logger.warn('Event sent to DLQ due to merge limit exceeded', {
-            team_id: event.team_id,
-            distinct_id: event.distinct_id,
-            event: event.event,
-            error: error.message,
         })
     }
 }
