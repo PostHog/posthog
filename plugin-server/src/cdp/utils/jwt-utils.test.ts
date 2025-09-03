@@ -1,15 +1,11 @@
-import { PluginsServerConfig } from '../../types'
 import { JWT } from './jwt-utils'
 
 describe('JWT', () => {
     jest.setTimeout(1000)
     let jwtUtil: JWT
-    const mockConfig: Partial<PluginsServerConfig> = {
-        ENCRYPTION_SALT_KEYS: 'testsecret1,testsecret2',
-    }
 
     beforeEach(() => {
-        jwtUtil = new JWT(mockConfig as PluginsServerConfig)
+        jwtUtil = new JWT('testsecret1,testsecret2')
     })
 
     describe('sign and verify', () => {
@@ -34,8 +30,8 @@ describe('JWT', () => {
     })
 
     it('should throw if ENCRYPTION_SALT_KEYS is empty', () => {
-        const badConfig = { ENCRYPTION_SALT_KEYS: '' }
-        expect(() => new JWT(badConfig as PluginsServerConfig)).toThrow('Encryption keys are not set')
+        const emptyEncryptionSaltKeys = ''
+        expect(() => new JWT(emptyEncryptionSaltKeys)).toThrow('Encryption keys are not set')
     })
 
     it('should try all secrets for verification', () => {

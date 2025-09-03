@@ -1,10 +1,12 @@
 import uuid
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.db import IntegrityError
 from django.test import Client
 
+import posthog.plugins.plugin_server_api as plugin_server_api
 from posthog.models.message_category import MessageCategory
 from posthog.models.message_preferences import MessageRecipientPreference, PreferenceStatus
 
@@ -26,7 +28,15 @@ class TestMessagePreferences(BaseTest):
             team=self.team, identifier="test@example.com", preferences={}
         )
         self.client = Client()
-        self.token = self.recipient.generate_preferences_token()
+        self._token_patch = patch.object(
+            plugin_server_api, "generate_messaging_preferences_token", return_value="dummy-token"
+        )
+        self._token_patch.start()
+        self.token = plugin_server_api.generate_messaging_preferences_token(self.team.id, self.recipient.identifier)
+
+    def tearDown(self):
+        self._token_patch.stop()
+        super().tearDown()
 
     def test_create_message_category(self):
         category = MessageCategory.objects.create(

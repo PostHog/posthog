@@ -1,10 +1,12 @@
 import json
 
 from posthog.test.base import APIBaseTest, BaseTest
+from unittest.mock import patch
 
 from django.test import Client
 from django.urls import reverse
 
+import posthog.plugins.plugin_server_api as plugin_server_api
 from posthog.models.message_category import MessageCategory
 from posthog.models.message_preferences import (
     ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
@@ -30,7 +32,15 @@ class TestMessagePreferencesViews(BaseTest):
             team=self.team, identifier="test@example.com", preferences={}
         )
         self.client = Client()
-        self.token = self.recipient.generate_preferences_token()
+        self._token_patch = patch.object(
+            plugin_server_api, "generate_messaging_preferences_token", return_value="dummy-token"
+        )
+        self._token_patch.start()
+        self.token = plugin_server_api.generate_messaging_preferences_token(self.team.id, self.recipient.identifier)
+
+    def tearDown(self):
+        self._token_patch.stop()
+        super().tearDown()
 
     def test_preferences_page_valid_token(self):
         response = self.client.get(reverse("message_preferences", kwargs={"token": self.token}))
