@@ -47,6 +47,8 @@ const CyclotronInputSchema = z.object({
     order: z.number().optional(),
 })
 
+export type CyclotronInputType = z.infer<typeof CyclotronInputSchema>
+
 export const HogFlowActionSchema = z.discriminatedUnion('type', [
     // Trigger
     z.object({
@@ -167,23 +169,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             message_category_id: z.string().uuid().optional(),
             template_uuid: z.string().uuid().optional(),
             template_id: z.literal('template-twilio'),
-            inputs: z.object({
-                twilio_account: z.object({}),
-                from_number: z.object({
-                    // Min 5 because of 5-digit shortcodes
-                    value: z.string().min(5),
-                }),
-                to_number: z.object({
-                    // Min 5 because of 5-digit shortcodes
-                    value: z.string().min(5),
-                }),
-                message: z.object({
-                    value: z.string().min(1).max(1600),
-                }),
-                debug: z.object({
-                    value: z.boolean(),
-                }),
-            }),
+            inputs: z.record(CyclotronInputSchema),
         }),
     }),
     z.object({
@@ -192,14 +178,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         config: z.object({
             template_uuid: z.string().uuid().optional(),
             template_id: z.literal('template-slack'),
-            inputs: z.object({
-                slack_workspace: z.object({
-                    value: z.number().positive(),
-                }),
-                slack_channel: z.object({
-                    value: z.number().positive(),
-                }),
-            }),
+            inputs: z.record(CyclotronInputSchema),
         }),
     }),
     z.object({
@@ -208,11 +187,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         config: z.object({
             template_uuid: z.string().uuid().optional(),
             template_id: z.literal('template-webhook'),
-            inputs: z.object({
-                url: z.object({
-                    value: z.string().url(),
-                }),
-            }),
+            inputs: z.record(CyclotronInputSchema),
         }),
     }),
 
@@ -230,4 +205,10 @@ export const isOptOutEligibleAction = (
     action: HogFlowAction
 ): action is Extract<HogFlowAction, { type: 'function_email' | 'function_sms' }> => {
     return ['function_email', 'function_sms'].includes(action.type)
+}
+
+export const isFunctionAction = (
+    action: HogFlowAction
+): action is Extract<HogFlowAction, { type: 'function' | 'function_sms' | 'function_slack' | 'function_webhook' }> => {
+    return ['function', 'function_sms', 'function_slack', 'function_webhook'].includes(action.type)
 }

@@ -1,17 +1,23 @@
 import { actions, afterMount, kea, key, listeners, path, props, selectors } from 'kea'
 import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
-import { loaders } from 'kea-loaders'
+import { lazyLoaders, loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import {
+    CyclotronJobInputsValidation,
+    CyclotronJobInputsValidationResult,
+} from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { urls } from 'scenes/urls'
 
+import { HogFunctionTemplateType } from '~/types'
+
 import type { campaignLogicType } from './campaignLogicType'
 import { campaignSceneLogic } from './campaignSceneLogic'
-import { HogFlowActionSchema } from './hogflows/steps/types'
+import { HogFlowActionSchema, isFunctionAction } from './hogflows/steps/types'
 import { type HogFlow, type HogFlowAction, type HogFlowEdge } from './hogflows/types'
 
 export interface CampaignLogicProps {
@@ -101,11 +107,31 @@ export const campaignLogic = kea<campaignLogicType>([
             },
         ],
     })),
-    forms(({ actions }) => ({
+    lazyLoaders(() => ({
+        hogFunctionTemplatesById: [
+            {} as Record<string, HogFunctionTemplateType>,
+            {
+                loadHogFunctionTemplatesById: async () => {
+                    const allTemplates = await api.hogFunctions.listTemplates({ types: ['destination'] })
+
+                    const allTemplatesById = allTemplates.results.reduce(
+                        (acc, template) => {
+                            acc[template.id] = template
+                            return acc
+                        },
+                        {} as Record<string, HogFunctionTemplateType>
+                    )
+
+                    return allTemplatesById
+                },
+            },
+        ],
+    })),
+    forms(({ actions, values }) => ({
         campaign: {
             defaults: NEW_CAMPAIGN,
             errors: ({ name, trigger, actions }) => {
-                return {
+                const errors = {
                     name: !name ? 'Name is required' : undefined,
                     trigger: {
                         type: trigger.type === 'event' ? undefined : 'Invalid trigger type',
@@ -115,12 +141,19 @@ export const campaignLogic = kea<campaignLogicType>([
                                 : undefined,
                     },
                     actions: actions.some((action) => {
-                        const validationResult = HogFlowActionSchema.safeParse(action)
-                        return !['trigger', 'exit'].includes(action.type) && !validationResult.success
+                        if (['trigger', 'exit'].includes(action.type)) {
+                            return false
+                        }
+                        const schemaValidation = HogFlowActionSchema.safeParse(action)
+                        const configValidation = values.actionConfigValidationErrors[action.id]?.valid ?? true
+
+                        return !schemaValidation.success || !configValidation
                     })
                         ? 'Some fields need work'
                         : undefined,
                 } as DeepPartialMap<HogFlow, ValidationErrorType>
+
+                return errors
             },
             submit: async (values) => {
                 if (!values) {
@@ -131,6 +164,7 @@ export const campaignLogic = kea<campaignLogicType>([
             },
         },
     })),
+
     selectors({
         logicProps: [() => [(_, props) => props], (props): CampaignLogicProps => props],
         campaignLoading: [(s) => [s.originalCampaignLoading], (originalCampaignLoading) => originalCampaignLoading],
@@ -152,6 +186,32 @@ export const campaignLogic = kea<campaignLogicType>([
                         return acc
                     },
                     {} as Record<string, HogFlowEdge[]>
+                )
+            },
+        ],
+
+        actionConfigValidationErrors: [
+            (s) => [s.campaign, s.hogFunctionTemplatesById],
+            (campaign, hogFunctionTemplatesById): Record<string, CyclotronJobInputsValidationResult | null> => {
+                return campaign.actions.reduce(
+                    (acc, action) => {
+                        if (isFunctionAction(action)) {
+                            const template = hogFunctionTemplatesById[action.config.template_id]
+                            if (!template) {
+                                acc[action.id] = {
+                                    valid: false,
+                                    errors: {},
+                                }
+                            } else {
+                                acc[action.id] = CyclotronJobInputsValidation.validate(
+                                    action.config.inputs,
+                                    template.inputs_schema ?? []
+                                )
+                            }
+                        }
+                        return acc
+                    },
+                    {} as Record<string, CyclotronJobInputsValidationResult>
                 )
             },
         ],

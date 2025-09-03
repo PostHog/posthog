@@ -18,12 +18,9 @@ import type { DragEvent } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { AppMetricsTotalsRequest, loadAppMetricsTotals } from 'lib/components/AppMetrics/appMetricsLogic'
 import { uuid } from 'lib/utils'
 import { urls } from 'scenes/urls'
-
-import { HogFunctionTemplateType } from '~/types'
 
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import { CampaignLogicProps, campaignLogic } from '../campaignLogic'
@@ -53,7 +50,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     connect((props: CampaignLogicProps) => ({
         values: [
             campaignLogic(props),
-            ['campaign', 'edgesByActionId'],
+            ['campaign', 'edgesByActionId', 'hogFunctionTemplatesById'],
             optOutCategoriesLogic(),
             ['categories', 'categoriesLoading'],
         ],
@@ -84,7 +81,6 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => ({ highlightedDropzoneNodeId }),
         setMode: (mode: HogFlowEditorMode) => ({ mode }),
         loadActionMetricsById: (params: AppMetricsTotalsRequest, timezone: string) => ({ params, timezone }),
-        loadHogFunctionTemplatesById: (hogFunctionTemplateIds: string[]) => ({ hogFunctionTemplateIds }),
     }),
     reducers(() => ({
         mode: [
@@ -173,16 +169,6 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 return new Set(outgoingNodes.map((node) => node.id)).size === 1
             },
         ],
-        hogFunctionTemplateIds: [
-            (s) => [s.nodes],
-            (nodes: HogFlowActionNode[]) => {
-                return new Set(
-                    nodes
-                        .map((node) => ('template_id' in node.data.config ? node.data.config.template_id : null))
-                        .filter((id) => id)
-                )
-            },
-        ],
     }),
     lazyLoaders(() => ({
         actionMetricsById: [
@@ -211,27 +197,6 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     })
 
                     return res
-                },
-            },
-        ],
-
-        hogFunctionTemplatesById: [
-            {} as Record<string, HogFunctionTemplateType>,
-            {
-                loadHogFunctionTemplatesById: async () => {
-                    const allTemplates = await api.hogFunctions.listTemplates({ types: ['destination'] })
-
-                    const allTemplatesById = allTemplates.results.reduce(
-                        (acc, template) => {
-                            acc[template.id] = template
-                            return acc
-                        },
-                        {} as Record<string, HogFunctionTemplateType>
-                    )
-
-                    console.log('allTemplatesById', allTemplatesById)
-
-                    return allTemplatesById
                 },
             },
         ],

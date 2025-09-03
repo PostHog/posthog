@@ -36,12 +36,9 @@ export const hogFunctionStepLogic = kea<hogFunctionStepLogicType>([
         },
     })),
 
-    propsChanged(({ actions, props, values }, oldProps) => {
+    propsChanged(({ actions, props, values }) => {
         const { template } = props
-        console.log('props changed', template, oldProps.template)
-        console.log('template changed', template, values.configuration.inputs)
         if (template && Object.keys(values.configuration.inputs ?? {}).length === 0) {
-            console.log('setting inputs', templateToConfiguration(template).inputs)
             actions.setConfigurationValues({
                 inputs: templateToConfiguration(template).inputs ?? {},
             })
