@@ -793,7 +793,6 @@ async def test_non_blocking_exceptions_dont_fail_enrichment_ratio(
             )
         ],
     )
-
     with (
         patch("ee.hogai.session_summaries.llm.consume.call_llm") as mock_call_llm,
         patch("temporalio.activity.info") as mock_activity_info,
@@ -802,39 +801,32 @@ async def test_non_blocking_exceptions_dont_fail_enrichment_ratio(
         # Setup mocks
         mock_activity_info.return_value.workflow_id = "test_workflow_id"
         mock_activity_info.return_value.workflow_run_id = "test_run_id"
-
         # Mock workflow handle for progress updates
         mock_workflow_handle = AsyncMock()
         mock_workflow_handle.signal = AsyncMock()
         mock_temporal_client = AsyncMock()
         mock_temporal_client.get_workflow_handle = MagicMock(return_value=mock_workflow_handle)
         mock_async_connect.return_value = mock_temporal_client
-
         # Mock LLM call
         mock_call_llm.return_value = mock_llm_response
-
-        # Execute activity - should NOT fail despite pattern 1 having no events after filtering
+        # We provide 3 patters, it should fail if less than 75% of the patterns were successful
+        # It would return just 2, but one pattern is empty through non-blocking exception removal - so, it should not fail
         result = await assign_events_to_patterns_activity(activity_input)
-
     # Assertions
     assert isinstance(result, EnrichedSessionGroupSummaryPatternsList)
-
     # Pattern 1 should be removed (only non-blocking)
     pattern_1 = next((p for p in result.patterns if p.pattern_id == 1), None)
     assert pattern_1 is None, "Pattern 1 with only non-blocking exceptions should be removed"
-
     # Pattern 2 should exist with blocking exception
     pattern_2 = next((p for p in result.patterns if p.pattern_id == 2), None)
     assert pattern_2 is not None, "Pattern 2 should exist"
     assert len(pattern_2.events) == 1
     assert pattern_2.events[0].target_event.event_id == "block001"
-
     # Pattern 3 should have only the blocking exception
     pattern_3 = next((p for p in result.patterns if p.pattern_id == 3), None)
     assert pattern_3 is not None, "Pattern 3 should exist"
     assert len(pattern_3.events) == 1, "Pattern 3 should have only blocking event"
     assert pattern_3.events[0].target_event.event_id == "block001"
-
     # Result should have 2 patterns (patterns 2 and 3)
     assert len(result.patterns) == 2, "Should have 2 patterns with valid events"
 
