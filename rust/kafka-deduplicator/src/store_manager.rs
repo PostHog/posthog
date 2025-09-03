@@ -117,7 +117,19 @@ impl StoreManager {
                     Ok(store.clone())
                 } else {
                     // Real failure - no one succeeded in creating the store
-                    error!("Failed to create store for {}:{}: {}", topic, partition, e);
+                    // Log the full error chain to understand the root cause
+                    error!(
+                        "Failed to create store for {}:{} at path {}: {:?}",
+                        topic, partition, store_path, e
+                    );
+
+                    // Also log the error chain for more detail
+                    let mut source = e.source();
+                    while let Some(err) = source {
+                        error!("  Caused by: {}", err);
+                        source = err.source();
+                    }
+
                     Err(e)
                 }
             }
