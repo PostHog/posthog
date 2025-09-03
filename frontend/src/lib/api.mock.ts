@@ -229,6 +229,7 @@ export const MOCK_DEFAULT_USER: UserType = {
     anonymize_data: false,
     toolbar_mode: 'toolbar',
     has_password: true,
+    id: 179,
     is_staff: true,
     is_impersonated: false,
     is_email_verified: true,
