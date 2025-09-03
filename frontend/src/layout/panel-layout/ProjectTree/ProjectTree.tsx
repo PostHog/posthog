@@ -2,7 +2,14 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { RefObject, useEffect, useRef, useState } from 'react'
 
-import { IconCheckbox, IconChevronRight, IconFolderPlus, IconPlusSmall } from '@posthog/icons'
+import {
+    IconCheckbox,
+    IconChevronRight,
+    IconEllipsis,
+    IconFolderPlus,
+    IconPlusSmall,
+    IconShortcut,
+} from '@posthog/icons'
 
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
@@ -133,6 +140,25 @@ export function ProjectTree({
     const canOpenInPostHogTab = !!featureFlags[FEATURE_FLAGS.SCENE_TABS]
     const showFilterDropdown = root === 'project://'
     const showSortDropdown = root === 'project://'
+
+    const treeData: TreeDataItem[] = []
+    if (root === 'shortcuts://' && fullFileSystemFiltered.length === 0) {
+        treeData.push({
+            id: 'products/shortcuts-helper-category',
+            name: 'Example shortcuts',
+            type: 'category',
+            displayName: (
+                <div className="border border-primary text-xs mb-2 font-normal rounded-xs p-1 -mx-1">
+                    Shortcuts are added by pressing{' '}
+                    <IconEllipsis className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />,
+                    side-clicking a panel item, then "Add to shortcuts panel", or inside an app's resources file menu
+                    click <IconShortcut className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />
+                </div>
+            ),
+        })
+    } else {
+        treeData.push(...fullFileSystemFiltered)
+    }
 
     useEffect(() => {
         setPanelTreeRef(treeRef)
@@ -441,7 +467,7 @@ export function ProjectTree({
             ref={treeRef}
             contentRef={mainContentRef as RefObject<HTMLElement>}
             className="px-0 py-1"
-            data={fullFileSystemFiltered}
+            data={treeData}
             mode={onlyTree ? 'tree' : projectTreeMode}
             selectMode={selectMode}
             tableViewKeys={treeTableKeys}

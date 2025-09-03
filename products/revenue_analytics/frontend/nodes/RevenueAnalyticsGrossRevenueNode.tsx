@@ -58,7 +58,7 @@ const Tile = ({
     queryId,
     context,
 }: TileProps<RevenueAnalyticsGrossRevenueQueryResponse>): JSX.Element => {
-    const { baseCurrency, revenueGoals, groupBy } = useValues(revenueAnalyticsLogic)
+    const { baseCurrency, revenueGoals, breakdownProperties } = useValues(revenueAnalyticsLogic)
     const { isPrefix, symbol: currencySymbol } = getCurrencySymbol(baseCurrency)
 
     const results = (response?.results as GraphDataset[]) ?? []
@@ -66,7 +66,7 @@ const Tile = ({
 
     return (
         <TileWrapper
-            title="Gross Revenue"
+            title="Gross revenue"
             tooltip={
                 <span>
                     Gross revenue is the total amount of revenue generated from all sources, including all products and
@@ -87,7 +87,7 @@ const Tile = ({
                     datasets={datasets}
                     labels={labels}
                     legend={{
-                        display: groupBy.length > 0 && datasets.length > 1,
+                        display: breakdownProperties.length > 0 && datasets.length > 1,
                         position: 'right',
                         // By default chart.js renders first item at the bottom of stack, but legend goes at the top, let's reverse the legend instead
                         reverse: true,

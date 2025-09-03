@@ -6,7 +6,6 @@ import {
     isHogQLQuery,
     isMarketingAnalyticsTableQuery,
     isPersonsNode,
-    isRevenueAnalyticsGrowthRateQuery,
     isRevenueAnalyticsTopCustomersQuery,
     isRevenueExampleDataWarehouseTablesQuery,
     isRevenueExampleEventsQuery,
@@ -94,7 +93,6 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         isWebExternalClicksQuery(query) ||
         isWebStatsTableQuery(query) ||
         isWebGoalsQuery(query) ||
-        isRevenueAnalyticsGrowthRateQuery(query) ||
         isRevenueAnalyticsTopCustomersQuery(query)
     ) {
         features.add(QueryFeature.columnsInResponse)

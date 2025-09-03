@@ -61,8 +61,6 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         showAllMessages: (type: 'input' | 'output') => ({ type }),
         hideAllMessages: (type: 'input' | 'output') => ({ type }),
         applySearchResults: (inputMatches: boolean[], outputMatches: boolean[]) => ({ inputMatches, outputMatches }),
-        showDisplayOptionsModal: true,
-        hideDisplayOptionsModal: true,
         setDisplayOption: (displayOption: DisplayOption) => ({ displayOption }),
     }),
 
@@ -124,13 +122,6 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
                     // Keep current state when search query changes (will be updated by applySearchResults)
                     return state
                 },
-            },
-        ],
-        displayOptionsModalVisible: [
-            false as boolean,
-            {
-                showDisplayOptionsModal: () => true,
-                hideDisplayOptionsModal: () => false,
             },
         ],
         displayOption: [

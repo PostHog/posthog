@@ -89,7 +89,8 @@ When users reference feature flags by name (e.g., "new-onboarding-flow", "beta-d
 1. **Use the lookup_feature_flag tool** to get the feature flag ID and available variants
 2. **Convert flag keys to IDs** before creating surveys - the API requires `linked_flag_id` (integer), not flag keys
 3. **Validate variants** - ensure any specified variant exists, or use "any" for any variant
-4. **Handle missing flags** - if a flag doesn't exist, inform the user and suggest alternatives
+4. **Multiple variants support** - if multiple variants are given, use "any" instead
+5. **Handle missing flags** - if a flag doesn't exist, inform the user and suggest alternatives
 
 **Example workflow**:
 - User says: "Survey users with the new-dashboard flag enabled"

@@ -21,7 +21,7 @@ class RevenueAnalyticsQueryRunnerImpl(RevenueAnalyticsQueryRunner):
 
 
 class TestRevenueAnalyticsQueryRunner(APIBaseTest):
-    query = RevenueAnalyticsGrossRevenueQuery(groupBy=[], properties=[], interval=IntervalType.MONTH)
+    query = RevenueAnalyticsGrossRevenueQuery(breakdown=[], properties=[], interval=IntervalType.MONTH)
     date = datetime(2025, 1, 1)
 
     def assertDiff(self, diff: timedelta):

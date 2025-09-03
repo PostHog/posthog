@@ -1,11 +1,11 @@
 import './PlayerFrameOverlay.scss'
 
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { IconPlay, IconRewindPlay, IconWarning } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { cn } from 'lib/utils/css-classes'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
@@ -66,9 +66,9 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
     }
     return content ? (
         <div
-            className={clsx(
-                'PlayerFrameOverlay__content absolute inset-0 z-1 flex items-center justify-center bg-black/15 opacity-80 transition-opacity duration-100 hover:opacity-100',
-                pausedState && !isInExportContext && 'PlayerFrameOverlay__content--only-hover'
+            className={cn(
+                'PlayerFrameOverlay__content absolute inset-0 z-1 flex items-center justify-center bg-black/15 transition-opacity duration-100',
+                pausedState && !isInExportContext ? 'opacity-0 hover:opacity-100' : 'opacity-80 hover:opacity-100'
             )}
             aria-busy={currentPlayerState === SessionPlayerState.BUFFER}
         >

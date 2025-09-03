@@ -315,6 +315,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         loadRecordingMeta: true,
         setSimilarRecordings: (results: string[]) => ({ results }),
         setIsCommenting: (isCommenting: boolean) => ({ isCommenting }),
+        setQuickEmojiIsOpen: (quickEmojiIsOpen: boolean) => ({ quickEmojiIsOpen }),
         updatePlayerTimeTracking: true,
         exportRecordingToVideoFile: true,
         markViewed: (delay?: number) => ({ delay }),
@@ -331,6 +332,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             false,
             {
                 setIsCommenting: (_, { isCommenting }) => isCommenting,
+            },
+        ],
+        quickEmojiIsOpen: [
+            false,
+            {
+                setQuickEmojiIsOpen: (_, { quickEmojiIsOpen }) => quickEmojiIsOpen,
             },
         ],
         maskingWindow: [

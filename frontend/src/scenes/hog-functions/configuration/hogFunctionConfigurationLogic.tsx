@@ -309,7 +309,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         duplicateFromTemplate: true,
         resetToTemplate: true,
         deleteHogFunction: true,
-        sparklineQueryChanged: (sparklineQuery: TrendsQuery) => ({ sparklineQuery }) as { sparklineQuery: TrendsQuery },
+        sparklineQueryChanged: (sparklineQuery: TrendsQuery) =>
+            ({
+                sparklineQuery,
+            }) as { sparklineQuery: TrendsQuery },
         loadSampleGlobals: (payload?: { eventId?: string }) => ({ eventId: payload?.eventId }),
         setUnsavedConfiguration: (configuration: HogFunctionConfigurationType | null) => ({ configuration }),
         persistForUnload: true,

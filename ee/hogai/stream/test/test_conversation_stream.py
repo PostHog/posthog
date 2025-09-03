@@ -25,6 +25,7 @@ from ee.hogai.stream.redis_stream import (
     StreamEvent,
 )
 from ee.hogai.utils.types import AssistantMode
+from ee.hogai.utils.types.base import AssistantOutput
 from ee.models.assistant import Conversation
 
 
@@ -115,6 +116,7 @@ class TestConversationStreamManager(BaseTest):
         self.assertEqual(len(results), 1)
         event_type, message = results[0]
         self.assertEqual(event_type, "message")
+        message = cast(AssistantMessage, message)
         self.assertEqual(message.content, "Oops! Something went wrong. Please try again.")
 
     async def test_stream_conversation_success(self):
@@ -167,6 +169,7 @@ class TestConversationStreamManager(BaseTest):
             self.assertEqual(len(results), 1)
             event_type, message = results[0]
             self.assertEqual(event_type, "message")
+            message = cast(AssistantMessage, message)
             self.assertEqual(message.content, "Oops! Something went wrong. Please try again.")
 
     async def test_stream_conversation_redis_error(self):
@@ -193,6 +196,7 @@ class TestConversationStreamManager(BaseTest):
             self.assertEqual(len(results), 1)
             event_type, message = results[0]
             self.assertEqual(event_type, "message")
+            message = cast(AssistantMessage, message)
             self.assertEqual(message.content, "Oops! Something went wrong. Please try again.")
 
     async def test_stream_conversation_general_error(self):
@@ -214,6 +218,7 @@ class TestConversationStreamManager(BaseTest):
             self.assertEqual(len(results), 1)
             event_type, message = results[0]
             self.assertEqual(event_type, "message")
+            message = cast(AssistantMessage, message)
             self.assertEqual(message.content, "Oops! Something went wrong. Please try again.")
 
     def test_failure_message(self):
@@ -222,7 +227,8 @@ class TestConversationStreamManager(BaseTest):
 
         # Verify message format
         self.assertEqual(event_type, AssistantEventType.MESSAGE)
-        self.assertEqual(cast(AssistantMessage, message).content, "Oops! Something went wrong. Please try again.")
+        message = cast(AssistantMessage, message)
+        self.assertEqual(message.content, "Oops! Something went wrong. Please try again.")
         self.assertIsNotNone(message.id)
 
     async def test_redis_stream_to_assistant_output_message(self):
@@ -231,8 +237,9 @@ class TestConversationStreamManager(BaseTest):
 
         result = await self.manager._redis_stream_to_assistant_output(event)
 
-        self.assertEqual(result[0], AssistantEventType.MESSAGE)
-        self.assertEqual(result[1].content, "test message")
+        result = cast(AssistantOutput, result)
+        self.assertEqual(cast(AssistantOutput, result[0]), AssistantEventType.MESSAGE)
+        self.assertEqual(cast(AssistantMessage, result[1]).content, "test message")
 
     async def test_redis_stream_to_assistant_output_conversation(self):
         """Test conversion of conversation data."""
@@ -241,8 +248,9 @@ class TestConversationStreamManager(BaseTest):
 
         result = await self.manager._redis_stream_to_assistant_output(event)
 
+        result = cast(AssistantOutput, result)
         self.assertEqual(result[0], AssistantEventType.CONVERSATION)
-        self.assertEqual(result[1].id, self.conversation.id)
+        self.assertEqual(cast(Conversation, result[1]).id, self.conversation.id)
 
     async def test_redis_stream_to_assistant_output_conversation_not_found(self):
         """Test conversion when conversation doesn't exist."""

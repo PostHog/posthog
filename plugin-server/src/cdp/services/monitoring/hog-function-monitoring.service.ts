@@ -17,7 +17,7 @@ import {
     MetricLogSource,
     MinimalAppMetric,
 } from '../../types'
-import { convertToCaptureEvent, fixLogDeduplication } from '../../utils'
+import { fixLogDeduplication } from '../../utils'
 
 const counterHogFunctionMetric = new Counter({
     name: 'cdp_hog_function_metric',
@@ -177,25 +177,13 @@ export class HogFunctionMonitoringService {
                             continue
                         }
 
-                        if (this.hub.internalCaptureService.isEnabled()) {
-                            this.eventsToCapture.push({
-                                team_token: team.api_token,
-                                event: event.event,
-                                distinct_id: event.distinct_id,
-                                timestamp: event.timestamp,
-                                properties: event.properties,
-                            })
-                        } else {
-                            this.messagesToProduce.push({
-                                topic: this.hub.HOG_FUNCTION_MONITORING_EVENTS_PRODUCED_TOPIC,
-                                value: convertToCaptureEvent(event, team),
-                                key: `${team.api_token}:${event.distinct_id}`,
-                                headers: {
-                                    distinct_id: event.distinct_id,
-                                    token: team.api_token,
-                                },
-                            })
-                        }
+                        this.eventsToCapture.push({
+                            team_token: team.api_token,
+                            event: event.event,
+                            distinct_id: event.distinct_id,
+                            timestamp: event.timestamp,
+                            properties: event.properties,
+                        })
                     }
                 })
             )

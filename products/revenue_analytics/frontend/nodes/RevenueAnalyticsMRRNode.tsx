@@ -69,7 +69,7 @@ const Tile = ({
     queryId,
     context,
 }: TileProps<RevenueAnalyticsMRRQueryResponse>): JSX.Element => {
-    const { baseCurrency, groupBy, mrrMode } = useValues(revenueAnalyticsLogic)
+    const { baseCurrency, breakdownProperties, mrrMode } = useValues(revenueAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const { setMRRMode } = useActions(revenueAnalyticsLogic)
@@ -135,7 +135,7 @@ const Tile = ({
                     datasets={mappedDatasets}
                     labels={labels}
                     legend={{
-                        display: groupBy.length > 0 && mappedDatasets.length > 1,
+                        display: breakdownProperties.length > 0 && mappedDatasets.length > 1,
                         position: 'right',
                         // By default chart.js renders first item at the bottom of stack, but legend goes at the top, let's reverse the legend instead
                         reverse: true,

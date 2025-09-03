@@ -456,19 +456,6 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
-    if kind == "RevenueAnalyticsGrowthRateQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_growth_rate_query_runner import (
-            RevenueAnalyticsGrowthRateQueryRunner,
-        )
-
-        return RevenueAnalyticsGrowthRateQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-        )
-
     if kind == "RevenueAnalyticsMetricsQuery":
         from products.revenue_analytics.backend.hogql_queries.revenue_analytics_metrics_query_runner import (
             RevenueAnalyticsMetricsQueryRunner,

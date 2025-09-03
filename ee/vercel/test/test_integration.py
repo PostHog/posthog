@@ -5,18 +5,26 @@ from unittest.mock import patch
 from django.db import IntegrityError
 from django.test import TestCase
 
+from rest_framework import exceptions
 from rest_framework.exceptions import NotFound, ValidationError
 
+from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
+from posthog.models.team import Team
 from posthog.models.user import User
 
 from ee.vercel.integration import VercelIntegration
 
 
 class TestVercelIntegration(TestCase):
+    TEST_INSTALLATION_ID = "icfg_9bceb8ccT32d3U417ezb5c8p"
+    NONEXISTENT_INSTALLATION_ID = "icfg_nonexistent123456789012"
+    NEW_INSTALLATION_ID = "icfg_987654321abcdef123456789"
+    DIFFERENT_INSTALLATION_ID = "icfg_different123456789012345"
+
     def setUp(self):
-        self.installation_id = "inst_123456789"
+        self.installation_id = self.TEST_INSTALLATION_ID
         self.user = User.objects.create_user(email="test@example.com", password="testpass", first_name="Test")
         self.organization = Organization.objects.create(name="Test Org")
         self.user.join(organization=self.organization, level=OrganizationMembership.Level.OWNER)
@@ -47,7 +55,7 @@ class TestVercelIntegration(TestCase):
 
     def test_get_installation_not_found(self):
         with self.assertRaises(NotFound) as context:
-            VercelIntegration._get_installation("inst_nonexistent")
+            VercelIntegration._get_installation(self.NONEXISTENT_INSTALLATION_ID)
         assert str(context.exception) == "Installation not found"
 
     def test_get_vercel_plans_structure(self):
@@ -76,7 +84,7 @@ class TestVercelIntegration(TestCase):
         assert updated_installation.config["billing_plan_id"] == "free"
 
     def test_update_installation_not_found(self):
-        VercelIntegration.update_installation("inst_nonexistent", "pro200")
+        VercelIntegration.update_installation(self.NONEXISTENT_INSTALLATION_ID, "pro200")
 
     @patch("django.conf.settings.DEBUG", True)
     def test_delete_installation_dev_mode(self):
@@ -94,7 +102,7 @@ class TestVercelIntegration(TestCase):
 
     def test_delete_installation_not_found(self):
         with self.assertRaises(NotFound):
-            VercelIntegration.delete_installation("inst_nonexistent")
+            VercelIntegration.delete_installation(self.NONEXISTENT_INSTALLATION_ID)
 
     def test_get_product_plans_posthog(self):
         result = VercelIntegration.get_product_plans("posthog")
@@ -117,7 +125,7 @@ class TestVercelIntegration(TestCase):
 
     @patch("ee.vercel.integration.report_user_signed_up")
     def test_upsert_installation_new_user_new_org(self, mock_report):
-        new_installation_id = "inst_987654321"
+        new_installation_id = self.NEW_INSTALLATION_ID
 
         VercelIntegration.upsert_installation(new_installation_id, self.payload)
 
@@ -141,7 +149,7 @@ class TestVercelIntegration(TestCase):
         existing_user = User.objects.create_user(
             email=self.payload["account"]["contact"]["email"], password="existing", first_name="Existing"
         )
-        new_installation_id = "inst_987654321"
+        new_installation_id = self.NEW_INSTALLATION_ID
 
         VercelIntegration.upsert_installation(new_installation_id, self.payload)
 
@@ -160,7 +168,7 @@ class TestVercelIntegration(TestCase):
             mock_create.side_effect = IntegrityError("Duplicate key")
 
             with self.assertRaises(ValidationError) as context:
-                VercelIntegration.upsert_installation("inst_new", self.payload)
+                VercelIntegration.upsert_installation(self.NEW_INSTALLATION_ID, self.payload)
 
             detail = context.exception.detail
             if isinstance(detail, dict):
@@ -168,7 +176,7 @@ class TestVercelIntegration(TestCase):
             mock_capture.assert_called_once()
 
     def test_upsert_installation_creates_org_with_fallback_name(self):
-        new_installation_id = "inst_987654321"
+        new_installation_id = self.NEW_INSTALLATION_ID
         payload_without_name = self.payload.copy()
         del payload_without_name["account"]["name"]
 
@@ -178,7 +186,7 @@ class TestVercelIntegration(TestCase):
         assert new_installation.organization.name == f"Vercel Installation {new_installation_id}"
 
     def test_upsert_installation_creates_user_with_fallback_name(self):
-        new_installation_id = "inst_987654321"
+        new_installation_id = self.NEW_INSTALLATION_ID
         payload_without_name = self.payload.copy()
         del payload_without_name["account"]["contact"]["name"]
 
@@ -186,3 +194,114 @@ class TestVercelIntegration(TestCase):
 
         new_user = User.objects.get(email=payload_without_name["account"]["contact"]["email"])
         assert new_user.first_name == ""
+
+    def test_get_resource_not_found(self):
+        with self.assertRaises(NotFound):
+            VercelIntegration.get_resource("999999")
+
+    def test_create_resource(self):
+        resource_data = {
+            "productId": "posthog",
+            "name": "New Resource",
+            "metadata": {"key": "value"},
+            "billingPlanId": "free",
+        }
+
+        result = VercelIntegration.create_resource(self.installation_id, resource_data)
+
+        assert "id" in result
+        assert result["productId"] == "posthog"
+        assert result["name"] == "New Resource"
+        assert result["metadata"] == {"key": "value"}
+        assert result["status"] == "ready"
+        assert "secrets" in result
+        assert "billingPlan" in result
+
+        resource = Integration.objects.get(pk=result["id"])
+        expected_config = {**resource_data, "externalId": None, "protocolSettings": None}
+        assert resource.config == expected_config
+        assert resource.team.organization == self.organization
+        assert resource.created_by == self.installation.created_by
+
+    def test_get_resource(self):
+        team = Team.objects.create(organization=self.organization, name="Test Team")
+        resource = Integration.objects.create(
+            team=team,
+            kind=Integration.IntegrationKind.VERCEL,
+            integration_id=str(team.pk),
+            config={"productId": "posthog", "name": "Test Resource", "metadata": {}},
+            created_by=self.user,
+        )
+
+        result = VercelIntegration.get_resource(str(resource.pk))
+
+        assert result["id"] == str(resource.pk)
+        assert result["productId"] == "posthog"
+        assert result["name"] == "Test Resource"
+        assert result["status"] == "ready"
+        assert "secrets" in result
+        assert "billingPlan" in result
+
+    def test_update_resource(self):
+        team = Team.objects.create(organization=self.organization, name="Test Team")
+        resource = Integration.objects.create(
+            team=team,
+            kind=Integration.IntegrationKind.VERCEL,
+            integration_id=str(team.pk),
+            config={
+                "productId": "posthog",
+                "name": "Original Name",
+                "metadata": {"old": "value"},
+                "billingPlanId": "free",
+            },
+            created_by=self.user,
+        )
+
+        update_data = {"name": "Updated Name", "metadata": {"new": "value"}}
+        result = VercelIntegration.update_resource(str(resource.pk), update_data)
+
+        resource.refresh_from_db()
+        assert resource.config["name"] == "Updated Name"
+        assert resource.config["metadata"] == {"new": "value"}
+        assert resource.config["productId"] == "posthog"
+        assert result["name"] == "Updated Name"
+        assert result["metadata"] == {"new": "value"}
+
+    def test_delete_resource(self):
+        team = Team.objects.create(organization=self.organization, name="Test Team")
+        resource = Integration.objects.create(
+            team=team,
+            kind=Integration.IntegrationKind.VERCEL,
+            integration_id=str(team.pk),
+            config={"productId": "posthog", "name": "Test Resource"},
+            created_by=self.user,
+        )
+        resource_id = str(resource.pk)
+        VercelIntegration.delete_resource(resource_id)
+        assert not Integration.objects.filter(pk=resource_id).exists()
+
+    def test_delete_resource_not_found(self):
+        with self.assertRaises(NotFound):
+            VercelIntegration.delete_resource("999999")
+
+    def test_create_resource_missing_name(self):
+        resource_data = {
+            "productId": "posthog",
+            "metadata": {"key": "value"},
+            "billingPlanId": "free",
+        }
+
+        with self.assertRaises(exceptions.ValidationError) as context:
+            VercelIntegration.create_resource(self.installation_id, resource_data)
+
+        assert "name" in str(context.exception.detail)
+
+    def test_build_secrets(self):
+        team = Team.objects.create(organization=self.organization, name="Test Team", api_token="test_api_token")
+        secrets = VercelIntegration._build_secrets(team)
+
+        assert len(secrets) == 2
+        assert secrets[0]["name"] == "POSTHOG_PROJECT_API_KEY"
+        assert secrets[0]["value"] == "test_api_token"
+        assert secrets[1]["name"] == "POSTHOG_HOST"
+        assert secrets[1]["value"].startswith(("https://", "http://"))

@@ -3,13 +3,14 @@ import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 import React from 'react'
 
-import { IconAtSign, IconDashboard, IconGraph, IconPageChart } from '@posthog/icons'
-import { LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { IconAtSign, IconDashboard, IconGraph, IconPageChart, IconWarning } from '@posthog/icons'
+import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { IconAction, IconEvent } from 'lib/lemon-ui/icons'
 
 import { maxContextLogic } from './maxContextLogic'
+import { maxThreadLogic } from './maxThreadLogic'
 import { MaxActionContext, MaxDashboardContext, MaxEventContext, MaxInsightContext } from './maxTypes'
 
 function pluralize(count: number, word: string): string {
@@ -236,27 +237,48 @@ export function ContextTags({ size = 'default' }: { size?: 'small' | 'default' }
     return <div className="flex flex-wrap gap-1 flex-1 min-w-0 overflow-hidden">{allTags}</div>
 }
 
-export function ContextDisplay({ size = 'default' }: { size?: 'small' | 'default' }): JSX.Element {
+interface ContextDisplayProps {
+    size?: 'small' | 'default'
+}
+
+export function ContextDisplay({ size = 'default' }: ContextDisplayProps): JSX.Element | null {
+    const { deepResearchMode, showContextUI } = useValues(maxThreadLogic)
     const { hasData, contextOptions, taxonomicGroupTypes, mainTaxonomicGroupType } = useValues(maxContextLogic)
     const { handleTaxonomicFilterChange } = useActions(maxContextLogic)
 
+    if (!showContextUI) {
+        return null
+    }
+
     return (
-        <div className="px-1 pt-1 w-full">
+        <div className="px-1 w-full">
             <div className="flex flex-wrap items-start gap-1 w-full">
-                <Tooltip title="Add context to help Max answer your question">
-                    <TaxonomicPopover
+                {deepResearchMode ? (
+                    <LemonButton
                         size="xxsmall"
                         type="tertiary"
                         className="flex-shrink-0 border"
-                        groupType={mainTaxonomicGroupType}
-                        groupTypes={taxonomicGroupTypes}
-                        onChange={handleTaxonomicFilterChange}
-                        icon={<IconAtSign />}
-                        placeholder={!hasData ? 'Add context' : null}
-                        maxContextOptions={contextOptions}
-                        width={450}
-                    />
-                </Tooltip>
+                        icon={<IconWarning />}
+                        disabledReason="Deep research mode doesn't currently support adding context"
+                    >
+                        Turn off deep research to add context
+                    </LemonButton>
+                ) : (
+                    <Tooltip title="Add context to help Max answer your question">
+                        <TaxonomicPopover
+                            size="xxsmall"
+                            type="tertiary"
+                            className="flex-shrink-0 border"
+                            groupType={mainTaxonomicGroupType}
+                            groupTypes={taxonomicGroupTypes}
+                            onChange={handleTaxonomicFilterChange}
+                            icon={<IconAtSign />}
+                            placeholder={!hasData ? 'Add context' : null}
+                            maxContextOptions={contextOptions}
+                            width={450}
+                        />
+                    </Tooltip>
+                )}
                 <ContextTags size={size} />
             </div>
         </div>

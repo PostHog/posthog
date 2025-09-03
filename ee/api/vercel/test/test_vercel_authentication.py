@@ -23,7 +23,7 @@ from ee.api.vercel.types import VercelUser
 class TestVercelAuthentication(SimpleTestCase):
     def setUp(self):
         super().setUp()
-        self.installation_id = "inst_123456789"
+        self.installation_id = "icfg_9bceb8ccT32d3U417ezb5c8p"
         self.account_id = "acc987654321"
         self.user_id = "111222333abc"
 

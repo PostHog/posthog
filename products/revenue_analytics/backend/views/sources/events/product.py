@@ -3,16 +3,22 @@ from collections.abc import Iterable
 from posthog.hogql import ast
 
 from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHandle, view_prefix_for_event
+from products.revenue_analytics.backend.views.schemas.product import SCHEMA as PRODUCT_SCHEMA
 from products.revenue_analytics.backend.views.sources.helpers import events_expr_for_team
 
 
 def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
     team = handle.team
     for event in team.revenue_analytics_config.events:
-        if not event.productProperty:
-            continue
-
         prefix = view_prefix_for_event(event.eventName)
+
+        if not event.productProperty:
+            yield BuiltQuery(
+                key=f"{event.eventName}.no_property",
+                prefix=prefix,
+                query=ast.SelectQuery.empty(columns=list(PRODUCT_SCHEMA.fields.keys())),
+            )
+            continue
 
         events_query = ast.SelectQuery(
             distinct=True,

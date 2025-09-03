@@ -132,7 +132,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         HOG_HOOK_URL: '',
         CAPTURE_CONFIG_REDIS_HOST: null,
         LAZY_LOADER_DEFAULT_BUFFER_MS: 10,
-        CAPTURE_INTERNAL_URL: isDevEnv() ? 'http://localhost:8010/capture' : '',
+        CAPTURE_INTERNAL_URL: isProdEnv()
+            ? 'http://capture.posthog.svc.cluster.local:3000/capture'
+            : 'http://localhost:8010/capture',
 
         // posthog
         POSTHOG_API_KEY: '',
@@ -214,7 +216,6 @@ export function getDefaultConfig(): PluginsServerConfig {
 
         HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: KAFKA_APP_METRICS_2,
         HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: KAFKA_LOG_ENTRIES,
-        HOG_FUNCTION_MONITORING_EVENTS_PRODUCED_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
 
         // Destination Migration Diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,

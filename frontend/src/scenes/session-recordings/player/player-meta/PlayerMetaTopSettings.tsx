@@ -1,20 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import {
-    IconEllipsis,
-    IconHourglass,
-    IconLlmPromptEvaluation,
-    IconRabbit,
-    IconSearch,
-    IconTortoise,
-} from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
+import { IconEllipsis, IconHourglass, IconRabbit, IconSearch, IconTortoise } from '@posthog/icons'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { IconHeatmap } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyDuration } from 'lib/utils'
 import {
     SettingsBar,
@@ -29,8 +20,6 @@ import {
     PLAYBACK_SPEEDS,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-
-import { ExporterFormat } from '~/types'
 
 function SetPlaybackSpeed(): JSX.Element {
     const { speed, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
@@ -95,63 +84,7 @@ function InspectDOM(): JSX.Element {
     )
 }
 
-function Screenshot(): JSX.Element {
-    const { takeScreenshot } = useActions(sessionRecordingPlayerLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    if (featureFlags[FEATURE_FLAGS.REPLAY_EXPORT_SHORT_VIDEO]) {
-        return (
-            <SettingsMenu
-                icon={<IconLlmPromptEvaluation />}
-                data-attr="replay-screenshot"
-                items={[
-                    {
-                        label: <div className="flex w-full gap-x-2 justify-between">Screenshot</div>,
-                        onClick: () => takeScreenshot(ExporterFormat.PNG),
-                        'data-attr': 'replay-screenshot-png',
-                    },
-                    {
-                        label: (
-                            <div className="flex w-full gap-x-2 justify-between items-center">
-                                5 sec GIF{' '}
-                                <LemonTag type="warning" size="small">
-                                    BETA
-                                </LemonTag>
-                            </div>
-                        ),
-                        onClick: () => takeScreenshot(ExporterFormat.GIF),
-                        'data-attr': 'replay-screenshot-gif',
-                    },
-                    {
-                        label: (
-                            <div className="flex w-full gap-x-2 justify-between items-center">
-                                5 sec MP4{' '}
-                                <LemonTag type="warning" size="small">
-                                    BETA
-                                </LemonTag>
-                            </div>
-                        ),
-                        onClick: () => takeScreenshot(ExporterFormat.MP4),
-                        'data-attr': 'replay-screenshot-mp4',
-                    },
-                ]}
-                label="Capture"
-            />
-        )
-    }
-
-    return (
-        <SettingsButton
-            title="Take a screenshot of the current frame"
-            label="Screenshot"
-            data-attr="replay-screenshot"
-            onClick={() => takeScreenshot(ExporterFormat.PNG)}
-            icon={<IconLlmPromptEvaluation />}
-        />
-    )
-}
-
-export function PlayerMetaBottomSettings({ size }: { size: PlayerMetaBreakpoints }): JSX.Element {
+export function PlayerMetaTopSettings({ size }: { size: PlayerMetaBreakpoints }): JSX.Element {
     const {
         logicProps: { noInspector },
     } = useValues(sessionRecordingPlayerLogic)
@@ -200,12 +133,7 @@ export function PlayerMetaBottomSettings({ size }: { size: PlayerMetaBreakpoints
                             tooltip="Use the HTML from this point in the recording as the background for your heatmap data"
                         />
                     </FlaggedFeature>
-                    {noInspector ? null : (
-                        <>
-                            <Screenshot />
-                            <InspectDOM />
-                        </>
-                    )}
+                    {noInspector ? null : <InspectDOM />}
                     <PlayerInspectorButton />
                 </div>
             </div>

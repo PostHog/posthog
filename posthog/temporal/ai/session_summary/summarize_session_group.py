@@ -34,7 +34,12 @@ from posthog.temporal.ai.session_summary.activities.patterns import (
     get_patterns_from_redis_outside_workflow,
     split_session_summaries_into_chunks_for_patterns_extraction_activity,
 )
-from posthog.temporal.ai.session_summary.state import StateActivitiesEnum, generate_state_key, store_data_in_redis
+from posthog.temporal.ai.session_summary.state import (
+    StateActivitiesEnum,
+    generate_state_id_from_session_ids,
+    generate_state_key,
+    store_data_in_redis,
+)
 from posthog.temporal.ai.session_summary.summarize_session import get_llm_single_session_summary_activity
 from posthog.temporal.ai.session_summary.types.group import (
     SessionGroupSummaryInputs,
@@ -443,7 +448,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 chunk_inputs = [
                     input for input in inputs.single_session_summaries_inputs if input.session_id in chunk_session_ids
                 ]
-                chunk_state_id = ",".join(chunk_session_ids)
+                chunk_state_id = generate_state_id_from_session_ids(chunk_session_ids)
                 chunk_summaries_input = SessionGroupSummaryOfSummariesInputs(
                     single_session_summaries_inputs=chunk_inputs,
                     user_id=inputs.user_id,
