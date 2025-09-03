@@ -18,7 +18,7 @@ const CHECKPOINT_SIZE_HISTOGRAM: &str = "checkpoint_size_bytes";
 const CHECKPOINT_UPLOAD_DURATION_HISTOGRAM: &str = "checkpoint_upload_duration_seconds";
 const CHECKPOINT_ERRORS_COUNTER: &str = "checkpoint_errors_total";
 
-const CHECKPOINT_NAME_PREFIX: &str = "chkpt";
+pub const CHECKPOINT_NAME_PREFIX: &str = "chkpt";
 
 #[derive(Debug)]
 pub struct CheckpointExporter {
@@ -126,6 +126,8 @@ impl CheckpointExporter {
         // Determine if this should be a full upload or incremental
         let current_part_counter: u32;
         {
+            // TODO(eli): the previous checkpoint metadata should contain the
+            //            associated counter so we don't restart every redeploy
             let mut counters = self.checkpoint_counters.lock().await;
             let result = counters.get(&partition).unwrap_or(&0_u32);
             current_part_counter = *result;
