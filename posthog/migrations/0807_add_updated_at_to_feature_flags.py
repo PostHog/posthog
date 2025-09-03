@@ -33,6 +33,7 @@ class Migration(migrations.Migration):
                         FROM posthog_activitylog log
                         WHERE log.scope = 'FeatureFlag'
                         AND log.activity = 'updated'
+                        AND log.item_id ~ '^[0-9]+$'
                         GROUP BY log.team_id, CAST(log.item_id AS INT)
                     ) last_flag_activity
                     WHERE flag.id = last_flag_activity.flag_id
