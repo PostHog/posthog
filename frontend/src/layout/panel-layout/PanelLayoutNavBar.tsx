@@ -565,6 +565,8 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             data-attr="tree-navbar-resizer"
                             // If new scene layout, to fix the resizer from showing in test runner
                             offset={newSceneLayout ? -1 : 0}
+                            // If new scene layout, to fix the resizer from showing in test runner
+                            className={cn(newSceneLayout && 'top-[calc(var(--scene-layout-header-height)+4px)]')}
                         />
                     )}
                 </nav>
