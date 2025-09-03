@@ -12,6 +12,11 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
 
     actions({
         mergeIssues: (ids: string[]) => ({ ids }),
+        splitIssue: (id: ErrorTrackingIssue['id'], fingerprints: string[], exclusive: boolean = true) => ({
+            id,
+            fingerprints,
+            exclusive,
+        }),
         resolveIssues: (ids: string[]) => ({ ids }),
         suppressIssues: (ids: string[]) => ({ ids }),
         activateIssues: (ids: string[]) => ({ ids }),
@@ -44,6 +49,12 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                         await api.errorTracking.mergeInto(firstId, otherIds)
                     })
                 }
+            },
+            splitIssue: async ({ id, fingerprints, exclusive }) => {
+                await runMutation(async () => {
+                    posthog.capture('error_tracking_issue_split', { issueId: id })
+                    await api.errorTracking.split(id, fingerprints, exclusive)
+                })
             },
             resolveIssues: async ({ ids }) => {
                 await runMutation(async () => {

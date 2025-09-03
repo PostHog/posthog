@@ -31,9 +31,10 @@ import { LLMAnalyticsPlaygroundScene } from './LLMAnalyticsPlaygroundScene'
 import { LLMAnalyticsReloadAction } from './LLMAnalyticsReloadAction'
 import { LLMAnalyticsTraces } from './LLMAnalyticsTracesScene'
 import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
+import { LLMAnalyticsDatasetsScene } from './datasets/LLMAnalyticsDatasetsScene'
 import { LLM_ANALYTICS_DATA_COLLECTION_NODE_ID, llmAnalyticsLogic } from './llmAnalyticsLogic'
 import { CompatMessage } from './types'
-import { normalizeMessages } from './utils'
+import { normalizeMessages, truncateValue } from './utils'
 
 export const scene: SceneExport = {
     component: LLMAnalyticsScene,
@@ -298,6 +299,23 @@ export function LLMAnalyticsScene(): JSX.Element {
         })
     }
 
+    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]) {
+        tabs.push({
+            key: 'datasets',
+            label: (
+                <>
+                    Datasets{' '}
+                    <LemonTag className="ml-1" type="warning">
+                        Beta
+                    </LemonTag>
+                </>
+            ),
+            content: <LLMAnalyticsDatasetsScene />,
+            link: combineUrl(urls.llmAnalyticsDatasets(), searchParams).url,
+            'data-attr': 'datasets-tab',
+        })
+    }
+
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
             <PageHeader
@@ -335,18 +353,4 @@ export function LLMAnalyticsScene(): JSX.Element {
             </SceneContent>
         </BindLogic>
     )
-}
-
-function truncateValue(value: unknown): string {
-    if (value === null || value === undefined) {
-        return '-'
-    }
-
-    const stringValue = String(value)
-
-    if (stringValue.length <= 12) {
-        return stringValue
-    }
-
-    return stringValue.slice(0, 4) + '...' + stringValue.slice(-4)
 }

@@ -1,5 +1,5 @@
 from collections.abc import AsyncGenerator
-from typing import Any, Optional, cast
+from typing import Any, Optional
 from uuid import UUID
 
 from langchain_core.messages import AIMessageChunk
@@ -13,7 +13,6 @@ from ee.hogai.assistant.base import BaseAssistant
 from ee.hogai.graph import (
     AssistantGraph,
     FunnelGeneratorNode,
-    MemoryInitializerNode,
     RetentionGeneratorNode,
     SQLGeneratorNode,
     TrendsGeneratorNode,
@@ -99,6 +98,7 @@ class MainAssistant(BaseAssistant):
     def THINKING_NODES(self) -> set[MaxNodeName]:
         return {
             AssistantNodeName.QUERY_PLANNER,
+            AssistantNodeName.MEMORY_INITIALIZER,
             TaxonomyNodeName.LOOP_NODE,
             AssistantNodeName.SESSION_SUMMARIZATION,
         }
@@ -147,17 +147,12 @@ class MainAssistant(BaseAssistant):
         )
 
     def _process_message_update(self, update: GraphMessageUpdateTuple) -> BaseModel | None:
-        langchain_message, langgraph_state = update[1]
+        langchain_message, _ = update[1]
+
+        if isinstance(langchain_message, AssistantMessage):
+            return langchain_message
+
         if not isinstance(langchain_message, AIMessageChunk):
             return None
-        node_name: MaxNodeName = langgraph_state["langgraph_node"]
-        if node_name == AssistantNodeName.MEMORY_INITIALIZER:
-            return self._process_memory_initializer_chunk(langchain_message)
 
         return super()._process_message_update(update)
-
-    def _process_memory_initializer_chunk(self, langchain_message: AIMessageChunk) -> Optional[AssistantMessage]:
-        """Process memory initializer specific chunk logic."""
-        if not MemoryInitializerNode.should_process_message_chunk(langchain_message):
-            return None
-        return AssistantMessage(content=MemoryInitializerNode.format_message(cast(str, self._chunks.content)))

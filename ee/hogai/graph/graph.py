@@ -95,10 +95,13 @@ class BaseAssistantGraph(Generic[StateType]):
         self._get_reasoning_message_by_node_name.update(subgraph.get_reasoning_message_by_node_name)
         return self
 
-    def compile(self, checkpointer: DjangoCheckpointer | None = None):
+    def compile(self, checkpointer: DjangoCheckpointer | None | Literal[False] = None):
         if not self._has_start_node:
             raise ValueError("Start node not added to the graph")
-        compiled_graph = self._graph.compile(checkpointer=checkpointer or global_checkpointer)
+        # TRICKY: We check `is not None` because False has a special meaning of "no checkpointer", which we want to pass on
+        compiled_graph = self._graph.compile(
+            checkpointer=checkpointer if checkpointer is not None else global_checkpointer
+        )
         return AssistantCompiledStateGraph(compiled_graph, self._get_reasoning_message_by_node_name)
 
 
@@ -276,7 +279,6 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
     def add_memory_onboarding(
         self,
         next_node: AssistantNodeName = AssistantNodeName.ROOT,
-        insights_next_node: AssistantNodeName = AssistantNodeName.INSIGHTS_SUBGRAPH,
     ):
         self._has_start_node = True
 
@@ -302,15 +304,7 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
                 "continue": next_node,
             },
         )
-
-        self._graph.add_conditional_edges(
-            AssistantNodeName.MEMORY_ONBOARDING,
-            memory_onboarding.router,
-            path_map={
-                "initialize_memory": AssistantNodeName.MEMORY_INITIALIZER,
-                "onboarding_enquiry": AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY,
-            },
-        )
+        self._graph.add_edge(AssistantNodeName.MEMORY_ONBOARDING, AssistantNodeName.MEMORY_INITIALIZER)
         self._graph.add_conditional_edges(
             AssistantNodeName.MEMORY_INITIALIZER,
             memory_initializer.router,
@@ -333,11 +327,7 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         self._graph.add_edge(
             AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY_INTERRUPT, AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY
         )
-        self._graph.add_conditional_edges(
-            AssistantNodeName.MEMORY_ONBOARDING_FINALIZE,
-            memory_onboarding_finalize.router,
-            path_map={"continue": next_node, "insights": insights_next_node},
-        )
+        self._graph.add_edge(AssistantNodeName.MEMORY_ONBOARDING_FINALIZE, next_node)
         return self
 
     def add_memory_collector(
