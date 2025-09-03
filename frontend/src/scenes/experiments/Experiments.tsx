@@ -52,6 +52,11 @@ const ExperimentSurveyButton = ({ experiment }: { experiment: Experiment }): JSX
     const { user } = useValues(userLogic)
     const { openMax } = useMaxTool(createMaxToolExperimentSurveyConfig(experiment, user))
 
+    // Don't show the button if there's no feature flag associated with the experiment
+    if (!experiment.feature_flag) {
+        return <></>
+    }
+
     if (!openMax) {
         return (
             <LemonButton size="small" fullWidth data-attr="create-survey" disabled>

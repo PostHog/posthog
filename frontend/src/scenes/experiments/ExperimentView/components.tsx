@@ -76,25 +76,33 @@ export function createMaxToolExperimentSurveyConfig(
 } {
     const variants = experiment.parameters?.feature_flag_variants || []
     const hasMultipleVariants = variants.length > 1
+    const featureFlagKey = experiment.feature_flag?.key
 
     return {
         identifier: 'create_survey' as const,
         active: Boolean(user?.uuid && experiment.id),
-        initialMaxPrompt: `Create a survey to collect feedback about the "${experiment.name}" experiment${experiment.description ? ` (${experiment.description})` : ''}${experiment.feature_flag?.key ? ` using feature flag "${experiment.feature_flag.key}"` : ''}${hasMultipleVariants ? ` which tests variants: ${variants.map((v) => `"${v.key}"`).join(', ')}` : ''}`,
-        suggestions: hasMultipleVariants
-            ? [
-                  `Create a feedback survey comparing variants in the "${experiment.name}" experiment targeting users with feature flag "${experiment.feature_flag?.key || 'experiment-flag'}"`,
-                  `Create a survey for users who saw the "${variants[1]?.key || 'test'}" variant of feature flag "${experiment.feature_flag?.key || 'experiment-flag'}" in the "${experiment.name}" experiment`,
-                  `Create an A/B test survey asking users to compare variants from feature flag "${experiment.feature_flag?.key || 'experiment-flag'}" in the "${experiment.name}" experiment`,
-                  `Create a survey to understand which variant of feature flag "${experiment.feature_flag?.key || 'experiment-flag'}" performed better in the "${experiment.name}" experiment`,
-                  `Create a survey targeting users exposed to any variant of feature flag "${experiment.feature_flag?.key || 'experiment-flag'}" to gather feedback on the "${experiment.name}" test`,
-              ]
-            : [
-                  `Create a feedback survey for users who were exposed to feature flag "${experiment.feature_flag?.key || 'experiment-flag'}" in the "${experiment.name}" experiment`,
-                  `Create an NPS survey for users who saw feature flag "${experiment.feature_flag?.key || 'experiment-flag'}" during the "${experiment.name}" experiment`,
-                  `Create a satisfaction survey asking about the experience with feature flag "${experiment.feature_flag?.key || 'experiment-flag'}" in the "${experiment.name}" experiment`,
-                  `Create a survey to understand user reactions to changes introduced by feature flag "${experiment.feature_flag?.key || 'experiment-flag'}" in the "${experiment.name}" experiment`,
-              ],
+        initialMaxPrompt: `Create a survey to collect feedback about the "${experiment.name}" experiment${experiment.description ? ` (${experiment.description})` : ''}${featureFlagKey ? ` using feature flag "${featureFlagKey}"` : ''}${hasMultipleVariants ? ` which tests variants: ${variants.map((v) => `"${v.key}"`).join(', ')}` : ''}`,
+        suggestions: !featureFlagKey
+            ? [] // No suggestions if no feature flag key
+            : hasMultipleVariants
+              ? [
+                    `Create a feedback survey comparing variants in the "${experiment.name}" experiment targeting users with feature flag "${featureFlagKey}"`,
+                    // Include specific variant suggestion only if variant exists
+                    ...(variants[0]?.key
+                        ? [
+                              `Create a survey for users who saw the "${variants[0].key}" variant of feature flag "${featureFlagKey}" in the "${experiment.name}" experiment`,
+                          ]
+                        : []),
+                    `Create an A/B test survey asking users to compare variants from feature flag "${featureFlagKey}" in the "${experiment.name}" experiment`,
+                    `Create a survey to understand which variant of feature flag "${featureFlagKey}" performed better in the "${experiment.name}" experiment`,
+                    `Create a survey targeting users exposed to any variant of feature flag "${featureFlagKey}" to gather feedback on the "${experiment.name}" test`,
+                ]
+              : [
+                    `Create a feedback survey for users who were exposed to feature flag "${featureFlagKey}" in the "${experiment.name}" experiment`,
+                    `Create an NPS survey for users who saw feature flag "${featureFlagKey}" during the "${experiment.name}" experiment`,
+                    `Create a satisfaction survey asking about the experience with feature flag "${featureFlagKey}" in the "${experiment.name}" experiment`,
+                    `Create a survey to understand user reactions to changes introduced by feature flag "${featureFlagKey}" in the "${experiment.name}" experiment`,
+                ],
         context: {
             user_id: user?.uuid,
             experiment_name: experiment.name,
@@ -442,8 +450,13 @@ export function PageHeaderCustom(): JSX.Element {
                                             >
                                                 Create dashboard
                                             </LemonButton>
-                                            {openMax && (
-                                                <LemonButton onClick={openMax} fullWidth data-attr="create-survey">
+                                            {experiment.feature_flag && (
+                                                <LemonButton
+                                                    onClick={openMax || undefined}
+                                                    fullWidth
+                                                    data-attr="create-survey"
+                                                    disabled={!openMax}
+                                                >
                                                     Create survey
                                                 </LemonButton>
                                             )}
