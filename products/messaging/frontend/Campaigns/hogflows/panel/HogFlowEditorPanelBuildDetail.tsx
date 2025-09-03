@@ -38,9 +38,9 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
             >
                 {validationResult?.schema && (
                     <div>
-                        {Object.entries(validationResult.schema.errors).map(([key, value]) => (
-                            <LemonBanner type="error" key={key}>
-                                {value.message}
+                        {Object.values(validationResult.schema.errors).map(({ path, message }) => (
+                            <LemonBanner type="error" key={path.join('.')}>
+                                {path.join('.')}: {message}
                             </LemonBanner>
                         ))}
                     </div>

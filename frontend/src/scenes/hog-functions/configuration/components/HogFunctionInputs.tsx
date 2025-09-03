@@ -50,7 +50,7 @@ export function HogFunctionInputs(): JSX.Element {
                 ) : null}
 
                 <CyclotronJobInputs
-                    errors={configurationErrors.inputs ?? {}}
+                    errors={(configurationErrors.inputs ?? {}) as Record<string, string>}
                     configuration={{
                         inputs_schema: newInputs ?? configuration.inputs_schema ?? [],
                         inputs: configuration.inputs ?? {},

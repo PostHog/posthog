@@ -33,7 +33,7 @@ const _commonActionFields = {
     id: z.string(),
     name: z.string(),
     description: z.string(),
-    on_error: z.enum(['continue', 'abort', 'complete', 'branch']).optional(),
+    on_error: z.enum(['continue', 'abort', 'complete', 'branch']).optional().nullable(),
     created_at: z.number(),
     updated_at: z.number(),
     filters: z.any(), // TODO: Correct to the right type
