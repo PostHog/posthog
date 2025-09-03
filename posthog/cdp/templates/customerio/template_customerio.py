@@ -20,13 +20,25 @@ let action := inputs.action
 let name := event.event
 
 
-if (empty(inputs.identifier_value) or empty(inputs.identifier_key)) {
-    print('No identifier set. Skipping as identifier is required.')
+let identifier_value := inputs.identifier_value
+if (empty(identifier_value) and inputs.identifier_key == 'email') {
+    // Fallback to other identifiers if email is not available
+    if (not empty(person.properties.userId)) {
+        identifier_value := person.properties.userId
+    } else if (not empty(person.properties.cio_id)) {
+        identifier_value := person.properties.cio_id
+    } else if (not empty(event.distinct_id)) {
+        identifier_value := event.distinct_id
+    }
+}
+
+if (empty(identifier_value) or empty(inputs.identifier_key)) {
+    print('No identifier available. Skipping as identifier is required.')
     return
 }
 
 let identifiers := {
-    inputs.identifier_key: inputs.identifier_value
+    inputs.identifier_key: identifier_value
 }
 
 if (action == 'automatic') {
@@ -147,7 +159,7 @@ if (res.status >= 400) {
             "type": "string",
             "label": "Identifier value",
             "description": "The value to be used for the identifier. If the value is empty nothing will be sent. See here for more information: https://customer.io/docs/api/track/#operation/entity",
-            "default": "{person.properties.email}",
+            "default": "{person.properties.email || person.properties.userId || person.properties.cio_id || event.distinct_id}",
             "secret": False,
             "required": True,
         },
