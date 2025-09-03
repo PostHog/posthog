@@ -21,7 +21,8 @@ import {
     OrganizationMembershipLevel,
     PROPERTY_MATCH_TYPE,
     PluginsAccessLevel,
-    RETENTION_FIRST_TIME,
+    RETENTION_FIRST_EVER_OCCURRENCE,
+    RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
     RETENTION_MEAN_NONE,
     RETENTION_RECURRING,
     ShownAsValue,
@@ -234,7 +235,6 @@ export enum ProductKey {
     MARKETING_ANALYTICS = 'marketing_analytics',
     MAX = 'max',
     LINKS = 'links',
-    MCP_SERVER = 'mcp_server',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -337,6 +337,7 @@ export interface UserType extends UserBaseType {
     anonymize_data: boolean
     toolbar_mode: 'disabled' | 'toolbar'
     has_password: boolean
+    id: number
     is_staff: boolean
     is_impersonated: boolean
     is_impersonated_until?: string
@@ -349,6 +350,7 @@ export interface UserType extends UserBaseType {
     pending_email?: string | null
     is_2fa_enabled: boolean
     has_social_auth: boolean
+    has_sso_enforcement: boolean
     has_seen_product_intro_for?: Record<string, boolean>
     scene_personalisation?: SceneDashboardChoice[]
     theme_mode?: UserTheme | null
@@ -2466,7 +2468,10 @@ export enum FunnelVizType {
     Trends = 'trends',
 }
 
-export type RetentionType = typeof RETENTION_RECURRING | typeof RETENTION_FIRST_TIME
+export type RetentionType =
+    | typeof RETENTION_RECURRING
+    | typeof RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS
+    | typeof RETENTION_FIRST_EVER_OCCURRENCE
 
 export enum RetentionPeriod {
     Hour = 'Hour',
@@ -4179,6 +4184,11 @@ export enum ExperimentMetricMathType {
     UniqueUsers = 'dau',
     UniqueGroup = 'unique_group',
     HogQL = 'hogql',
+}
+
+export enum ExperimentMetricGoal {
+    Increase = 'increase',
+    Decrease = 'decrease',
 }
 
 export enum ActorGroupType {

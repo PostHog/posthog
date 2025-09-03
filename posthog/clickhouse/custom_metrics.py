@@ -26,6 +26,14 @@ def CUSTOM_METRICS_VIEW(include_counters: bool = False) -> str:
     return statement
 
 
+def CUSTOM_METRICS_INGESTION_LAYER_VIEW():
+    return """
+    CREATE OR REPLACE VIEW custom_metrics
+    AS SELECT * REPLACE (toFloat64(value) as value)
+    FROM custom_metrics_test
+    """
+
+
 def CUSTOM_METRICS_REPLICATION_QUEUE_VIEW():
     return f"""
     CREATE OR REPLACE VIEW custom_metrics_replication_queue
