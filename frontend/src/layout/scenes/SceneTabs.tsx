@@ -16,6 +16,8 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 import { SceneTabContextMenu } from '~/layout/scenes/SceneTabContextMenu'
 import { sceneLogic } from '~/scenes/sceneLogic'
 
+import { panelLayoutLogic } from '../panel-layout/panelLayoutLogic'
+
 export interface SceneTabsProps {
     className?: string
 }
@@ -24,6 +26,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     const { tabs } = useValues(sceneLogic)
     const { newTab, reorderTabs } = useActions(sceneLogic)
     const { toggleSearchBar } = useActions(commandBarLogic)
+    const { isLayoutPanelPinned } = useValues(panelLayoutLogic)
 
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
@@ -41,9 +44,11 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
             )}
         >
             {/* rounded corner on the left to make scene curve into tab line */}
-            <div className="absolute left-0 -bottom-1 size-2 bg-surface-tertiary">
-                <div className="relative -bottom-1 size-2 border-l border-t border-primary rounded-tl bg-primary" />
-            </div>
+            {!isLayoutPanelPinned && (
+                <div className="absolute left-0 -bottom-1 size-2 bg-surface-tertiary">
+                    <div className="relative -bottom-1 size-2 border-l border-t border-primary rounded-tl bg-primary" />
+                </div>
+            )}
 
             <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
                 <SortableContext items={[...tabs.map((t) => t.id), 'new']} strategy={horizontalListSortingStrategy}>

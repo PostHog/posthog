@@ -209,7 +209,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                                     setScenePanelOpen(false)
                                 }}
                                 aria-hidden="true"
-                                className="z-[var(--z-top-navigation-under)] fixed inset-0 w-screen h-screen bg-fill-highlight-100"
+                                className="z-[var(--z-scene-layout-content-panel-under)] fixed inset-0 w-screen h-screen bg-fill-highlight-100"
                             />
                         )}
                     </>

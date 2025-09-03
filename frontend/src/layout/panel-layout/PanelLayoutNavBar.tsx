@@ -294,23 +294,16 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 >
                     <div className={`flex justify-between p-1 ${isLayoutNavCollapsed ? 'justify-center' : ''}`}>
                         {newSceneLayout ? (
-                            <div
-                                className={cn(
-                                    'flex gap-1 rounded-md p-1 w-full',
-                                    isLayoutNavCollapsed
-                                        ? 'bg-[var(--color-bg-fill-highlight-75)] flex-col'
-                                        : 'bg-[var(--color-bg-fill-highlight-25)] '
-                                )}
-                            >
+                            <div className={cn('flex gap-1 rounded-md p-1 w-full', isLayoutNavCollapsed && 'flex-col')}>
                                 <Tooltip title="Switch organization" closeDelayMs={0} placement="bottom">
                                     <div>
                                         <OrganizationDropdownMenu showName={false} buttonProps={{ variant: 'panel' }} />
                                     </div>
                                 </Tooltip>
                                 <Tooltip title="Switch project" closeDelayMs={0} placement="bottom">
-                                    <div className="w-full">
+                                    <div>
                                         <ProjectDropdownMenu
-                                            buttonProps={{ fullWidth: true, className: 'max-w-full' }}
+                                            buttonProps={{ className: 'max-w-[170px]', variant: 'panel' }}
                                             iconOnly={isLayoutNavCollapsed}
                                         />
                                     </div>
@@ -568,7 +561,10 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             onToggleClosed={(shouldBeClosed) => toggleLayoutNavCollapsed(shouldBeClosed)}
                             onDoubleClick={() => toggleLayoutNavCollapsed()}
                             data-attr="tree-navbar-resizer"
-                            className={cn(newSceneLayout && 'top-[calc(var(--scene-layout-header-height)+4px)]')}
+                            className={cn({
+                                'top-[calc(var(--scene-layout-header-height)+4px)]': newSceneLayout,
+                                'top-0': newSceneLayout && isLayoutPanelVisible,
+                            })}
                             offset={newSceneLayout ? -1 : 0}
                         />
                     )}

@@ -2,11 +2,17 @@ import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
-import { IconPin, IconPinFilled, IconX } from '@posthog/icons'
+import { IconEllipsis, IconPin, IconPinFilled, IconX } from '@posthog/icons'
 
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
@@ -19,6 +25,7 @@ import { projectTreeLogic } from './ProjectTree/projectTreeLogic'
 interface PanelLayoutPanelProps {
     searchPlaceholder?: string
     panelActions?: React.ReactNode
+    panelActionsNewSceneLayout?: (ButtonPrimitiveProps | null | undefined)[]
     children: React.ReactNode
     filterDropdown?: React.ReactNode
     searchField?: React.ReactNode
@@ -79,6 +86,7 @@ const panelLayoutPanelVariants = cva({
 export function PanelLayoutPanel({
     searchField,
     panelActions,
+    panelActionsNewSceneLayout,
     children,
     filterDropdown,
     sortDropdown,
@@ -149,10 +157,15 @@ export function PanelLayoutPanel({
                             </ButtonPrimitive>
                         </div>
                     </div>
+                    <div className="border-b border-primary h-px" />
                 </>
             )}
-            <div className="border-b border-primary h-px" />
-            <div className="z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-surface-secondary group/colorful-product-icons colorful-product-icons-true">
+            <div
+                className={cn(
+                    'z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-surface-secondary group/colorful-product-icons colorful-product-icons-true',
+                    newSceneLayout && 'bg-surface-tertiary'
+                )}
+            >
                 {searchField || filterDropdown || sortDropdown ? (
                     <>
                         <div className="flex gap-1 p-1 items-center justify-between">
@@ -168,6 +181,37 @@ export function PanelLayoutPanel({
 
                                 {newSceneLayout && (
                                     <>
+                                        <DropdownMenu>
+                                            <DropdownMenuTrigger asChild>
+                                                <ButtonPrimitive iconOnly>
+                                                    <IconEllipsis className="text-tertiary size-3" />
+                                                </ButtonPrimitive>
+                                            </DropdownMenuTrigger>
+                                            <DropdownMenuContent side="bottom" align="start">
+                                                <DropdownMenuItem asChild>
+                                                    <ButtonPrimitive
+                                                        menuItem
+                                                        active={isLayoutPanelPinned}
+                                                        onClick={() => toggleLayoutPanelPinned(!isLayoutPanelPinned)}
+                                                    >
+                                                        <IconPin className="text-tertiary size-3" />{' '}
+                                                        {isLayoutPanelPinned ? 'Unpin panel' : 'Pin panel'}
+                                                    </ButtonPrimitive>
+                                                </DropdownMenuItem>
+                                                {panelActionsNewSceneLayout?.map(
+                                                    (action) =>
+                                                        action &&
+                                                        action['data-attr'] && (
+                                                            <DropdownMenuItem key={action['data-attr']} asChild>
+                                                                <ButtonPrimitive menuItem {...action} size="base">
+                                                                    {action.children}
+                                                                </ButtonPrimitive>
+                                                            </DropdownMenuItem>
+                                                        )
+                                                )}
+                                            </DropdownMenuContent>
+                                        </DropdownMenu>
+
                                         <ButtonPrimitive
                                             onClick={() => {
                                                 showLayoutPanel(false)
@@ -187,36 +231,9 @@ export function PanelLayoutPanel({
                         <div className="border-b border-primary h-px" />
                     </>
                 ) : null}
+
                 {children}
             </div>
-
-            {newSceneLayout && (
-                <>
-                    <div className="flex justify-between p-1 gap-px bg-surface-tertiary">
-                        <div className="flex gap-px items-center justify-end shrink-0">
-                            {!isMobileLayout && (
-                                <ButtonPrimitive
-                                    iconOnly
-                                    onClick={() => toggleLayoutPanelPinned(!isLayoutPanelPinned)}
-                                    tooltip={isLayoutPanelPinned ? 'Unpin panel' : 'Pin panel'}
-                                    data-attr={`tree-navbar-${isLayoutPanelPinned ? 'unpin' : 'pin'}-panel-button`}
-                                    active={isLayoutPanelPinned}
-                                    size="sm"
-                                    aria-pressed={isLayoutPanelPinned}
-                                >
-                                    {isLayoutPanelPinned ? (
-                                        <IconPinFilled className="size-3 text-primary" />
-                                    ) : (
-                                        <IconPin className="size-3 text-tertiary" />
-                                    )}
-                                </ButtonPrimitive>
-                            )}
-
-                            {panelActions ?? null}
-                        </div>
-                    </div>
-                </>
-            )}
         </nav>
     )
 
