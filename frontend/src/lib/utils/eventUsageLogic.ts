@@ -419,12 +419,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCreatedDashboardFromModal: true,
         reportSavedInsightToDashboard: (
             insight: Partial<QueryBasedInsightModel> | null,
-            dashboard: DashboardType<QueryBasedInsightModel> | null
-        ) => ({ insight, dashboard }),
+            dashboardId: number | null
+        ) => ({ insight, dashboardId }),
         reportRemovedInsightFromDashboard: (
             insight: Partial<QueryBasedInsightModel> | null,
-            dashboard: DashboardType<QueryBasedInsightModel> | null
-        ) => ({ insight, dashboard }),
+            dashboardId: number | null
+        ) => ({ insight, dashboardId }),
         reportSavedInsightTabChanged: (tab: string) => ({ tab }),
         reportSavedInsightFilterUsed: (filterKeys: string[]) => ({ filterKeys }),
         reportSavedInsightLayoutChanged: (layout: string) => ({ layout }),
@@ -931,18 +931,16 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCreatedDashboardFromModal: async () => {
             posthog.capture('created new dashboard from modal')
         },
-        reportSavedInsightToDashboard: async ({ insight, dashboard }) => {
+        reportSavedInsightToDashboard: async ({ insight, dashboardId }) => {
             posthog.capture('saved insight to dashboard', {
                 insight: sanitizeInsight(insight),
-                dashboard_id: dashboard?.id,
-                dashboard: sanitizeDashboard(dashboard),
+                dashboard_id: dashboardId,
             })
         },
-        reportRemovedInsightFromDashboard: async ({ insight, dashboard }) => {
+        reportRemovedInsightFromDashboard: async ({ insight, dashboardId }) => {
             posthog.capture('removed insight from dashboard', {
                 insight: sanitizeInsight(insight),
-                dashboard_id: dashboard?.id,
-                dashboard: sanitizeDashboard(dashboard),
+                dashboard_id: dashboardId,
             })
         },
         reportInsightsTableCalcToggled: async (payload) => {
