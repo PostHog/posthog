@@ -7,10 +7,12 @@ export enum ExportType {
     Image = 'image',
     Embed = 'embed',
     Scene = 'scene',
+    Unlock = 'unlock',
 }
 
 export interface ExportedData extends SharingConfigurationSettings {
     accessToken?: string
+    shareToken?: string // JWT token for password-protected shares
     type: ExportType
     dashboard?: DashboardType
     insight?: InsightModel
