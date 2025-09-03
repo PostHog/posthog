@@ -516,12 +516,14 @@ class FeatureFlagMatcher:
                 # Some extra wiggle room here for timeouts because this depends on the number of flags as well,
                 # and not just the database query.
                 all_conditions: dict = {}
-                person_query: QuerySet = Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(
+                person_query: QuerySet = Person.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(
                     team_id=self.team_id,
                     persondistinctid__distinct_id=self.distinct_id,
                     persondistinctid__team_id=self.team_id,
                 )
-                basic_group_query: QuerySet = Group.objects.db_manager(READ_DB_FOR_PERSONS).filter(team_id=self.team_id)
+                basic_group_query: QuerySet = Group.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(
+                    team_id=self.team_id
+                )
                 group_query_per_group_type_mapping: dict[GroupTypeIndex, tuple[QuerySet, list[str]]] = {}
                 # :TRICKY: Create a queryset for each group type that uniquely identifies a group, based on the groups passed in.
                 # If no groups for a group type are passed in, we can skip querying for that group type,
