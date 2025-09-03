@@ -61,6 +61,18 @@ export class CyclotronJobInputsValidation {
                 addTemplatingError(value)
             }
 
+            if (inputSchema.type === 'string' && typeof value !== 'string') {
+                inputErrors[key] = 'Value must be a string'
+            } else if (inputSchema.type === 'number' && typeof value !== 'number') {
+                inputErrors[key] = 'Value must be a number'
+            } else if (inputSchema.type === 'boolean' && typeof value !== 'boolean') {
+                inputErrors[key] = 'Value must be a boolean'
+            } else if (inputSchema.type === 'dictionary' && typeof value !== 'object') {
+                inputErrors[key] = 'Value must be a dictionary'
+            } else if (inputSchema.type === 'integration' && typeof value !== 'number') {
+                inputErrors[key] = 'Value must be an Integration ID'
+            }
+
             if (inputSchema.type === 'email' && value) {
                 const emailTemplateErrors: Partial<EmailTemplate> = {
                     html: !value.html ? 'HTML is required' : getTemplatingError(value.html),
