@@ -13,12 +13,17 @@ import {
     detectBoolean,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
-import { BreakdownSummary, DateRangeSummary, PropertiesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
+import {
+    BreakdownSummary,
+    DateRangeSummary,
+    PropertiesSummary,
+    VariablesSummary,
+} from 'lib/components/Cards/InsightCard/InsightDetails'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { areObjectValuesEmpty, pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { DashboardFilter } from '~/queries/schema'
+import { DashboardFilter, HogQLVariable } from '~/queries/schema'
 import { DashboardType } from '~/types'
 
 function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
@@ -110,22 +115,29 @@ const dashboardActionsMapping: Record<
     },
     filters: function onChangedFilters(change, logItem) {
         const filtersAfter = change?.after as DashboardFilter
-        return areObjectValuesEmpty(filtersAfter)
-            ? null
-            : {
-                  description: ['changed the dashboard filters'],
-                  extendedDescription: (
-                      <div className="ActivityDescription">
-                          <PropertiesSummary properties={filtersAfter.properties} />
-                          <BreakdownSummary breakdownFilter={filtersAfter.breakdown_filter} />
-                          <DateRangeSummary dateFrom={filtersAfter.date_from} dateTo={filtersAfter.date_to} />
-                      </div>
-                  ),
-                  suffix: <>on the dashboard {nameAndLink(logItem)} to</>,
-              }
+        return {
+            description: ['changed the dashboard filters'],
+            extendedDescription: (
+                <div className="ActivityDescription">
+                    <PropertiesSummary properties={filtersAfter.properties} />
+                    <BreakdownSummary breakdownFilter={filtersAfter.breakdown_filter} />
+                    <DateRangeSummary dateFrom={filtersAfter.date_from} dateTo={filtersAfter.date_to} />
+                </div>
+            ),
+            suffix: <>on the dashboard {nameAndLink(logItem)} to</>,
+        }
     },
     variables: function onChangedVariables(change, logItem) {
-        return null
+        const variablesAfter = change?.after as Record<string, HogQLVariable>
+        return {
+            description: ['changed the dashboard variables'],
+            extendedDescription: (
+                <div className="ActivityDescription">
+                    <VariablesSummary variables={variablesAfter} />
+                </div>
+            ),
+            suffix: <>on the dashboard {nameAndLink(logItem)} to</>,
+        }
     },
     id: () => null,
     created_at: () => null,
