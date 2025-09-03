@@ -170,6 +170,35 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         }),
     }),
 
+    // CDP functions (Posthog)
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('function_posthog_capture'),
+        config: z.object({
+            template_uuid: z.string().uuid().optional(),
+            template_id: z.literal('template-posthog-capture'),
+            inputs: z.record(CyclotronInputSchema),
+        }),
+    }),
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('function_posthog_group_identify'),
+        config: z.object({
+            template_uuid: z.string().uuid().optional(),
+            template_id: z.literal('template-posthog-group-identify'),
+            inputs: z.record(CyclotronInputSchema),
+        }),
+    }),
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('function_posthog_update_person_properties'),
+        config: z.object({
+            template_uuid: z.string().uuid().optional(),
+            template_id: z.literal('template-posthog-update-person-properties'),
+            inputs: z.record(CyclotronInputSchema),
+        }),
+    }),
+
     // Exit
     z.object({
         ..._commonActionFields,

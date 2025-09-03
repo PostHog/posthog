@@ -3,6 +3,11 @@ import { StepConditionalBranch } from './StepConditionalBranch'
 import { StepDelay } from './StepDelay'
 import { StepExit } from './StepExit'
 import { StepFunctionEmail } from './StepFunctionEmail'
+import {
+    StepFunctionPostHogCapture,
+    StepFunctionPostHogGroupIdentify,
+    StepFunctionPostHogUpdatePersonProperties,
+} from './StepFunctionPostHog'
 import { StepFunctionSlack } from './StepFunctionSlack'
 import { StepFunctionSms } from './StepFunctionSms'
 import { StepFunctionWebhook } from './StepFunctionWebhook'
@@ -26,6 +31,9 @@ export const HogFlowSteps: Partial<{
     function_webhook: StepFunctionWebhook,
     function_sms: StepFunctionSms,
     function_slack: StepFunctionSlack,
+    function_posthog_capture: StepFunctionPostHogCapture,
+    function_posthog_group_identify: StepFunctionPostHogGroupIdentify,
+    function_posthog_update_person_properties: StepFunctionPostHogUpdatePersonProperties,
 } as const
 
 // Type-safe accessor that preserves the key type

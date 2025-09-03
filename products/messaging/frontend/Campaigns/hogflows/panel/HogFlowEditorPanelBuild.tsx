@@ -18,6 +18,12 @@ export const DELAY_NODES_TO_SHOW: HogFlowAction['type'][] = ['delay', 'wait_unti
 
 export const LOGIC_NODES_TO_SHOW: HogFlowAction['type'][] = ['conditional_branch', 'random_cohort_branch']
 
+export const POSTHOG_NODES_TO_SHOW: HogFlowAction['type'][] = [
+    'function_posthog_capture',
+    'function_posthog_group_identify',
+    'function_posthog_update_person_properties',
+]
+
 function HogFlowEditorToolbarNode({ type }: { type: HogFlowAction['type'] }): JSX.Element | null {
     const { setNewDraggingNode } = useActions(hogFlowEditorLogic)
 
@@ -44,7 +50,7 @@ function HogFlowEditorToolbarNode({ type }: { type: HogFlowAction['type'] }): JS
 
 export function HogFlowEditorPanelBuild(): JSX.Element {
     return (
-        <div className="flex overflow-y-auto flex-col gap-px p-2 max-h-120">
+        <div className="flex overflow-y-auto flex-col gap-px p-2">
             <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
                 Actions <LemonDivider className="flex-1" />
             </span>
@@ -63,6 +69,13 @@ export function HogFlowEditorPanelBuild(): JSX.Element {
                 Audience split <LemonDivider className="flex-1" />
             </span>
             {LOGIC_NODES_TO_SHOW.map((type) => (
+                <HogFlowEditorToolbarNode key={type} type={type} />
+            ))}
+
+            <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
+                PostHog actions <LemonDivider className="flex-1" />
+            </span>
+            {POSTHOG_NODES_TO_SHOW.map((type) => (
                 <HogFlowEditorToolbarNode key={type} type={type} />
             ))}
         </div>
