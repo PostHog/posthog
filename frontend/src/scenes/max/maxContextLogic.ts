@@ -208,7 +208,13 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 dashboardLogicInstance.mount()
 
                 try {
-                    await dashboardLogicInstance.asyncActions.loadDashboard({ action: DashboardLoadAction.InitialLoad })
+                    dashboardLogicInstance.actions.loadDashboard({ action: DashboardLoadAction.InitialLoad })
+
+                    await breakpoint(50)
+                    while (!dashboardLogicInstance.values.dashboard) {
+                        await breakpoint(50)
+                    }
+
                     dashboard = dashboardLogicInstance.values.dashboard
 
                     // Wait for dashboard items to refresh for cached insights
@@ -228,7 +234,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 actions.addOrUpdateContextDashboard(dashboard)
             }
         },
-        loadAndProcessInsight: async ({ data, filtersOverride, variablesOverride }) => {
+        loadAndProcessInsight: async ({ data, filtersOverride, variablesOverride }, breakpoint) => {
             let insight = data.preloaded
 
             if (!insight || !insight.query) {
@@ -240,7 +246,13 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 insightLogicInstance.mount()
 
                 try {
-                    await insightLogicInstance.asyncActions.loadInsight(data.id)
+                    insightLogicInstance.actions.loadInsight(data.id)
+
+                    await breakpoint(50)
+                    while (!insightLogicInstance.values.insight.query) {
+                        await breakpoint(50)
+                    }
+
                     insight = insightLogicInstance.values.insight as QueryBasedInsightModel
                 } finally {
                     insightLogicInstance.unmount()
