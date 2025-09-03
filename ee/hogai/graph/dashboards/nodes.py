@@ -1,9 +1,8 @@
-from collections.abc import AsyncIterator
-from typing import Any, Literal
+from typing import Literal
 from uuid import uuid4
 
 import structlog
-from langchain_core.messages import AIMessageChunk, HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from langgraph.config import get_stream_writer
@@ -16,6 +15,7 @@ from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.insights.nodes import InsightSearchNode
+from ee.hogai.utils.state import prepare_reasoning_progress_message
 from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
 
 from .prompts import (
@@ -41,28 +41,18 @@ class DashboardCreatorNode(AssistantNode):
                 self._stream_writer = None
         return self._stream_writer
 
-    def _stream_reasoning(
-        self, content: str, substeps: list[str] | None = None, writer: StreamWriter | None = None
-    ) -> None:
+    def _stream_progress(self, progress_message: str, writer: StreamWriter | None) -> None:
+        """Push summarization progress as reasoning messages"""
         if not writer:
-            logger.warning("Cannot stream reasoning message!")
-            return
-
-        try:
-            display_content = content
-            if substeps:
-                display_content += "\n" + "\n".join(f"• {step}" for step in substeps)
-
-            message_chunk = AIMessageChunk(
-                content="",
-                additional_kwargs={"reasoning": {"summary": [{"text": f"**{display_content}**"}]}},
+            self.logger.warning(
+                "Stream writer is not available, cannot stream progress",
+                extra={"node": "SessionSummarizationNode", "message": progress_message},
             )
-            message = (message_chunk, {"langgraph_node": AssistantNodeName.DASHBOARD_CREATOR})
-
-            writer(("dashboard_creator_node", "messages", message))
-
-        except Exception as e:
-            logger.exception("Failed to stream reasoning message", error=str(e), content=content)
+            return
+        message_chunk = prepare_reasoning_progress_message(progress_message)
+        message = (message_chunk, {"langgraph_node": AssistantNodeName.DASHBOARD_CREATOR})
+        writer((AssistantNodeName.DASHBOARD_CREATOR.value, "messages", message))
+        return
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         writer = self._get_stream_writer()
@@ -78,15 +68,8 @@ class DashboardCreatorNode(AssistantNode):
             )
 
         try:
-            self._stream_reasoning(
-                content="Creating your dashboard",
-                substeps=["Searching for relevant insights", "Generating dashboard name"],
-                writer=writer,
-            )
-
             # Step 1: Search for existing insights
-            insights, last_message = await self._search_for_insights(state.search_insights_query, writer)
-
+            insights, last_message = await self._search_for_insights(state)
             # Step 2: If no insights found, try to create them using insights subgraph
             if not insights:
                 subgraph_result = await self._create_insights_with_subgraph(state, config, writer)
@@ -109,11 +92,10 @@ class DashboardCreatorNode(AssistantNode):
             dashboard_name = await self._generate_dashboard_name(state.create_dashboard_query, last_message)
 
             # Step 5: Create the dashboard
-            dashboard = await self._create_dashboard_with_insights(dashboard_name, insights, writer)
+            dashboard = await self._create_dashboard_with_insights(dashboard_name, insights)
             return self._create_success_response(dashboard, insights, state.root_tool_call_id or "unknown")
-
         except Exception as e:
-            logger.error(
+            logger.exception(
                 f"Error in DashboardCreatorNode: {e}",
                 extra={
                     "team_id": getattr(self._team, "id", "unknown"),
@@ -123,20 +105,20 @@ class DashboardCreatorNode(AssistantNode):
             )
             return self._create_error_response(DASHBOARD_CREATION_ERROR_MESSAGE, state.root_tool_call_id or "unknown")
 
-    async def _search_for_insights(self, query: str, writer: StreamWriter | None) -> list[int]:
+    async def _search_for_insights(self, state: AssistantState) -> tuple[list[int], AssistantMessage]:
         """Search for existing insights using the InsightSearchNode."""
         try:
-            self._stream_reasoning(content="Searching for existing insights", writer=writer)
-
             # Create a minimal state for insight search
             search_state = AssistantState(
-                search_insights_query=query,
-                root_tool_call_id="dashboard_creator_search",
+                search_insights_query=state.search_insights_query,
+                root_tool_call_id=state.root_tool_call_id,
+                create_dashboard_query=state.create_dashboard_query,
             )
 
             insight_search_node = InsightSearchNode(team=self._team, user=self._user)
-
+            insight_search_node._stream_writer = self._stream_writer
             search_result = await insight_search_node.arun(search_state, {})
+
             insight_ids = search_result.insight_ids if search_result and search_result.insight_ids else []
 
             last_message = search_result.messages[-1] if search_result and search_result.messages else None
@@ -144,21 +126,15 @@ class DashboardCreatorNode(AssistantNode):
             return insight_ids[:5], last_message  # Limit to 5 insights for dashboard
 
         except Exception as e:
-            logger.warning(f"Error searching for insights: {e}")
-            return [], None
+            logger.exception(f"Error searching for insights: {e}")
+            return [], AssistantMessage(content="Error searching for insights")
 
-    async def _create_insights_with_subgraph(
-        self, state: AssistantState, config: RunnableConfig, writer: StreamWriter | None
-    ) -> list[int] | str | None:
+    async def _create_insights_with_subgraph(self, state: AssistantState, config: RunnableConfig) -> list[int]:
         """Create insights using the insights subgraph if no existing insights are found.
         Returns:
             list[int]: List of created insight IDs
-            str: Help message from the subgraph if user help was requested
-            None: If the subgraph asked for user help but no message was found
         """
         try:
-            self._stream_reasoning(content="Creating new insights for your dashboard", writer=writer)
-
             # Import the insights graph here to avoid circular imports
             from ee.hogai.graph.graph import InsightsAssistantGraph
 
@@ -179,64 +155,13 @@ class DashboardCreatorNode(AssistantNode):
             if last_message.tool_calls is None or len(last_message.tool_calls) == 0:
                 raise ValueError("Last message has no tool calls")
 
-            generator: AsyncIterator[Any] = graph.astream(
-                insights_state, config=config, stream_mode=["messages", "values", "updates", "debug"], subgraphs=True
-            )
+            # Use the original config to maintain proper streaming context
+            result = await graph.ainvoke(insights_state, config=config)
+            insight_state = AssistantState.model_validate(result)
 
-            # Stream chunks but handle message chunks properly to avoid truncation
-            async for chunk in generator:
-                # For message chunks, ensure we show the full content
-                if isinstance(chunk, dict) and "messages" in chunk:
-                    # Extract and display the actual message content
-                    for message_chunk, _ in chunk["messages"]:
-                        if hasattr(message_chunk, "content") and message_chunk.content:
-                            # Show the actual message content in a clean format
-                            self._stream_reasoning(content=f"Insight creation: {message_chunk.content}", writer=writer)
-                else:
-                    # Stream other chunks directly
-                    writer(chunk)
-
-            snapshot = await graph.aget_state(config)
-
-            help_message = None
-
-            # Check snapshot metadata to distinguish help request vs successful completion
-            if hasattr(snapshot, "metadata") and snapshot.metadata:
-                # Look for help messages in metadata writes
-                if "writes" in snapshot.metadata:
-                    for node_name, node_writes in snapshot.metadata["writes"].items():
-                        if node_name == "query_executor":
-                            if "insight_ids" in node_writes:
-                                return node_writes["insight_ids"]
-                        if isinstance(node_writes, dict) and "messages" in node_writes:
-                            messages = node_writes["messages"]
-                            if isinstance(messages, list):
-                                for msg in messages:
-                                    # Check for help request messages
-                                    if (
-                                        hasattr(msg, "content")
-                                        and msg.content
-                                        and isinstance(msg.content, str)
-                                        and "The agent has requested help from the user:" in msg.content
-                                    ):
-                                        raw_help_message = msg.content
-
-                                        # Clean up the help message - extract the actual request
-                                        if "request='" in raw_help_message:
-                                            start = raw_help_message.find("request='") + len("request='")
-                                            end = raw_help_message.rfind("'")
-                                            if start < end:
-                                                help_message = raw_help_message[start:end]
-                                            else:
-                                                help_message = raw_help_message
-                                        else:
-                                            help_message = raw_help_message
-
-                                        return help_message
-            return []
-
+            return insight_state.insight_ids if insight_state and insight_state.insight_ids else []
         except Exception as e:
-            logger.warning(f"Error creating insights with subgraph: {e}")
+            logger.exception(f"Error creating insights with subgraph: {e}")
             return []
 
     async def _generate_dashboard_name(self, query: str, last_message) -> str:
@@ -269,14 +194,12 @@ class DashboardCreatorNode(AssistantNode):
             return dashboard_name
 
         except Exception as e:
-            logger.warning(f"Error generating dashboard name: {e}")
+            logger.exception(f"Error generating dashboard name: {e}")
             return "Analytics Dashboard"
 
-    async def _create_dashboard_with_insights(
-        self, dashboard_name: str, insights: list[int], writer: StreamWriter | None
-    ) -> Dashboard:
+    async def _create_dashboard_with_insights(self, dashboard_name: str, insights: list[int]) -> Dashboard:
         """Create a dashboard and add the insights to it."""
-        self._stream_reasoning(content="Building your dashboard", writer=writer)
+        self._stream_progress(progress_message="Building your dashboard", writer=self._get_stream_writer())
 
         @database_sync_to_async
         def create_dashboard_sync():
@@ -345,6 +268,7 @@ class DashboardCreatorNode(AssistantNode):
             create_dashboard_query=None,
             root_tool_call_id=None,
             search_insights_query=None,
+            insight_ids=None,
         )
 
     def _create_error_response(self, content: str, tool_call_id: str) -> PartialAssistantState:
@@ -360,6 +284,8 @@ class DashboardCreatorNode(AssistantNode):
             ],
             create_dashboard_query=None,
             root_tool_call_id=None,
+            search_insights_query=None,
+            insight_ids=None,
         )
 
     def _create_help_request_response(
@@ -384,6 +310,7 @@ class DashboardCreatorNode(AssistantNode):
             create_dashboard_query=None,
             search_insights_query=None,
             root_tool_call_id=None,
+            insight_ids=None,
         )
 
     def router(self, state: AssistantState) -> Literal["root"]:

@@ -100,6 +100,7 @@ STREAMING_NODES: set[MaxNodeName] = {
     TaxonomyNodeName.LOOP_NODE,
     AssistantNodeName.SESSION_SUMMARIZATION,
     AssistantNodeName.INSIGHTS_SEARCH,
+    AssistantNodeName.DASHBOARD_CREATOR,
 }
 """Nodes that can stream messages to the client."""
 
@@ -115,6 +116,7 @@ THINKING_NODES: set[MaxNodeName] = {
     AssistantNodeName.QUERY_PLANNER,
     TaxonomyNodeName.LOOP_NODE,
     AssistantNodeName.SESSION_SUMMARIZATION,
+    AssistantNodeName.DASHBOARD_CREATOR,
 }
 """Nodes that pass on thinking messages to the client. Current implementation assumes o3/o4 style of reasoning summaries!"""
 
@@ -443,6 +445,8 @@ class Assistant:
                 return None
             case AssistantNodeName.SESSION_SUMMARIZATION:
                 return ReasoningMessage(content="Summarizing session recordings")
+            case AssistantNodeName.DASHBOARD_CREATOR:
+                return ReasoningMessage(content="Creating dashboard")
             case _:
                 return None
 
