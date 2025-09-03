@@ -539,7 +539,7 @@ pub async fn set_feature_flag_hash_key_overrides(
             WHERE id = ANY($1) AND team_id = $2
         "#;
 
-        // Query 5: Bulk insert query with multiple value rows
+        // Query 5: Bulk insert hash key overrides
         let bulk_insert_query = r#"
             INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
             SELECT $1, person_id, flag_key, $2
@@ -908,6 +908,264 @@ mod tests {
             Some(&"hash_key_2".to_string()),
             "Hash key override should match the set value"
         );
+    }
+
+    #[tokio::test]
+    async fn test_set_feature_flag_hash_key_overrides_with_multiple_persons() {
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let team = insert_new_team_in_pg(reader.clone(), None)
+            .await
+            .expect("Failed to insert team");
+
+        // Create 3 persons
+        let person1_id = insert_person_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            "batch_user1".to_string(),
+            Some(json!({"email": "user1@example.com"})),
+        )
+        .await
+        .expect("Failed to insert person1");
+
+        let _person2_id = insert_person_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            "batch_user2".to_string(),
+            Some(json!({"email": "user2@example.com"})),
+        )
+        .await
+        .expect("Failed to insert person2");
+
+        let _person3_id = insert_person_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            "batch_user3".to_string(),
+            Some(json!({"email": "user3@example.com"})),
+        )
+        .await
+        .expect("Failed to insert person3");
+
+        // Add additional distinct_id for person1 to test multiple distinct_ids per person
+        let mut conn = writer.get_connection().await.expect("Failed to get connection");
+        let mut transaction = conn.begin().await.expect("Failed to begin transaction");
+        
+        sqlx::query(
+            "INSERT INTO posthog_persondistinctid (team_id, person_id, distinct_id, version)
+             VALUES ($1, $2, $3, 0)",
+        )
+        .bind(team.id)
+        .bind(person1_id)
+        .bind("batch_user1_alt")
+        .execute(&mut *transaction)
+        .await
+        .expect("Failed to add alt distinct_id");
+
+        transaction.commit().await.expect("Failed to commit transaction");
+
+        // Create 4 feature flags with experience continuity
+        for i in 1..=4 {
+            let flag_row = FeatureFlagRow {
+                id: 10000 + i,
+                team_id: team.id,
+                name: Some(format!("Batch Test Flag {}", i)),
+                key: format!("batch_flag_{}", i),
+                filters: json!({"groups": [{"rollout_percentage": 50}]}),
+                deleted: false,
+                active: true,
+                ensure_experience_continuity: Some(true),
+                version: Some(1),
+                evaluation_runtime: None,
+            };
+            insert_flag_for_team_in_pg(writer.clone(), team.id, Some(flag_row))
+                .await
+                .expect(&format!("Failed to insert flag {}", i));
+        }
+
+        // Test batch insert with 4 distinct_ids (3 persons, 1 with alt)
+        let distinct_ids = vec![
+            "batch_user1".to_string(),
+            "batch_user1_alt".to_string(),
+            "batch_user2".to_string(),
+            "batch_user3".to_string(),
+        ];
+        let hash_key = "batch_hash_key".to_string();
+
+        let result = set_feature_flag_hash_key_overrides(
+            writer.clone(),
+            team.id,
+            distinct_ids.clone(),
+            team.project_id,
+            hash_key.clone(),
+        )
+        .await
+        .expect("Failed to set hash key overrides");
+
+        assert!(result, "Should have written overrides");
+
+        // Verify all combinations were created correctly
+        // Should create overrides for all distinct_ids
+        for distinct_id in &distinct_ids {
+            let overrides = get_feature_flag_hash_key_overrides(
+                reader.clone(),
+                team.id,
+                vec![distinct_id.clone()],
+            )
+            .await
+            .expect(&format!("Failed to get overrides for {}", distinct_id));
+
+            assert_eq!(
+                overrides.len(),
+                4,
+                "Should have 4 overrides for distinct_id {}",
+                distinct_id
+            );
+            
+            for i in 1..=4 {
+                let flag_key = format!("batch_flag_{}", i);
+                assert_eq!(
+                    overrides.get(&flag_key),
+                    Some(&hash_key),
+                    "Override for {} should be set for distinct_id {}",
+                    flag_key,
+                    distinct_id
+                );
+            }
+        }
+
+        // Verify the actual count in the database
+        // batch_user1 and batch_user1_alt map to same person, so 3 persons * 4 flags = 12 overrides
+        let mut conn = reader.get_connection().await.expect("Failed to get connection");
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM posthog_featureflaghashkeyoverride 
+             WHERE team_id = $1 AND hash_key = $2"
+        )
+        .bind(team.id)
+        .bind(&hash_key)
+        .fetch_one(&mut *conn)
+        .await
+        .expect("Failed to count overrides");
+
+        assert_eq!(count, 12, "Should have exactly 12 overrides in database (3 persons * 4 flags)");
+    }
+
+    #[tokio::test]
+    async fn test_set_feature_flag_hash_key_overrides_with_with_existing_overrides() {
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let team = insert_new_team_in_pg(reader.clone(), None)
+            .await
+            .expect("Failed to insert team");
+
+        // Create 2 persons
+        let person1_id = insert_person_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            "existing_user1".to_string(),
+            Some(json!({"email": "existing1@example.com"})),
+        )
+        .await
+        .expect("Failed to insert person1");
+
+        let person2_id = insert_person_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            "existing_user2".to_string(),
+            Some(json!({"email": "existing2@example.com"})),
+        )
+        .await
+        .expect("Failed to insert person2");
+
+        // Create 3 flags
+        for i in 1..=3 {
+            let flag_row = FeatureFlagRow {
+                id: 20000 + i,
+                team_id: team.id,
+                name: Some(format!("Existing Test Flag {}", i)),
+                key: format!("existing_flag_{}", i),
+                filters: json!({"groups": [{"rollout_percentage": 50}]}),
+                deleted: false,
+                active: true,
+                ensure_experience_continuity: Some(true),
+                version: Some(1),
+                evaluation_runtime: None,
+            };
+            insert_flag_for_team_in_pg(writer.clone(), team.id, Some(flag_row))
+                .await
+                .expect(&format!("Failed to insert flag {}", i));
+        }
+
+        // Manually insert some existing overrides
+        let mut conn = writer.get_connection().await.expect("Failed to get connection");
+        let mut transaction = conn.begin().await.expect("Failed to begin transaction");
+        
+        // Person1 has override for flag 1
+        sqlx::query(
+            "INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
+             VALUES ($1, $2, $3, $4)",
+        )
+        .bind(team.id)
+        .bind(person1_id)
+        .bind("existing_flag_1")
+        .bind("old_hash")
+        .execute(&mut *transaction)
+        .await
+        .expect("Failed to insert existing override");
+
+        transaction.commit().await.expect("Failed to commit transaction");
+
+        // Try batch insert - should only insert the missing combinations
+        let distinct_ids = vec!["existing_user1".to_string(), "existing_user2".to_string()];
+        let new_hash = "new_batch_hash".to_string();
+
+        let result = set_feature_flag_hash_key_overrides(
+            writer.clone(),
+            team.id,
+            distinct_ids.clone(),
+            team.project_id,
+            new_hash.clone(),
+        )
+        .await
+        .expect("Failed to set hash key overrides");
+
+        assert!(result, "Should have written new overrides");
+
+        // Verify existing overrides are preserved
+        let overrides1 = get_feature_flag_hash_key_overrides(
+            reader.clone(),
+            team.id,
+            vec!["existing_user1".to_string()],
+        )
+        .await
+        .expect("Failed to get overrides");
+
+        assert_eq!(
+            overrides1.get("existing_flag_1"),
+            Some(&"old_hash".to_string()),
+            "Existing override should be preserved"
+        );
+        assert_eq!(
+            overrides1.get("existing_flag_2"),
+            Some(&new_hash),
+            "New override should be added for flag 2"
+        );
+        assert_eq!(
+            overrides1.get("existing_flag_3"),
+            Some(&new_hash),
+            "New override should be added for flag 3"
+        );
+
+        // Verify the count - should have 6 total (2 existing + 4 new)
+        let mut conn = reader.get_connection().await.expect("Failed to get connection");
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM posthog_featureflaghashkeyoverride WHERE team_id = $1"
+        )
+        .bind(team.id)
+        .fetch_one(&mut *conn)
+        .await
+        .expect("Failed to count overrides");
+
+        assert_eq!(count, 6, "Should have 6 total overrides (2 existing + 4 new)");
     }
 
     #[rstest]
