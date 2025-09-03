@@ -73,7 +73,7 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
                                             breadcrumb={breadcrumb}
                                             here={index === effectiveBreadcrumbs.length - 1}
                                         />
-                                        {index < breadcrumbs.length - 1 && (
+                                        {index < effectiveBreadcrumbs.length - 1 && (
                                             <span className="flex items-center shrink-0 opacity-50">
                                                 <IconSlash fontSize="1rem" />
                                             </span>

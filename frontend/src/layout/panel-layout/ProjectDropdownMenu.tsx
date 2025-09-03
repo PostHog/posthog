@@ -27,7 +27,6 @@ import { globalModalsLogic } from '~/layout/GlobalModals'
 import { AvailableFeature, TeamBasicType } from '~/types'
 
 import { EnvironmentSwitcherOverlay } from '../navigation/EnvironmentSwitcher'
-import { panelLayoutLogic } from './panelLayoutLogic'
 
 export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
     return (
