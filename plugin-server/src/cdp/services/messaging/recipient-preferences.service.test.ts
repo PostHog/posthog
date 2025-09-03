@@ -93,8 +93,10 @@ describe('RecipientPreferencesService', () => {
                     message_category_id: categoryId,
                     inputs: {
                         email: {
-                            to: {
-                                email: to,
+                            value: {
+                                to: {
+                                    email: to,
+                                },
                             },
                         },
                     },
