@@ -6,18 +6,13 @@ import posthog from 'posthog-js'
 import { EventType, customEvent, eventWithTime } from '@posthog/rrweb-types'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { chainToElements } from 'lib/utils/elements-chain'
 import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
-import {
-    parseEncodedSnapshots,
-    processAllSnapshots,
-} from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
-import { keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
+import { processAllSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { annotationsModel } from '~/models/annotationsModel'
@@ -30,9 +25,6 @@ import {
     RecordingSnapshot,
     SessionPlayerData,
     SessionRecordingId,
-    SessionRecordingSnapshotParams,
-    SessionRecordingSnapshotSource,
-    SessionRecordingSnapshotSourceResponse,
     SessionRecordingType,
     SessionRecordingUsageType,
     SnapshotSourceType,
@@ -42,12 +34,11 @@ import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
 import { ViewportResolution, getHrefFromSnapshot } from './snapshot-processing/patch-meta-event'
+import { snapshotDataLogic } from './snapshotDataLogic'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 
 const TWENTY_FOUR_HOURS_IN_MS = 24 * 60 * 60 * 1000 // +- before and after start and end of a recording to query for session linked events.
 const FIVE_MINUTES_IN_MS = 5 * 60 * 1000 // +- before and after start and end of a recording to query for events related by person.
-const DEFAULT_REALTIME_POLLING_MILLIS = 3000
-const DEFAULT_V2_POLLING_INTERVAL_MS = 10000
 
 export interface SessionRecordingDataLogicProps {
     sessionRecordingId: SessionRecordingId
@@ -63,8 +54,20 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     path((key) => ['scenes', 'session-recordings', 'sessionRecordingDataLogic', key]),
     props({} as SessionRecordingDataLogicProps),
     key(({ sessionRecordingId }) => sessionRecordingId || 'no-session-recording-id'),
-    connect(() => ({
-        actions: [sessionRecordingEventUsageLogic, ['reportRecording']],
+    connect(({ sessionRecordingId }) => ({
+        actions: [
+            sessionRecordingEventUsageLogic,
+            ['reportRecording'],
+            snapshotDataLogic({ sessionRecordingId }),
+            [
+                'loadSnapshots',
+                'loadSnapshotSources',
+                'loadSnapshotSourcesFailure',
+                'loadNextSnapshotSource',
+                'loadSnapshotsForSource',
+                'loadSnapshotsForSourceFailure',
+            ],
+        ],
         values: [
             featureFlagLogic,
             ['featureFlags'],
@@ -72,6 +75,15 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             ['currentTeam'],
             annotationsModel,
             ['annotations', 'annotationsLoading'],
+            snapshotDataLogic({ sessionRecordingId }),
+            [
+                'snapshotSources',
+                'snapshotsBySources',
+                'snapshotsLoading',
+                'snapshotsLoaded',
+                'snapshotsBySourceSuccessCount',
+                'isRealtimePolling',
+            ],
         ],
     })),
     defaults({
@@ -83,12 +95,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         maybeLoadRecordingMeta: true,
         loadRecordingComments: true,
         loadRecordingNotebookComments: true,
-        loadSnapshots: true,
-        loadSnapshotSources: (breakpointLength?: number) => ({ breakpointLength }),
         loadNextSnapshotSource: true,
-        loadSnapshotsForSource: (sources: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>[]) => ({
-            sources,
-        }),
         loadEvents: true,
         loadFullEventData: (event: RecordingEventType | RecordingEventType[]) => ({ event }),
         reportUsageIfFullyLoaded: true,
@@ -99,6 +106,14 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         setTrackedWindow: (windowId: string | null) => ({ windowId }),
     }),
     reducers(() => ({
+        isNotFound: [
+            false as boolean,
+            {
+                loadRecordingMeta: () => false,
+                loadRecordingMetaSuccess: () => false,
+                loadRecordingMetaFailure: () => true,
+            },
+        ],
         trackedWindow: [
             null as string | null,
             {
@@ -111,29 +126,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
             },
         ],
-        isRealtimePolling: [
-            false as boolean,
-            {
-                pollRealtimeSnapshots: () => true,
-                stopRealtimePolling: () => false,
-            },
-        ],
-        isNotFound: [
-            false as boolean,
-            {
-                loadRecordingMeta: () => false,
-                loadRecordingMetaSuccess: () => false,
-                loadRecordingMetaFailure: () => true,
-            },
-        ],
-        snapshotsBySourceSuccessCount: [
-            0,
-            {
-                loadSnapshotsForSourceSuccess: (state) => state + 1,
-            },
-        ],
     })),
-    loaders(({ values, props, cache }) => ({
+    loaders(({ values, props }) => ({
         sessionComments: [
             [] as CommentType[],
             {
@@ -196,118 +190,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 }
             },
         },
-        snapshotSources: [
-            null as SessionRecordingSnapshotSource[] | null,
-            {
-                loadSnapshotSources: async ({ breakpointLength }, breakpoint) => {
-                    if (breakpointLength) {
-                        await breakpoint(breakpointLength)
-                    }
-
-                    const headers: Record<string, string> = {}
-                    if (props.accessToken) {
-                        headers.Authorization = `Bearer ${props.accessToken}`
-                    }
-
-                    const blob_v2 =
-                        values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY] || !!props.accessToken
-                    const blob_v2_lts =
-                        values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_LTS_REPLAY] || !!props.accessToken
-                    const response = await api.recordings.listSnapshotSources(
-                        props.sessionRecordingId,
-                        {
-                            blob_v2,
-                            blob_v2_lts,
-                        },
-                        headers
-                    )
-
-                    if (!response.sources) {
-                        return []
-                    }
-                    const anyBlobV2 = response.sources.some((s) => s.source === SnapshotSourceType.blob_v2)
-
-                    if (anyBlobV2) {
-                        return response.sources.filter((s) => s.source === SnapshotSourceType.blob_v2)
-                    }
-                    return response.sources.filter((s) => s.source !== SnapshotSourceType.blob_v2)
-                },
-            },
-        ],
-        snapshotsForSource: [
-            null as SessionRecordingSnapshotSourceResponse | null,
-            {
-                loadSnapshotsForSource: async ({ sources }, breakpoint) => {
-                    let params: SessionRecordingSnapshotParams
-
-                    if (sources.length > 1) {
-                        // they all have to be blob_v2
-                        if (sources.some((s) => s.source !== SnapshotSourceType.blob_v2)) {
-                            throw new Error('Unsupported source for multiple sources')
-                        }
-                        params = {
-                            source: 'blob_v2',
-                            // so the caller has to make sure these are in order!
-                            start_blob_key: sources[0].blob_key,
-                            end_blob_key: sources[sources.length - 1].blob_key,
-                        }
-                    } else {
-                        const source = sources[0]
-
-                        if (source.source === SnapshotSourceType.blob) {
-                            if (!source.blob_key) {
-                                throw new Error('Missing key')
-                            }
-                            params = { blob_key: source.blob_key, source: 'blob' }
-                        } else if (source.source === SnapshotSourceType.realtime) {
-                            params = { source: 'realtime' }
-                        } else if (source.source === SnapshotSourceType.blob_v2) {
-                            params = { source: 'blob_v2', blob_key: source.blob_key }
-                        } else if (source.source === SnapshotSourceType.file) {
-                            // no need to load a file source, it is already loaded
-                            return { source }
-                        } else {
-                            throw new Error(`Unsupported source: ${source.source}`)
-                        }
-                    }
-
-                    await breakpoint(1)
-
-                    const headers: Record<string, string> = {}
-                    if (props.accessToken) {
-                        headers.Authorization = `Bearer ${props.accessToken}`
-                    }
-                    const response = await api.recordings
-                        .getSnapshots(props.sessionRecordingId, params, headers)
-                        .catch((e) => {
-                            if (sources[0].source === 'realtime' && e.status === 404) {
-                                // Realtime source is not always available, so a 404 is expected
-                                return []
-                            }
-                            throw e
-                        })
-
-                    // sorting is very cheap for already sorted lists
-                    const parsedSnapshots = (await parseEncodedSnapshots(response, props.sessionRecordingId)).sort(
-                        (a, b) => a.timestamp - b.timestamp
-                    )
-                    // we store the data in the cache because we want to avoid copying this data as much as possible
-                    // and kea's immutability means we were copying all the data on every snapshot call
-                    cache.snapshotsBySource = cache.snapshotsBySource || {}
-                    // it doesn't matter which source we use as the key, since we combine the snapshots anyway
-                    cache.snapshotsBySource[keyForSource(sources[0])] = { snapshots: parsedSnapshots }
-                    // but we do want to mark the sources as loaded
-                    sources.forEach((s) => {
-                        const k = keyForSource(s)
-                        // we just need something against each key so we don't load it again
-                        cache.snapshotsBySource[k] = cache.snapshotsBySource[k] || {}
-                        cache.snapshotsBySource[k].sourceLoaded = true
-                    })
-
-                    return { sources: sources }
-                },
-            },
-        ],
         sessionEventsData: [
             null as null | RecordingEventType[],
             {
@@ -466,25 +348,22 @@ AND properties.$lib != 'web'`
             },
         ],
     })),
-    listeners(({ values, actions, cache, props }) => ({
+    listeners(({ values, actions, props }) => ({
         deleteCommentSuccess: () => {
             lemonToast.success('Comment deleted')
         },
+
         deleteCommentFailure: (e) => {
             posthog.captureException(e, { action: 'session recording data logic delete comment' })
             lemonToast.error('Could not delete comment, refresh and try again')
         },
+
         [playerCommentModel.actionTypes.commentEdited]: ({ recordingId }) => {
             if (props.sessionRecordingId === recordingId) {
                 actions.loadRecordingComments()
             }
         },
-        loadSnapshots: () => {
-            // This kicks off the loading chain
-            if (!values.snapshotSourcesLoading) {
-                actions.loadSnapshotSources()
-            }
-        },
+
         maybeLoadRecordingMeta: () => {
             if (!values.sessionPlayerMetaDataLoading) {
                 actions.loadRecordingMeta()
@@ -496,106 +375,26 @@ AND properties.$lib != 'web'`
                 actions.loadRecordingNotebookComments()
             }
         },
+
         loadSnapshotSources: () => {
             // We only load events once we actually start loading the recording
             if (!values.sessionEventsData) {
                 actions.loadEvents()
             }
         },
+
         loadRecordingMetaSuccess: () => {
             actions.reportUsageIfFullyLoaded()
         },
 
-        loadSnapshotSourcesSuccess: () => {
-            // When we receive the list of sources, we can kick off the loading chain
-            actions.loadNextSnapshotSource()
-        },
-
-        loadSnapshotsForSourceSuccess: ({ snapshotsForSource }) => {
-            const sources = values.snapshotSources
-            const sourceKey = snapshotsForSource.sources
-                ? keyForSource(snapshotsForSource.sources[0])
-                : keyForSource(snapshotsForSource.source)
-            const snapshots = (cache.snapshotsBySource || {})[sourceKey] || []
-
-            // Cache the last response count to detect if we're getting the same data over and over
-            const newSnapshotsCount = snapshots.length
-
-            if ((cache.lastSnapshotsCount ?? newSnapshotsCount) === newSnapshotsCount) {
-                // if we're getting no results from realtime polling, we can increment faster
-                // so that we stop polling sooner
-                const increment = newSnapshotsCount === 0 ? 2 : 1
-                cache.lastSnapshotsUnchangedCount = (cache.lastSnapshotsUnchangedCount ?? 0) + increment
-            } else {
-                cache.lastSnapshotsUnchangedCount = 0
-            }
-            cache.lastSnapshotsCount = newSnapshotsCount
-
-            if (!snapshots.length && sources?.length === 1 && sources[0].source !== SnapshotSourceType.file) {
-                // We got only a single source to load, loaded it successfully, but it had no snapshots.
-                posthog.capture('recording_snapshots_v2_empty_response', {
-                    source: sources[0],
-                })
-            }
-
-            actions.loadNextSnapshotSource()
-        },
-
         loadNextSnapshotSource: () => {
-            // yes this is ugly duplication, but we're going to deprecate v1 and I want it to be clear which is which
-            if (values.snapshotSources?.some((s) => s.source === SnapshotSourceType.blob_v2)) {
-                const nextSourcesToLoad =
-                    values.snapshotSources?.filter((s) => {
-                        const sourceKey = keyForSource(s)
-                        return (
-                            !cache.snapshotsBySource?.[sourceKey]?.sourceLoaded && s.source !== SnapshotSourceType.file
-                        )
-                    }) || []
-
-                if (nextSourcesToLoad.length > 0) {
-                    return actions.loadSnapshotsForSource(nextSourcesToLoad.slice(0, 30))
-                }
-
-                if (!props.blobV2PollingDisabled) {
-                    actions.loadSnapshotSources(DEFAULT_V2_POLLING_INTERVAL_MS)
-                }
-            } else {
-                const nextSourceToLoad = values.snapshotSources?.find((s) => {
-                    const sourceKey = keyForSource(s)
-                    return !cache.snapshotsBySource?.[sourceKey]?.sourceLoaded && s.source !== SnapshotSourceType.file
-                })
-
-                if (nextSourceToLoad) {
-                    return actions.loadSnapshotsForSource([nextSourceToLoad])
-                }
-
-                // If we have a realtime source, start polling it
-                const realTimeSource = values.snapshotSources?.find((s) => s.source === SnapshotSourceType.realtime)
-                if (realTimeSource) {
-                    actions.pollRealtimeSnapshots()
-                }
-            }
-
             actions.reportUsageIfFullyLoaded()
         },
-        pollRealtimeSnapshots: () => {
-            // always make sure we've cleared up the last timeout
-            clearTimeout(cache.realTimePollingTimeoutID)
-            cache.realTimePollingTimeoutID = null
 
-            // ten is an arbitrary limit to try to avoid sending requests to our backend unnecessarily
-            // we could change this or add to it e.g. only poll if browser is visible to user
-            if ((cache.lastSnapshotsUnchangedCount ?? 0) <= 10) {
-                cache.realTimePollingTimeoutID = setTimeout(() => {
-                    actions.loadSnapshotsForSource([{ source: SnapshotSourceType.realtime }])
-                }, props.realTimePollingIntervalMilliseconds || DEFAULT_REALTIME_POLLING_MILLIS)
-            } else {
-                actions.stopRealtimePolling()
-            }
-        },
         loadEventsSuccess: () => {
             actions.reportUsageIfFullyLoaded()
         },
+
         reportUsageIfFullyLoaded: (_, breakpoint) => {
             breakpoint()
             if (values.fullyLoaded) {
@@ -739,28 +538,6 @@ AND properties.$lib != 'web'`
             }),
         ],
 
-        snapshotsLoading: [
-            (s) => [s.snapshotSourcesLoading, s.snapshotsForSourceLoading, s.featureFlags, s.snapshots],
-            (
-                snapshotSourcesLoading: boolean,
-                snapshotsForSourceLoading: boolean,
-                featureFlags: FeatureFlagsSet,
-                snapshots: RecordingSnapshot[]
-            ): boolean => {
-                // For v2 recordings, only show loading if we have no snapshots AND we're actually loading something.
-                if (featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY]) {
-                    return snapshots?.length === 0 && (snapshotSourcesLoading || snapshotsForSourceLoading)
-                }
-
-                // Default behavior for non-v2 recordings
-                // if there's a realTimePollingTimeoutID, don't signal that we're loading
-                // we don't want the UI to flip to "loading" every time we poll
-                return !cache.realTimePollingTimeoutID && (snapshotSourcesLoading || snapshotsForSourceLoading)
-            },
-        ],
-
-        snapshotsLoaded: [(s) => [s.snapshotSources], (snapshotSources): boolean => !!snapshotSources],
-
         fullyLoaded: [
             (s) => [
                 s.snapshots,
@@ -863,25 +640,18 @@ AND properties.$lib != 'web'`
         ],
 
         snapshots: [
-            (s, p) => [
-                s.snapshotSources,
-                s.viewportForTimestamp,
-                p.sessionRecordingId,
-                s.snapshotsBySourceSuccessCount,
-            ],
+            (s, p) => [s.snapshotSources, s.viewportForTimestamp, p.sessionRecordingId, s.snapshotsBySources],
             (
                 sources,
                 viewportForTimestamp,
                 sessionRecordingId,
                 // oxlint-disable-next-line @typescript-eslint/no-unused-vars
-                _snapshotsBySourceSuccessCount
+                snapshotsBySources
             ): RecordingSnapshot[] => {
-                if (!sources || !cache.snapshotsBySource) {
-                    return []
-                }
+                const copiedSnapshotsBySources = { ...snapshotsBySources }
                 const processedSnapshots = processAllSnapshots(
                     sources,
-                    cache.snapshotsBySource || {},
+                    copiedSnapshotsBySources,
                     viewportForTimestamp,
                     sessionRecordingId
                 )
