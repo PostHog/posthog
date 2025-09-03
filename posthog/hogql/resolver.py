@@ -36,7 +36,7 @@ from posthog.models.utils import UUIDT
 # https://github.com/ClickHouse/ClickHouse/issues/23194 - "Describe how identifiers in SELECT queries are resolved"
 
 # To quickly disable global joins, switch this to False
-USE_GLOBAL_JOINS = True
+USE_GLOBAL_JOINS = False
 
 
 def resolve_constant_data_type(constant: Any) -> ConstantType:
@@ -193,7 +193,7 @@ class Resolver(CloningVisitor):
         select_nodes = []
         for expr in node.select or []:
             new_expr = self.visit(expr)
-            if isinstance(new_expr.type, ast.AsteriskType) and not self.context.readable_print:
+            if isinstance(new_expr.type, ast.AsteriskType):
                 columns = self._asterisk_columns(new_expr.type, chain_prefix=new_expr.chain[:-1])
                 select_nodes.extend([self.visit(expr) for expr in columns])
             else:
@@ -759,13 +759,6 @@ class Resolver(CloningVisitor):
             )
 
         return node
-
-    def visit_placeholder(self, node: ast.Placeholder):
-        if self.context.keep_placeholders:
-            if node.type is None:
-                node.type = ast.UnknownType()
-            return node
-        return super().visit_placeholder(node)
 
     def visit_array_access(self, node: ast.ArrayAccess):
         node = super().visit_array_access(node)

@@ -10,13 +10,12 @@ from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.functions.mapping import HOGQL_AGGREGATIONS, HOGQL_CLICKHOUSE_FUNCTIONS, HOGQL_POSTHOG_FUNCTIONS
 from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import print_ast, print_prepared_ast
+from posthog.hogql.printer import print_ast
 
 from posthog.warehouse.models import Database
 
 from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException, parse_pydantic_structured_output
 from ee.hogai.graph.schema_generator.utils import SchemaGeneratorOutput
-from ee.hogai.graph.sql.mixins import LooseSyntaxVisitor
 from ee.hogai.graph.sql.toolkit import SQL_SCHEMA
 from ee.hogai.tool import MaxTool
 
@@ -189,14 +188,7 @@ class HogQLQueryFixerTool(MaxTool):
 
     def _run_impl(self) -> tuple[str, str | None]:
         database = create_hogql_database(team=self._team)
-        hogql_context = HogQLContext(
-            team=self._team,
-            enable_select_queries=True,
-            database=database,
-            limit_top_select=False,
-            readable_print=True,
-            keep_placeholders=True,
-        )
+        hogql_context = HogQLContext(team=self._team, enable_select_queries=True, database=database)
 
         all_tables = database.get_all_tables()
         schema_description = _get_schema_description(self.context, hogql_context, database)
@@ -257,14 +249,7 @@ The newly updated query gave us this error:
         assert result.query is not None
         try:
             result.query = result.query.rstrip(";").strip()
-            fixed_names_query = LooseSyntaxVisitor().visit(parse_select(result.query, placeholders={}))
-            normalized_query = print_prepared_ast(
-                fixed_names_query, context=hogql_context, dialect="hogql", pretty=True
-            )
-
-            # Validate that the query is valid
-            print_ast(fixed_names_query, context=hogql_context, dialect="hogql")
-            result.query = normalized_query
+            print_ast(parse_select(result.query), context=hogql_context, dialect="clickhouse")
         except (ExposedHogQLError, ResolutionError) as err:
             err_msg = str(err)
             if err_msg.startswith("no viable alternative"):

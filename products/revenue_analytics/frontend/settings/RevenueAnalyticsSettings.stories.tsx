@@ -12,7 +12,7 @@ import DatabaseSchemaQuery from '../__mocks__/DatabaseSchemaQuery.json'
 
 const meta: Meta = {
     component: App,
-    title: 'Scenes-App/Data Management',
+    title: 'Scenes-App/Data Management/Revenue Analytics',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
@@ -46,4 +46,4 @@ const meta: Meta = {
 export default meta
 
 type Story = StoryObj<typeof meta>
-export const RevenueAnalyticsSettings: Story = {}
+export const Settings: Story = {}
