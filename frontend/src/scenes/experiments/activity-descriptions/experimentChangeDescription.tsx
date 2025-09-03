@@ -135,8 +135,8 @@ export const getExperimentChangeDescription = (
                         }
 
                         return typedAfter?.multiple_variant_handling === 'first_seen'
-                            ? 'changed the variant handling to first seen'
-                            : 'changed the variant handling to exclude from analysis'
+                            ? 'changed the variant handling to "first seen"'
+                            : 'changed the variant handling to "exclude from analysis"'
                     })
                     .with('exposure_config', () => {
                         const afterConfig = typedAfter?.exposure_config
