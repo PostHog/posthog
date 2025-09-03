@@ -25,7 +25,6 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person, PersonDistinctId
-from posthog.models.person.person import READ_DB_FOR_PERSONS
 from posthog.models.property import GroupTypeIndex, GroupTypeName
 from posthog.models.property.property import Property
 from posthog.models.team.team import Team
@@ -516,12 +515,14 @@ class FeatureFlagMatcher:
                 # Some extra wiggle room here for timeouts because this depends on the number of flags as well,
                 # and not just the database query.
                 all_conditions: dict = {}
-                person_query: QuerySet = Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(
+                person_query: QuerySet = Person.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(
                     team_id=self.team_id,
                     persondistinctid__distinct_id=self.distinct_id,
                     persondistinctid__team_id=self.team_id,
                 )
-                basic_group_query: QuerySet = Group.objects.db_manager(READ_DB_FOR_PERSONS).filter(team_id=self.team_id)
+                basic_group_query: QuerySet = Group.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(
+                    team_id=self.team_id
+                )
                 group_query_per_group_type_mapping: dict[GroupTypeIndex, tuple[QuerySet, list[str]]] = {}
                 # :TRICKY: Create a queryset for each group type that uniquely identifies a group, based on the groups passed in.
                 # If no groups for a group type are passed in, we can skip querying for that group type,
@@ -1236,9 +1237,9 @@ def check_flag_evaluation_query_is_ok(feature_flag: FeatureFlag, project_id: int
     group_type_index = feature_flag.aggregation_group_type_index
 
     base_query: QuerySet = (
-        Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team__project_id=project_id)
+        Person.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(team__project_id=project_id)
         if group_type_index is None
-        else Group.objects.db_manager(READ_DB_FOR_PERSONS).filter(
+        else Group.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(
             team__project_id=project_id, group_type_index=group_type_index
         )
     )
