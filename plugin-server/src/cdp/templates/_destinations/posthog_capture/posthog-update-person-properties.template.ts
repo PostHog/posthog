@@ -12,8 +12,7 @@ export const template: HogFunctionTemplate = {
     code_language: 'hog',
     code: `
 if (empty(inputs.distinct_id)) {
-  print('Distinct ID is required')
-  return
+  throw Error('Distinct ID is required')
 }
 
 postHogCapture({
