@@ -11,7 +11,7 @@ run_persons_migrations() {
     
     echo "Performing persons migrations for $PERSONS_DATABASE_URL"
     
-    sqlx database create -D "$PERSONS_DATABASE_URL" 2>/dev/null || true
+    sqlx database create -D "$PERSONS_DATABASE_URL"
     
     sqlx migrate run -D "$PERSONS_DATABASE_URL" --source /migrations/persons_migrations/
     
@@ -26,7 +26,7 @@ run_cyclotron_migrations() {
     
     echo "Performing cyclotron migrations for $CYCLOTRON_DATABASE_URL"
     
-    sqlx database create -D "$CYCLOTRON_DATABASE_URL" 2>/dev/null || true
+    sqlx database create -D "$CYCLOTRON_DATABASE_URL"
     
     sqlx migrate run -D "$CYCLOTRON_DATABASE_URL" --source /migrations/cyclotron-core/migrations/
     
