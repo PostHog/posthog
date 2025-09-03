@@ -15,7 +15,6 @@ from django.conf import settings
 from django.test import override_settings
 
 import aioboto3
-import pytest_asyncio
 import botocore.exceptions
 from flaky import flaky
 from temporalio import activity
@@ -148,7 +147,7 @@ async def delete_all_from_s3(minio_client, bucket_name: str, key_prefix: str):
                 await minio_client.delete_object(Bucket=bucket_name, Key=obj["Key"])
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def minio_client(bucket_name):
     """Manage an S3 client to interact with a MinIO bucket.
 
@@ -816,7 +815,7 @@ class TestInsertIntoS3ActivityFromStage:
         )
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def s3_batch_export(
     ateam,
     s3_key_prefix,
@@ -1251,7 +1250,7 @@ class TestS3BatchExportWorkflowWithMinioBucket:
         )
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def s3_client(bucket_name, s3_key_prefix):
     """Manage an S3 client to interact with an S3 bucket.
 
