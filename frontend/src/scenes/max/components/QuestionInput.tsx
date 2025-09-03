@@ -196,7 +196,12 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         </AIConsentPopoverWrapper>
                     </div>
                 </div>
-                <ToolsDisplay isFloating={isFloating} tools={tools} bottomActions={bottomActions} />
+                <ToolsDisplay
+                    isFloating={isFloating}
+                    tools={tools}
+                    bottomActions={bottomActions}
+                    deepResearchMode={deepResearchMode}
+                />
                 {showDeepResearchModeToggle && (
                     <div className="flex justify-end gap-1 w-full p-1">
                         <LemonSwitch
