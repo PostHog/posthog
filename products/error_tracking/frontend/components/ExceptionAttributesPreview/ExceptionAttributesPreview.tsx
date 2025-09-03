@@ -7,6 +7,8 @@ import { LemonTag, Spinner } from '@posthog/lemon-ui'
 import { ExceptionAttributes } from 'lib/components/Errors/types'
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 
+import { ReleasesPreview } from './ReleasesPreview'
+
 export interface ExceptionAttributesPreviewProps {
     attributes: ExceptionAttributes | null
     loading?: boolean
@@ -73,27 +75,5 @@ export function PropertyWrapper({
             {children}
             <span className="capitalize">{title}</span>
         </LemonTag>
-    )
-}
-
-function ReleasesPreview({ releases }: { releases?: { commitSha: string; url?: string }[] }): JSX.Element {
-    if (!releases || releases.length === 0) {
-        return <></>
-    }
-
-    if (releases.length === 1) {
-        const r = releases[0]
-        const short = r.commitSha.slice(0, 7)
-        return (
-            <PropertyWrapper title={short} visible>
-                <PropertyIcon property="$release_hash" value={short} className="text-sm text-secondary" />
-            </PropertyWrapper>
-        )
-    }
-
-    return (
-        <PropertyWrapper title={`${releases.length} related releases`} visible>
-            <PropertyIcon property="$release_hash" value={`${releases.length}`} className="text-sm text-secondary" />
-        </PropertyWrapper>
     )
 }
