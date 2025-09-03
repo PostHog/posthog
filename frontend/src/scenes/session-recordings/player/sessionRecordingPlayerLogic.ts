@@ -42,6 +42,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import {
     AvailableFeature,
+    ExporterFormat,
     RecordingSegment,
     SessionPlayerData,
     SessionPlayerState,
@@ -99,6 +100,7 @@ export enum SessionRecordingPlayerMode {
     Notebook = 'notebook',
     Preview = 'preview',
     Screenshot = 'screenshot',
+    Video = 'video',
 }
 const ModesThatCanBeMarkedViewed = [SessionRecordingPlayerMode.Standard, SessionRecordingPlayerMode.Notebook]
 
@@ -291,7 +293,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         exportRecordingToFile: true,
         deleteRecording: true,
         openExplorer: true,
-        takeScreenshot: true,
+        takeScreenshot: (format: ExporterFormat) => ({ format }),
         closeExplorer: true,
         openHeatmap: true,
         setExplorerProps: (props: SessionRecordingPlayerExplorerProps | null) => ({ props }),
@@ -313,7 +315,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         loadRecordingMeta: true,
         setSimilarRecordings: (results: string[]) => ({ results }),
         setIsCommenting: (isCommenting: boolean) => ({ isCommenting }),
+        setQuickEmojiIsOpen: (quickEmojiIsOpen: boolean) => ({ quickEmojiIsOpen }),
         updatePlayerTimeTracking: true,
+        exportRecordingToVideoFile: true,
         markViewed: (delay?: number) => ({ delay }),
         setWasMarkedViewed: (wasMarkedViewed: boolean) => ({ wasMarkedViewed }),
     }),
@@ -328,6 +332,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             false,
             {
                 setIsCommenting: (_, { isCommenting }) => isCommenting,
+            },
+        ],
+        quickEmojiIsOpen: [
+            false,
+            {
+                setQuickEmojiIsOpen: (_, { quickEmojiIsOpen }) => quickEmojiIsOpen,
             },
         ],
         maskingWindow: [
@@ -1404,7 +1414,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 height: parseFloat(iframe.height),
             })
         },
-        takeScreenshot: async () => {
+        takeScreenshot: async ({ format }) => {
             actions.setPause()
             const iframe = values.rootFrame?.querySelector('iframe')
             if (!iframe) {
@@ -1415,12 +1425,45 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // We need to subtract 1 second as the player starts immediately
             const timestamp = Math.max(0, getCurrentPlayerTime(values.logicProps) - 1)
 
-            actions.startReplayExport(values.sessionRecordingId, timestamp, {
-                width: iframe?.width ? Number(iframe.width) : 1400,
-                height: iframe?.height ? Number(iframe.height) : 600,
-                css_selector: '.replayer-wrapper',
-                filename: `replay-${values.sessionRecordingId}`,
-            })
+            actions.startReplayExport(
+                values.sessionRecordingId,
+                format,
+                timestamp,
+                5,
+                SessionRecordingPlayerMode.Screenshot,
+                {
+                    width: iframe?.width ? Number(iframe.width) : 1400,
+                    height: iframe?.height ? Number(iframe.height) : 600,
+                    css_selector: '.replayer-wrapper',
+                    filename: `replay-${values.sessionRecordingId}`,
+                }
+            )
+        },
+        exportRecordingToVideoFile: async () => {
+            actions.setPause()
+            const iframe = values.rootFrame?.querySelector('iframe')
+            if (!iframe) {
+                lemonToast.error('Cannot export recording to video. Please try again.')
+                return
+            }
+
+            const duration = values.sessionPlayerData?.durationMs
+                ? Math.floor(values.sessionPlayerData?.durationMs / 1000)
+                : 5
+
+            actions.startReplayExport(
+                values.sessionRecordingId,
+                ExporterFormat.MP4,
+                0,
+                duration,
+                SessionRecordingPlayerMode.Video,
+                {
+                    width: iframe?.width ? Number(iframe.width) : 1400,
+                    height: iframe?.height ? Number(iframe.height) : 600,
+                    css_selector: '.replayer-wrapper',
+                    filename: `replay-${values.sessionRecordingId}`,
+                }
+            )
         },
         openHeatmap: () => {
             actions.setPause()

@@ -80,7 +80,12 @@ function NewSurveyButton(): JSX.Element {
             context={{
                 user_id: user.uuid,
             }}
-            callback={(toolOutput: { survey_id?: string; survey_name?: string; error?: string }) => {
+            callback={(toolOutput: {
+                survey_id?: string
+                survey_name?: string
+                error?: string
+                error_message?: string
+            }) => {
                 addProductIntent({
                     product_type: ProductKey.SURVEYS,
                     intent_context: ProductIntentContext.SURVEY_CREATED,

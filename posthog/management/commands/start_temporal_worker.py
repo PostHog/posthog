@@ -44,6 +44,10 @@ from posthog.temporal.delete_persons import (
     ACTIVITIES as DELETE_PERSONS_ACTIVITIES,
     WORKFLOWS as DELETE_PERSONS_WORKFLOWS,
 )
+from posthog.temporal.exports_video import (
+    ACTIVITIES as VIDEO_EXPORT_ACTIVITIES,
+    WORKFLOWS as VIDEO_EXPORT_WORKFLOWS,
+)
 from posthog.temporal.product_analytics import (
     ACTIVITIES as PRODUCT_ANALYTICS_ACTIVITIES,
     WORKFLOWS as PRODUCT_ANALYTICS_WORKFLOWS,
@@ -89,11 +93,6 @@ from products.tasks.backend.temporal import (
 # TODO: Add billing workflows and activities once ready
 BILLING_WORKFLOWS: list = []
 BILLING_ACTIVITIES: list = []
-
-# TODO: Add video export workflows and activities once ready
-VIDEO_EXPORT_WORKFLOWS: list = []
-VIDEO_EXPORT_ACTIVITIES: list = []
-
 
 # Workflow and activity index
 WORKFLOWS_DICT = {

@@ -9,6 +9,7 @@ import { Experiment } from '~/types'
 import { ExperimentMetricForm } from '../ExperimentMetricForm'
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
+import { appendMetricToOrderingArray, removeMetricFromOrderingArray } from '../utils'
 
 export function ExperimentMetricModal({
     experimentId,
@@ -74,9 +75,17 @@ export function ExperimentMetricModal({
                                     children: 'Delete',
                                     type: 'primary',
                                     onClick: () => {
+                                        const newOrderingArray = removeMetricFromOrderingArray(
+                                            experiment,
+                                            metricUuid,
+                                            !!isSecondary
+                                        )
                                         const newMetrics = metrics.filter((m) => m.uuid !== metricUuid)
                                         setExperiment({
                                             [metricsField]: newMetrics,
+                                            [isSecondary
+                                                ? 'secondary_metrics_ordered_uuids'
+                                                : 'primary_metrics_ordered_uuids']: newOrderingArray,
                                         })
                                         updateExperimentMetrics()
                                         isSecondary ? closeSecondaryMetricModal() : closePrimaryMetricModal()
@@ -100,6 +109,15 @@ export function ExperimentMetricModal({
                         <LemonButton
                             form="edit-experiment-metric-form"
                             onClick={() => {
+                                const newOrderingArray = appendMetricToOrderingArray(
+                                    experiment,
+                                    metricUuid,
+                                    !!isSecondary
+                                )
+                                setExperiment({
+                                    [isSecondary ? 'secondary_metrics_ordered_uuids' : 'primary_metrics_ordered_uuids']:
+                                        newOrderingArray,
+                                })
                                 updateExperimentMetrics()
                                 isSecondary ? closeSecondaryMetricModal() : closePrimaryMetricModal()
                             }}

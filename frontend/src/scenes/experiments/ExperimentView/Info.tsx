@@ -6,13 +6,18 @@ import { IconGear, IconPencil, IconRefresh, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonModal, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { Label } from 'lib/ui/Label/Label'
+import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ExperimentStatsMethod, ProgressStatus } from '~/types'
 
 import { CONCLUSION_DISPLAY_CONFIG } from '../constants'
@@ -35,8 +40,8 @@ export const ExperimentLastRefresh = ({
     usePeriodicRerender(15000) // Re-render every 15 seconds for up-to-date last refresh time
 
     return (
-        <div className="block">
-            <div className="text-xs font-semibold uppercase tracking-wide">Last refreshed</div>
+        <div className="flex flex-col">
+            <Label intent="menu">Last refreshed</Label>
             <div className="inline-flex deprecated-space-x-2">
                 <span
                     className={`${
@@ -67,7 +72,6 @@ export const ExperimentLastRefresh = ({
 export function Info(): JSX.Element {
     const {
         experiment,
-        featureFlags,
         legacyPrimaryMetricsResults,
         legacySecondaryMetricsResults,
         primaryMetricsResults,
@@ -76,7 +80,7 @@ export function Info(): JSX.Element {
         secondaryMetricsResultsLoading,
         statsMethod,
         usesNewQueryRunner,
-        isExperimentDraft,
+        experimentLoading,
     } = useValues(experimentLogic)
     const { updateExperiment, refreshExperimentResults } = useActions(experimentLogic)
     const { openEditConclusionModal, openDescriptionModal, closeDescriptionModal, openStatsEngineModal } =
@@ -84,6 +88,7 @@ export function Info(): JSX.Element {
     const { isDescriptionModalOpen } = useValues(modalsLogic)
 
     const [tempDescription, setTempDescription] = useState(experiment.description || '')
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     useEffect(() => {
         setTempDescription(experiment.description || '')
@@ -106,68 +111,83 @@ export function Info(): JSX.Element {
     const status = getExperimentStatus(experiment)
 
     return (
-        <div>
+        <SceneContent>
+            <SceneTitleSection
+                name={experiment?.name}
+                description={null}
+                resourceType={{
+                    type: 'experiment',
+                    typePlural: 'experiments',
+                }}
+                isLoading={experimentLoading}
+                onNameChange={(name) => updateExperiment({ name })}
+                onDescriptionChange={(description) => updateExperiment({ description })}
+                canEdit
+                forceEdit
+                renameDebounceMs={1000}
+            />
+            <SceneDivider />
             <div className="flex flex-wrap justify-between gap-4">
                 <div className="inline-flex deprecated-space-x-8">
-                    <div className="block" data-attr="experiment-status">
-                        <div className="text-xs font-semibold uppercase tracking-wide">Status</div>
+                    <div className="flex flex-col" data-attr="experiment-status">
+                        <Label intent="menu">Status</Label>
                         <StatusTag status={status} />
                     </div>
                     {experiment.feature_flag && (
-                        <div className="block">
-                            <div className="text-xs font-semibold uppercase tracking-wide">
-                                <span>Feature flag</span>
-                            </div>
-                            {status === ProgressStatus.Running && !experiment.feature_flag.active && (
-                                <Tooltip
-                                    placement="bottom"
-                                    title="Your experiment is running, but the linked flag is disabled. No data is being collected."
+                        <div className="flex flex-col">
+                            <Label intent="menu">Feature flag</Label>
+                            <div className="flex gap-1 items-center">
+                                {status === ProgressStatus.Running && !experiment.feature_flag.active && (
+                                    <Tooltip
+                                        placement="bottom"
+                                        title="Your experiment is running, but the linked flag is disabled. No data is being collected."
+                                    >
+                                        <IconWarning
+                                            style={{ transform: 'translateY(2px)' }}
+                                            className="mr-1 text-danger"
+                                            fontSize="18px"
+                                        />
+                                    </Tooltip>
+                                )}
+                                <CopyToClipboardInline
+                                    iconStyle={{ color: 'var(--lemon-button-icon-opacity)' }}
+                                    className="font-normal text-sm"
+                                    description="feature flag key"
                                 >
-                                    <IconWarning
-                                        style={{ transform: 'translateY(2px)' }}
-                                        className="mr-1 text-danger"
-                                        fontSize="18px"
-                                    />
-                                </Tooltip>
-                            )}
-                            <CopyToClipboardInline
-                                iconStyle={{ color: 'var(--lemon-button-icon-opacity)' }}
-                                className="font-normal text-sm"
-                                description="feature flag key"
-                            >
-                                {experiment.feature_flag.key}
-                            </CopyToClipboardInline>
-                            <Link
-                                target="_blank"
-                                className="font-semibold"
-                                to={experiment.feature_flag ? urls.featureFlag(experiment.feature_flag.id) : undefined}
-                            >
-                                <IconOpenInNew fontSize="18" />
-                            </Link>
+                                    {experiment.feature_flag.key}
+                                </CopyToClipboardInline>
+                                <Link
+                                    target="_blank"
+                                    className="font-semibold"
+                                    to={
+                                        experiment.feature_flag
+                                            ? urls.featureFlag(experiment.feature_flag.id)
+                                            : undefined
+                                    }
+                                >
+                                    <IconOpenInNew fontSize="18" />
+                                </Link>
+                            </div>
                         </div>
                     )}
-                    <div className="block">
-                        <div className="text-xs font-semibold uppercase tracking-wide">
-                            <span>Stats Engine</span>
-                        </div>
+                    <div className="flex flex-col">
+                        <Label intent="menu">Stats Engine</Label>
                         <div className="inline-flex deprecated-space-x-2">
                             <span>{statsMethod === ExperimentStatsMethod.Bayesian ? 'Bayesian' : 'Frequentist'}</span>
-                            {usesNewQueryRunner &&
-                                (isExperimentDraft ||
-                                    featureFlags[FEATURE_FLAGS.EXPERIMENTS_DEV_STATS_METHOD_TOGGLE]) && (
-                                    <>
-                                        <LemonButton
-                                            type="secondary"
-                                            size="xsmall"
-                                            onClick={() => {
-                                                openStatsEngineModal()
-                                            }}
-                                            icon={<IconGear />}
-                                            tooltip="Change stats engine"
-                                        />
-                                        <StatsMethodModal />
-                                    </>
-                                )}
+                            {usesNewQueryRunner && (
+                                <>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="xsmall"
+                                        onClick={() => {
+                                            openStatsEngineModal()
+                                        }}
+                                        icon={<IconGear />}
+                                        tooltip="Change stats engine"
+                                    />
+                                    <StatsMethodModal />
+                                </>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -182,18 +202,18 @@ export function Info(): JSX.Element {
                             />
                         )}
                         <ExperimentDates />
-                        <div className="block">
-                            <div className="text-xs font-semibold uppercase tracking-wide">Created by</div>
+                        <div className="flex flex-col">
+                            <Label intent="menu">Created by</Label>
                             {created_by && <ProfilePicture user={created_by} size="md" showName />}
                         </div>
                     </div>
                 </div>
             </div>
-            <div className="block mt-4">
+            <div className={cn('block mt-4', newSceneLayout && 'mt-0')}>
                 <div className="flex gap-6">
                     <div className="w-[500px]">
                         <div className="flex items-center gap-2">
-                            <div className="text-xs font-semibold uppercase tracking-wide">Hypothesis</div>
+                            <Label intent="menu">Hypothesis</Label>
                             <LemonButton
                                 type="secondary"
                                 size="xsmall"
@@ -202,9 +222,11 @@ export function Info(): JSX.Element {
                             />
                         </div>
                         {experiment.description ? (
-                            <p className="py-2 m-0">{experiment.description}</p>
+                            <p className={cn('py-2 m-0', newSceneLayout && 'py-0')}>{experiment.description}</p>
                         ) : (
-                            <p className="py-2 m-0 text-muted">Add your hypothesis for this test</p>
+                            <p className={cn('py-2 m-0 text-secondary', newSceneLayout && 'py-0')}>
+                                Add your hypothesis for this test
+                            </p>
                         )}
 
                         <LemonModal
@@ -241,7 +263,7 @@ export function Info(): JSX.Element {
                     {experiment.conclusion && experiment.end_date && (
                         <div className="w-[500px]">
                             <div className="flex items-center gap-2">
-                                <div className="text-xs font-semibold uppercase tracking-wide">Conclusion</div>
+                                <Label intent="menu">Conclusion</Label>
                                 <LemonButton
                                     type="secondary"
                                     size="xsmall"
@@ -249,7 +271,7 @@ export function Info(): JSX.Element {
                                     onClick={openEditConclusionModal}
                                 />
                             </div>
-                            <div className="py-2">
+                            <div className={cn('py-2', newSceneLayout && 'py-0')}>
                                 <div className="font-semibold flex items-center gap-2">
                                     <div
                                         className={clsx(
@@ -268,6 +290,6 @@ export function Info(): JSX.Element {
                     )}
                 </div>
             </div>
-        </div>
+        </SceneContent>
     )
 }

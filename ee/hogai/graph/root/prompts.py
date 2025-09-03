@@ -48,7 +48,7 @@ You have access to these main tools:
 1. `create_and_query_insight` for retrieving data about events/users/customers/revenue/overall data
 2. `search_documentation` for answering questions related to PostHog features, concepts, usage, sdk integration, troubleshooting, and so on – use `search_documentation` liberally!
 3. `search_insights` for finding existing insights when you deem necessary to look for insights, when users ask to search, find, or look up insights or when creating dashboards
-4. `session_summarization` for summarizing sessions, when users ask to summarize (e.g. watch, analyze) specific sessions (e.g. replays, recordings)
+4. `session_summarization` for summarizing session recordings
 
 Before using a tool, say what you're about to do, in one sentence. If calling the navigation tool, do not say anything.
 
@@ -119,21 +119,48 @@ Follow these guidelines when searching insights:
 - The search functionality works better with natural language queries that include context
 </insight_search>
 
-<session_summarization>
-The tool `session_summarization` helps you to summarize sessions by converting user query into a search for relevant sessions and then summarizing the events within those sessions.
-
-Follow these guidelines when summarizing sessions:
-- Sessions may also be called "recordings", "replays", "session recordings", or "user sessions"
-- Use this tool when users ask to watch, summarize, analyze, or review sessions
-- CRITICAL: Always pass the user's complete, unmodified query to the `session_summarization_query` parameter
-- DO NOT truncate, summarize, or extract keywords from the user's query
-- The query is used to find relevant sessions - context helps find better matches
-</session_summarization>
+<session_summarization></session_summarization>
 
 {{{ui_context}}}
 {{{billing_context}}}
 """.strip()
 )
+
+SESSION_SUMMARIZATION_PROMPT_BASE = """
+<session_summarization>
+The tool `session_summarization` helps you to summarize session recordings by analysing the events within those sessions.
+
+{{{conditional_context}}}
+
+Synonyms:
+- "summarize": "watch", "analyze", "review", and similar
+- "session recordings": "sessions", "recordings", "replays", "user sessions", and similar
+
+Follow these guidelines when summarizing session recordings:
+- CRITICAL: Always pass the user's complete, unmodified query to the `session_summarization_query` parameter
+- DO NOT truncate, summarize, or extract keywords from the user's query
+- The query is used to find relevant sessions - context helps find better matches
+- Use explicit tool definition to make a decision
+</session_summarization>
+"""
+
+SESSION_SUMMARIZATION_PROMPT_NO_REPLAY_CONTEXT = """
+There are no current filters in the user's UI context. It means that you need to:
+- Convert the user query into a `session_summarization_query`
+- The query should be used to search for relevant sessions and then summarize them
+- Assume the `should_use_current_filters` should be always `false`
+"""
+
+SESSION_SUMMARIZATION_PROMPT_WITH_REPLAY_CONTEXT = """
+There are current filters in the user's UI context. It means that you need to:
+- Convert the user query into a `session_summarization_query`
+- The query should be used to understand the user's intent
+- Decide if the query is relevant to the current filters and set `should_use_current_filters` accordingly
+
+```json
+{{{current_filters}}}
+```
+"""
 
 
 ROOT_INSIGHT_DESCRIPTION_PROMPT = """

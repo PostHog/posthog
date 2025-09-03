@@ -15,7 +15,7 @@ use crate::{
         SAVE_SYMBOL_SET, SYMBOL_SET_DB_FETCHES, SYMBOL_SET_DB_HITS, SYMBOL_SET_DB_MISSES,
         SYMBOL_SET_FETCH_RETRY, SYMBOL_SET_SAVED,
     },
-    posthog_utils::capture_symbol_set_saved,
+    posthog_utils::{capture_symbol_set_deleted, capture_symbol_set_saved},
 };
 
 use super::{Fetcher, Parser, S3Client};
@@ -167,13 +167,19 @@ where
 
         if let Some(record) = SymbolSetRecord::load(&self.pool, team_id, &set_ref).await? {
             metrics::counter!(SYMBOL_SET_DB_HITS).increment(1);
-            if let Some(storage_ptr) = record.storage_ptr {
+            if let Some(storage_ptr) = &record.storage_ptr {
                 info!("Found s3 saved symbol set data for {}", set_ref);
-                let data = self.s3_client.get(&self.bucket, &storage_ptr).await?;
+                let Ok(data) = self.s3_client.get(&self.bucket, storage_ptr).await else {
+                    let mut record = record;
+                    record.delete(&self.pool).await?;
+                    // This is kind-of false - the actual problem is missing data in s3, with a record that exists, rather than no record being found for
+                    // a given chunk id - but it's close enough that it's fine for a temporary fix.
+                    return Err(FrameError::MissingChunkIdData(record.set_ref).into());
+                };
                 metrics::counter!(SAVED_SYMBOL_SET_LOADED).increment(1);
                 return Ok(Saveable {
                     data,
-                    storage_ptr: Some(storage_ptr),
+                    storage_ptr: Some(storage_ptr.clone()),
                     team_id,
                     set_ref,
                 });
@@ -340,6 +346,24 @@ impl SymbolSetRecord {
         .await.expect("Got at least one row back");
 
         metrics::counter!(SYMBOL_SET_SAVED).increment(1);
+
+        Ok(())
+    }
+
+    pub async fn delete<'c, E>(&mut self, e: E) -> Result<(), UnhandledError>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        let _ignored = sqlx::query!(
+            r#"
+            DELETE FROM posthog_errortrackingsymbolset WHERE id = $1
+            "#,
+            self.id
+        )
+        .execute(e)
+        .await; // We don't really care if this fails, since it's a robustness thing anyway
+
+        capture_symbol_set_deleted(self.team_id, &self.set_ref, self.storage_ptr.as_deref());
 
         Ok(())
     }

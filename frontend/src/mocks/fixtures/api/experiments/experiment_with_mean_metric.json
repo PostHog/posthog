@@ -100,6 +100,8 @@
         }
     ],
     "metrics_secondary": [],
+    "primary_metrics_ordered_uuids": ["abaabc95-af57-4f74-8b34-9a5e9dad5eba"],
+    "secondary_metrics_ordered_uuids": [],
     "conclusion": null,
     "conclusion_comment": null
 }

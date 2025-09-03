@@ -1,6 +1,8 @@
 import {
+    Edge,
     EdgeChange,
     MarkerType,
+    Node,
     NodeChange,
     Position,
     ReactFlowInstance,
@@ -8,14 +10,17 @@ import {
     applyNodeChanges,
     getOutgoers,
 } from '@xyflow/react'
-import { Edge, Node } from '@xyflow/react'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import type { DragEvent } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { AppMetricsTotalsRequest, loadAppMetricsTotals } from 'lib/components/AppMetrics/appMetricsLogic'
 import { uuid } from 'lib/utils'
+import { urls } from 'scenes/urls'
 
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import { CampaignLogicProps, campaignLogic } from '../campaignLogic'
@@ -29,7 +34,14 @@ import type { HogFlow, HogFlowAction, HogFlowActionNode } from './types'
 
 const getEdgeId = (edge: HogFlow['edges'][number]): string => `${edge.from}->${edge.to} ${edge.index ?? ''}`.trim()
 
-export type HogFlowEditorMode = 'build' | 'test'
+export const HOG_FLOW_EDITOR_MODES = ['build', 'test', 'metrics', 'logs'] as const
+export type HogFlowEditorMode = (typeof HOG_FLOW_EDITOR_MODES)[number]
+export type HogFlowEditorActionMetrics = {
+    actionId: string
+    succeeded: number
+    failed: number
+    filtered: number
+}
 
 export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     props({} as CampaignLogicProps),
@@ -68,6 +80,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         setNewDraggingNode: (newDraggingNode: HogFlowAction['type'] | null) => ({ newDraggingNode }),
         setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => ({ highlightedDropzoneNodeId }),
         setMode: (mode: HogFlowEditorMode) => ({ mode }),
+        loadActionMetricsById: (params: AppMetricsTotalsRequest, timezone: string) => ({ params, timezone }),
     }),
     reducers(() => ({
         mode: [
@@ -141,7 +154,53 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 return nodes.find((node) => node.id === selectedNodeId) ?? null
             },
         ],
+        selectedNodeCanBeDeleted: [
+            (s) => [s.selectedNode, s.nodes, s.edges],
+            (selectedNode, nodes, edges) => {
+                if (!selectedNode) {
+                    return false
+                }
+
+                const outgoingNodes = getOutgoers(selectedNode, nodes, edges)
+                if (outgoingNodes.length === 1) {
+                    return true
+                }
+
+                return new Set(outgoingNodes.map((node) => node.id)).size === 1
+            },
+        ],
     }),
+    loaders(() => ({
+        actionMetricsById: [
+            null as Record<string, HogFlowEditorActionMetrics> | null,
+            {
+                loadActionMetricsById: async ({ params, timezone }, breakpoint) => {
+                    await breakpoint(10)
+                    const response = await loadAppMetricsTotals(params, timezone)
+                    await breakpoint(10)
+
+                    const res: Record<string, HogFlowEditorActionMetrics> = {}
+                    Object.values(response).forEach((value) => {
+                        const [instanceId, metricName] = value.breakdowns
+                        if (!instanceId || !metricName) {
+                            return
+                        }
+                        res[instanceId] = res[instanceId] || {
+                            actionId: instanceId,
+                            succeeded: 0,
+                            failed: 0,
+                            filtered: 0,
+                        }
+                        if (metricName in res[instanceId]) {
+                            ;(res[instanceId] as any)[metricName] = value.total
+                        }
+                    })
+
+                    return res
+                },
+            },
+        ],
+    })),
     listeners(({ values, actions }) => ({
         onEdgesChange: ({ edges }) => {
             actions.setEdges(applyEdgeChanges(edges, values.edges))
@@ -407,4 +466,38 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             }
         },
     })),
+
+    actionToUrl(({ values }) => {
+        const syncProperty = (
+            key: string,
+            value: string | null
+        ): [string, Record<string, any>, Record<string, any>] => {
+            return [
+                router.values.location.pathname,
+                {
+                    ...router.values.searchParams,
+                    [key]: value,
+                },
+                router.values.hashParams,
+            ]
+        }
+
+        return {
+            setSelectedNodeId: () => syncProperty('node', values.selectedNodeId ?? null),
+            setMode: () => syncProperty('mode', values.mode),
+        }
+    }),
+    urlToAction(({ actions }) => {
+        const reactToTabChange = (_: any, search: Record<string, string>): void => {
+            const { node, mode } = search
+            actions.setSelectedNodeId(node ?? null)
+            if (mode && HOG_FLOW_EDITOR_MODES.includes(mode as HogFlowEditorMode)) {
+                actions.setMode(mode as HogFlowEditorMode)
+            }
+        }
+
+        return {
+            [urls.messagingCampaign(':id', ':tab')]: reactToTabChange,
+        }
+    }),
 ])
