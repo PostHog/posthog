@@ -36,7 +36,7 @@ from posthog.models.utils import UUIDT
 # https://github.com/ClickHouse/ClickHouse/issues/23194 - "Describe how identifiers in SELECT queries are resolved"
 
 # To quickly disable global joins, switch this to False
-USE_GLOBAL_JOINS = True
+USE_GLOBAL_JOINS = False
 
 
 def resolve_constant_data_type(constant: Any) -> ConstantType:

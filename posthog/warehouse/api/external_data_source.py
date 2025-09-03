@@ -563,8 +563,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "incremental_fields": schema.incremental_fields,
                 "incremental_available": schema.supports_incremental,
                 "append_available": schema.supports_append,
-                "incremental_field": schema.incremental_fields[0]["label"]
-                if len(schema.incremental_fields) > 0 and len(schema.incremental_fields[0]["label"]) > 0
+                "incremental_field": schema.incremental_fields[0]["field"]
+                if len(schema.incremental_fields) > 0 and len(schema.incremental_fields[0]["field"]) > 0
                 else None,
                 "sync_type": None,
                 "rows": schema.row_count,
