@@ -27,6 +27,10 @@ export const groupsModel = kea<groupsModelType>([
             [] as Array<GroupType>,
             {
                 loadAllGroupTypes: async () => {
+                    // Don't load group types when the current project is unavailable to prevent toast errors
+                    if (!values.currentProjectId) {
+                        return []
+                    }
                     return await api.get(`api/projects/${values.currentProjectId}/groups_types`)
                 },
                 updateGroupTypesMetadata: async (payload: Array<GroupType>) => {

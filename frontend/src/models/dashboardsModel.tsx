@@ -95,6 +95,11 @@ export const dashboardsModel = kea<dashboardsModelType>([
                         return { count: 0, next: null, previous: null, results: [] }
                     }
 
+                    if (!teamLogic.values.currentTeam) {
+                        // Don't load dashboards when the current team is unavailable to prevent toast errors.
+                        return { count: 0, next: null, previous: null, results: [] }
+                    }
+
                     let apiUrl =
                         url ||
                         `api/environments/${teamLogic.values.currentTeamId}/dashboards/?limit=2000&exclude_generated=true`
