@@ -5,7 +5,7 @@ import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { IconFullScreen, IconRecordingClip } from 'lib/lemon-ui/icons'
+import { IconFullScreen } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PlayerUpNext } from 'scenes/session-recordings/player/PlayerUpNext'
 import { CommentOnRecordingButton } from 'scenes/session-recordings/player/commenting/CommentOnRecordingButton'
@@ -15,9 +15,10 @@ import {
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
-import { ExporterFormat, SessionPlayerState } from '~/types'
+import { SessionPlayerState } from '~/types'
 
 import { playerSettingsLogic } from '../playerSettingsLogic'
+import { ClipRecording } from './ClipRecording'
 import { SeekSkip, Timestamp } from './PlayerControllerTime'
 import { Seekbar } from './Seekbar'
 
@@ -98,37 +99,13 @@ function CinemaMode(): JSX.Element {
     )
 }
 
-function Clip(): JSX.Element {
-    const { takeScreenshot } = useActions(sessionRecordingPlayerLogic)
-
-    return (
-        <LemonButton
-            size="xsmall"
-            onClick={() => takeScreenshot(ExporterFormat.GIF)}
-            tooltip={
-                <div className="flex items-center gap-2">
-                    <span>
-                        Get a GIF from now -2.5s to now +2.5s <KeyboardShortcut x />
-                    </span>
-                    <LemonTag type="warning" size="small">
-                        BETA
-                    </LemonTag>
-                </div>
-            }
-            icon={<IconRecordingClip className="text-xl" />}
-            data-attr="replay-screenshot-gif"
-            tooltipPlacement="top"
-        />
-    )
-}
-
 function Screenshot(): JSX.Element {
     const { takeScreenshot } = useActions(sessionRecordingPlayerLogic)
 
     return (
         <LemonButton
             size="xsmall"
-            onClick={() => takeScreenshot(ExporterFormat.PNG)}
+            onClick={takeScreenshot}
             tooltip={
                 <>
                     Take a screenshot of this point in the recording <KeyboardShortcut s />
@@ -168,7 +145,7 @@ export function PlayerController(): JSX.Element {
                         <>
                             <CommentOnRecordingButton />
                             <Screenshot />
-                            {featureFlags[FEATURE_FLAGS.REPLAY_EXPORT_SHORT_VIDEO] && <Clip />}
+                            {featureFlags[FEATURE_FLAGS.REPLAY_EXPORT_SHORT_VIDEO] && <ClipRecording />}
                             {playlistLogic ? <PlayerUpNext playlistLogic={playlistLogic} /> : undefined}
                         </>
                     )}

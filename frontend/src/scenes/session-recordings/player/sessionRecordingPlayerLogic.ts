@@ -293,7 +293,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         exportRecordingToFile: true,
         deleteRecording: true,
         openExplorer: true,
-        takeScreenshot: (format: ExporterFormat) => ({ format }),
+        takeScreenshot: true,
+        getClip: (format: ExporterFormat, duration: number = 5) => ({ format, duration }),
         closeExplorer: true,
         openHeatmap: true,
         setExplorerProps: (props: SessionRecordingPlayerExplorerProps | null) => ({ props }),
@@ -320,8 +321,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         exportRecordingToVideoFile: true,
         markViewed: (delay?: number) => ({ delay }),
         setWasMarkedViewed: (wasMarkedViewed: boolean) => ({ wasMarkedViewed }),
+        setShowingClipParams: (showingClipParams: boolean) => ({ showingClipParams }),
     }),
     reducers(({ props }) => ({
+        showingClipParams: [
+            false as boolean,
+            {
+                setShowingClipParams: (_, { showingClipParams }) => showingClipParams,
+            },
+        ],
         wasMarkedViewed: [
             false as boolean,
             {
@@ -1414,7 +1422,32 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 height: parseFloat(iframe.height),
             })
         },
-        takeScreenshot: async ({ format }) => {
+        takeScreenshot: async () => {
+            actions.setPause()
+            const iframe = values.rootFrame?.querySelector('iframe')
+            if (!iframe) {
+                lemonToast.error('Cannot take screenshot. Please try again.')
+                return
+            }
+
+            // We need to subtract 1 second as the player starts immediately
+            const timestamp = Math.max(0, getCurrentPlayerTime(values.logicProps) - 1)
+
+            actions.startReplayExport(
+                values.sessionRecordingId,
+                ExporterFormat.PNG,
+                timestamp,
+                5,
+                SessionRecordingPlayerMode.Screenshot,
+                {
+                    width: iframe?.width ? Number(iframe.width) : 1400,
+                    height: iframe?.height ? Number(iframe.height) : 600,
+                    css_selector: '.replayer-wrapper',
+                    filename: `replay-${values.sessionRecordingId}`,
+                }
+            )
+        },
+        getClip: async ({ format, duration = 5 }) => {
             actions.setPause()
             const iframe = values.rootFrame?.querySelector('iframe')
             if (!iframe) {
@@ -1429,7 +1462,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 values.sessionRecordingId,
                 format,
                 timestamp,
-                5,
+                duration,
                 SessionRecordingPlayerMode.Screenshot,
                 {
                     width: iframe?.width ? Number(iframe.width) : 1400,
